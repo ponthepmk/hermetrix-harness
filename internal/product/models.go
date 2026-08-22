@@ -43,10 +43,10 @@ type WriteFileInput struct {
 }
 
 type WriteFileResult struct {
-	Document       FileDocument `json:"document"`
-	BeforeSHA256   string       `json:"before_sha256,omitempty"`
-	Diff           string       `json:"diff"`
-	ReceiptArtifact Artifact    `json:"receipt_artifact"`
+	Document        FileDocument `json:"document"`
+	BeforeSHA256    string       `json:"before_sha256,omitempty"`
+	Diff            string       `json:"diff"`
+	ReceiptArtifact Artifact     `json:"receipt_artifact"`
 }
 
 type Artifact struct {

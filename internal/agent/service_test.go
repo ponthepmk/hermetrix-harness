@@ -675,3 +675,175 @@ func testAgentServiceAtRoot(t *testing.T, server *httptest.Server, workspaceRoot
 	service := NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).WithLearning(learningService)
 	return service, profile, func() { dataStore.Close(); server.Close() }
 }
+
+// --- V-3: TaskBudget and loop detector ---
+//
+// Every dimension of TaskBudget is enforced in RunTurn but none of them had a
+// test, so a refactor could have removed any of these guards silently.
+
+func setSessionBudget(t *testing.T, service *Service, sessionID string, budget TaskBudget) {
+	t.Helper()
+	ctx := context.Background()
+	session, err := service.GetSession(ctx, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.Contract.TaskBudget = budget
+	session.Contract.Revision = sessionContractRevision(session.Contract)
+	encoded, err := json.Marshal(session.Contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.store.DB.ExecContext(ctx, `UPDATE agent_sessions SET contract_json=?,contract_revision=? WHERE id=?`,
+		string(encoded), session.Contract.Revision, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		t.Fatalf("budget was not applied to session %s", sessionID)
+	}
+}
+
+// toolCallStream emits one tool call whose arguments carry the given nonce, so
+// callers choose whether successive steps look identical to the loop detector.
+func toolCallStream(callID, nonce string) string {
+	return fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":%q,\"type\":\"function\","+
+		"\"function\":{\"name\":\"workspace.list_files\",\"arguments\":\"{\\\"path\\\":\\\"%s\\\"}\"}}]},"+
+		"\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n", callID, nonce)
+}
+
+func budgetTestSession(t *testing.T, handler http.HandlerFunc, budget TaskBudget) (*Service, string, func()) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	service, provider, cleanup := testAgentService(t, server)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		cleanup()
+		t.Fatal(err)
+	}
+	setSessionBudget(t, service, session.ID, budget)
+	return service, session.ID, cleanup
+}
+
+func assertLeaseReleased(t *testing.T, service *Service, sessionID string) {
+	t.Helper()
+	detail, err := service.GetSessionDetail(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Session.State != "active" || detail.Session.ActiveTurnID != "" {
+		t.Fatalf("budget stop leaked the lease: state=%s active=%q", detail.Session.State, detail.Session.ActiveTurnID)
+	}
+}
+
+func TestModelStepBudgetStopsTheTurn(t *testing.T) {
+	step := 0
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		step++
+		w.Header().Set("Content-Type", "text/event-stream")
+		// A distinct nonce per step keeps the loop detector out of the way so
+		// the step budget is the only thing that can stop this turn.
+		fmt.Fprint(w, toolCallStream(fmt.Sprintf("call-%d", step), fmt.Sprintf("dir-%d", step)))
+	}, TaskBudget{MaxModelSteps: 2, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "loop forever"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "2 model-step budget") {
+		t.Fatalf("model-step budget did not stop the turn: %v", err)
+	}
+	assertLeaseReleased(t, service, sessionID)
+}
+
+func TestToolCallBudgetStopsTheTurn(t *testing.T) {
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":["+
+			"{\"index\":0,\"id\":\"call-a\",\"type\":\"function\",\"function\":{\"name\":\"workspace.list_files\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}},"+
+			"{\"index\":1,\"id\":\"call-b\",\"type\":\"function\",\"function\":{\"name\":\"workspace.list_files\",\"arguments\":\"{\\\"path\\\":\\\"b\\\"}\"}}"+
+			"]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 1, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "call two tools at once"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "1 tool-call budget") {
+		t.Fatalf("tool-call budget did not stop the turn: %v", err)
+	}
+	assertLeaseReleased(t, service, sessionID)
+}
+
+func TestCumulativeTokenBudgetStopsTheTurn(t *testing.T) {
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"+
+			"\"usage\":{\"prompt_tokens\":90,\"completion_tokens\":10,\"total_tokens\":100}}\n\ndata: [DONE]\n\n")
+	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 40})
+	defer cleanup()
+	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "spend tokens"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "40 cumulative-token budget") {
+		t.Fatalf("cumulative-token budget did not stop the turn: %v", err)
+	}
+	assertLeaseReleased(t, service, sessionID)
+}
+
+// The wall-time case matters more than the others: a deadline that fires
+// without releasing the lease would strand the session in running forever.
+func TestWallTimeBudgetStopsTheTurnAndReleasesTheLease(t *testing.T) {
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(10 * time.Second):
+		}
+	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 50, MaxWallTimeSeconds: 1, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	started := time.Now()
+	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "hang"}, nil)
+	if err == nil {
+		t.Fatal("wall-time budget did not stop the turn")
+	}
+	if elapsed := time.Since(started); elapsed > 8*time.Second {
+		t.Fatalf("turn ran %s, so the wall-time budget was not applied", elapsed)
+	}
+	assertLeaseReleased(t, service, sessionID)
+}
+
+func TestLoopDetectorStopsTheThirdIdenticalCall(t *testing.T) {
+	requests := 0
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Same name and same arguments every step. Only the call ID changes,
+		// which the signature deliberately ignores.
+		fmt.Fprint(w, toolCallStream(fmt.Sprintf("call-%d", requests), "same"))
+	}, TaskBudget{MaxModelSteps: 20, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "repeat yourself"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "third identical call") {
+		t.Fatalf("loop detector did not stop the repeat: %v", err)
+	}
+	if requests > 3 {
+		t.Fatalf("loop detector allowed %d model steps before stopping", requests)
+	}
+	assertLeaseReleased(t, service, sessionID)
+}
+
+// Distinct arguments must not be collapsed into one signature, otherwise the
+// loop detector would stop legitimate iteration over different inputs.
+func TestLoopDetectorIgnoresCallsWithDifferentArguments(t *testing.T) {
+	step := 0
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		step++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if step > 4 {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, toolCallStream(fmt.Sprintf("call-%d", step), fmt.Sprintf("dir-%d", step)))
+	}, TaskBudget{MaxModelSteps: 20, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "iterate over four paths"}, nil)
+	if err != nil {
+		t.Fatalf("loop detector stopped calls that were not identical: %v", err)
+	}
+	if result.AssistantEvent.Content != "done" || step != 5 {
+		t.Fatalf("unexpected completion content=%q steps=%d", result.AssistantEvent.Content, step)
+	}
+}
