@@ -1007,3 +1007,277 @@ func TestCompactProfileOpensAsCompatibilityWithoutQualification(t *testing.T) {
 		t.Fatalf("compact-32k was not marked as a compatibility envelope: %+v", session.Contract.Qualification)
 	}
 }
+
+// --- V-2 / O-4: learning trigger outbox ---
+//
+// The runtime producer writes triggers into learning_trigger_outbox inside the
+// same transaction as the turn commit, then drains them into review jobs. The
+// whole path had no test, so nothing would have gone red if the producer were
+// disconnected again -- which is the exact regression the audit found before.
+
+func outboxRows(t *testing.T, service *Service, sessionID string) []struct{ Kind, State string } {
+	t.Helper()
+	rows, err := service.store.DB.QueryContext(context.Background(),
+		`SELECT trigger_kind,state FROM learning_trigger_outbox WHERE session_id=? ORDER BY created_at`, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var items []struct{ Kind, State string }
+	for rows.Next() {
+		var item struct{ Kind, State string }
+		if err := rows.Scan(&item.Kind, &item.State); err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return items
+}
+
+func TestSuccessfulTurnStagesAndDrainsALearningTrigger(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "จำไว้ว่าขั้นตอนนี้ต้องทำแบบนี้"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	staged := outboxRows(t, service, session.ID)
+	if len(staged) != 1 || staged[0].Kind != "explicit_learn" {
+		t.Fatalf("turn did not stage an explicit-learn trigger: %+v", staged)
+	}
+	// RunTurn drains after the commit, so the record must already be processed.
+	if staged[0].State != "processed" {
+		t.Fatalf("trigger was staged but never drained: %+v", staged)
+	}
+	jobs, err := service.learning.List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].SessionID != session.ID || jobs[0].TriggerKind != "explicit_learn" {
+		t.Fatalf("drain did not create exactly one review job: %+v", jobs)
+	}
+}
+
+func TestTurnWithoutEvidenceStagesNoLearningTrigger(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No tool receipt, no Skill activation, no correction, no explicit request:
+	// a plain answer is not evidence that anything was learned.
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "สวัสดี"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if staged := outboxRows(t, service, session.ID); len(staged) != 0 {
+		t.Fatalf("a turn with no evidence staged a trigger: %+v", staged)
+	}
+	jobs, err := service.learning.List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 0 {
+		t.Fatalf("a turn with no evidence created review jobs: %+v", jobs)
+	}
+}
+
+// Draining is safe to call after every turn, so it must never turn one staged
+// trigger into two review jobs.
+func TestDrainingTheOutboxTwiceCreatesOneReviewJob(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "learn this procedure"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for round := 0; round < 3; round++ {
+		processed, err := service.learning.DrainPending(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if processed != 0 {
+			t.Fatalf("round %d re-processed %d already-drained triggers", round, processed)
+		}
+	}
+	jobs, err := service.learning.List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("repeated drains produced %d review jobs", len(jobs))
+	}
+}
+
+// A failed turn still commits a turn_failed event, so a trigger staged from it
+// cites a real event range. What must not happen is a trigger with no evidence
+// behind it, or one that hides the failure from the reviewer.
+func TestFailedTurnStagesOnlyEvidenceBackedTriggers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	plain, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, plain.ID, TurnInput{Content: "สรุปให้หน่อย"}, nil); err == nil {
+		t.Fatal("provider error did not fail the turn")
+	}
+	if staged := outboxRows(t, service, plain.ID); len(staged) != 0 {
+		t.Fatalf("a failed turn with no evidence staged a trigger: %+v", staged)
+	}
+	assertLeaseReleased(t, service, plain.ID)
+
+	// An explicit request is evidence, so it does stage -- but the digest must
+	// carry outcome=failure so the reviewer never reads it as a success.
+	asked, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, asked.ID, TurnInput{Content: "จำไว้ว่าต้องทำแบบนี้"}, nil); err == nil {
+		t.Fatal("provider error did not fail the turn")
+	}
+	staged := outboxRows(t, service, asked.ID)
+	if len(staged) != 1 || staged[0].Kind != "explicit_learn" {
+		t.Fatalf("explicit request on a failed turn did not stage: %+v", staged)
+	}
+	var digestJSON string
+	if err := service.store.DB.QueryRowContext(ctx,
+		`SELECT digest_json FROM learning_trigger_outbox WHERE session_id=?`, asked.ID).Scan(&digestJSON); err != nil {
+		t.Fatal(err)
+	}
+	var digest learning.Digest
+	if err := json.Unmarshal([]byte(digestJSON), &digest); err != nil {
+		t.Fatal(err)
+	}
+	if digest.Outcome != "failure" {
+		t.Fatalf("digest from a failed turn reports outcome %q", digest.Outcome)
+	}
+	assertLeaseReleased(t, service, asked.ID)
+}
+
+// Staging is guarded by a uniqueness key on (session, milestone, trigger). The
+// turn path cannot reach it twice because a milestone is turn-scoped, so the
+// guard is asserted directly rather than through RunTurn.
+func TestStagingTheSameTriggerTwiceIsIgnored(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := learning.EnqueueInput{SessionID: session.ID, TurnID: "turn-fixed", MilestoneID: "turn-fixed",
+		TriggerKind: "explicit_learn", Digest: learning.Digest{GoalAndConstraints: "จำไว้", Outcome: "success"}}
+	tx, err := service.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.learning.StageTrigger(ctx, tx, input)
+	if err != nil || !first {
+		t.Fatalf("first stage did not write: staged=%v err=%v", first, err)
+	}
+	second, err := service.learning.StageTrigger(ctx, tx, input)
+	if err != nil {
+		t.Fatalf("second stage errored instead of being ignored: %v", err)
+	}
+	if second {
+		t.Fatal("the same milestone was staged twice")
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if staged := outboxRows(t, service, session.ID); len(staged) != 1 {
+		t.Fatalf("duplicate staging produced %d rows", len(staged))
+	}
+}
+
+// RunTurn drains after every turn, so two turns finishing at once means two
+// concurrent drains over the same pending rows. Only one may claim a record.
+func TestConcurrentDrainsClaimEachTriggerOnce(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stage directly so the rows are still pending when the drains start.
+	tx, err := service.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const staged = 4
+	for index := 0; index < staged; index++ {
+		milestone := fmt.Sprintf("turn-%d", index)
+		if _, err := service.learning.StageTrigger(ctx, tx, learning.EnqueueInput{SessionID: session.ID,
+			TurnID: milestone, MilestoneID: milestone, TriggerKind: "explicit_learn",
+			Digest: learning.Digest{GoalAndConstraints: "จำไว้", Outcome: "success"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	const drainers = 4
+	start := make(chan struct{})
+	counts := make(chan int, drainers)
+	var wg sync.WaitGroup
+	for drainer := 0; drainer < drainers; drainer++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			processed, drainErr := service.learning.DrainPending(ctx, 10)
+			if drainErr != nil {
+				t.Errorf("drain failed: %v", drainErr)
+			}
+			counts <- processed
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(counts)
+	total := 0
+	for count := range counts {
+		total += count
+	}
+	if total != staged {
+		t.Fatalf("concurrent drains processed %d records for %d staged triggers", total, staged)
+	}
+	jobs, err := service.learning.List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != staged {
+		t.Fatalf("concurrent drains created %d review jobs for %d staged triggers", len(jobs), staged)
+	}
+	for _, row := range outboxRows(t, service, session.ID) {
+		if row.State != "processed" {
+			t.Fatalf("a trigger was left in state %q after draining", row.State)
+		}
+	}
+}
