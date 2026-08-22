@@ -156,10 +156,19 @@ func (r *Registry) ProviderDefinitions() []providers.ToolDefinition {
 
 func (r *Registry) ContextSpecs() []ctxcompiler.ToolSpec {
 	items := make([]ctxcompiler.ToolSpec, 0, len(r.definitions))
-	for _, definition := range r.Definitions() {
+	provider := r.ProviderDefinitions()
+	for index, definition := range r.Definitions() {
 		schema, _ := json.Marshal(definition.Parameters)
-		items = append(items, ctxcompiler.ToolSpec{Name: definition.Name, Schema: string(schema), Revision: definition.Revision,
-			Source: "core", Effects: []string{definition.Effect}})
+		spec := ctxcompiler.ToolSpec{Name: definition.Name, Schema: string(schema), Revision: definition.Revision,
+			Source: "core", Effects: []string{definition.Effect}}
+		// Count the bytes the provider actually receives. ProviderDefinitions
+		// and Definitions are both sorted by name, so the index lines up.
+		if index < len(provider) {
+			if serialized, err := json.Marshal(provider[index]); err == nil {
+				spec.Serialized = string(serialized)
+			}
+		}
+		items = append(items, spec)
 	}
 	return items
 }
