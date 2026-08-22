@@ -2,7 +2,11 @@ package curator
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -242,5 +246,116 @@ func TestMaintenanceScheduleHonorsIdleAndPowerPolicy(t *testing.T) {
 	updated, err := service.GetSchedule(ctx, schedule.ID)
 	if err != nil || updated.LastRunAt == nil || !updated.NextRunAt.After(time.Now().UTC()) {
 		t.Fatalf("updated=%+v err=%v", updated, err)
+	}
+}
+
+// TestGCRestoresMovedBlobsWhenQuarantineFailsMidway drives the compensating
+// rollback for real. The existing quarantine test reaches partial_quarantine by
+// writing the state directly, so it never executed this path: a failure after
+// some blobs have already moved must put every one of them back.
+func TestGCRestoresMovedBlobsWhenQuarantineFailsMidway(t *testing.T) {
+	service, _, dataStore := setupCurator(t)
+	ctx := context.Background()
+	refs := []string{}
+	for index := 0; index < 4; index++ {
+		ref, err := dataStore.Blobs.Put([]byte(fmt.Sprintf("unreferenced-object-%d", index)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, ref)
+	}
+	planned, err := service.DryRunGC(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.UnreachableCount != len(refs) {
+		t.Fatalf("dry run found %d unreachable objects, want %d", planned.UnreachableCount, len(refs))
+	}
+
+	// Block the last candidate by occupying its quarantine destination with a
+	// directory, so renaming a file onto it cannot succeed. Everything before
+	// it moves first, which is what makes the rollback observable.
+	blocked := planned.Candidates[len(planned.Candidates)-1].Ref
+	quarantineRoot := filepath.Join(dataStore.Root, "blobs", "quarantine", planned.ID)
+	if err := os.MkdirAll(filepath.Join(quarantineRoot, blocked[:2], blocked[2:]), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.ApplyGC(ctx, planned.ID, "user"); err == nil {
+		t.Fatal("ApplyGC succeeded even though a blob could not be quarantined")
+	}
+	for _, ref := range refs {
+		if !dataStore.Blobs.Exists(ref) {
+			t.Fatalf("blob %s was not restored after the failed apply", ref[:8])
+		}
+	}
+	after, err := service.GetGCRun(ctx, planned.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.State != "planned" {
+		t.Fatalf("a fully rolled-back apply left the run in state %q, want planned", after.State)
+	}
+}
+
+// Two applies of the same dry run must not both quarantine, and the CAS must
+// survive the race intact. Note what this does NOT reach: the loser is turned
+// away by the earlier state and stale-snapshot checks, so the rows-affected
+// guard on the final UPDATE stays defence-in-depth with no test behind it.
+// Removing that guard does not turn this test red.
+func TestConcurrentGCAppliesQuarantineOnlyOnce(t *testing.T) {
+	service, _, dataStore := setupCurator(t)
+	ctx := context.Background()
+	refs := []string{}
+	for index := 0; index < 3; index++ {
+		ref, err := dataStore.Blobs.Put([]byte(fmt.Sprintf("concurrent-orphan-%d", index)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, ref)
+	}
+	planned, err := service.DryRunGC(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for applier := 0; applier < 2; applier++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, applyErr := service.ApplyGC(ctx, planned.ID, "user")
+			results <- applyErr
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for applyErr := range results {
+		if applyErr == nil {
+			succeeded++
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("%d of 2 concurrent applies succeeded, want exactly 1", succeeded)
+	}
+	final, err := service.GetGCRun(ctx, planned.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.State != "quarantined" {
+		t.Fatalf("concurrent applies left the run in state %q", final.State)
+	}
+	restored, err := service.RestoreGC(ctx, planned.ID, "user")
+	if err != nil || restored.State != "restored" {
+		t.Fatalf("restore after concurrent apply failed: state=%+v err=%v", restored, err)
+	}
+	for _, ref := range refs {
+		if !dataStore.Blobs.Exists(ref) {
+			t.Fatalf("blob %s was lost across a concurrent apply and restore", ref[:8])
+		}
 	}
 }
