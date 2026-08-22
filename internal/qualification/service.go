@@ -169,7 +169,6 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 	if recallTarget < 4096 {
 		recallTarget = 4096
 	}
-	sentinel := "HERMETRIX_SENTINEL_7F3A"
 	probeTokens := recallTarget * 65 / 100
 	unit := "neutral calibration context "
 	unitTokens := s.estimator.Count(unit)
@@ -177,17 +176,53 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 	if repeats < 1 {
 		repeats = 1
 	}
-	longPrompt := sentinel + "\n" + strings.Repeat(unit, repeats) +
-		"\n[QUALIFY:RECALL] Return only the sentinel placed at the beginning."
+	// One sentinel at the head proves only that the head survived. Certifying a
+	// tier means the model can still reach into the middle of that envelope, so
+	// the probe plants markers across it and requires every one back.
+	placements := []struct {
+		label    string
+		fraction string
+		at       int
+	}{
+		{"head", "0%", 0},
+		{"quarter", "25%", repeats * 1 / 4},
+		{"middle", "50%", repeats * 2 / 4},
+		{"three_quarter", "75%", repeats * 3 / 4},
+		{"tail", "100%", repeats},
+	}
+	var prompt strings.Builder
+	written := 0
+	for _, placement := range placements {
+		for written < placement.at {
+			prompt.WriteString(unit)
+			written++
+		}
+		prompt.WriteString(recallSentinel(placement.label))
+		prompt.WriteString("\n")
+	}
+	prompt.WriteString("\n[QUALIFY:RECALL] Return every HERMETRIX_SENTINEL_ token above, one per line, and nothing else.")
 	recallStarted := time.Now()
-	recall, recallErr := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: []providers.Message{{Role: "user", Content: longPrompt}},
-		Temperature: &temperature, MaxTokens: 64}, nil)
-	run.Results.LongContextRecall = recallErr == nil && strings.Contains(recall.Content, sentinel)
+	recall, recallErr := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: []providers.Message{{Role: "user", Content: prompt.String()}},
+		Temperature: &temperature, MaxTokens: 256}, nil)
+	recovered := 0
+	run.Results.RecallPositions = run.Results.RecallPositions[:0]
+	for _, placement := range placements {
+		found := recallErr == nil && strings.Contains(recall.Content, recallSentinel(placement.label))
+		if found {
+			recovered++
+		}
+		run.Results.RecallPositions = append(run.Results.RecallPositions,
+			RecallPosition{Label: placement.label, Fraction: placement.fraction, Recovered: found})
+	}
+	run.Results.LongContextRecall = recallErr == nil && recovered == len(placements)
 	run.Results.RecallProbedTokens = probeTokens
 	run.Results.Checks = append(run.Results.Checks, Check{Name: "long_context_recall", State: state(run.Results.LongContextRecall),
 		LatencyMS: time.Since(recallStarted).Milliseconds(), Evidence: map[string]any{"allocated_context": recallTarget, "probe_tokens": probeTokens,
-			"reported_prompt_tokens": recall.Usage.PromptTokens}, Remediation: remediation(!run.Results.LongContextRecall,
-			"Increase runtime allocation or reduce the selected context tier; the sentinel was not recovered.")})
+			"reported_prompt_tokens": recall.Usage.PromptTokens, "positions_recovered": recovered,
+			"positions_probed": len(placements), "positions": run.Results.RecallPositions},
+		Remediation: remediation(!run.Results.LongContextRecall,
+			fmt.Sprintf("Recovered %d of %d position sentinels. Increase runtime allocation or reduce the selected context tier.",
+				recovered, len(placements)))})
 
 	toolSchema := map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"},
 		"mode": map[string]any{"type": "string", "enum": []string{"safe"}}}, "required": []string{"text", "mode"}, "additionalProperties": false}
@@ -447,3 +482,10 @@ func scanRun(row runScanner) (Run, error) {
 
 func formatTime(value time.Time) string         { return value.UTC().Format(time.RFC3339Nano) }
 func parseTime(value string) (time.Time, error) { return time.Parse(time.RFC3339Nano, value) }
+
+// recallSentinel returns the marker planted at one position in the recall
+// probe. Distinct per position so a model that echoes only the head cannot
+// pass the whole check.
+func recallSentinel(label string) string {
+	return "HERMETRIX_SENTINEL_7F3A_" + strings.ToUpper(label)
+}

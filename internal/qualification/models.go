@@ -38,6 +38,16 @@ type Results struct {
 	TokensPerSecond          float64 `json:"tokens_per_second"`
 	UsageRatio               float64 `json:"usage_ratio"`
 	RecallProbedTokens       int     `json:"recall_probed_tokens"`
+	// RecallPositions records one entry per sentinel placed through the probe
+	// prompt. A single sentinel at the head is the easiest possible retrieval
+	// and is not evidence that a tier holds its middle.
+	RecallPositions []RecallPosition `json:"recall_positions,omitempty"`
+}
+
+type RecallPosition struct {
+	Label     string `json:"label"`
+	Fraction  string `json:"fraction"`
+	Recovered bool   `json:"recovered"`
 }
 
 type Run struct {
