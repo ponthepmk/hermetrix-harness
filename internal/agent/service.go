@@ -1240,66 +1240,6 @@ func contextSpecsFor(bindings []toolruntime.Definition) []ctxcompiler.ToolSpec {
 	return items
 }
 
-func (s *Service) selectSkills(ctx context.Context, goal string) ([]selectedSkill, error) {
-	if s.skills == nil || strings.TrimSpace(goal) == "" {
-		return nil, nil
-	}
-	items, err := s.skills.ListSkills(ctx, false)
-	if err != nil {
-		return nil, err
-	}
-	type scored struct {
-		skill  skills.Skill
-		score  int
-		reason string
-	}
-	query := strings.ToLower(goal)
-	queryTerms := termSet(query)
-	var candidates []scored
-	for _, item := range items {
-		if !item.Enabled || item.State != skills.StateActive || item.CurrentVersionID == "" {
-			continue
-		}
-		score := 0
-		reason := ""
-		if item.Pinned {
-			score += 100
-			reason = "pinned active skill"
-		}
-		name := strings.ToLower(strings.ReplaceAll(item.CanonicalName, "-", " "))
-		if strings.Contains(query, name) || strings.Contains(name, query) {
-			score += 40
-			reason = "canonical name matched the current goal"
-		}
-		for term := range termSet(name + " " + strings.ToLower(item.Summary)) {
-			if queryTerms[term] {
-				score += 4
-			}
-		}
-		if score > 0 {
-			if reason == "" {
-				reason = "metadata terms matched the current goal"
-			}
-			candidates = append(candidates, scored{skill: item, score: score, reason: reason})
-		}
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].score != candidates[j].score {
-			return candidates[i].score > candidates[j].score
-		}
-		return candidates[i].skill.CanonicalName < candidates[j].skill.CanonicalName
-	})
-	if len(candidates) > 3 {
-		candidates = candidates[:3]
-	}
-	selected := make([]selectedSkill, 0, len(candidates))
-	for _, candidate := range candidates {
-		selected = append(selected, selectedSkill{SkillID: candidate.skill.ID, VersionID: candidate.skill.CurrentVersionID,
-			FragmentID: "skill:" + candidate.skill.ID + ":" + candidate.skill.CurrentVersionID, Reason: candidate.reason})
-	}
-	return selected, nil
-}
-
 func (s *Service) recordSkillActivations(ctx context.Context, sessionID, turnID string, selected map[string]selectedSkill) error {
 	if s.skills == nil {
 		return nil

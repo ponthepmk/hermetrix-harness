@@ -1,0 +1,31 @@
+version: "2"
+
+run:
+  timeout: 10m
+
+linters:
+  default: none
+  enable:
+    # unused is the reason this file exists: a dead unexported method that
+    # still reads live state can silently break a frozen-contract invariant
+    # without a single test going red. go vet does not catch it.
+    - unused
+    - staticcheck
+    - govet
+    - ineffassign
+    - errcheck
+    - bodyclose
+
+  settings:
+    errcheck:
+      # Receipt-writing and best-effort cleanup paths deliberately ignore
+      # errors; they are written as `_ =` and reviewed at the call site.
+      check-blank: false
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
