@@ -40,7 +40,7 @@ func TestSessionRejectsProfileAboveProviderDeclaration(t *testing.T) {
 	}
 }
 
-func TestSessionRequiresExactQualificationOrReviewedOverride(t *testing.T) {
+func TestSessionRequiresExactQualification(t *testing.T) {
 	service, provider, cleanup := testAgentService(t, successProviderServer(t))
 	defer cleanup()
 	ctx := context.Background()
@@ -845,5 +845,165 @@ func TestLoopDetectorIgnoresCallsWithDifferentArguments(t *testing.T) {
 	}
 	if result.AssistantEvent.Content != "done" || step != 5 {
 		t.Fatalf("unexpected completion content=%q steps=%d", result.AssistantEvent.Content, step)
+	}
+}
+
+// --- V-4: qualification override ---
+//
+// resolveQualification gates every profile above compact-32k, but the only
+// test covered the reject-without-qualification path. The override branch, its
+// input validation, its expiry and the exactness of the tier and revision
+// binding were all unasserted.
+
+func insertQualification(t *testing.T, service *Service, provider providers.Profile, requestedProfile, providerRevision string) string {
+	t.Helper()
+	if providerRevision == "" {
+		providerRevision = providers.Revision(provider)
+	}
+	runID := "qual-" + requestedProfile + "-" + providerRevision
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := service.store.DB.ExecContext(context.Background(), `INSERT INTO model_qualification_runs(id,provider_id,model,
+		suite_revision,provider_revision,state,declared_context,allocated_context,context_tier,capability_grade,
+		requested_profile,eligible,requires_decision,results_json,remediation_json,started_at,completed_at)
+		VALUES(?,?,?,?,?,'completed',?,?,?,?,?,1,0,'{}','[]',?,?)`, runID, provider.ID, provider.Model,
+		"local-model-qualification-v2", providerRevision, provider.ContextWindow, 65536, "certified-64k", "A",
+		requestedProfile, now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runID
+}
+
+func TestQualificationOverrideRejectsIncompleteReview(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	longActor := strings.Repeat("ก", 121)
+	longReason := strings.Repeat("เหตุผล", 200)
+	cases := []struct {
+		name     string
+		override QualificationOverrideInput
+		wants    string
+	}{
+		{"no actor", QualificationOverrideInput{Reason: "reviewed by hand"}, "requires actor and reason"},
+		{"no reason", QualificationOverrideInput{Actor: "reviewer"}, "requires actor and reason"},
+		{"blank after trim", QualificationOverrideInput{Actor: "   ", Reason: "reviewed"}, "requires actor and reason"},
+		{"actor too long", QualificationOverrideInput{Actor: longActor, Reason: "reviewed"}, "too long"},
+		{"reason too long", QualificationOverrideInput{Actor: "reviewer", Reason: longReason}, "too long"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			override := testCase.override
+			_, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+				ContextProfile: "certified-64k", QualificationOverride: &override})
+			if err == nil || !strings.Contains(err.Error(), testCase.wants) {
+				t.Fatalf("override %q was accepted or rejected for the wrong reason: %v", testCase.name, err)
+			}
+		})
+	}
+}
+
+func TestQualificationOverrideIsFrozenWithAnExpiry(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	before := time.Now().UTC()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "extended-128k", QualificationOverride: &QualificationOverrideInput{
+			Actor: "reviewer", Reason: "gateway cannot expose loaded allocation; reviewed by hand"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := session.Contract.Qualification
+	if binding.Mode != "explicit_override" || binding.Actor != "reviewer" || binding.RunID != "" {
+		t.Fatalf("override was not frozen into the contract: %+v", binding)
+	}
+	if binding.ContextProfile != "extended-128k" || binding.ProviderRevision != providers.Revision(provider) {
+		t.Fatalf("override was not bound to the exact profile and provider revision: %+v", binding)
+	}
+	if binding.ExpiresAt == nil || binding.ExpiresAt.Before(before) || binding.ExpiresAt.After(before.Add(25*time.Hour)) {
+		t.Fatalf("override expiry is missing or outside the 24h window: %+v", binding.ExpiresAt)
+	}
+}
+
+// The expiry is checked when a turn runs, not when the session is created, so
+// a session opened under a reviewed override goes cold rather than staying
+// usable forever.
+func TestExpiredQualificationOverrideBlocksTheNextTurn(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "still inside the window"}, nil); err != nil {
+		t.Fatalf("turn failed before the override expired: %v", err)
+	}
+	expired := time.Now().UTC().Add(-time.Minute)
+	session.Contract.Qualification.ExpiresAt = &expired
+	session.Contract.Revision = sessionContractRevision(session.Contract)
+	encoded, err := json.Marshal(session.Contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB.ExecContext(ctx, `UPDATE agent_sessions SET contract_json=?,contract_revision=? WHERE id=?`,
+		string(encoded), session.Contract.Revision, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.RunTurn(ctx, session.ID, TurnInput{Content: "after expiry"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "override expired") {
+		t.Fatalf("expired override did not block the turn: %v", err)
+	}
+	assertLeaseReleased(t, service, session.ID)
+}
+
+// A 64k qualification must not unlock 128k. This is the whole point of
+// certified-not-declared context: the tier is evidence for one exact envelope.
+func TestQualificationDoesNotUnlockAHigherTier(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	runID := insertQualification(t, service, provider, "certified-64k", "")
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID, ContextProfile: "certified-64k"})
+	if err != nil {
+		t.Fatalf("the exact qualified tier was refused: %v", err)
+	}
+	if session.QualificationRunID != runID {
+		t.Fatalf("session bound qualification %q, want %q", session.QualificationRunID, runID)
+	}
+	for _, higher := range []string{"extended-128k", "extended-256k", "ultra-1m"} {
+		if _, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID, ContextProfile: higher}); err == nil {
+			t.Fatalf("%s opened on a certified-64k qualification", higher)
+		}
+	}
+}
+
+// Qualification is bound to the provider/model revision. A run recorded
+// against a different revision is not evidence for the current one.
+func TestQualificationFromAnotherProviderRevisionIsNotEligible(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	insertQualification(t, service, provider, "certified-64k", "provider-revision-from-an-older-config")
+	_, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k"})
+	if err == nil || !strings.Contains(err.Error(), "exact eligible qualification") {
+		t.Fatalf("a qualification from another provider revision was accepted: %v", err)
+	}
+}
+
+// compact-32k is the documented compatibility envelope and is the one profile
+// that opens without qualification evidence.
+func TestCompactProfileOpensAsCompatibilityWithoutQualification(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "compact-32k"})
+	if err != nil {
+		t.Fatalf("compact-32k required qualification: %v", err)
+	}
+	if session.Contract.Qualification.Mode != "compatibility" || session.Contract.Qualification.ExpiresAt != nil {
+		t.Fatalf("compact-32k was not marked as a compatibility envelope: %+v", session.Contract.Qualification)
 	}
 }
