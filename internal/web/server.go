@@ -158,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/memories", s.saveMemory)
 	mux.HandleFunc("POST /api/memories/{id}/archive", s.archiveMemory)
 	mux.HandleFunc("GET /api/usage", s.usageSummary)
+	mux.HandleFunc("GET /api/skill-retrieval", s.skillRetrievalMetrics)
 	mux.HandleFunc("GET /api/backups", s.listBackups)
 	mux.HandleFunc("POST /api/backups", s.exportBackup)
 	mux.HandleFunc("GET /api/backups/{id}/download", s.downloadBackup)
@@ -908,6 +909,21 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// skillRetrievalMetrics reports the ADR-7 exit criterion: whether models
+// actually call skill_search when a matching Skill is available to them.
+func (s *Server) skillRetrievalMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusOK, []agent.SkillRetrievalStats{})
+		return
+	}
+	items, err := s.agent.SkillRetrievalMetrics(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {

@@ -1812,3 +1812,95 @@ func (s *Service) executeSkillTool(ctx context.Context, session Session, turnID 
 		"selection_reason": "model_requested"}
 	return finish()
 }
+
+// SkillRetrievalMetrics computes the ADR-7 exit criterion from committed events
+// only. It runs the same deterministic scorer the search tool uses, so the
+// denominator is "a Skill this session could have found for this goal" rather
+// than "any Skill existed", which would flatter the result.
+func (s *Service) SkillRetrievalMetrics(ctx context.Context) ([]SkillRetrievalStats, error) {
+	sessions, err := s.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type counter struct {
+		turns, relevant, requested, preloaded int
+	}
+	byModel := map[string]*counter{}
+	overall := &counter{}
+	for _, session := range sessions {
+		if len(session.Contract.SkillCatalog) == 0 {
+			continue
+		}
+		events, err := s.ListEvents(ctx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		goals := map[string]string{}
+		requested := map[string]bool{}
+		order := []string{}
+		for _, event := range events {
+			switch {
+			case event.EventKind == "message" && event.Role == "user":
+				if _, seen := goals[event.TurnID]; !seen {
+					goals[event.TurnID] = event.Content
+					order = append(order, event.TurnID)
+				}
+			case event.EventKind == "tool_call":
+				if name := metadataString(event.Metadata, "tool_name"); name == "skill_search" || name == "skill_view" {
+					requested[event.TurnID] = true
+				}
+			}
+		}
+		model := session.Model
+		if _, ok := byModel[model]; !ok {
+			byModel[model] = &counter{}
+		}
+		preloaded := len(session.Contract.SelectedSkills) > 0
+		for _, turnID := range order {
+			for _, target := range []*counter{byModel[model], overall} {
+				target.turns++
+				if len(selectSkillBindings(goals[turnID], session.Contract.SkillCatalog)) == 0 {
+					continue
+				}
+				target.relevant++
+				if requested[turnID] {
+					target.requested++
+				}
+				if preloaded {
+					target.preloaded++
+				}
+			}
+		}
+	}
+	models := make([]string, 0, len(byModel))
+	for model := range byModel {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	stats := make([]SkillRetrievalStats, 0, len(models)+1)
+	for _, model := range models {
+		stats = append(stats, summariseSkillRetrieval(model, byModel[model].turns, byModel[model].relevant,
+			byModel[model].requested, byModel[model].preloaded))
+	}
+	if len(models) > 1 {
+		stats = append(stats, summariseSkillRetrieval("(all models)", overall.turns, overall.relevant,
+			overall.requested, overall.preloaded))
+	}
+	return stats, nil
+}
+
+func summariseSkillRetrieval(model string, turns, relevant, requested, preloaded int) SkillRetrievalStats {
+	stats := SkillRetrievalStats{Model: model, Turns: turns, TurnsWithRelevantSkill: relevant,
+		TurnsModelRequested: requested, TurnsPreloaded: preloaded, Verdict: "insufficient_evidence"}
+	if relevant == 0 {
+		return stats
+	}
+	stats.NoSkillRequestedRate = 1 - float64(requested)/float64(relevant)
+	if relevant >= SkillRetrievalMinimumTurns {
+		stats.Verdict = "pull_working"
+		if stats.NoSkillRequestedRate > 0.5 {
+			stats.Verdict = "pull_failing"
+		}
+	}
+	return stats
+}

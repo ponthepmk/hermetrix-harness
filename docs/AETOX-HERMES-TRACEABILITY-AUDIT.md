@@ -140,7 +140,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 
 | ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
-| **R-14** | ยังไม่มี metric `no_skill_requested_rate` จึงวัดเกณฑ์ถอยของ ADR-7 ไม่ได้ — ไม่รู้ว่า model เล็กเรียก `skill_search` จริงแค่ไหน | medium | ต้องมีก่อนสรุปว่า pull ใช้ได้กับ local model tier ที่รองรับ |
+| **R-14** | metric `no_skill_requested_rate` มีแล้ว แต่ยังไม่เคยรันกับ local model จริง | low | วัดได้แล้วผ่าน `GET /api/skill-retrieval`; เหลือแค่เก็บข้อมูลจากการใช้งานจริง ไม่ใช่งาน implementation |
 | **O-7** | documentation drift | medium | มี `scripts/doc-truth.sh` สองชั้นแล้ว (facts + claim registry) claim registry จับ anchor ที่หายได้จริงตั้งแต่รันครั้งแรก; ข้อความเชิงความหมายยังต้องให้คนไล่ |
 | **P-3** | exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้ | medium | ยังไม่ทำ gate audit |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |

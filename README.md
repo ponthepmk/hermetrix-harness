@@ -98,7 +98,7 @@ For deterministic manual/E2E MCP QA, run `python3 scripts/e2e/mcp_fixture.py` on
 This is a vertical slice, not a finished product. Kernel correctness is closed and every claim behind it is
 mutation-tested — disabling a guard turns its test red. The gaps that matter most right now:
 
-- Skill bodies now arrive through `skill_search` / `skill_view` as tool results, but the `no_skill_requested_rate` metric that would show whether small models actually reach for them does not exist yet;
+- no real local model has been run against `no_skill_requested_rate` yet, so whether small models actually reach for `skill_search` is measurable but unmeasured;
 - token estimation still has no exact per-model tokenizer, so budget numbers carry a calibrated error band rather than an exact one;
 - long-context recall now probes five positions across the envelope, but only against fixtures; no real local model has been qualified at 128k or above;
 - there is no OS-level sandbox, no authenticated principal and no managed browser or native shell.

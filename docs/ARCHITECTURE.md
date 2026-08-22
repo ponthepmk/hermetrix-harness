@@ -43,7 +43,7 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - MCP stdio/resources/prompts/OAuth/subscriptions/MRTR และ plugin/dynamic catalog adapters
 - semantic local-LLM compactor; ปัจจุบัน verifier/fallback พร้อมและ fidelity lab ใช้ deterministic task assertions
 - runtime-specific RAM/VRAM/OOM telemetry และ exact tokenizer adapters; direct-tool accounting นับ payload จริงแล้วแต่ยังใช้ heuristic estimator ไม่ใช่ tokenizer ของ model
-- `skill_search`/`skill_view` มีแล้ว (ADR-7) แต่ยังไม่มี metric `no_skill_requested_rate` จึงยังไม่รู้ว่า model เล็กเรียกจริงแค่ไหน
+- `skill_search`/`skill_view` และ metric `no_skill_requested_rate` มีครบแล้ว (ADR-7, R-14) แต่ยังไม่เคยรันกับ local model จริง จึงวัดได้แต่ยังไม่ได้วัด
 - long-context recall probe ปลูก sentinel ห้าตำแหน่งแล้ว แต่ยังไม่เคยรันกับ local model จริงที่ 128k ขึ้นไป
 - managed browser workbench, native desktop packaging/signing และ mobile UI
 

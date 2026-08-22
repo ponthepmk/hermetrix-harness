@@ -67,6 +67,8 @@ exact-tool-accounting|func \(t ToolSpec\) BillableText|internal/context/types.go
 gc-compensating-rollback|RestoreFromQuarantine\(prior.Ref|internal/curator/maintenance.go
 gc-no-hard-delete|partial_quarantine|internal/curator/maintenance.go
 mcp-no-auto-retry|automatic_retry|internal/mcp/service.go
+skill-retrieval-metric|func \(s \*Service\) SkillRetrievalMetrics|internal/agent/service.go
+adr7-exit-threshold|NoSkillRequestedRate > 0.5|internal/agent/service.go
 CLAIMS
 )
 

@@ -617,3 +617,27 @@ func requestJSON(t *testing.T, url, method string, value any, wantStatus int) []
 	}
 	return body
 }
+
+// R-14: the ADR-7 exit criterion has to be reachable, not just computable.
+func TestSkillRetrievalMetricsAreServed(t *testing.T) {
+	server := testHTTPServer(t)
+	response, err := server.Client().Get(server.URL + "/api/skill-retrieval")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("skill retrieval metrics returned %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stats []agent.SkillRetrievalStats
+	if err := json.Unmarshal(body, &stats); err != nil {
+		t.Fatalf("decode metrics: %v (%s)", err, body)
+	}
+	if stats == nil {
+		t.Fatal("metrics must serialise as an array, never null")
+	}
+}

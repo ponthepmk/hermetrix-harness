@@ -1428,3 +1428,118 @@ func TestSkillToolsRejectMalformedArguments(t *testing.T) {
 		}
 	}
 }
+
+// --- R-14: the ADR-7 exit criterion ---
+//
+// ADR-7 says pull has failed for a model tier when it leaves matching Skills
+// untouched more than half the time. That number has to come from committed
+// events, not from an impression.
+
+func TestSkillRetrievalMetricsCountOnlyTurnsWithAMatchingSkill(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	seedSkill(t, service, "invoice-reconciliation", "INVOICE_BODY")
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One turn the catalog can serve, one it cannot. Only the first belongs in
+	// the denominator: a model that does not search for a Skill that does not
+	// exist has done nothing wrong.
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "invoice reconciliation please"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "what is the weather"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := service.SkillRetrievalMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected one model row, got %+v", stats)
+	}
+	row := stats[0]
+	if row.Turns != 2 || row.TurnsWithRelevantSkill != 1 {
+		t.Fatalf("denominator counted the unmatched turn: %+v", row)
+	}
+	if row.TurnsModelRequested != 0 || row.NoSkillRequestedRate != 1 {
+		t.Fatalf("a model that never searched was not scored as such: %+v", row)
+	}
+	if row.Verdict != "insufficient_evidence" {
+		t.Fatalf("two turns produced verdict %q; a tier must not be condemned on a tiny sample", row.Verdict)
+	}
+}
+
+func TestSkillRetrievalMetricsCreditModelRequestedRetrieval(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	skill := seedSkill(t, service, "invoice-reconciliation", "INVOICE_BODY")
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "invoice reconciliation please"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	turnID := ""
+	events, err := service.ListEvents(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.EventKind == "message" && event.Role == "user" {
+			turnID = event.TurnID
+		}
+	}
+	// Record the retrieval the same way the runtime does: a committed tool_call
+	// event naming the Skill tool.
+	if _, err := service.appendEvent(ctx, Event{SessionID: session.ID, TurnID: turnID, EventKind: "tool_call",
+		Role: "assistant", Content: `{"query":"invoice"}`, Metadata: map[string]any{"tool_name": "skill_search"},
+		ProviderID: provider.ID, Model: provider.Model, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := service.SkillRetrievalMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats[0].TurnsModelRequested != 1 || stats[0].NoSkillRequestedRate != 0 {
+		t.Fatalf("a model-requested retrieval was not credited: %+v", stats[0])
+	}
+	if stats[0].TurnsPreloaded != 1 {
+		t.Fatalf("the contract floor was not recorded: %+v", stats[0])
+	}
+	_ = skill
+}
+
+// The verdict boundary is ADR-7's own number. It must not drift by accident.
+func TestSkillRetrievalVerdictFollowsTheAdrThreshold(t *testing.T) {
+	sample := SkillRetrievalMinimumTurns
+	cases := []struct {
+		name              string
+		relevant, request int
+		wantRate          float64
+		wantVerdict       string
+	}{
+		{"below the sample floor", 5, 0, 1, "insufficient_evidence"},
+		{"exactly half untouched", sample, sample / 2, 0.5, "pull_working"},
+		{"just past half", sample, sample/2 - 1, 0.55, "pull_failing"},
+		{"every turn retrieved", sample, sample, 0, "pull_working"},
+		{"no matching skill ever", 0, 0, 0, "insufficient_evidence"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			stats := summariseSkillRetrieval("model", testCase.relevant, testCase.relevant, testCase.request, 0)
+			if stats.NoSkillRequestedRate != testCase.wantRate {
+				t.Fatalf("rate %v, want %v", stats.NoSkillRequestedRate, testCase.wantRate)
+			}
+			if stats.Verdict != testCase.wantVerdict {
+				t.Fatalf("verdict %q, want %q", stats.Verdict, testCase.wantVerdict)
+			}
+		})
+	}
+}
