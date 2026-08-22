@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0c0e12">
+  <title>Hermetrix — Intelligent Tool Harness</title>
+  <link rel="icon" type="image/png" sizes="48x48" href="/assets/brand/hermetrix-favicon-v3-48.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/assets/brand/hermetrix-icon-v3-192.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><img class="brand-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt=""><span>Hermetrix</span></div>
+      <nav aria-label="Main navigation">
+        <p class="nav-label">Workspace</p>
+        <button class="nav-item active" data-tab="chat"><span>◉</span> Chat <small>live</small></button>
+        <button class="nav-item" data-tab="projects"><span>◇</span> Projects</button>
+        <button class="nav-item" data-tab="office"><span>⌘</span> Office</button>
+        <button class="nav-item" data-tab="artifacts"><span>▱</span> Artifacts</button>
+        <p class="nav-label">Control</p>
+        <button class="nav-item" data-tab="library"><span>✦</span> Skills <b id="proposalBadge" hidden>0</b></button>
+        <button class="nav-item" data-tab="providers"><span>⌁</span> Providers</button>
+        <button class="nav-item" data-tab="mcp"><span>◎</span> MCP</button>
+        <button class="nav-item" data-tab="context"><span>◫</span> Context</button>
+        <button class="nav-item" data-tab="fidelity"><span>≋</span> Fidelity</button>
+        <button class="nav-item" data-tab="maintenance"><span>⚙</span> Maintenance</button>
+      </nav>
+      <div class="runtime-card">
+        <img class="runtime-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt="">
+        <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> Local-first · proposal-only</small></div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="pageEyebrow">Hermetrix Engine / Agent runtime</p>
+          <h1><span id="pageTitle">Agent Workspace</span> <span class="engine-badge">VERTICAL SLICE</span></h1>
+        </div>
+        <div class="top-actions">
+          <button class="ghost" id="refreshButton">Refresh</button>
+          <button class="primary" id="createButton">+ New proposal</button>
+        </div>
+      </header>
+
+      <section class="stats" id="stats"></section>
+
+      <div class="tabbar" role="tablist">
+        <button class="tab active" data-tab="chat">Chat</button>
+        <button class="tab" data-tab="library">Library</button>
+        <button class="tab" data-tab="proposals">Proposals <span id="tabProposalCount">0</span></button>
+        <button class="tab" data-tab="learning">Learning <span id="tabReviewCount">0</span></button>
+        <button class="tab" data-tab="insights">Insights</button>
+        <button class="tab" data-tab="archive">Archive</button>
+        <button class="tab" data-tab="context">Context diagnostics</button>
+        <button class="tab" data-tab="providers">Providers</button>
+        <button class="tab" data-tab="mcp">MCP catalog</button>
+        <button class="tab" data-tab="projects">Projects</button>
+        <button class="tab" data-tab="office">Office</button>
+        <button class="tab" data-tab="artifacts">Artifacts</button>
+        <button class="tab" data-tab="fidelity">Fidelity</button>
+        <button class="tab" data-tab="maintenance">Maintenance</button>
+      </div>
+
+      <section class="toolbar" id="libraryToolbar">
+        <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Search skills, origin, owner…"></label>
+        <select id="stateFilter" aria-label="Filter state">
+          <option value="">All active states</option>
+          <option value="active">Active</option>
+          <option value="stale">Stale</option>
+          <option value="quarantined">Quarantined</option>
+        </select>
+      </section>
+
+      <section class="view active" id="view-chat"></section>
+      <section class="view" id="view-library"></section>
+      <section class="view" id="view-proposals"></section>
+      <section class="view" id="view-learning"></section>
+      <section class="view" id="view-insights"></section>
+      <section class="view" id="view-archive"></section>
+      <section class="view" id="view-context"></section>
+      <section class="view" id="view-providers"></section>
+      <section class="view" id="view-mcp"></section>
+      <section class="view" id="view-projects"></section>
+      <section class="view" id="view-office"></section>
+      <section class="view" id="view-artifacts"></section>
+      <section class="view" id="view-fidelity"></section>
+      <section class="view" id="view-maintenance"></section>
+    </main>
+
+    <aside class="inspector" id="inspector">
+      <div class="empty-inspector">
+        <img class="engine-emblem" src="/assets/brand/hermetrix-engine-v3-512.png" alt="">
+        <p class="eyebrow">Hermetrix Engine</p>
+        <h2>Select a skill</h2>
+        <p>Inspect provenance, active version, usage evidence and reversible actions.</p>
+      </div>
+    </aside>
+  </div>
+
+  <dialog id="candidateDialog">
+    <form method="dialog" id="candidateForm">
+      <div class="dialog-head"><div><p class="eyebrow">Candidate workspace</p><h2>Propose a skill</h2></div><button value="cancel" class="icon-button" aria-label="Close">×</button></div>
+      <div class="form-grid">
+        <label>Name <input name="name" required pattern="[a-z0-9][a-z0-9-]{1,62}" placeholder="review-pull-request"></label>
+        <label>Scope <select name="scope"><option value="user">User</option><option value="workspace">Workspace</option><option value="agent">Agent profile</option></select></label>
+      </div>
+      <label>Description <input name="description" required maxlength="320" placeholder="When this skill should be selected"></label>
+      <label>Reason and evidence <textarea name="reason" rows="2" required placeholder="Why this proposal exists"></textarea></label>
+      <label>Skill instructions <textarea name="body" rows="13" required placeholder="# Procedure&#10;&#10;1. Inspect…"></textarea></label>
+      <p class="form-note">Saving creates a proposal only. It cannot enter model context until checks pass and you explicitly promote it.</p>
+      <div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button value="default" class="primary" id="saveCandidate">Create proposal</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="actionDialog" class="action-dialog">
+    <form id="actionForm">
+      <div class="dialog-head"><div><p class="eyebrow" id="actionEyebrow">Review decision</p><h2 id="actionTitle">Confirm action</h2></div><button type="button" class="icon-button" id="actionClose" aria-label="Close">×</button></div>
+      <p class="dialog-message" id="actionMessage"></p>
+      <label id="actionInputLabel">Reason<textarea id="actionInput" rows="3"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="ghost" id="actionCancel">Cancel</button><button type="submit" class="primary" id="actionConfirm">Confirm</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

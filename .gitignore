@@ -1,0 +1,4 @@
+.hermetrix/
+tmp-*-data/
+hermetrix
+coverage.out

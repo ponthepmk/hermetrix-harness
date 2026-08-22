@@ -1,0 +1,388 @@
+package context
+
+import (
+	stdcontext "context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+)
+
+var (
+	ErrDirectToolsOverflow = errors.New("direct tool schemas exceed profile budget")
+	ErrPinnedOverflow      = errors.New("pinned context exceeds profile budget")
+	ErrContextOverflow     = errors.New("compiled context exceeds allocated window")
+)
+
+type Compiler struct {
+	estimator Estimator
+	spiller   Spiller
+	compactor Compactor
+}
+
+func NewCompiler(estimator Estimator, spiller Spiller, compactor Compactor) *Compiler {
+	return &Compiler{estimator: estimator, spiller: spiller, compactor: compactor}
+}
+
+func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, error) {
+	if err := request.Profile.Validate(); err != nil {
+		return Compiled{}, err
+	}
+	if c.estimator == nil {
+		return Compiled{}, fmt.Errorf("context compiler requires a token estimator")
+	}
+	profile := request.Profile
+	report := Report{Profile: profile.Name, TotalContext: profile.Total,
+		OutputReserve: profile.OutputReserve, UncertaintyReserve: profile.UncertaintyReserve,
+		WorstCaseToolBurst: request.WorstCaseToolBurst,
+		Slices: map[string]SliceUsage{
+			"system":         {Budget: profile.SystemBudget},
+			"tools":          {Budget: profile.DirectToolBudget},
+			"skills_project": {Budget: profile.SkillProjectBudget},
+			"pinned":         {Budget: profile.PinnedBudget},
+			"active":         {Budget: profile.ActiveBudget},
+		}}
+	toolTokens := 0
+	for _, tool := range request.DirectTools {
+		toolTokens += c.estimator.Count(tool.Name + "\n" + tool.Schema)
+	}
+	report.Slices["tools"] = SliceUsage{Budget: profile.DirectToolBudget, Used: toolTokens}
+	if toolTokens > profile.DirectToolBudget {
+		return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrDirectToolsOverflow, toolTokens, profile.DirectToolBudget)
+	}
+	for _, fragment := range request.Fragments {
+		report.OriginalTokens += c.estimator.Count(fragment.Content)
+	}
+	fragments := deduplicate(request.Fragments)
+	fragments = propagatePairPins(fragments)
+	var err error
+	fragments, report.Spilled, err = c.spillLargeTools(ctx, fragments, profile.MaxInlineTool)
+	if err != nil {
+		return Compiled{}, err
+	}
+	groups := map[string][]Fragment{"system": {}, "skills_project": {}, "pinned": {}, "active": {}}
+	for _, fragment := range fragments {
+		slice := sliceFor(fragment)
+		groups[slice] = append(groups[slice], fragment)
+	}
+	selectedSystem, droppedSystem, systemUsed := c.selectWithin(groups["system"], profile.SystemBudget)
+	selectedSkills, droppedSkills, skillsUsed := c.selectWithin(groups["skills_project"], profile.SkillProjectBudget)
+	selectedPinned, droppedPinned, pinnedUsed := c.selectWithin(groups["pinned"], profile.PinnedBudget)
+	if len(droppedPinned) > 0 {
+		return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrPinnedOverflow,
+			pinnedUsed+tokens(c.estimator, droppedPinned), profile.PinnedBudget)
+	}
+	activeBudget := profile.ActiveBudget - request.WorstCaseToolBurst
+	if activeBudget < 0 {
+		return Compiled{}, fmt.Errorf("%w: worst-case tool burst exceeds active budget", ErrContextOverflow)
+	}
+	selectedActive, droppedActive, activeUsed := c.selectActive(groups["active"], activeBudget, profile.SummaryTarget)
+	var checkpoint Fragment
+	if len(droppedActive) > 0 && c.compactor != nil {
+		checkpoint, err = c.compactor.Compact(ctx, droppedActive, profile.SummaryTarget, c.estimator)
+		if err != nil {
+			return Compiled{}, fmt.Errorf("compact context: %w", err)
+		}
+		if checkpoint.Content != "" {
+			checkpointTokens := c.estimator.Count(checkpoint.Content)
+			if activeUsed+checkpointTokens > activeBudget {
+				return Compiled{}, fmt.Errorf("%w: compactor exceeded its target", ErrContextOverflow)
+			}
+			activeUsed += checkpointTokens
+			report.CompactedTokens = checkpointTokens
+		}
+	}
+	report.Slices["system"] = SliceUsage{Budget: profile.SystemBudget, Used: systemUsed}
+	report.Slices["skills_project"] = SliceUsage{Budget: profile.SkillProjectBudget, Used: skillsUsed}
+	report.Slices["pinned"] = SliceUsage{Budget: profile.PinnedBudget, Used: pinnedUsed}
+	report.Slices["active"] = SliceUsage{Budget: profile.ActiveBudget, Used: activeUsed + request.WorstCaseToolBurst}
+	selected := append([]Fragment{}, selectedSystem...)
+	selected = append(selected, selectedSkills...)
+	selected = append(selected, selectedPinned...)
+	if checkpoint.Content != "" {
+		selected = append(selected, checkpoint)
+	}
+	selected = append(selected, selectedActive...)
+	selected = canonicalOrder(selected)
+	dropped := append([]Fragment{}, droppedSystem...)
+	dropped = append(dropped, droppedSkills...)
+	dropped = append(dropped, droppedActive...)
+	for _, fragment := range selected {
+		report.SelectedIDs = append(report.SelectedIDs, fragment.ID)
+		report.SelectedTokens += c.estimator.Count(fragment.Content)
+	}
+	for _, fragment := range dropped {
+		report.DroppedIDs = append(report.DroppedIDs, fragment.ID)
+		report.DroppedTokens += c.estimator.Count(fragment.Content)
+	}
+	report.PredictedInput = report.SelectedTokens + toolTokens + request.WorstCaseToolBurst
+	report.Free = profile.Total - profile.OutputReserve - profile.UncertaintyReserve - report.PredictedInput
+	if report.PredictedInput+profile.OutputReserve+profile.UncertaintyReserve > profile.Total {
+		return Compiled{}, fmt.Errorf("%w: predicted=%d output=%d uncertainty=%d total=%d", ErrContextOverflow,
+			report.PredictedInput, profile.OutputReserve, profile.UncertaintyReserve, profile.Total)
+	}
+	if report.OriginalTokens > 0 {
+		report.CompressionRatio = float64(report.SelectedTokens) / float64(report.OriginalTokens)
+	}
+	report.Integrity, err = evaluateIntegrity(fragments, selected, checkpoint.Content)
+	if err != nil {
+		return Compiled{}, err
+	}
+	if len(droppedSystem) > 0 {
+		report.Warnings = append(report.Warnings, "low-priority system fragments did not fit the stable system slice")
+	}
+	if len(droppedSkills) > 0 {
+		report.Warnings = append(report.Warnings, "some project or selected-skill fragments were omitted by slice budget")
+	}
+	return Compiled{Fragments: selected, DirectTools: append([]ToolSpec(nil), request.DirectTools...), Report: report}, nil
+}
+
+func (c *Compiler) spillLargeTools(ctx stdcontext.Context, fragments []Fragment, limit int) ([]Fragment, []SpillReceipt, error) {
+	out := append([]Fragment(nil), fragments...)
+	var receipts []SpillReceipt
+	for i := range out {
+		fragment := &out[i]
+		if fragment.Kind != KindToolResult || c.estimator.Count(fragment.Content) <= limit {
+			continue
+		}
+		if c.spiller == nil {
+			return nil, nil, fmt.Errorf("tool result %s exceeds inline budget and no artifact spiller is configured", fragment.ID)
+		}
+		receipt, err := c.spiller.Spill(ctx, "text/plain", []byte(fragment.Content))
+		if err != nil {
+			return nil, nil, fmt.Errorf("spill tool result %s: %w", fragment.ID, err)
+		}
+		preview := headTail(compactWhitespace(fragment.Content), 900)
+		fragment.Content = fmt.Sprintf("[artifact ref=%s bytes=%d sha256=%s]\nPreview: %s", receipt.Ref, receipt.Bytes, receipt.Checksum, preview)
+		fragment.Kind = KindArtifactReceipt
+		if fragment.Metadata == nil {
+			fragment.Metadata = map[string]string{}
+		}
+		fragment.Metadata["artifact_ref"] = receipt.Ref
+		receipts = append(receipts, receipt)
+	}
+	return out, receipts, nil
+}
+
+func (c *Compiler) selectWithin(fragments []Fragment, budget int) ([]Fragment, []Fragment, int) {
+	units := makeUnits(fragments)
+	sort.SliceStable(units, func(i, j int) bool {
+		if units[i].priority != units[j].priority {
+			return units[i].priority > units[j].priority
+		}
+		return units[i].created.After(units[j].created)
+	})
+	used := 0
+	var selected, dropped []Fragment
+	for _, unit := range units {
+		cost := tokens(c.estimator, unit.fragments)
+		if used+cost <= budget {
+			selected = append(selected, unit.fragments...)
+			used += cost
+		} else {
+			dropped = append(dropped, unit.fragments...)
+		}
+	}
+	return canonicalOrder(selected), canonicalOrder(dropped), used
+}
+
+func (c *Compiler) selectActive(fragments []Fragment, budget, summaryTarget int) ([]Fragment, []Fragment, int) {
+	selectionBudget := budget
+	if tokens(c.estimator, fragments) > budget {
+		selectionBudget = budget - summaryTarget
+		if selectionBudget < 0 {
+			selectionBudget = 0
+		}
+	}
+	return c.selectWithin(fragments, selectionBudget)
+}
+
+func sliceFor(fragment Fragment) string {
+	if fragment.Pinned || fragment.Kind == KindUserGoal || fragment.Kind == KindAcceptanceCriteria {
+		return "pinned"
+	}
+	switch fragment.Kind {
+	case KindIdentity, KindPolicy:
+		return "system"
+	case KindProjectInstruction, KindSelectedSkill:
+		return "skills_project"
+	default:
+		return "active"
+	}
+}
+
+type fragmentUnit struct {
+	fragments []Fragment
+	priority  int
+	created   time.Time
+}
+
+func makeUnits(fragments []Fragment) []fragmentUnit {
+	byKey := map[string][]Fragment{}
+	var order []string
+	for _, fragment := range fragments {
+		key := "id:" + fragment.ID
+		if fragment.PairID != "" {
+			key = "pair:" + fragment.PairID
+		}
+		if _, ok := byKey[key]; !ok {
+			order = append(order, key)
+		}
+		byKey[key] = append(byKey[key], fragment)
+	}
+	units := make([]fragmentUnit, 0, len(order))
+	for _, key := range order {
+		fragments := byKey[key]
+		unit := fragmentUnit{fragments: fragments}
+		for _, fragment := range fragments {
+			if fragment.Priority > unit.priority {
+				unit.priority = fragment.Priority
+			}
+			if fragment.CreatedAt.After(unit.created) {
+				unit.created = fragment.CreatedAt
+			}
+		}
+		units = append(units, unit)
+	}
+	return units
+}
+
+func deduplicate(fragments []Fragment) []Fragment {
+	type item struct {
+		fragment Fragment
+		index    int
+	}
+	seen := map[string]item{}
+	for index, fragment := range fragments {
+		identityPart := ""
+		if fragment.Kind == KindToolCall || fragment.Kind == KindToolResult || fragment.Kind == KindArtifactReceipt {
+			identityPart = fragment.ID + "|" + fragment.PairID
+		}
+		sum := sha256.Sum256([]byte(string(fragment.Kind) + "|" + fragment.Version + "|" + identityPart + "|" + fragment.Content))
+		key := hex.EncodeToString(sum[:])
+		old, ok := seen[key]
+		if !ok || fragment.Priority > old.fragment.Priority || fragment.CreatedAt.After(old.fragment.CreatedAt) {
+			seen[key] = item{fragment: fragment, index: index}
+		}
+	}
+	items := make([]item, 0, len(seen))
+	for _, value := range seen {
+		items = append(items, value)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].index < items[j].index })
+	out := make([]Fragment, 0, len(items))
+	for _, value := range items {
+		out = append(out, value.fragment)
+	}
+	return out
+}
+
+func propagatePairPins(fragments []Fragment) []Fragment {
+	out := append([]Fragment(nil), fragments...)
+	pinnedPairs := map[string]bool{}
+	for _, fragment := range out {
+		if fragment.PairID != "" && fragment.Pinned {
+			pinnedPairs[fragment.PairID] = true
+		}
+	}
+	for index := range out {
+		if pinnedPairs[out[index].PairID] {
+			out[index].Pinned = true
+		}
+	}
+	return out
+}
+
+func evaluateIntegrity(source, selected []Fragment, checkpoint string) (IntegrityReport, error) {
+	report := IntegrityReport{}
+	selectedIDs := map[string]bool{}
+	for _, fragment := range selected {
+		selectedIDs[fragment.ID] = true
+	}
+	pairs := map[string][]Fragment{}
+	for _, fragment := range source {
+		if fragment.Pinned || fragment.Kind == KindUserGoal || fragment.Kind == KindAcceptanceCriteria {
+			report.PinnedTotal++
+			if selectedIDs[fragment.ID] {
+				report.PinnedRetained++
+			}
+		}
+		if fragment.PairID != "" {
+			pairs[fragment.PairID] = append(pairs[fragment.PairID], fragment)
+		}
+	}
+	if report.PinnedTotal == 0 {
+		report.EssentialRetention = 1
+	} else {
+		report.EssentialRetention = float64(report.PinnedRetained) / float64(report.PinnedTotal)
+	}
+	for _, pair := range pairs {
+		report.CausalPairsTotal++
+		selectedCount, compactedCount := 0, 0
+		for _, fragment := range pair {
+			if selectedIDs[fragment.ID] {
+				selectedCount++
+			}
+			marker := fmt.Sprintf("[%s:%s]", fragment.Kind, fragment.ID)
+			if strings.Contains(checkpoint, marker) {
+				compactedCount++
+			}
+		}
+		switch {
+		case selectedCount == len(pair):
+			report.CausalPairsSelected++
+		case compactedCount == len(pair):
+			report.CausalPairsCompacted++
+		case selectedCount == 0 && compactedCount == 0:
+			report.CausalPairsOmitted++
+		default:
+			return IntegrityReport{}, fmt.Errorf("%w: causal pair %s was split", ErrContextOverflow, pair[0].PairID)
+		}
+	}
+	if report.PinnedRetained != report.PinnedTotal {
+		return IntegrityReport{}, ErrPinnedOverflow
+	}
+	return report, nil
+}
+
+func canonicalOrder(fragments []Fragment) []Fragment {
+	out := append([]Fragment(nil), fragments...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left, right := orderFor(out[i]), orderFor(out[j])
+		if left != right {
+			return left < right
+		}
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func orderFor(fragment Fragment) int {
+	switch sliceFor(fragment) {
+	case "system":
+		return 10
+	case "skills_project":
+		return 20
+	case "pinned":
+		return 30
+	default:
+		if fragment.Kind == KindCheckpoint {
+			return 40
+		}
+		return 50
+	}
+}
+
+func tokens(estimator Estimator, fragments []Fragment) int {
+	total := 0
+	for _, fragment := range fragments {
+		total += estimator.Count(fragment.Content)
+	}
+	return total
+}
