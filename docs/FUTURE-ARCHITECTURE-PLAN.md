@@ -733,6 +733,31 @@ Phase 8–10 ทำบาง workstream ขนานกันได้หลั�
 
 ---
 
+## Gate audit ของ Phase 8–14 *(ปิด P-3)*
+
+exit gate ที่วัดไม่ได้คือ gate ที่ผ่านเมื่อไรก็ได้ ตารางนี้ไล่ gate ที่คลุมเครือที่สุดของแต่ละ phase แล้วให้ predicate หรือประกาศตรง ๆ ว่ายังตั้ง threshold ไม่ได้
+
+**กฎ:** gate ที่เป็น `unspecified` ห้ามถูกใช้ปิด phase ต้องแปลงเป็น predicate ก่อน การประกาศว่า unspecified ดีกว่าปล่อยให้ดูเหมือนวัดได้
+
+| Phase | Gate เดิม | สถานะ | Predicate ที่ใช้ได้ |
+|---|---|---|---|
+| 8 | “semantic reviewer ผ่าน local-model queue” | **unspecified** | ต้องนิยาม cohort และเกณฑ์ก่อน: reviewer สร้าง candidate ที่ผ่าน checks ได้กี่ % ของ digest ที่มี evidence จริง และ false-proposal rate เท่าไร ยังตั้งตัวเลขไม่ได้จนกว่าจะมี corpus |
+| 8 | “candidate ทุกชิ้นย้อนถึง committed event range” | measurable | ทุก candidate มี `source_review_id` ที่ชี้ review ซึ่งชี้ event range ที่ commit แล้ว; query ที่หา candidate กำพร้าต้องคืน 0 แถว |
+| 8 | “behavioral eval แยก not_run/inconclusive/passed/failed” | measurable | promotion API ปฏิเสธ candidate ที่ eval state เป็น `not_run` หรือ `inconclusive` มี test ที่ยืนยันว่าปฏิเสธจริง |
+| 9 | “essential retention 100% บน gold corpus” | measurable แต่ขาด corpus | corpus ต้องมี ≥50 เคสต่อภาษา และมี ground truth ที่คนตรวจแล้ว — **corpus ยังไม่มี** จึง gate นี้ยังใช้ไม่ได้ |
+| 9 | “task success delta ผ่าน threshold แยกตาม task class” | **unspecified** | ต้องกำหนด threshold ต่อ class ก่อน เช่น code-edit ยอมให้ delta ไม่เกินกี่ % ตัวเลขนี้ควรมาจาก baseline ที่วัดจริง ไม่ใช่เลือกลอย ๆ |
+| 9 | “predicted token error อยู่ใน calibrated band” | measurable เมื่อมี tokenizer | band = ±X% เทียบ usage ที่ provider รายงาน; X ต้องเลือกหลังมี tokenizer adapter ตัวแรก |
+| 10 | “untrusted metadata ไม่ถูกตีความเป็น instruction” | measurable | hostile fixture ชุดหนึ่งที่ฝัง instruction ใน description/result/schema แล้ว assert ว่า agent ไม่ทำตาม — วัดด้วยจำนวน fixture ที่ผ่าน ไม่ใช่ความเห็น |
+| 10 | “plugin/MCP ไม่สามารถเพิ่ม authority เกิน SessionContract” | measurable | ชุด negative test ที่พยายามขยายสิทธิ์ผ่านทุก surface แล้วต้องถูกปฏิเสธทั้งหมด |
+| 11 | “accessibility/i18n ผ่าน” | **unspecified** | ต้องเลือกมาตรฐานก่อน เช่น WCAG level ใด และ platform matrix ใด |
+| 12 | “local model memory pressure ไม่ทำ OOM cascade” | **unspecified** | ต้องมี hardware reference matrix ก่อนจึงกำหนด threshold ได้ |
+| 13 | “contract suite เดียวผ่านทุก adapter ที่ประกาศ supported” | measurable | suite เดียวกันรันข้าม adapter ทั้งหมด; adapter ที่ไม่ผ่านต้องถูกถอดออกจากรายการ supported ไม่ใช่ใส่ข้อยกเว้น |
+| 14 | “threat model/penetration review ครอบคลุม…” | **unspecified** | review ที่ไม่มีเกณฑ์ผ่านคือ review ที่ผ่านเสมอ ต้องกำหนดว่า finding ระดับใดต้องปิดก่อน release |
+
+สรุป: **6 จาก 12 gate ที่ตรวจยังเป็น `unspecified`** และอีก 2 measurable แต่ขาด corpus/tooling ที่ต้องมีก่อน ตัวเลขนี้เป็นเหตุผลที่ Phase 8–14 ยังประเมิน effort ไม่ได้อย่างมีความหมาย
+
+---
+
 ## Risk register — ข้อเสียที่รู้ตัวและมาตรการ
 
 ตารางนี้ผูกข้อเสียที่พบในรอบ review เข้ากับงานที่แก้จริง ความเสี่ยงที่ไม่มี owner phase ถือว่ายังไม่มีมาตรการ
@@ -754,6 +779,8 @@ Phase 8–10 ทำบาง workstream ขนานกันได้หลั�
 | R-13 | claim registry ถูกเข้าใจผิดว่าเป็น oracle ของความถูกต้องเอกสาร | รัน script ผ่านแล้วเชื่อว่าเอกสารตรง ทั้งที่ข้อความเชิงความหมายยังผิด | ประกาศขอบเขตของ registry ในเอกสาร + human checklist ต่อ finding ตอนปิด phase | 7.0 |
 | R-14 | ADR-7 ทำให้ Skill retrieval เป็น pull จึงเสีย determinism และอาจไม่ถูกเรียกเลย | โมเดลเล็กไม่ดึง Skill ทำให้คุณภาพตกกว่าเดิม; replay/eval ยากขึ้น | คง pre-selection เป็น floor; metric `no_skill_requested_rate`; เกณฑ์ถอยที่ 50% ต่อ model tier | 7.2 |
 | R-15 | ไม่รู้ขนาดงานรวมของแผน | ตัด scope ไม่ได้เพราะไม่มีตัวเลข; ADR-8 บังคับใช้ยาก | effort band ต่อ phase + total range + สมมติฐานกำลังคน | 7.0 |
+| R-16 | effort band ไม่ระบุว่าใครเป็นคนทำ | batch แรกประเมิน 12–13 วัน-คน แต่ทำจริงใน ~30 นาทีด้วย agent ตัวเลขที่ไม่ระบุ actor จึงตีความไม่ได้และเอาไปตัดสิน scope ไม่ได้ | แยก decision effort ออกจาก implementation effort ก่อนประเมิน Phase 8–14 ใหม่ | 7.0 (ค้าง) |
+| R-17 | 6 จาก 12 exit gate ที่ตรวจของ Phase 8–14 เป็น `unspecified` | phase ปิดได้โดยไม่มีเกณฑ์ผ่านจริง | gate audit บังคับว่า `unspecified` ห้ามใช้ปิด phase | 7.0 (ทำแล้ว) |
 
 ---
 
@@ -842,6 +869,27 @@ Required continuous suites:
 | 12 Multi-agent | กว้าง | 8–12 สัปดาห์ | ต้องรอ 8/9/10 |
 | 13 Provider ecosystem | ลึก | 6–10 สัปดาห์ | ขึ้นกับจำนวน adapter ที่ประกาศ supported |
 | 14 Security/release | ลึก | 8–12 สัปดาห์ | ต้องมี threat model ก่อนประเมินแม่น |
+
+### Calibration จากข้อมูลจริงครั้งแรก
+
+batch นี้ถูกลงมือทำจริงแล้ว ผลที่วัดได้:
+
+| ตัวชี้วัด | ประมาณการ | ของจริง |
+|---|---|---|
+| งานที่ปิด | O-1 ถึง O-7, V-1 ถึง V-6, ADR-7 | ปิดครบ |
+| effort ที่ประเมิน | 12–13 วัน-คน | — |
+| wall clock ที่ใช้จริง | — | ~30 นาที, 11 commits, +2,332/−290 บรรทัด |
+| test functions | — | 96 → 125 |
+
+**ตัวเลขนี้ไม่ calibrate effort band ด้านบน และการเอาไปหารตรง ๆ จะผิด** เพราะ band เขียนขึ้นโดยสมมติ *นักพัฒนามนุษย์* ส่วนงานจริงทำโดย agent สิ่งที่ข้อมูลนี้บอกจึงไม่ใช่ “เร็วขึ้น 200 เท่า” แต่คือ **ข้อบกพร่องของการแก้ P-4 เอง: band ที่ใส่เข้ามาไม่ได้ระบุว่าใครทำ**
+
+การแก้ P-4 ที่ถูกต้องกว่าคือ:
+
+1. band ทุกตัวต้องระบุ actor ให้ชัด — ฉบับนี้ให้ถือว่าเป็น **human effort สำหรับ design, review, integration และการตัดสินใจ** ไม่ใช่เวลาพิมพ์โค้ด
+2. งานที่ agent ทำได้เร็วคืองานที่มี contract ชัดและตรวจได้ด้วย test — เขียน test, mechanical refactor, doc pass งานที่ไม่ย่อคือ **การตัดสินใจว่าจะทำอะไร** ซึ่งเป็นเนื้อของ Phase 8–14 ส่วนใหญ่
+3. ดังนั้น band ของ Phase 8–14 ไม่ควรถูกหารด้วยความเร็วนี้ แต่ควรถูกแยกเป็น decision effort กับ implementation effort ก่อน จึงจะประเมินใหม่ได้อย่างมีความหมาย
+
+จนกว่าจะทำข้อ 3 **ตัวเลข Phase 8–14 ยังเป็นการเดาที่แต่งตัวมาดี** ตามที่ P-4 ระบุไว้แต่แรก และข้อสรุปเรื่อง Phase 11 ด้านล่างตั้งอยู่บนฐานนั้น จึงเป็นข้อเสนอ ไม่ใช่ข้อสรุป
 
 **ผลของตัวเลขนี้ต่อการตัดสินใจ:** Phase 7.x ถึง 10 รวมกันประมาณ **6–9 เดือน-คน** ส่วน Phase 11 อย่างเดียวประมาณ **5–10 เดือน-คน**
 
