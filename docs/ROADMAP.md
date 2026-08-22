@@ -114,7 +114,7 @@ Exit gate: learning eval แสดงว่า proposal precision ดีขึ�
 
 สถานะหลัง verification pass 2026-08-22: runtime producer **เชื่อมแล้ว** ผ่าน `learning_trigger_outbox` — `StageTrigger` เขียน trigger ใน transaction เดียวกับ turn commit และ `DrainPending` แปลง record ที่ commit แล้วเป็น idempotent review job หลังจบ turn
 
-ข้อจำกัดที่เหลือ: path นี้ยังไม่มี test ครอบเลย (finding O-4) จึงถือเป็น implemented-but-unverified ไม่ใช่ qualified
+path นี้มี test ครอบครบแล้ว (O-4/V-2 ปิด): stage+drain, ไม่มี evidence ไม่ stage, drain ซ้ำไม่เพิ่ม job, failed turn, stage ซ้ำถูก ignore และ concurrent drain — ทุกข้อผ่าน mutation test
 
 ## Phase 4 — Context fidelity laboratory (complete for deterministic evaluator scope)
 

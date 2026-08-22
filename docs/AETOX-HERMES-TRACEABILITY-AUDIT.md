@@ -20,7 +20,7 @@
 
 **สรุปสั้น:** Hermetrix นำแกนความคิดที่สำคัญมาใช้ได้ถูกทาง โดยเฉพาะ authority boundary, deferred capability, reversible Skill lifecycle, provenance และ typed context compiler หลัง verification pass พบว่า P0 ทั้งสี่ข้อของรอบแรกถูกปิดในโค้ดแล้ว เหลือช่องว่างเชิงสถาปัตยกรรมหนึ่งข้อและงาน correctness ที่วัดได้อีกชุดหนึ่ง
 
-สถานะที่แม่นยำคือ **safe architectural vertical slice ที่ implementation ของ kernel correctness ครบแล้ว แต่หลักฐานยังไม่ครบ** — จากหก finding ที่เคยประกาศปิด มีหนึ่งข้อที่หลักฐานถึงเกรด A:
+สถานะที่แม่นยำคือ **kernel correctness ปิดครบพร้อมหลักฐานเกรด A ทุกข้อ** finding ทั้งหกที่เคยประกาศปิดตอนนี้มี test ที่ mutation-verified แล้วจริง เหลือ contradiction เชิงสถาปัตยกรรมข้อเดียว:
 
 - แกน clean-room และ license boundary: **Correct**
 - Skill lifecycle แบบปลอดภัยกว่า Hermes: **Adapted, stronger authority**
@@ -32,7 +32,7 @@
 - Hermes background learning/curator/MCP breadth: **Partial**
 - local-model harness ที่พร้อมใช้ต่อเนื่อง: **Not yet production-ready**
 
-ก่อนขยาย capability หรือ product surface ต้องปิดตามลำดับ: version control (O-1), documentation truth (O-7), verification gaps (V-1 ถึง V-6), exact token accounting (O-3), แล้วจึงแก้ Skill retrieval (O-2)
+O-1, O-3, O-4, O-5, O-6, V-1 ถึง V-6 ปิดหมดแล้ว งานถัดไปที่เหลือคือ **O-2 / ADR-7 Skill retrieval** ซึ่งเงื่อนไขนำหน้า (O-3 token accounting) ปิดแล้วจึงเริ่มได้
 
 ## วิธีอ่านสถานะ
 
@@ -116,42 +116,34 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 
 ## 4. Findings in Hermetrix
 
-### 4.1 Implementation ครบแล้ว — แต่หลักฐานยังไม่ครบ
-
-รอบตรวจแรกใช้ *ชื่อ test* เป็นหลักฐาน รอบที่สองอ่าน **เนื้อ assertion** จริง ผลคือหลายข้ออ่อนกว่าที่ประกาศไว้
+### 4.1 finding ที่ปิดแล้ว
 
 เกรดหลักฐาน: **A** = assertion ตรวจ behavior ตรงและจะ fail ถ้าถอย behavior ออก · **B** = ตรวจบางส่วน · **C** = มี test แต่ไม่ครอบ mechanism หลัก · **D** = ไม่มี test
 
-**finding ถือว่าปิดได้เมื่อ implementation ครบและหลักฐานเป็นเกรด A เท่านั้น**
+**finding ปิดได้เมื่อ implementation ครบและหลักฐานเป็นเกรด A** ทุกเกรด A ด้านล่างผ่าน mutation test แล้ว — ปิด guard ทิ้งแล้ว test ที่อ้างต้องเป็นสีแดง
 
-| Finding รอบแรก | Implementation | เกรด | ปิดจริง? | ช่องว่าง |
-|---|---|---|---|---|
-| **P0-1** turn lease | ครบ — `acquireTurn` CAS `internal/agent/service.go:324`; recovery `:1066`; schema `internal/store/store.go:759` | **C** | ยัง | test เป็น deterministic sequencing ไม่ใช่ race — block request แรกใน HTTP handler แล้วยิง turn ที่สองแบบ synchronous ความปลอดภัยมาจาก SQL CAS + single-connection SQLite ไม่ใช่จาก test → **V-1** |
-| **P0-2** SessionContract | ครบ — `buildSessionContract` `:144`; `initializeSessionSkills` `:363`; `compileTurn` `:1148` | **A** | **ปิดแล้ว** | test promote version ใหม่กลาง session แล้ว assert ว่า system prompt ยังมี `FROZEN_VERSION_ONE` ไม่มี `NEW_VERSION_TWO` และ binding ไม่ drift |
-| **P0-3** learning outbox | ครบ — `StageTrigger` `internal/learning/service.go:55`; `DrainPending` `:86`; hook `internal/agent/service.go:1431`/`:1480`/`:309` | **D** | ยัง | ไม่มี test ใดแตะ outbox → **O-4 / V-2** |
-| **P0-4** qualification gate | ครบ — `contextTier` `internal/qualification/service.go:341`; `resolveQualification` `internal/agent/service.go:130` | **B** | ยัง | assert แค่ reject-without-qualification และ freeze run ID **ไม่ assert override path เลย** ทั้งที่ชื่อ test บอกว่า `OrReviewedOverride`; ไม่ทดสอบ expiry; ไม่ทดสอบ gating ของ 128k/256k/1M; ไม่ทดสอบ revision staleness → **V-4** |
-| **P1-4** GC restore | ครบ — `RestoreGC` `internal/curator/maintenance.go:188`; compensating rollback `:174` | **B** | ยัง | test ครอบ stale guard, quarantine และ convergence ของ `partial_quarantine` แต่สร้าง state นั้นด้วย `UPDATE` ตรง ๆ จึง**ไม่เคยรัน compensating rollback path จริง** → **V-5** |
-| **P1-6** TaskBudget | **ครบกว่าที่เอกสารเคยอ้าง** — enforce ครบสี่มิติ (model steps `:504`, tool calls `:508`, cumulative tokens `:494`, wall time `:294`) และมี loop detector หยุด identical call ครั้งที่สาม `:514` | **D** | ยัง | grep หา `TaskBudget`/`MaxModelSteps`/`MaxToolCalls`/`MaxWallTime`/`MaxCumulative` ใน test ทั้งโครงการได้ศูนย์ผลลัพธ์ → **V-3** |
-
-**สรุป:** จากหก finding มี **หนึ่งข้อ (P0-2) ที่หลักฐานถึงเกรด A**
-
-implementation ไม่ได้ผิด — อ่านโค้ดแล้วทั้งหกข้อทำถูกตามสัญญา และ P1-6 ทำมากกว่าที่เอกสารเคยอ้าง สิ่งที่ขาดคือ **หลักฐานว่าจะไม่ถอยกลับ** งานที่ตามมาคือ V-1 ถึง V-6 ซึ่งเป็นงานเขียน test ทั้งหมด ประมาณ 3.5 วัน-คน
-
-**ข้อสังเกตเรื่องกระบวนการ:** พบชื่อ test สองตัวที่สัญญามากกว่าที่ assertion ตรวจ (`TestConcurrentTurnsCommitOnlyOneUserEvent`, `TestSessionRequiresExactQualificationOrReviewedOverride`) ซึ่งเป็นต้นเหตุที่ audit รอบแรกให้เครดิตเกินจริง ดู V-6
+| Finding | เกรดรอบแรก | เกรดตอนนี้ | หลักฐาน |
+|---|---|---|---|
+| **P0-1** turn lease | C | **A** | `TestConcurrentTurnsNeverDoubleCommitUnderRace` ปล่อย 4 goroutine เข้า `RunTurn` พร้อมกัน 100 รอบโดยไม่ block เทียม; test เดิมถูกเปลี่ยนชื่อเป็น `TestSecondTurnIsRejectedWhileFirstHoldsLease` ตามขอบเขตจริง<br>mutation: ปิด rows-affected guard ใน `acquireTurn` ทำให้ pass 0.6s กลายเป็น timeout 60s |
+| **P0-2** SessionContract | A | **A** | `TestSessionUsesFrozenSkillVersionAfterLaterPromotion` promote version ใหม่กลาง session แล้ว assert byte ใน system prompt |
+| **P0-3** learning outbox | D | **A** | 6 เคสบนเส้นทาง turn จริง: stage+drain, ไม่มี evidence ไม่ stage, drain ซ้ำไม่เพิ่ม job, failed turn stage เฉพาะที่มี evidence และ digest ยังรายงาน `outcome=failure`, stage ซ้ำ milestone เดิมถูก ignore, drain 4 ตัวพร้อมกัน claim ได้ตัวละครั้ง<br>mutation: ตัด producer, ตัด drain, ตัด `INSERT OR IGNORE`, ตัด claim guard — แดงทุกตัว |
+| **P0-4** qualification gate | B | **A** | 6 เคส: override ไม่มี actor/reason/blank/ยาวเกิน ถูก reject, override ถูก freeze พร้อม expiry ใน 24 ชม., override หมดอายุ block turn ถัดไป, qualification 64k ไม่เปิด 128k/256k/1M, qualification จาก provider revision อื่นไม่ eligible, compact-32k เปิดเป็น compatibility<br>mutation: pin profile lookup เป็น `certified-64k` ทำให้ 128k เปิดได้บน qualification 64k — แดง |
+| **P1-4** GC restore | B | **A (มีข้อยกเว้นบันทึกไว้)** | `TestGCRestoresMovedBlobsWhenQuarantineFailsMidway` บล็อกปลายทางของ candidate สุดท้ายด้วย directory ทำให้ apply ล้มหลังย้าย blob ไปแล้วบางส่วน แล้ว assert ว่าคืนครบและ run กลับเป็น `planned`<br>mutation: ลบ restore loop — แดง<br>**ข้อยกเว้น:** rows-affected guard บน UPDATE สุดท้าย (`maintenance.go:163`) ยังไม่มี test เพราะ guard ก่อนหน้าดักไปก่อน บันทึกไว้ใน comment ของ test ไม่เคลมว่าครอบ |
+| **P1-6** TaskBudget | D | **A** | 6 เคส: model step, tool call, cumulative token, wall time (พร้อม assert ว่า lease ถูกปลด), loop detector หยุดครั้งที่สาม, loop detector ไม่รวม signature ที่ต่างกัน<br>mutation: ปิดทั้งห้า guard — แดงทุกตัว |
+| **O-3** tool token accounting | — | **A** | `ContextSpecs` นับ payload เดียวกับที่ `ProviderDefinitions` ส่ง วัดได้ว่าเดิมนับต่ำไป **79%** (1,766 vs 3,156 bytes); ตัวเลขจริงคือ 840 token จาก budget 3,584 ของ compact-32k |
+| **O-5** dead code | — | **ปิด** | ลบ `selectSkills` และเพิ่ม `.golangci.yml` (`unused`, `staticcheck`) + GitHub Actions CI ที่รัน gofmt/build/vet/test/race/lint/`node --check` — repo ไม่เคยมี CI มาก่อน |
+| **O-6** recall ต่อ tier | — | **A** | probe ปลูก sentinel ที่ 0/25/50/75/100% แล้วบังคับให้คืนครบทุกจุด; runtime ที่คืนเฉพาะหัวได้ tier `limited` และ `eligible=false`<br>mutation: ผ่อนจาก “ครบทุกจุด” เป็น “อย่างน้อยหนึ่งจุด” — แดง |
+| **O-1** version control | — | **ปิด** | repo อยู่ที่ `github.com/ponthepmk/hermetrix-harness` แล้ว |
+| **V-6** test naming | — | **ปิด** | กฎอยู่ใน [DECISIONS.md](DECISIONS.md) ข้อ 5; เปลี่ยนชื่อ test สองตัวที่สัญญาเกินขอบเขต |
 
 ### 4.2 ยังเปิดอยู่
 
-รายละเอียดเต็มและมาตรการอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) หัวข้อ *Findings ที่ยังเปิดอยู่จริง* และ *Risk register*
-
-| ID | เรื่อง | severity | หลักฐาน |
+| ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
-| **O-1** | ไม่มี `.git` ใน `Hermetrix-harness/` ทั้งที่มี source 19,693 บรรทัด | critical | ไม่มี history/rollback/bisect และ audit อ้าง commit ของ Hermetrix ไม่ได้ ต่างจาก Aetox/Hermes ที่อ้าง SHA ได้ |
-| **O-2** | Skill retrieval เป็น prompt injection ที่เลือกครั้งเดียวจาก goal แรก แทน tool-based progressive disclosure แบบต้นแบบทั้งสอง | high | `internal/agent/service.go:387`; เทียบ `../../Aetox/README.md:298-331` และ `../../hermes-agent/tools/skills_tool.py` |
-| **O-3** | tool-schema token accounting ต่ำกว่าจริง — `ContextSpecs()` ทิ้ง description และ function wrapper | high | `internal/tools/registry.go:158` เทียบกับ `ProviderDefinitions()` ที่ `:150` ซึ่งส่ง description ออกไปจริง |
-| **O-4** | outbox path ไม่มี test | medium | ไม่มีคำว่า outbox ปรากฏใน `internal/learning/service_test.go` หรือ test ใดในโครงการ |
-| **O-5** | `(*Service).selectSkills` เป็น dead code ที่ยังอ่าน live `CurrentVersionID` | medium | `internal/agent/service.go:1243`, `:1260`; ไม่มีผู้เรียก และ `go vet` ไม่จับ |
-| **O-6** | `LongContextRecall` เป็น bool เดียวสำหรับทุก tier ตั้งแต่ 32k ถึง 1M | medium | `internal/qualification/service.go:342`; ขัดกับ ADR-5 ที่ระบุว่า 1M ต้องผ่าน chunk-position recall และ long-run stability |
-| **O-7** | documentation drift | medium | audit/plan/roadmap ระบุ P0 ค้างทั้งที่ปิดแล้ว; test count เขียน 89 ค่าจริง 96; UI ยังใช้ label `Office` — `internal/web/ui/index.html:21`, `:62` |
+| **O-2** | Skill retrieval เป็น prompt injection ที่เลือกครั้งเดียวจาก goal แรก แทน tool-based progressive disclosure แบบต้นแบบทั้งสอง | high | ADR-7 `accepted` งานอยู่ใน Phase 7.2 — เงื่อนไขนำหน้า (O-3) ปิดแล้ว จึงเริ่มได้ |
+| **O-7** | documentation drift | medium | มี `scripts/doc-truth.sh` สองชั้นแล้ว (facts + claim registry) claim registry จับ anchor ที่หายได้จริงตั้งแต่รันครั้งแรก; ข้อความเชิงความหมายยังต้องให้คนไล่ |
+| **P-3** | exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้ | medium | ยังไม่ทำ gate audit |
+| **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |
 
 ### 4.3 Findings เดิมที่ยังคงสถานะ
 
@@ -200,10 +192,13 @@ tab names ปัจจุบันไม่เท่ากับ function parity
 ```text
 go build ./...               passed
 go vet ./...                 passed
-go test ./...                96 test functions, 17 packages, 0 failed
+go test ./...                122 test functions, 0 failed
 go test -race ./...          passed
 node --check internal/web/ui/app.js   passed
+./scripts/doc-truth.sh check passed
 ```
+
+ตัวเลขทั้งหมดในเอกสารนี้ generate จาก `./scripts/doc-truth.sh` ไม่ได้พิมพ์มือ
 
 สิ่งที่ test ปัจจุบัน **ยืนยันแล้ว** (เพิ่มจากรอบแรก):
 

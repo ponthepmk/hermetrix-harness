@@ -42,9 +42,9 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - direct background process มี no-shell/path/deadline/output/cancel hardening แต่ยังไม่ใช่ OS-level sandbox
 - MCP stdio/resources/prompts/OAuth/subscriptions/MRTR และ plugin/dynamic catalog adapters
 - semantic local-LLM compactor; ปัจจุบัน verifier/fallback พร้อมและ fidelity lab ใช้ deterministic task assertions
-- runtime-specific RAM/VRAM/OOM telemetry และ exact tokenizer adapters; direct-tool token accounting ปัจจุบันยังไม่รวม description และ provider function wrapper
-- Skill body ยัง inject เข้า prompt ล่วงหน้าโดยเลือกจาก goal ของ turn แรก ยังไม่มี `skill_search`/`skill_view` แบบ tool-based progressive disclosure
-- หลักฐาน long-context recall ยังเป็น flag เดียวสำหรับทุก tier ตั้งแต่ 32k ถึง 1M
+- runtime-specific RAM/VRAM/OOM telemetry และ exact tokenizer adapters; direct-tool accounting นับ payload จริงแล้วแต่ยังใช้ heuristic estimator ไม่ใช่ tokenizer ของ model
+- Skill body ยัง inject เข้า prompt ล่วงหน้าโดยเลือกจาก goal ของ turn แรก ยังไม่มี `skill_search`/`skill_view` แบบ tool-based progressive disclosure (ADR-7)
+- long-context recall probe ปลูก sentinel ห้าตำแหน่งแล้ว แต่ยังไม่เคยรันกับ local model จริงที่ 128k ขึ้นไป
 - managed browser workbench, native desktop packaging/signing และ mobile UI
 
 ทุก surface ที่แสดงใน navigation ปัจจุบันมี API/persistence จริง Projects, Office และ Artifacts ไม่ใช่ placeholder แล้ว แต่ label `Office` ยังกว้างกว่าความสามารถจริงซึ่งคือ background command jobs — มีแผนเปลี่ยนเป็น `Background Jobs`

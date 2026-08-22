@@ -95,12 +95,12 @@ For deterministic manual/E2E MCP QA, run `python3 scripts/e2e/mcp_fixture.py` on
 
 ## Known gaps
 
-This is a vertical slice with closed kernel correctness, not a finished product. The gaps that matter most right now:
+This is a vertical slice, not a finished product. Kernel correctness is closed and every claim behind it is
+mutation-tested — disabling a guard turns its test red. The gaps that matter most right now:
 
 - Skill bodies are injected into the prompt from the first turn's goal rather than fetched on demand through a tool, unlike both reference harnesses;
-- direct-tool token accounting omits tool descriptions and the provider function wrapper, so the budget numbers carry an unmeasured error band;
-- several kernel invariants are implemented but unverified — the learning trigger outbox, the task budget and its loop detector have no test coverage at all, the turn lease has only a sequencing test rather than a race test, and the qualification override path is never asserted despite being named in a test;
-- long-context recall is recorded as a single flag rather than per-tier evidence;
+- token estimation still has no exact per-model tokenizer, so budget numbers carry a calibrated error band rather than an exact one;
+- long-context recall now probes five positions across the envelope, but only against fixtures; no real local model has been qualified at 128k or above;
 - there is no OS-level sandbox, no authenticated principal and no managed browser or native shell.
 
 Each gap has an ID, evidence down to file and line, and a mitigation phase. See [docs/AETOX-HERMES-TRACEABILITY-AUDIT.md](docs/AETOX-HERMES-TRACEABILITY-AUDIT.md) section 4.2 and the risk register in [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md).

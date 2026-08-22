@@ -30,22 +30,22 @@
 | ADR | เรื่อง | สถานะ | เกรด | หลักฐาน / งานที่เหลือ |
 |---|---|---|---|---|
 | ADR-1 | Immutable SessionContract | `partial` | **A** | `buildSessionContract` — `internal/agent/service.go:144`; `TestSessionUsesFrozenSkillVersionAfterLaterPromotion` promote version ใหม่กลาง session แล้ว assert ว่า system prompt ยังเป็น version เดิมและ binding ไม่ drift — หลักฐานระดับ behavior จริง<br>เหลือขอบเขต: desk/surface ceiling และ memory/identity revision (Phase 11) |
-| ADR-2 | Persisted TurnLease | `partial` | **C** | `acquireTurn` CAS — `internal/agent/service.go:324`; recovery — `:1066`<br>test ที่มีเป็น deterministic sequencing ไม่ใช่ race — block request แรกใน HTTP handler แล้วยิง turn ที่สองแบบ synchronous ความปลอดภัยมาจาก SQL CAS + single-connection SQLite ไม่ใช่จาก test<br>เหลือ: **V-1** race test 100 รอบใต้ `-race` |
-| ADR-3 | Authority ladder สำหรับ Skill | `partial` | **B** | candidate-only lifecycle, promotion transaction, replay/weakened-test/stale-revision gate มีครบและมี test<br>เหลือ: sandboxed behavioral eval ชั้นก่อน human review (Phase 8); outbox path ไม่มี test เลย (**O-4 / V-2**) |
-| ADR-4 | Narrow capability waist | `partial` | **B** | direct primitives 6 ตัว — `internal/tools/registry.go:97`; deferred catalog `tool_search`/`tool_describe`/`tool_call`; 1,500-tool scale test พิสูจน์ว่า catalog ไม่ทำให้ prompt โต<br>เหลือ: token accounting ที่นับจริง (**O-3**) — ตราบใดที่ยังนับต่ำกว่าจริง คำว่า “อยู่ใต้ ceiling” ยังพิสูจน์ไม่ได้ |
-| ADR-5 | Certified context, not declared context | `partial` | **B** | `contextTier`/`contextCapacity` — `internal/qualification/service.go:341`; `resolveQualification` + expiring override — `internal/agent/service.go:130`; test assert reject-without-qualification และ freeze run ID<br>เหลือ: **V-4** override path/expiry/tier gating/revision staleness ไม่ถูก assert เลย; **O-6** หลักฐาน recall แยกต่อ tier |
+| ADR-2 | Persisted TurnLease | `implemented` | **A** | `acquireTurn` CAS — `internal/agent/service.go:324`; recovery — `:1066`<br>`TestConcurrentTurnsNeverDoubleCommitUnderRace` ปล่อย 4 goroutine พร้อมกัน 100 รอบใต้ `-race`; `TestSecondTurnIsRejectedWhileFirstHoldsLease` ครอบ error message<br>mutation: ปิด rows-affected guard — timeout + FAIL |
+| ADR-3 | Authority ladder สำหรับ Skill | `partial` | **A** | candidate-only lifecycle, promotion transaction, replay/weakened-test/stale-revision gate มีครบและมี test; outbox path มี 6 เคสและผ่าน mutation test (O-4/V-2 ปิด)<br>เหลือขอบเขต: sandboxed behavioral eval ชั้นก่อน human review (Phase 8) |
+| ADR-4 | Narrow capability waist | `implemented` | **A** | direct primitives 6 ตัว — `internal/tools/registry.go:97`; deferred catalog `tool_search`/`tool_describe`/`tool_call`; 1,500-tool scale test<br>token accounting นับ payload จริงแล้ว (O-3 ปิด): 840 token จาก budget 3,584 ของ compact-32k คำว่า “อยู่ใต้ ceiling” พิสูจน์ได้แล้ว |
+| ADR-5 | Certified context, not declared context | `implemented` | **A** | `contextTier`/`contextCapacity`; `resolveQualification` + expiring override — `internal/agent/service.go:130`<br>override path ครบ 6 เคส (V-4 ปิด); recall probe ปลูก sentinel ห้าตำแหน่งและบังคับคืนครบ (O-6 ปิด)<br>mutation: pin profile lookup, ผ่อน recall เป็น any-position — แดงทั้งคู่ |
 | ADR-6 | Clean-room product implementation | `policy` | **—** | ไม่มี Aetox source/asset/branding ใน tree; requirement source แยกอยู่ที่ [`../../Hermetrix-research`](../../Hermetrix-research/README.md); third-party notices ครบ<br>วัดด้วย compliance review ตอนปิด phase ไม่ใช่ test |
-| ADR-7 | Skill retrieval เป็น tool ไม่ใช่ prompt injection | `accepted` | **—** | ยังไม่มีโค้ด ปิด **O-2** งานอยู่ใน Phase 7.2 ต้องรอ 7.1-1 (exact token accounting) ก่อน<br>มีเกณฑ์ถอย: `no_skill_requested_rate` > 50% ต่อ model tier ถือว่า pull ล้มเหลวสำหรับ tier นั้น (**R-14**) |
+| ADR-7 | Skill retrieval เป็น tool ไม่ใช่ prompt injection | `accepted` | **—** | ยังไม่มีโค้ด ปิด **O-2** งานอยู่ใน Phase 7.2<br>**เงื่อนไขนำหน้าปิดแล้ว:** O-3 token accounting เสร็จ และวัดได้ว่า direct tools ใช้ 840 จาก 3,584 token จึงมีที่ว่างสำหรับอีกสอง primitive<br>มีเกณฑ์ถอย: `no_skill_requested_rate` > 50% ต่อ model tier (**R-14**) |
 | ADR-8 | Scope discipline: WIP limit | `policy` | **—** | แก้จากฉบับแรกที่เขียนเป็นกฎห้ามซึ่งใช้ไม่ได้ (**P-2**) ฉบับปัจจุบันเป็น WIP limit สองตัวพร้อมตารางนิยาม `qualified` ต่อ subsystem<br>WIP ที่จัดสรรตอนนี้: Session/turn authority และ Provider/qualification |
 
 ## สรุปสถานะ
 
-- `implemented`: **ศูนย์**
-- `partial`: ADR-1 ถึง ADR-5
+- `implemented`: ADR-2, ADR-4, ADR-5
+- `partial`: ADR-1 (เกรด A แล้ว เหลือขอบเขต desk/memory revision ที่ผูกกับ Phase 11), ADR-3 (เกรด A แล้ว เหลือ behavioral eval ใน Phase 8)
 - `policy`: ADR-6, ADR-8
 - `accepted`: ADR-7
 
-ADR ที่ใกล้ `implemented` ที่สุดคือ **ADR-1** ซึ่งมีหลักฐานเกรด A แล้ว เหลือเพียงขอบเขตที่ผูกกับ Phase 11
+ADR ทุกข้อที่มีโค้ดตอนนี้มีหลักฐานเกรด A และผ่าน mutation test แล้ว สองข้อที่ยัง `partial` ติดที่ **ขอบเขตของ ADR** ไม่ใช่คุณภาพหลักฐาน
 
 ## ข้อตกลงเรื่องเอกสาร
 
