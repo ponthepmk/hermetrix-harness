@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -65,8 +66,25 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registry.Definitions()) != 6 || len(registry.ProviderDefinitions()) != 6 || len(registry.ContextSpecs()) != 6 {
-		t.Fatal("expected three workspace tools and three deferred capability primitives")
+	// Assert the exact set rather than a bare count. A count alone fails on any
+	// deliberate change and says nothing about what leaked in; the set fails
+	// only when the waist actually changes, and names the offender.
+	want := []string{
+		"skill_search", "skill_view", // session-scoped Skill retrieval
+		"tool_call", "tool_describe", "tool_search", // deferred capability catalog
+		"workspace.list_files", "workspace.read_file", "workspace.write_file",
+	}
+	var got []string
+	for _, definition := range registry.Definitions() {
+		got = append(got, definition.Name)
+	}
+	sort.Strings(want)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("direct tool waist is\n  %v\nwant\n  %v", got, want)
+	}
+	if len(registry.ProviderDefinitions()) != len(want) || len(registry.ContextSpecs()) != len(want) {
+		t.Fatalf("provider definitions %d and context specs %d disagree with %d definitions",
+			len(registry.ProviderDefinitions()), len(registry.ContextSpecs()), len(want))
 	}
 	if registry.Revision() == "" || registry.Revision() != registry.Revision() {
 		t.Fatal("capability revision must be deterministic")

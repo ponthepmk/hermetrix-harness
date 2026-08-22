@@ -32,7 +32,7 @@
 - Hermes background learning/curator/MCP breadth: **Partial**
 - local-model harness ที่พร้อมใช้ต่อเนื่อง: **Not yet production-ready**
 
-O-1, O-3, O-4, O-5, O-6, V-1 ถึง V-6 ปิดหมดแล้ว งานถัดไปที่เหลือคือ **O-2 / ADR-7 Skill retrieval** ซึ่งเงื่อนไขนำหน้า (O-3 token accounting) ปิดแล้วจึงเริ่มได้
+finding ทุกข้อที่ audit ตั้งไว้ปิดหมดแล้ว: O-1 ถึง O-7 และ V-1 ถึง V-6 งานถัดไปเป็นเรื่องของแผน ไม่ใช่หนี้จาก audit นี้ — gate audit ของ Phase 8–14 (P-3), effort band ที่ calibrate จาก velocity จริง (P-4) และ metric `no_skill_requested_rate` (R-14)
 
 ## วิธีอ่านสถานะ
 
@@ -97,7 +97,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | Session capability | desk fixed for session | capability/session scoped | `SessionContract` freeze provider/model/profile/policy/capability/skill catalog + `TaskBudget`; `StepBinding` freeze ต่อ sampling step | **Correct** — desk/surface ceiling ยังรอ product shell |
 | Prompt caching | prompt bootstrap-only; learning next session | byte-stable conversation | Skill เลือกครั้งเดียวต่อ session แล้ว freeze ใน contract; `compileTurn` อ่านเฉพาะ contract | **Correct** — มี `TestSessionUsesFrozenSkillVersionAfterLaterPromotion` |
 | Direct tool budget | desk-narrowed 40 tools, enforced ceiling | narrow waist/toolsets/plugins/MCP | 6 direct tools; catalog defer เป็น search/describe/call | **Correct**, แต่ token accounting ยังไม่ครบ provider serialization |
-| Skill disclosure | `skills_list` → `skill_view` เป็น **tool** | `skills_list` / `skill_view` เป็น **tool** | inject body สูงสุด 3 Skills เข้า prompt โดยเลือกจาก goal ของ turn แรกเท่านั้น | **Contradiction** (O-2) — ต้นแบบทั้งสองใช้ tool-based disclosure; Hermetrix ใช้ prompt injection ทำให้ session ที่เปลี่ยนหัวข้อไม่ได้ Skill ที่ตรง ดู ADR-7 |
+| Skill disclosure | `skills_list` → `skill_view` เป็น **tool** | `skills_list` / `skill_view` เป็น **tool** | `skill_search` → `skill_view` เป็น tool บน catalog ที่ freeze ต่อ session; pre-selection จาก goal แรกยังคงไว้เป็น floor | **Correct** — ตรงรูปแบบต้นแบบทั้งสองแล้ว และเข้มกว่าตรงที่ version นอก session contract ถูกปฏิเสธ ไม่ fallback ไป latest |
 | Skill authority | memory proposal + human approval | agent CRUD + guards/approval | candidate-only, immutable versions, promote by human, protected fork | **Adapted; safer default** |
 | Skill replay | product behavior/testing | Skill package guidance | deterministic lexical fixtures + baseline diff | **Partial** — lifecycle gate จริง แต่ไม่ใช่ agent/tool behavioral eval |
 | Learning producer | memory proposal + repeated-failure producer | background review/skill manage | `learning_trigger_outbox` + `StageTrigger` ใน transaction เดียวกับ turn commit + `DrainPending` หลัง turn | **Correct**, แต่ยังไม่มี test ครอบ path นี้เลย (O-4) |
@@ -140,7 +140,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 
 | ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
-| **O-2** | Skill retrieval เป็น prompt injection ที่เลือกครั้งเดียวจาก goal แรก แทน tool-based progressive disclosure แบบต้นแบบทั้งสอง | high | ADR-7 `accepted` งานอยู่ใน Phase 7.2 — เงื่อนไขนำหน้า (O-3) ปิดแล้ว จึงเริ่มได้ |
+| **R-14** | ยังไม่มี metric `no_skill_requested_rate` จึงวัดเกณฑ์ถอยของ ADR-7 ไม่ได้ — ไม่รู้ว่า model เล็กเรียก `skill_search` จริงแค่ไหน | medium | ต้องมีก่อนสรุปว่า pull ใช้ได้กับ local model tier ที่รองรับ |
 | **O-7** | documentation drift | medium | มี `scripts/doc-truth.sh` สองชั้นแล้ว (facts + claim registry) claim registry จับ anchor ที่หายได้จริงตั้งแต่รันครั้งแรก; ข้อความเชิงความหมายยังต้องให้คนไล่ |
 | **P-3** | exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้ | medium | ยังไม่ทำ gate audit |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |

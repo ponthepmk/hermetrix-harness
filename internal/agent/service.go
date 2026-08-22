@@ -653,7 +653,14 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			return &approval, nil
 		}
 		toolCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		receipt := s.tools.Execute(toolCtx, call)
+		var receipt toolruntime.Receipt
+		if call.Name == "skill_search" || call.Name == "skill_view" {
+			// Session-scoped: the frozen contract decides what is visible, so
+			// the registry cannot answer these on its own.
+			receipt = s.executeSkillTool(toolCtx, session, turnID, call, definition)
+		} else {
+			receipt = s.tools.Execute(toolCtx, call)
+		}
 		cancel()
 		if err := s.persistToolResult(ctx, session, provider, turnID, binding, receipt, emit); err != nil {
 			return nil, err
@@ -1682,4 +1689,126 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+// --- ADR-7: Skill retrieval as a tool ---
+//
+// Skill bodies used to be injected into the prompt from the first turn's goal
+// and never revisited, so a session that changed topic could not reach the
+// procedure it needed. These two primitives let the model pull instead, while
+// the frozen catalog still decides what exists: a version promoted after the
+// session opened stays invisible, and the prompt prefix never changes.
+
+type skillSearchResult struct {
+	SkillID   string `json:"skill_id"`
+	VersionID string `json:"version_id"`
+	Name      string `json:"name"`
+	Summary   string `json:"summary,omitempty"`
+	Pinned    bool   `json:"pinned,omitempty"`
+	Preloaded bool   `json:"preloaded,omitempty"`
+}
+
+func (s *Service) executeSkillTool(ctx context.Context, session Session, turnID string,
+	call providers.ToolCall, definition toolruntime.Definition) toolruntime.Receipt {
+	started := time.Now()
+	receipt := toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision,
+		Effect: definition.Effect, Status: "failed"}
+	finish := func() toolruntime.Receipt {
+		receipt.DurationMS = time.Since(started).Milliseconds()
+		return receipt
+	}
+	if s.skills == nil {
+		receipt.Error = "no Skill service is configured"
+		return finish()
+	}
+	if call.Name == "skill_search" {
+		var arguments struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(call.Arguments))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&arguments); err != nil {
+			receipt.Error = "decode skill_search arguments: " + err.Error()
+			return finish()
+		}
+		if strings.TrimSpace(arguments.Query) == "" {
+			receipt.Error = "skill_search requires a query"
+			return finish()
+		}
+		limit := arguments.Limit
+		if limit <= 0 || limit > 10 {
+			limit = 5
+		}
+		preloaded := map[string]bool{}
+		for _, binding := range session.Contract.SelectedSkills {
+			preloaded[binding.VersionID] = true
+		}
+		results := []skillSearchResult{}
+		for _, binding := range selectSkillBindings(arguments.Query, session.Contract.SkillCatalog) {
+			if len(results) == limit {
+				break
+			}
+			results = append(results, skillSearchResult{SkillID: binding.SkillID, VersionID: binding.VersionID,
+				Name: binding.CanonicalName, Summary: boundedText(binding.Summary, 400), Pinned: binding.Pinned,
+				Preloaded: preloaded[binding.VersionID]})
+		}
+		encoded, err := json.Marshal(map[string]any{"results": results, "catalog_size": len(session.Contract.SkillCatalog),
+			"contract_revision": session.Contract.Revision})
+		if err != nil {
+			receipt.Error = err.Error()
+			return finish()
+		}
+		receipt.Status, receipt.Output = "succeeded", string(encoded)
+		receipt.Metadata = map[string]any{"results": len(results), "catalog_size": len(session.Contract.SkillCatalog)}
+		return finish()
+	}
+
+	var arguments struct {
+		SkillID   string `json:"skill_id"`
+		VersionID string `json:"version_id"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(call.Arguments))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&arguments); err != nil {
+		receipt.Error = "decode skill_view arguments: " + err.Error()
+		return finish()
+	}
+	// The frozen catalog is the whole authority here. Falling back to the
+	// current active version would reintroduce mid-session drift, which is
+	// exactly what ADR-1 exists to prevent.
+	var match *SessionSkillBinding
+	for index := range session.Contract.SkillCatalog {
+		binding := &session.Contract.SkillCatalog[index]
+		if binding.SkillID == arguments.SkillID && binding.VersionID == arguments.VersionID {
+			match = binding
+			break
+		}
+	}
+	if match == nil {
+		receipt.Error = "skill version is not part of this session contract; call skill_search first"
+		return finish()
+	}
+	version, err := s.skills.GetVersion(ctx, match.VersionID)
+	if err != nil {
+		receipt.Error = "load skill version: " + err.Error()
+		return finish()
+	}
+	if _, err := s.skills.RecordActivation(ctx, skills.ActivationInput{SessionID: session.ID, TurnID: turnID,
+		SkillID: match.SkillID, VersionID: match.VersionID, SelectionSource: "skill_view_v1",
+		SelectionReason: "model_requested", MetadataExposed: true, BodyInjected: true, Outcome: "unknown",
+		OutcomeSource: "runtime_completion", AttributionKind: "exposure_only"}); err != nil {
+		receipt.Error = "record activation: " + err.Error()
+		return finish()
+	}
+	encoded, err := json.Marshal(map[string]any{"skill_id": match.SkillID, "version_id": match.VersionID,
+		"name": match.CanonicalName, "body": version.Markdown})
+	if err != nil {
+		receipt.Error = err.Error()
+		return finish()
+	}
+	receipt.Status, receipt.Output = "succeeded", string(encoded)
+	receipt.Metadata = map[string]any{"skill_id": match.SkillID, "version_id": match.VersionID,
+		"selection_reason": "model_requested"}
+	return finish()
 }

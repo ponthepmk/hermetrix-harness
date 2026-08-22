@@ -35,15 +35,15 @@
 | ADR-4 | Narrow capability waist | `implemented` | **A** | direct primitives 6 ตัว — `internal/tools/registry.go:97`; deferred catalog `tool_search`/`tool_describe`/`tool_call`; 1,500-tool scale test<br>token accounting นับ payload จริงแล้ว (O-3 ปิด): 840 token จาก budget 3,584 ของ compact-32k คำว่า “อยู่ใต้ ceiling” พิสูจน์ได้แล้ว |
 | ADR-5 | Certified context, not declared context | `implemented` | **A** | `contextTier`/`contextCapacity`; `resolveQualification` + expiring override — `internal/agent/service.go:130`<br>override path ครบ 6 เคส (V-4 ปิด); recall probe ปลูก sentinel ห้าตำแหน่งและบังคับคืนครบ (O-6 ปิด)<br>mutation: pin profile lookup, ผ่อน recall เป็น any-position — แดงทั้งคู่ |
 | ADR-6 | Clean-room product implementation | `policy` | **—** | ไม่มี Aetox source/asset/branding ใน tree; requirement source แยกอยู่ที่ [`../../Hermetrix-research`](../../Hermetrix-research/README.md); third-party notices ครบ<br>วัดด้วย compliance review ตอนปิด phase ไม่ใช่ test |
-| ADR-7 | Skill retrieval เป็น tool ไม่ใช่ prompt injection | `accepted` | **—** | ยังไม่มีโค้ด ปิด **O-2** งานอยู่ใน Phase 7.2<br>**เงื่อนไขนำหน้าปิดแล้ว:** O-3 token accounting เสร็จ และวัดได้ว่า direct tools ใช้ 840 จาก 3,584 token จึงมีที่ว่างสำหรับอีกสอง primitive<br>มีเกณฑ์ถอย: `no_skill_requested_rate` > 50% ต่อ model tier (**R-14**) |
+| ADR-7 | Skill retrieval เป็น tool ไม่ใช่ prompt injection | `implemented` | **A** | `skill_search`/`skill_view` เป็น direct primitive — `internal/tools/registry.go`; execution ผูก session contract — `executeSkillTool` ใน `internal/agent/service.go`<br>test: session ที่เปลี่ยนหัวข้อค้น Skill ที่ goal แรกไม่ได้เลือกเจอ, version ที่ promote หลังเปิด session ถูกปฏิเสธ, argument ผิดรูปถูก reject<br>mutation: ตัด contract gate, ตัด ranking — แดงทั้งคู่<br>direct tools 8 ตัว = 1,127 จาก 3,584 token ของ compact-32k<br>เหลือ: metric `no_skill_requested_rate` ยังไม่มี (**R-14**) จึงยังวัดเกณฑ์ถอยไม่ได้ |
 | ADR-8 | Scope discipline: WIP limit | `policy` | **—** | แก้จากฉบับแรกที่เขียนเป็นกฎห้ามซึ่งใช้ไม่ได้ (**P-2**) ฉบับปัจจุบันเป็น WIP limit สองตัวพร้อมตารางนิยาม `qualified` ต่อ subsystem<br>WIP ที่จัดสรรตอนนี้: Session/turn authority และ Provider/qualification |
 
 ## สรุปสถานะ
 
-- `implemented`: ADR-2, ADR-4, ADR-5
+- `implemented`: ADR-2, ADR-4, ADR-5, ADR-7
 - `partial`: ADR-1 (เกรด A แล้ว เหลือขอบเขต desk/memory revision ที่ผูกกับ Phase 11), ADR-3 (เกรด A แล้ว เหลือ behavioral eval ใน Phase 8)
 - `policy`: ADR-6, ADR-8
-- `accepted`: ADR-7
+- `accepted`: ไม่มี
 
 ADR ทุกข้อที่มีโค้ดตอนนี้มีหลักฐานเกรด A และผ่าน mutation test แล้ว สองข้อที่ยัง `partial` ติดที่ **ขอบเขตของ ADR** ไม่ใช่คุณภาพหลักฐาน
 

@@ -336,8 +336,15 @@ func TestEndToEndAgentSearchDescribeAndCallRealMCPServer(t *testing.T) {
 			t.Errorf("decode model request: %v", err)
 			return
 		}
-		if len(request.Tools) != 6 {
-			t.Errorf("direct tool prompt grew unexpectedly: %d", len(request.Tools))
+		// The point of the deferred catalog is that a 1,500-tool catalog does
+		// not reach the prompt. Assert the ceiling, not today's exact number.
+		if len(request.Tools) > 8 {
+			t.Errorf("direct tool prompt grew with the catalog: %d tools", len(request.Tools))
+		}
+		for _, tool := range request.Tools {
+			if strings.HasPrefix(tool.Function.Name, "mcp") || strings.Contains(tool.Function.Name, "fixture") {
+				t.Errorf("a catalog capability leaked into the direct prompt: %s", tool.Function.Name)
+			}
 		}
 		var last toolruntime.Receipt
 		for i := len(request.Messages) - 1; i >= 0; i-- {

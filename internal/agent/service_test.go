@@ -318,7 +318,7 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requestNumber == 1 {
-			if len(request.Tools) != 6 {
+			if len(request.Tools) != 8 {
 				t.Errorf("expected frozen direct tools, got %d", len(request.Tools))
 			}
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-list\",\"type\":\"function\",\"function\":{\"name\":\"workspace.list_files\",\"arguments\":\"{\\\"path\\\":\\\".\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
@@ -1278,6 +1278,153 @@ func TestConcurrentDrainsClaimEachTriggerOnce(t *testing.T) {
 	for _, row := range outboxRows(t, service, session.ID) {
 		if row.State != "processed" {
 			t.Fatalf("a trigger was left in state %q after draining", row.State)
+		}
+	}
+}
+
+// --- O-2 / ADR-7: Skill retrieval as a tool ---
+
+func seedSkill(t *testing.T, service *Service, name, marker string) skills.Skill {
+	t.Helper()
+	ctx := context.Background()
+	body := fmt.Sprintf("---\nname: %s\ndescription: \"Procedure for %s work\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. %s.\n",
+		name, name, marker)
+	candidate, err := service.skills.CreateCandidate(ctx, skills.CreateCandidateInput{CanonicalName: name,
+		ScopeKind: "user", Origin: "user_created", Owner: "user", ChangeKind: "create", CreatedBy: "test",
+		TriggerKind: "manual", Reason: "seed for retrieval test", Markdown: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := service.skills.PromoteCandidate(ctx, candidate.ID, "test", candidate.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return active
+}
+
+func callSkillTool(t *testing.T, service *Service, session Session, name, arguments string) toolruntime.Receipt {
+	t.Helper()
+	definition, ok := service.tools.Definitions()[0], false
+	for _, item := range service.tools.Definitions() {
+		if item.Name == name {
+			definition, ok = item, true
+		}
+	}
+	if !ok {
+		t.Fatalf("%s is not a direct primitive", name)
+	}
+	return service.executeSkillTool(context.Background(), session, "turn-test",
+		providers.ToolCall{ID: "call-" + name, Name: name, Arguments: arguments}, definition)
+}
+
+// The failure ADR-7 exists to fix: a session whose first goal was about one
+// topic could never reach a Skill about another.
+func TestSkillSearchReachesSkillsTheFirstGoalDidNotSelect(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	// Several decoys seeded before the target, so an unranked catalog walk
+	// cannot put the right Skill first by accident.
+	seedSkill(t, service, "database-migration", "MIGRATION_BODY")
+	seedSkill(t, service, "container-deployment", "DEPLOY_BODY")
+	seedSkill(t, service, "log-triage", "TRIAGE_BODY")
+	seedSkill(t, service, "release-checklist", "RELEASE_BODY")
+	seedSkill(t, service, "invoice-reconciliation", "INVOICE_BODY")
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "help me with a database migration"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err = service.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receipt := callSkillTool(t, service, session, "skill_search", `{"query":"invoice reconciliation"}`)
+	if receipt.Status != "succeeded" {
+		t.Fatalf("skill_search failed: %+v", receipt)
+	}
+	var found struct {
+		Results []skillSearchResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(receipt.Output), &found); err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Results) == 0 || found.Results[0].Name != "invoice-reconciliation" {
+		t.Fatalf("search did not reach the skill for the new topic: %+v", found.Results)
+	}
+	// A second, different query must also rank its own target first. One fixed
+	// catalog order cannot satisfy both, so this is ranking and not luck.
+	triage := callSkillTool(t, service, session, "skill_search", `{"query":"log triage"}`)
+	var second struct {
+		Results []skillSearchResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(triage.Output), &second); err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Results) == 0 || second.Results[0].Name != "log-triage" {
+		t.Fatalf("a second query was not ranked against its own terms: %+v", second.Results)
+	}
+	if strings.Contains(receipt.Output, "INVOICE_BODY") {
+		t.Fatal("skill_search returned a body; it must return metadata only")
+	}
+
+	view := callSkillTool(t, service, session, "skill_view",
+		fmt.Sprintf(`{"skill_id":%q,"version_id":%q}`, found.Results[0].SkillID, found.Results[0].VersionID))
+	if view.Status != "succeeded" || !strings.Contains(view.Output, "INVOICE_BODY") {
+		t.Fatalf("skill_view did not return the body: %+v", view)
+	}
+	if view.Metadata["selection_reason"] != "model_requested" {
+		t.Fatalf("activation reason is %v, want model_requested", view.Metadata["selection_reason"])
+	}
+}
+
+// Pull must not become a hole in the frozen contract. A version promoted after
+// the session opened stays invisible, exactly as it does in the prompt.
+func TestSkillViewRefusesVersionsOutsideTheSessionContract(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := seedSkill(t, service, "promoted-after-the-session", "LATER_BODY")
+
+	search := callSkillTool(t, service, session, "skill_search", `{"query":"promoted after the session"}`)
+	if search.Status != "succeeded" || strings.Contains(search.Output, later.ID) {
+		t.Fatalf("a skill promoted after the session opened appeared in search: %+v", search)
+	}
+	view := callSkillTool(t, service, session, "skill_view",
+		fmt.Sprintf(`{"skill_id":%q,"version_id":%q}`, later.ID, later.CurrentVersionID))
+	if view.Status != "failed" || !strings.Contains(view.Error, "not part of this session contract") {
+		t.Fatalf("skill_view served a version outside the contract: %+v", view)
+	}
+}
+
+func TestSkillToolsRejectMalformedArguments(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, arguments, wants string }{
+		{"skill_search", `{"query":""}`, "requires a query"},
+		{"skill_search", `{"query":"x","unexpected":1}`, "decode skill_search"},
+		{"skill_view", `{"skill_id":"missing","version_id":"missing"}`, "not part of this session contract"},
+		{"skill_view", `not json`, "decode skill_view"},
+	}
+	for _, testCase := range cases {
+		receipt := callSkillTool(t, service, session, testCase.name, testCase.arguments)
+		if receipt.Status != "failed" || !strings.Contains(receipt.Error, testCase.wants) {
+			t.Fatalf("%s with %s produced %+v", testCase.name, testCase.arguments, receipt)
 		}
 	}
 }
