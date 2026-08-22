@@ -1,6 +1,8 @@
 # Hermetrix Harness — Phase 0–7 Completion Report
 
-เอกสารนี้เป็น source of truth ของ build หลังปิดงาน Phase 0–7 วันที่ 22 สิงหาคม 2026 คำว่า “complete” หมายถึง behavior contract ใน vertical slice นี้มี code, persistence, API, UI และ test จริง ไม่ได้หมายความว่า breadth ทุกอย่างของ desktop agent เชิงพาณิชย์เสร็จแล้ว
+เอกสารนี้เป็นรายงานปิดงาน Phase 0–7 วันที่ 22 สิงหาคม 2026 คำว่า “complete” หมายถึง behavior contract ใน vertical slice นี้มี code, persistence, API, UI และ test จริง ไม่ได้หมายความว่า breadth ทุกอย่างของ desktop agent เชิงพาณิชย์เสร็จแล้ว
+
+> **historical report** — ไม่ใช่ source of truth ปัจจุบัน งาน correctness หลัง Phase 7 และ finding ที่ยังเปิดอยู่ดูที่ [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md); สถานะ ADR ดูที่ [DECISIONS.md](DECISIONS.md)
 
 ## Executive status
 
@@ -12,7 +14,7 @@
 | 3 Skill learning | deterministic replay, attribution, trigger policy, capability widening gate | regression/weakened-test/stale-revision tests + browser flow |
 | 4 Context fidelity | verified compactor fallback and bilingual full-vs-compiled evaluator | forced compaction + hallucinating compactor tests |
 | 5 Model qualification | context tier × tool grade, behavioral suite, explicit decision UX | real HTTP fixture and external gateway run |
-| 6 Product shell | Projects, project sessions, Office, Artifacts, settings, memory, usage, backup/import | direct process/cancel/backup E2E + browser flow |
+| 6 Product shell | Projects, project sessions, background jobs, Artifacts, settings, memory, usage, backup/import | direct process/cancel/backup E2E + browser flow |
 | 7 Maintenance | stale/duplicate findings, schedules, recoverable CAS GC | policy/stale snapshot/quarantine/restore tests |
 
 ## Phase 3 — Skill learning lifecycle
@@ -50,7 +52,7 @@ Qualification intentionally separates two axes:
 
 | Axis | Values | Required evidence |
 |---|---|---|
-| Context tier | `certified-64k`, `compact-32k`, `limited` | loaded runtime allocation plus long-context recall |
+| Context tier | `compact-32k`, `certified-64k`, `extended-128k`, `extended-256k`, `ultra-1m`, `limited` | loaded runtime allocation plus long-context recall |
 | Capability grade | A, B, C | tool/schema/recovery/deferred/cancellation behavior |
 
 The suite measures connectivity, provider usage calibration, a long-context sentinel, Thai instruction against an English JSON schema, native/sequential/malformed-recovery/deferred tools, cancellation, foreground preemption, TTFT, total latency and throughput. If a requested profile is not eligible the report sets `requires_decision`; it never changes profile/provider/tool mode silently.
@@ -71,7 +73,7 @@ The local web product now has working navigation and APIs for:
 
 - Chat with provider, exact context envelope and optional Project binding;
 - Projects with canonical root, bounded file browsing and symlink/path escape rejection;
-- Office with persisted direct commands, progress/state, cancel and restart interruption recovery;
+- background command jobs (labelled `Office` in the current UI) with persisted direct commands, progress/state, cancel and restart interruption recovery;
 - Artifacts backed by CAS checksums, including terminal logs;
 - Providers/MCP/Skills/Context/Fidelity control centers;
 - non-secret JSON settings, explicit user/project memory and event-derived usage;

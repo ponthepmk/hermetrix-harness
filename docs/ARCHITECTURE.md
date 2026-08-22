@@ -2,7 +2,7 @@
 
 เอกสารนี้อธิบาย implementation ปัจจุบันใน `Hermetrix-harness` และเส้นแบ่งที่ชัดเจนระหว่าง “ทำแล้ว” กับ “สถาปัตยกรรมระยะถัดไป” เป้าหมายหลักคือสร้างฐาน harness แบบ local-first ที่เรียนรู้ Skill ได้โดยไม่ drift และบีบ context ได้โดยไม่เสียสิ่งจำเป็นอย่างเงียบ ๆ
 
-Hermetrix รุ่นนี้เป็น clean-room implementation ใหม่ทั้งหมด งานวิจัยและ requirement มาจากเอกสารใน [`../../nuerix-harness`](../../nuerix-harness/README.md) แต่ไม่ได้คัดลอก source, asset หรือ branding ของ Aetox เนื่องจาก Aetox รุ่นที่ตรวจเป็น proprietary source-available และไม่อนุญาตการแก้ไข/สร้าง derivative product ตาม [`../../Aetox/LICENSE`](../../Aetox/LICENSE)
+Hermetrix รุ่นนี้เป็น clean-room implementation ใหม่ทั้งหมด งานวิจัยและ requirement มาจากเอกสารใน [`../../Hermetrix-research`](../../Hermetrix-research/README.md) แต่ไม่ได้คัดลอก source, asset หรือ branding ของ Aetox เนื่องจาก Aetox รุ่นที่ตรวจเป็น proprietary source-available และไม่อนุญาตการแก้ไข/สร้าง derivative product ตาม [`../../Aetox/LICENSE`](../../Aetox/LICENSE)
 
 ## สถานะของผลิตภัณฑ์
 
@@ -18,6 +18,10 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - local runtime context probe สำหรับ Ollama, LM Studio, vLLM และ llama.cpp
 - provider registry ที่เก็บเฉพาะ secret environment reference และรองรับ OpenAI-compatible streaming
 - append-only agent session/events, frozen context snapshots และ immutable `StepBinding`
+- immutable `SessionContract` ที่ freeze provider/model revision, context profile, policy/capability revision, Skill catalog, `CacheEpoch` และ `TaskBudget` ตอนเปิด session
+- persisted per-session turn lease ที่ acquire lease และ append user event ใน transaction เดียว พร้อม recovery ของ orphaned turn ตอน restart
+- `TaskBudget` แทน hard-coded step limit: model steps, tool calls, wall time และ cumulative tokens
+- learning trigger outbox ที่เขียน trigger ใน transaction เดียวกับ turn commit แล้ว drain เป็น review job แบบ idempotent
 - multi-step model/tool loop พร้อม bounded reads และ approval-gated atomic text write ที่มี path boundary, optimistic hash, deadline และ normalized receipt
 - deferred capability catalog ที่ prompt เห็นเพียง `tool_search`, `tool_describe`, `tool_call` โดยไม่โตตามจำนวน remote tools
 - MCP Streamable HTTP registry/client ที่รองรับ current stateless `2026-07-28` และ legacy handshake `2025-11-25`
@@ -38,10 +42,14 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - direct background process มี no-shell/path/deadline/output/cancel hardening แต่ยังไม่ใช่ OS-level sandbox
 - MCP stdio/resources/prompts/OAuth/subscriptions/MRTR และ plugin/dynamic catalog adapters
 - semantic local-LLM compactor; ปัจจุบัน verifier/fallback พร้อมและ fidelity lab ใช้ deterministic task assertions
-- runtime-specific RAM/VRAM/OOM telemetry และ exact tokenizer adapters
+- runtime-specific RAM/VRAM/OOM telemetry และ exact tokenizer adapters; direct-tool token accounting ปัจจุบันยังไม่รวม description และ provider function wrapper
+- Skill body ยัง inject เข้า prompt ล่วงหน้าโดยเลือกจาก goal ของ turn แรก ยังไม่มี `skill_search`/`skill_view` แบบ tool-based progressive disclosure
+- หลักฐาน long-context recall ยังเป็น flag เดียวสำหรับทุก tier ตั้งแต่ 32k ถึง 1M
 - managed browser workbench, native desktop packaging/signing และ mobile UI
 
-ทุก surface ที่แสดงใน navigation ปัจจุบันมี API/persistence จริง Projects, Office และ Artifacts ไม่ใช่ placeholder แล้ว
+ทุก surface ที่แสดงใน navigation ปัจจุบันมี API/persistence จริง Projects, Office และ Artifacts ไม่ใช่ placeholder แล้ว แต่ label `Office` ยังกว้างกว่าความสามารถจริงซึ่งคือ background command jobs — มีแผนเปลี่ยนเป็น `Background Jobs`
+
+รายการ finding ที่ยังเปิดอยู่พร้อมหลักฐานระดับ file/line อยู่ใน [AETOX-HERMES-TRACEABILITY-AUDIT.md](AETOX-HERMES-TRACEABILITY-AUDIT.md) หัวข้อ 4.2 และมาตรการอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
 
 ## หลักการที่ห้ามละเมิด
 
@@ -64,10 +72,11 @@ Browser UI
    ▼
 HTTP API ─────────────── Local model context prober
    │
-   ├── Agent Service ─── append-only events/context snapshots/StepBinding
+   ├── Agent Service ─── SessionContract/TurnLease/CacheEpoch/TaskBudget
+   │        │              append-only events/context snapshots/StepBinding
    │        │
    │        ├── Provider Registry → OpenAI-compatible streaming adapter
-   │        ├── Skill selector → versioned body → activation receipt
+   │        ├── Frozen Skill catalog → selected versions → activation receipt
    │        ├── Bound core tools → policy/path/deadline → normalized receipt
    │        └── 3 deferred primitives → Capability Catalog → MCP client
    │
@@ -288,7 +297,8 @@ SQLite เปิด WAL, foreign keys, busy timeout และจำกัด con
 - `skill_events`, `skill_activations`
 - `skill_archives`, `skill_relations`
 - `learning_reviews`, `curator_runs`
-- `provider_profiles`, `agent_sessions`, `agent_events`
+- `provider_profiles`, `agent_sessions` (พร้อม `active_turn_id`, `lease_acquired_at`, `contract_json`, `contract_revision`, `cache_epoch`), `agent_events`
+- `learning_trigger_outbox` สำหรับ runtime evidence → review job แบบ transactional
 - `context_snapshots`, `step_bindings`
 - `tool_approvals` สำหรับ one-shot grants, effect-lock state และ receipt linkage
 - `skill_replay_runs`, `skill_replay_cases`, `candidate_capability_reviews`

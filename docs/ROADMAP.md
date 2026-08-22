@@ -2,7 +2,13 @@
 
 Roadmap นี้วางลำดับจาก correctness ไป product breadth เพื่อหลีกเลี่ยงการมี UI ครบแต่ kernel ตรวจสอบไม่ได้
 
-> เอกสารนี้เป็น phase ledger ของ vertical slices ที่ส่งมอบถึง 2026-08-21 ผล architecture audit วันที่ 2026-08-22 พบ correctness gaps ที่ต้องปิดก่อนขยาย product ดู [AETOX-HERMES-TRACEABILITY-AUDIT.md](AETOX-HERMES-TRACEABILITY-AUDIT.md) และใช้ [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) เป็น forward source of truth สถานะ `complete` ด้านล่างหมายถึงขอบเขต deterministic/vertical slice ที่ระบุ ไม่ใช่ Aetox/Hermes feature parity หรือ production qualification
+> **เอกสารนี้เป็น historical phase ledger** ของ vertical slices ที่ส่งมอบถึง 2026-08-21 เท่านั้น ไม่ใช่แผนที่เดินอยู่
+>
+> architecture audit วันที่ 2026-08-22 พบ correctness gaps และ **verification pass ในวันเดียวกันยืนยันว่า P0 ทั้งสี่ข้อถูกปิดในโค้ดแล้ว** ดู [AETOX-HERMES-TRACEABILITY-AUDIT.md](AETOX-HERMES-TRACEABILITY-AUDIT.md) หัวข้อ 4.1
+>
+> **forward source of truth คือ [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)** เมื่อเอกสารนี้ขัดกับแผนนั้นหรือกับ runtime ให้ถือแผนและ runtime เป็นความจริง
+>
+> สถานะ `complete` ด้านล่างหมายถึงขอบเขต deterministic/vertical slice ที่ระบุ ไม่ใช่ Aetox/Hermes feature parity หรือ production qualification
 
 ## Phase 0 — Foundation (เสร็จแล้ว)
 
@@ -52,7 +58,8 @@ Exit gate:
 - readiness/credential/risk/approval state ทำแล้วสำหรับ MCP; dependency graph ทั่วไปยังเหลือ
 - direct primitives มี 6 ตัว: workspace 3 + deferred `tool_search/describe/call` 3
 - exact schema/handler revision binding ทำแล้วสำหรับ core และ MCP target revision; call ที่ revision drift ถูก reject
-- Skill metadata selection, lazy body loading — ทำแล้วแบบ deterministic selector รุ่นแรก; resource loading ยังขาด
+- Skill metadata selection — ทำแล้วแบบ deterministic selector รุ่นแรก; resource loading ยังขาด
+- **คำว่า “lazy body loading” ในบรรทัดเดิมไม่ตรงพฤติกรรมจริง** — body ถูก inject เข้า prompt ล่วงหน้าโดยเลือกจาก goal ของ turn แรก ไม่ใช่โหลดตามต้องการ ดู finding O-2 และ ADR-7 ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
 - activation receipt และ turn outcome เขียนจาก runtime จริงแบบ exposure-only; causal effectiveness attribution ยังขาด
 - MCP connection secrets แยกจาก model-visible metadataและเก็บเฉพาะ environment reference
 - MCP `2026-07-28` stateless Streamable HTTP + JSON/SSE/pagination/headers และ fallback `2025-11-25` initialize/session ทำแล้ว
@@ -75,7 +82,7 @@ Remaining ก่อนปิด Phase 2 breadth:
 - plugin/dynamic adapters และ generalized dependency graph
 - edit/disable/delete connection UX พร้อม export/import policy
 
-## Phase 3 — Skill replay and learning quality (vertical slice complete; runtime producer ยังเหลือ)
+## Phase 3 — Skill replay and learning quality (vertical slice complete; runtime producer ปิดแล้ว)
 
 สถานะที่ส่งมอบ:
 
@@ -105,7 +112,9 @@ Promotion gates แนะนำ:
 
 Exit gate: learning eval แสดงว่า proposal precision ดีขึ้นโดยไม่เพิ่ม active Skill อัตโนมัติ และ stale-base/replay regressions ถูกกัน
 
-ข้อจำกัดที่พบภายหลัง: trigger validator และ queue API มีจริง แต่ agent runtime ยังไม่ enqueue triggers เหล่านี้จาก committed events อัตโนมัติ จึงยังไม่ถือว่า runtime evidence → background review เป็น end-to-end flow
+สถานะหลัง verification pass 2026-08-22: runtime producer **เชื่อมแล้ว** ผ่าน `learning_trigger_outbox` — `StageTrigger` เขียน trigger ใน transaction เดียวกับ turn commit และ `DrainPending` แปลง record ที่ commit แล้วเป็น idempotent review job หลังจบ turn
+
+ข้อจำกัดที่เหลือ: path นี้ยังไม่มี test ครอบเลย (finding O-4) จึงถือเป็น implemented-but-unverified ไม่ใช่ qualified
 
 ## Phase 4 — Context fidelity laboratory (complete for deterministic evaluator scope)
 

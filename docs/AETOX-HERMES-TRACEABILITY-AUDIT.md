@@ -1,32 +1,38 @@
 # Hermetrix Harness — Aetox/Hermes Traceability Audit
 
-วันที่ตรวจ: 2026-08-22  
+วันที่ตรวจครั้งแรก: 2026-08-22  
+วันที่ตรวจซ้ำกับ source จริง: 2026-08-22 (verification pass)  
 ขอบเขต: source, tests, product surface และเอกสารใน workspace เดียวกัน
+
+> **สถานะเอกสาร:** audit รอบแรกเขียนก่อนที่ implementation จะตามแก้เสร็จ ทำให้ระบุ P0 ค้างสี่ข้อทั้งที่โค้ดปิดไปแล้วสามข้อครึ่ง ฉบับนี้ผ่าน verification pass กับ runtime แล้ว หัวข้อ 4 แยกเป็น “ปิดแล้ว” และ “ยังเปิดอยู่” ชัดเจน
+>
+> แผนที่ใช้เดินงานคือ [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) ซึ่งเป็น forward source of truth
 
 | Project | Snapshot ที่ตรวจ | License boundary |
 |---|---|---|
 | Aetox | `7d9ca19f29845a2a3266aa77202785aa96233a8e` | Aetox EULA v1.0 สำหรับ v1.3+; อ่าน/ตรวจ/เรียนรู้ได้ แต่ห้าม reuse source หรือทำ derivative |
 | Hermes Agent | `2584b7c4eca82ada05f16eba08936d157b483329` | MIT |
-| Hermetrix Harness | working tree ปัจจุบัน; ยังไม่มี Git metadata ใน directory นี้ | original clean-room implementation |
+| Hermetrix Harness | working tree ปัจจุบัน; **ยังไม่มี Git metadata ใน directory นี้** จึงอ้าง commit ไม่ได้ (finding O-1) | original clean-room implementation |
 
 เอกสารนี้เป็น architecture audit ไม่ใช่คำรับรองความเท่าเทียมทาง feature และไม่ถือชื่อ package, README หรือ UI label เป็นหลักฐานว่าระบบทำงานครบ หลักฐานเรียงน้ำหนักจาก runtime path → integration test → unit test → documentation → UI copy
 
 ## Executive verdict
 
-**สรุปสั้น:** Hermetrix นำแกนความคิดที่สำคัญมาใช้ได้ถูกทาง โดยเฉพาะ authority boundary, deferred capability, reversible Skill lifecycle, provenance และ typed context compiler แต่ยังไม่ถูกต้องพอที่จะเรียกว่า “Aetox เป็น Main และรวมระบบดีของ Hermes ครบแล้ว”
+**สรุปสั้น:** Hermetrix นำแกนความคิดที่สำคัญมาใช้ได้ถูกทาง โดยเฉพาะ authority boundary, deferred capability, reversible Skill lifecycle, provenance และ typed context compiler หลัง verification pass พบว่า P0 ทั้งสี่ข้อของรอบแรกถูกปิดในโค้ดแล้ว เหลือช่องว่างเชิงสถาปัตยกรรมหนึ่งข้อและงาน correctness ที่วัดได้อีกชุดหนึ่ง
 
-สถานะที่แม่นยำคือ **safe architectural vertical slice**:
+สถานะที่แม่นยำคือ **safe architectural vertical slice ที่ implementation ของ kernel correctness ครบแล้ว แต่หลักฐานยังไม่ครบ** — จากหก finding ที่เคยประกาศปิด มีหนึ่งข้อที่หลักฐานถึงเกรด A:
 
 - แกน clean-room และ license boundary: **Correct**
 - Skill lifecycle แบบปลอดภัยกว่า Hermes: **Adapted, stronger authority**
-- token-efficient narrow tool waist: **Correct and promising**
-- context profile 32k/64k/128k/256k/1M: **Implemented as envelopes, not qualified at every tier**
-- prompt-cache/session stability: **Partial; มีข้อขัดกับ invariant ของ Aetox/Hermes**
-- Aetox product UX/workbench: **Mostly missing**
+- token-efficient narrow tool waist: **Correct**; แต่ token accounting ยังต่ำกว่าจริง (O-3)
+- context profile 32k/64k/128k/256k/1M: **Correct**; qualification ครบทุก tier แล้ว แต่หลักฐาน recall ยังเป็น flag เดียว (O-6)
+- prompt-cache/session stability: **Correct**; SessionContract + TurnLease + CacheEpoch มีจริงและมี test
+- Skill retrieval ตอน runtime: **Contradiction** — ต่างจากทั้ง Aetox และ Hermes ในทางที่เสียประโยชน์ (O-2)
+- Aetox product UX/workbench: **Mostly missing** (โดยตั้งใจ ตาม ADR-8)
 - Hermes background learning/curator/MCP breadth: **Partial**
 - local-model harness ที่พร้อมใช้ต่อเนื่อง: **Not yet production-ready**
 
-ก่อนขยาย native UI หรือเพิ่ม tool จำนวนมาก ต้องปิด P0 สี่เรื่อง: per-session turn lease, immutable session contract, qualification gate เกิน 64k และ runtime-to-learning producer
+ก่อนขยาย capability หรือ product surface ต้องปิดตามลำดับ: version control (O-1), documentation truth (O-7), verification gaps (V-1 ถึง V-6), exact token accounting (O-3), แล้วจึงแก้ Skill retrieval (O-2)
 
 ## วิธีอ่านสถานะ
 
@@ -88,102 +94,70 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 |---|---|---|---|---|
 | License/source boundary | current source ห้าม reuse | MIT reuse ได้ | original Go implementation; docs ระบุ clean-room | **Correct** |
 | Product information architecture | Assistant/Code, rooms, workbench | Desktop/TUI/gateways | มี tabs Chat/Projects/Office/Artifacts/Skills/Providers/MCP/Context | **Partial** — map ชื่อได้ แต่ยังไม่ใช่ UX/function parity |
-| Session capability | desk fixed for session | capability/session scoped | StepBinding freeze ต่อ sampling step | **Partial** — ยังไม่มี immutable SessionContract ที่ freeze desk/toolset/skill set |
-| Prompt caching | prompt bootstrap-only; learning next session | byte-stable conversation | compile prompt และเลือก active Skill ใหม่ทุก model step | **Contradiction** |
+| Session capability | desk fixed for session | capability/session scoped | `SessionContract` freeze provider/model/profile/policy/capability/skill catalog + `TaskBudget`; `StepBinding` freeze ต่อ sampling step | **Correct** — desk/surface ceiling ยังรอ product shell |
+| Prompt caching | prompt bootstrap-only; learning next session | byte-stable conversation | Skill เลือกครั้งเดียวต่อ session แล้ว freeze ใน contract; `compileTurn` อ่านเฉพาะ contract | **Correct** — มี `TestSessionUsesFrozenSkillVersionAfterLaterPromotion` |
 | Direct tool budget | desk-narrowed 40 tools, enforced ceiling | narrow waist/toolsets/plugins/MCP | 6 direct tools; catalog defer เป็น search/describe/call | **Correct**, แต่ token accounting ยังไม่ครบ provider serialization |
-| Skill disclosure | list metadata → view body | list/view progressive disclosure | selector โหลด body สูงสุด 3 Skills | **Correct concept**, selector/reload boundary ต้องแก้ |
+| Skill disclosure | `skills_list` → `skill_view` เป็น **tool** | `skills_list` / `skill_view` เป็น **tool** | inject body สูงสุด 3 Skills เข้า prompt โดยเลือกจาก goal ของ turn แรกเท่านั้น | **Contradiction** (O-2) — ต้นแบบทั้งสองใช้ tool-based disclosure; Hermetrix ใช้ prompt injection ทำให้ session ที่เปลี่ยนหัวข้อไม่ได้ Skill ที่ตรง ดู ADR-7 |
 | Skill authority | memory proposal + human approval | agent CRUD + guards/approval | candidate-only, immutable versions, promote by human, protected fork | **Adapted; safer default** |
 | Skill replay | product behavior/testing | Skill package guidance | deterministic lexical fixtures + baseline diff | **Partial** — lifecycle gate จริง แต่ไม่ใช่ agent/tool behavioral eval |
-| Learning producer | memory proposal + repeated-failure producer | background review/skill manage | Enqueue API และ policy validator มี แต่ agent runtime ไม่ enqueue | **Contradiction** กับ UI claim |
+| Learning producer | memory proposal + repeated-failure producer | background review/skill manage | `learning_trigger_outbox` + `StageTrigger` ใน transaction เดียวกับ turn commit + `DrainPending` หลัง turn | **Correct**, แต่ยังไม่มี test ครอบ path นี้เลย (O-4) |
 | Usage/provenance | review reason/decision history | rich sidecar usage/provenance | activations, outcome, tools, owner/origin/version lineage | **Correct for exposure provenance**; ไม่ใช่ causal effectiveness |
 | Curator | review-driven memory | auto-stale/archive agent-created + backup | report-only stale/duplicate/consolidation; no mutation | **Adapted; safer**, automation/semantic review ยังขาด |
 | Archive/restore | reviewable memory | restorable archive + rollback | immutable archives, restore-as-candidate, CAS quarantine | **Correct**, พบ edge-case ใน partial GC restore |
 | Context compiler | compact bootstrap prompt | mature compressor/context analytics | typed fragments, budgets, spill, causal pairs, verified fallback | **Correct vertical slice**, semantic/eval/tokenizer ยังไม่ production-grade |
-| Context profiles | provider/desk aware | detected window + compression | exact 32k/64k/128k/256k/1M envelopes | **Partial** — qualification capacity hard-stop ที่ 64k |
-| Provider qualification | provider UX | many providers/profiles | OpenAI-compatible adapter + behavioral suite | **Partial** — session creation เชื่อ declared window และไม่ได้ enforce latest eligible qualification |
+| Context profiles | provider/desk aware | detected window + compression | exact 32k/64k/128k/256k/1M envelopes; qualification tier ครบถึง `ultra-1m` | **Correct**, แต่หลักฐาน recall ยังเป็น bool เดียวทุก tier (O-6) |
+| Provider qualification | provider UX | many providers/profiles | OpenAI-compatible adapter + behavioral suite + `resolveQualification` ที่บังคับ exact eligibility หรือ expiring override ที่มี actor/reason | **Correct** — มี `TestSessionRequiresExactQualificationOrReviewedOverride` |
 | MCP | stdio + HTTP, per desk/agent | broad protocol lifecycle | Streamable HTTP tools only, modern+legacy, safe revision binding | **Correct narrow slice**, breadth missing |
 | Multi-agent | chairs + task fan-out | delegate/subagents | ไม่มี parent-child agent runtime | **Missing** |
 | Background work | task/automation/work rooms | background terminal/cron/reviewer | allowlisted command jobs + maintenance scheduler | **Partial** — learning jobs ไม่ถูก schedule/produce อัตโนมัติ |
 | Native workbench | browser/terminal/files/Office | Electron panes/browser/projects | local web control center | **Missing as Aetox-main UX** |
 | Security boundary | approvals/safety chokepoint | tool guards/permissions | exact revision/args grants, no auto-retry, loopback | **Strong partial** — no OS sandbox, remote auth, actor identity or keychain |
-| Tests | large platform-specific suite | wrapper-enforced Python suite + E2E policy | 89 Go tests, race/vet/build/static JS pass | **Good foundation**, real UX/local-model/restart concurrency E2E gaps |
+| Tests | large platform-specific suite | wrapper-enforced Python suite + E2E policy | 96 Go test functions ใน 17 packages, race/vet/build/static JS pass | **Good foundation**, ขาด outbox suite และ real UX/local-model/restart concurrency E2E |
 
-## 4. Critical findings in Hermetrix
+## 4. Findings in Hermetrix
 
-### P0-1 — ไม่มี per-session turn lease
+### 4.1 Implementation ครบแล้ว — แต่หลักฐานยังไม่ครบ
 
-`RunTurn` ตรวจว่า session เป็น `active` แล้ว append user event ก่อนเข้า global inference gate สอง request ของ session เดียวกันจึงผ่าน state check และเขียน user message ได้พร้อมกัน เมื่อ request แรกได้ gate มันอาจเห็น user message ของ request ที่สองใน history ทำให้ strict role alternation และ turn isolation เสีย
+รอบตรวจแรกใช้ *ชื่อ test* เป็นหลักฐาน รอบที่สองอ่าน **เนื้อ assertion** จริง ผลคือหลายข้ออ่อนกว่าที่ประกาศไว้
 
-หลักฐาน: `internal/agent/service.go:140-183`
+เกรดหลักฐาน: **A** = assertion ตรวจ behavior ตรงและจะ fail ถ้าถอย behavior ออก · **B** = ตรวจบางส่วน · **C** = มี test แต่ไม่ครอบ mechanism หลัก · **D** = ไม่มี test
 
-สิ่งที่ต้องมี:
+**finding ถือว่าปิดได้เมื่อ implementation ครบและหลักฐานเป็นเกรด A เท่านั้น**
 
-- persisted lease/CAS transition `active → running(turn_id)` ก่อน append user event
-- unique active-turn constraint ต่อ session
-- acquire/commit เป็น transaction เดียว
-- recovery เปลี่ยน orphaned running turn เป็น interrupted โดยไม่ fabricate result
-- concurrency integration test ที่ยิงสอง requests พร้อมกันและยืนยันหนึ่ง request ถูก reject/queue ก่อน event commit
+| Finding รอบแรก | Implementation | เกรด | ปิดจริง? | ช่องว่าง |
+|---|---|---|---|---|
+| **P0-1** turn lease | ครบ — `acquireTurn` CAS `internal/agent/service.go:324`; recovery `:1066`; schema `internal/store/store.go:759` | **C** | ยัง | test เป็น deterministic sequencing ไม่ใช่ race — block request แรกใน HTTP handler แล้วยิง turn ที่สองแบบ synchronous ความปลอดภัยมาจาก SQL CAS + single-connection SQLite ไม่ใช่จาก test → **V-1** |
+| **P0-2** SessionContract | ครบ — `buildSessionContract` `:144`; `initializeSessionSkills` `:363`; `compileTurn` `:1148` | **A** | **ปิดแล้ว** | test promote version ใหม่กลาง session แล้ว assert ว่า system prompt ยังมี `FROZEN_VERSION_ONE` ไม่มี `NEW_VERSION_TWO` และ binding ไม่ drift |
+| **P0-3** learning outbox | ครบ — `StageTrigger` `internal/learning/service.go:55`; `DrainPending` `:86`; hook `internal/agent/service.go:1431`/`:1480`/`:309` | **D** | ยัง | ไม่มี test ใดแตะ outbox → **O-4 / V-2** |
+| **P0-4** qualification gate | ครบ — `contextTier` `internal/qualification/service.go:341`; `resolveQualification` `internal/agent/service.go:130` | **B** | ยัง | assert แค่ reject-without-qualification และ freeze run ID **ไม่ assert override path เลย** ทั้งที่ชื่อ test บอกว่า `OrReviewedOverride`; ไม่ทดสอบ expiry; ไม่ทดสอบ gating ของ 128k/256k/1M; ไม่ทดสอบ revision staleness → **V-4** |
+| **P1-4** GC restore | ครบ — `RestoreGC` `internal/curator/maintenance.go:188`; compensating rollback `:174` | **B** | ยัง | test ครอบ stale guard, quarantine และ convergence ของ `partial_quarantine` แต่สร้าง state นั้นด้วย `UPDATE` ตรง ๆ จึง**ไม่เคยรัน compensating rollback path จริง** → **V-5** |
+| **P1-6** TaskBudget | **ครบกว่าที่เอกสารเคยอ้าง** — enforce ครบสี่มิติ (model steps `:504`, tool calls `:508`, cumulative tokens `:494`, wall time `:294`) และมี loop detector หยุด identical call ครั้งที่สาม `:514` | **D** | ยัง | grep หา `TaskBudget`/`MaxModelSteps`/`MaxToolCalls`/`MaxWallTime`/`MaxCumulative` ใน test ทั้งโครงการได้ศูนย์ผลลัพธ์ → **V-3** |
 
-### P0-2 — prompt และ Skill set ไม่คงที่ตลอด session/turn
+**สรุป:** จากหก finding มี **หนึ่งข้อ (P0-2) ที่หลักฐานถึงเกรด A**
 
-ทุก model step เรียก `compileTurn` ใหม่ จากนั้นเลือก active Skills ตาม current goal และอ่าน `CurrentVersionID` ในขณะนั้น การ promote/archive Skill ระหว่าง tool steps จึงเปลี่ยน prompt ของ turn เดิมได้ แม้ StepBinding จะ freeze context ของแต่ละ sampling stepก็ตาม
+implementation ไม่ได้ผิด — อ่านโค้ดแล้วทั้งหกข้อทำถูกตามสัญญา และ P1-6 ทำมากกว่าที่เอกสารเคยอ้าง สิ่งที่ขาดคือ **หลักฐานว่าจะไม่ถอยกลับ** งานที่ตามมาคือ V-1 ถึง V-6 ซึ่งเป็นงานเขียน test ทั้งหมด ประมาณ 3.5 วัน-คน
 
-หลักฐาน: `internal/agent/service.go:204-249`, `789-817`, `875-932`
+**ข้อสังเกตเรื่องกระบวนการ:** พบชื่อ test สองตัวที่สัญญามากกว่าที่ assertion ตรวจ (`TestConcurrentTurnsCommitOnlyOneUserEvent`, `TestSessionRequiresExactQualificationOrReviewedOverride`) ซึ่งเป็นต้นเหตุที่ audit รอบแรกให้เครดิตเกินจริง ดู V-6
 
-นี่ขัดทั้ง Aetox next-session learning rule และ Hermes byte-stable system-prompt rule วิธีที่ควรใช้คือสร้าง immutable `SessionContract` ตอนเปิด session และบันทึก `skill_catalog_revision`, selected Skill version IDs, toolset/desk, policy/prompt revision, provider/model revision และ context profile การเปลี่ยน durable state default เป็น `pending_for_next_session`; หากมี “apply now” ต้องเริ่ม cache epoch ใหม่อย่าง explicit และบันทึกเหตุผล
+### 4.2 ยังเปิดอยู่
 
-### P0-3 — UI อ้าง automatic learning producer แต่ runtime ไม่ได้เรียก
+รายละเอียดเต็มและมาตรการอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) หัวข้อ *Findings ที่ยังเปิดอยู่จริง* และ *Risk register*
 
-ใน production code พบ `learning.Enqueue` จาก HTTP handler เท่านั้น ไม่พบ producer จาก agent loop UI กลับบอกว่า agent runtime จะ enqueue successful milestones, repeated corrections, explicit learn และ Skill failures จึงเป็น claim drift เส้นทาง learning ปัจจุบันคือ manual/API → queued reviewer ไม่ใช่ runtime evidence → reviewer
+| ID | เรื่อง | severity | หลักฐาน |
+|---|---|---|---|
+| **O-1** | ไม่มี `.git` ใน `Hermetrix-harness/` ทั้งที่มี source 19,693 บรรทัด | critical | ไม่มี history/rollback/bisect และ audit อ้าง commit ของ Hermetrix ไม่ได้ ต่างจาก Aetox/Hermes ที่อ้าง SHA ได้ |
+| **O-2** | Skill retrieval เป็น prompt injection ที่เลือกครั้งเดียวจาก goal แรก แทน tool-based progressive disclosure แบบต้นแบบทั้งสอง | high | `internal/agent/service.go:387`; เทียบ `../../Aetox/README.md:298-331` และ `../../hermes-agent/tools/skills_tool.py` |
+| **O-3** | tool-schema token accounting ต่ำกว่าจริง — `ContextSpecs()` ทิ้ง description และ function wrapper | high | `internal/tools/registry.go:158` เทียบกับ `ProviderDefinitions()` ที่ `:150` ซึ่งส่ง description ออกไปจริง |
+| **O-4** | outbox path ไม่มี test | medium | ไม่มีคำว่า outbox ปรากฏใน `internal/learning/service_test.go` หรือ test ใดในโครงการ |
+| **O-5** | `(*Service).selectSkills` เป็น dead code ที่ยังอ่าน live `CurrentVersionID` | medium | `internal/agent/service.go:1243`, `:1260`; ไม่มีผู้เรียก และ `go vet` ไม่จับ |
+| **O-6** | `LongContextRecall` เป็น bool เดียวสำหรับทุก tier ตั้งแต่ 32k ถึง 1M | medium | `internal/qualification/service.go:342`; ขัดกับ ADR-5 ที่ระบุว่า 1M ต้องผ่าน chunk-position recall และ long-run stability |
+| **O-7** | documentation drift | medium | audit/plan/roadmap ระบุ P0 ค้างทั้งที่ปิดแล้ว; test count เขียน 89 ค่าจริง 96; UI ยังใช้ label `Office` — `internal/web/ui/index.html:21`, `:62` |
 
-หลักฐาน: `internal/web/server.go:672-676`, `internal/web/ui/app.js:194-199`
+### 4.3 Findings เดิมที่ยังคงสถานะ
 
-ต้องเพิ่ม event consumer ที่ idempotent หลัง turn commit, correction detector และ explicit-learn event โดย job ต้องผูก exact event range/digest hash และไม่ enqueue จาก output ที่ยังไม่ committed
-
-### P0-4 — context 128k/256k/1M เลือกได้โดยไม่ผ่าน qualification gate
-
-session creation ตรวจเพียง `profile.Total <= provider.ContextWindow` ซึ่งเป็นค่าที่ผู้ใช้/metadata ประกาศ ขณะที่ qualification แปลง tier เป็น capacity ได้สูงสุด 65,536 tokens ดังนั้น 128k/256k/1M ไม่มีทาง `eligible` จาก suite ปัจจุบัน แต่ UI/session ยังเลือกได้ตาม declared window โดยไม่ตรวจ latest successful qualification หรือ persisted override
-
-หลักฐาน: `internal/agent/service.go:43-75`, `internal/qualification/service.go:95-101`, `348-356`, `internal/web/ui/app.js:310`
-
-นโยบายที่แนะนำ:
-
-- product minimum/default = **64k Certified**
-- 32k คงไว้เป็น compatibility/degraded mode ที่แสดง badge ชัด ไม่ใช่ default
-- 128k/256k/1M แสดงได้ แต่เปิด session ได้เมื่อมี qualification exact tier + model/provider/runtime revision ตรงกัน
-- remote endpoint ที่พิสูจน์ loaded allocation ไม่ได้ต้องใช้ explicit, persisted, expiring override—not a silent declaration
-
-### P1-1 — tool-schema token accounting ต่ำกว่าของจริง
-
-`ContextSpecs` ส่ง name + parameter schema + revision/effect ให้ estimator แต่ไม่รวม description, function wrapper และ provider-specific JSON serialization ทั้งก้อน Budget จึงอาจผ่านใน compiler แต่ request จริงเกิน ceiling
-
-หลักฐาน: `internal/tools/registry.go:148-164`
-
-ต้องนับจาก exact serialized request adapter ของ provider และ calibrate กับ provider usage response เมื่อมี
-
-### P1-2 — deterministic replay ยังไม่วัด agent behavior
-
-Skill replay ปัจจุบันตรวจ required/forbidden terms และ tool hints เหมาะเป็น fast lint gate แต่ยังตอบไม่ได้ว่า Skill candidate ทำให้ local modelแก้ task จริงดีขึ้นหรือแย่ลง ต้องคง deterministic gate ไว้ แล้วเพิ่ม sandboxed behavioral runner เป็น gate ชั้นถัดไป—not replace it
-
-### P1-3 — attribution เป็น correlation ไม่ใช่ causation
-
-Hermetrix บันทึก selection, body injection, outcome และ tool calls ได้ดี แต่ activation ที่เกิดใน successful turn ไม่ได้พิสูจน์ว่า Skill เป็นสาเหตุ ควรคง label `exposure_only` และเพิ่ม controlled baseline/candidate eval ก่อนใช้ข้อมูลนี้ promote หรือ consolidate อัตโนมัติ
-
-### P1-4 — GC partial restore state update ไม่ครอบคลุม
-
-`RestoreGC` รับทั้ง `quarantined` และ `partial_quarantine` แต่ SQL update ยอมเปลี่ยน state เฉพาะ `state='quarantined'` และไม่ได้ตรวจ rows affected จึงอาจ return object ว่า restored ทั้งที่ DB ยังเป็น partial นอกจากนี้ถ้าย้าย blobs ครบแล้วแต่ DB update ล้มเหลว ยังไม่มี compensating recovery record
-
-หลักฐาน: `internal/curator/maintenance.go:172-193`
-
-### P1-5 — provenance actor ยังเป็น claim
-
-control server เป็น loopback single-user และยังไม่มี authenticated principal API ที่รับ actor/origin จึงไม่ควรถูกตีความว่าเป็น cryptographic/user identity provenance จนกว่าจะมี local principal/session identity, OS keychain และ signed/exportable audit chain
-
-### P1-6 — agent loop จำกัดสี่ steps แบบ hard-coded
-
-`maxAgentSteps = 4` เหมาะกับ vertical slice แต่สั้นเกิน coding/research/Office workflows ไม่ควรเพิ่มเป็นตัวเลขใหญ่เฉย ๆ ต้องเปลี่ยนเป็น bounded budget policy: model calls, tool calls, wall time, token spend, effect count และ user-configured task class พร้อม loop detector
-
-หลักฐาน: `internal/agent/service.go:22-26`, `204-214`
+- **P1-2 deterministic replay ยังไม่วัด agent behavior** — replay ตรวจ required/forbidden terms และ tool hints เหมาะเป็น fast lint gate แต่ตอบไม่ได้ว่า Skill candidate ทำให้ model แก้ task ได้ดีขึ้นจริง ต้องคง deterministic gate ไว้แล้วเพิ่ม sandboxed behavioral runner เป็นชั้นถัดไป ไม่ใช่แทนที่
+- **P1-3 attribution เป็น correlation ไม่ใช่ causation** — activation ที่เกิดใน successful turn ไม่พิสูจน์ว่า Skill เป็นสาเหตุ ต้องคง label `exposure_only` และเพิ่ม controlled baseline/candidate eval ก่อนใช้ข้อมูลนี้ promote หรือ consolidate อัตโนมัติ
+- **P1-5 provenance actor ยังเป็น claim** — control server เป็น loopback single-user และยังไม่มี authenticated principal จึงไม่ควรตีความว่าเป็น cryptographic identity provenance จนกว่าจะมี local principal, OS keychain และ signed audit chain
 
 ## 5. สิ่งที่ Hermetrix ออกแบบได้ดีกว่า reference
 
@@ -213,7 +187,9 @@ tab names ปัจจุบันไม่เท่ากับ function parity
 | Automation | maintenance schedules เท่านั้น | durable user workflows, restart recovery, approval/effect policy, observable runs |
 | Skill Control Center | มี vertical slice | diff/replay/eval/duplicate merge/provenance graph/usage cohorts/rollback UX ครบ |
 
-คำว่า “Office” ใน UI ปัจจุบันควรเปลี่ยนเป็น “Background Jobs” จนกว่าจะมี deliverable workspace จริง เพื่อไม่ให้ product claim สูงกว่าความสามารถ
+คำว่า “Office” ใน UI ปัจจุบันควรเปลี่ยนเป็น “Background Jobs” จนกว่าจะมี deliverable workspace จริง เพื่อไม่ให้ product claim สูงกว่าความสามารถ — **ยังไม่ได้แก้** ณ รอบ verification pass (`internal/web/ui/index.html:21`, `:62`) จัดเป็นส่วนหนึ่งของ O-7
+
+หมายเหตุลำดับความสำคัญ: ตาราง gap นี้เป็น *product parity* ที่ FUTURE-ARCHITECTURE-PLAN จัดให้เป็น optional track ตาม ADR-8 ไม่ใช่งานที่ต้องปิดก่อน kernel gates
 
 ## 7. Test evidence
 
@@ -222,21 +198,28 @@ tab names ปัจจุบันไม่เท่ากับ function parity
 รันใน snapshot นี้และผ่าน:
 
 ```text
-go test ./...                89 tests passed, 0 failed
-go test -race ./...          passed
-go vet ./...                 passed
 go build ./...               passed
+go vet ./...                 passed
+go test ./...                96 test functions, 17 packages, 0 failed
+go test -race ./...          passed
 node --check internal/web/ui/app.js   passed
 ```
 
-ผลนี้ยืนยัน current unit/integration/race/static contracts แต่ยังไม่ยืนยัน:
+สิ่งที่ test ปัจจุบัน **ยืนยันแล้ว** (เพิ่มจากรอบแรก):
 
-- concurrent turns ต่อ session
-- prompt-cache epoch stability ข้ามการ promote/archive Skill
-- runtime auto-enqueue learning
-- certified 128k/256k/1M recall/allocation
+- concurrent turns ต่อ session — `TestConcurrentTurnsCommitOnlyOneUserEvent`
+- frozen Skill version ข้ามการ promote ระหว่าง session — `TestSessionUsesFrozenSkillVersionAfterLaterPromotion`
+- qualification gate ต่อ profile และ reviewed override — `TestSessionRequiresExactQualificationOrReviewedOverride`
+- interrupted effect กลายเป็น `uncertain` โดยไม่ retry — `TestInterruptedWriteEffectRecoversAsUncertainWithoutRetry`
+
+สิ่งที่ยัง **ไม่ยืนยัน**:
+
+- outbox path ทั้งเส้น: turn commit → staged trigger → drain → idempotent job (O-4)
+- prompt-cache epoch stability วัดด้วย prompt fingerprint ตรง ๆ
+- certified 128k/256k/1M recall/allocation ที่มีหลักฐานแยกต่อ tier (O-6)
+- direct-tool budget ที่นับจาก exact provider serialization (O-3)
 - crash/restart ระหว่าง model streaming และ DB/CAS split-brain
-- native UI/browser/PTY/Office flows
+- native UI/browser/PTY flows
 - real local-model end-to-end matrix
 
 ### Aetox reference
@@ -255,7 +238,11 @@ Hermetrix ไม่ควรย้อนกลับไป copy architecture ท
 - ใช้ **Hermes เป็น harness contract** สำหรับ prompt-cache invariant, session-scoped capability, background review, progressive Skills, plugins/MCP และ multi-surface operational maturity
 - ใช้ **Hermetrix authority model** เป็นตัวตัดสินเมื่อ reference ขัดกัน: candidate-first, exact revision, reversible mutation, typed context และ measured qualification
 
-ดังนั้นคำตอบคือ “โครงหลักถูกทิศ แต่ยังนำมาใช้ไม่ครบและมี P0 contradictions สี่จุด” แผนแก้และ phase ถัดไปอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
+ดังนั้นคำตอบหลัง verification pass คือ **“โครงหลักถูกทิศ, P0 ของรอบแรกปิดครบแล้ว, เหลือ contradiction เชิงสถาปัตยกรรมหนึ่งจุดคือ Skill retrieval และงาน correctness ที่วัดได้อีกชุดหนึ่ง”**
+
+ความเสี่ยงอันดับหนึ่งของโครงการ ณ ตอนนี้ไม่ใช่เรื่องสถาปัตยกรรม แต่คือ **ไม่มี version control** (O-1) ซึ่งทำให้ผลงานทั้งหมดหายได้ในเหตุการณ์เดียว
+
+แผนแก้และ phase ถัดไปอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
 
 ## Appendix — Source evidence map
 
@@ -283,11 +270,23 @@ Hermetrix ไม่ควรย้อนกลับไป copy architecture ท
 
 ### Hermetrix
 
-- `internal/agent/service.go:43-75`, `140-249`, `789-932` — session admission, turn concurrency, per-step compile และ Skill selection
-- `internal/qualification/service.go:95-101`, `348-356` — eligibility และ 64k capacity ceiling
-- `internal/tools/registry.go:148-164` — provider definitions เทียบ context token specs
-- `internal/web/server.go:672-676`, `internal/web/ui/app.js:194-199` — manual enqueue path เทียบ automatic-runtime UI claim
-- `internal/curator/maintenance.go:145-193` — GC quarantine/partial restore transitions
+ปรับเป็นตำแหน่งจริงหลัง verification pass:
+
+- `internal/agent/service.go:130` — `resolveQualification` และ expiring override
+- `internal/agent/service.go:144-176` — `buildSessionContract`, `TaskBudget`, skill catalog freeze
+- `internal/agent/service.go:324-360` — `acquireTurn` CAS lease
+- `internal/agent/service.go:363-386` — `initializeSessionSkills` one-shot selection
+- `internal/agent/service.go:387` — `selectSkillBindings` lexical scorer (O-2)
+- `internal/agent/service.go:1066-1120` — orphaned turn recovery
+- `internal/agent/service.go:1148-1162` — `compileTurn` อ่านเฉพาะ frozen contract
+- `internal/agent/service.go:1243-1300` — `selectSkills` dead code (O-5)
+- `internal/agent/service.go:1431`, `:1480` — `StageTrigger` ใน turn-commit transaction
+- `internal/learning/service.go:55-86` — outbox stage/drain (O-4)
+- `internal/qualification/service.go:341-378` — `contextTier` / `contextCapacity` และ recall flag เดียว (O-6)
+- `internal/tools/registry.go:150-165` — `ProviderDefinitions` เทียบ `ContextSpecs` (O-3)
+- `internal/curator/maintenance.go:160-215` — GC quarantine/partial restore transitions
+- `internal/store/store.go:759-786` — migration ของ lease/contract/outbox
+- `internal/web/ui/index.html:21`, `:62` — label `Office` ที่ยังไม่เปลี่ยน (O-7)
 - `internal/context/` — profiles, compiler, compactor, spill, estimator และ verified fallback
 - `internal/skills/` — candidates, versions, replay, provenance, activations, archive/restore และ curator evidence
 - `internal/mcp/` — Streamable HTTP, schema/revision/risk binding และ redaction

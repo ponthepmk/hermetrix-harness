@@ -2,3 +2,4 @@
 tmp-*-data/
 hermetrix
 coverage.out
+.DS_Store

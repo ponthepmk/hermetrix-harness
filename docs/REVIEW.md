@@ -2,6 +2,8 @@
 
 เอกสารนี้บันทึก review ที่ทำระหว่างสร้าง foundation เพื่อให้การตัดสินใจตรวจย้อนกลับได้ ไม่ใช่ assertion ว่าระบบ production-ready แล้ว
 
+> **historical log** — บันทึกตามเวลาที่ review เกิดขึ้น ไม่ถูกเขียนย้อนหลัง สถานะปัจจุบันอ่านจาก [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) และ [DECISIONS.md](DECISIONS.md)
+
 ## Review 1 — License and product boundary
 
 ผลตรวจ:
@@ -82,7 +84,7 @@ Remaining gap:
 
 - scheduler ยังไม่มี battery/thermal/VRAM telemetry
 - reviewer ปัจจุบัน deterministic acknowledgement ไม่ใช่ semantic learner
-- trigger producer จาก agent turn/session จริงยังไม่เชื่อม
+- ~~trigger producer จาก agent turn/session จริงยังไม่เชื่อม~~ — เชื่อมแล้วผ่าน `learning_trigger_outbox` (verification pass 2026-08-22) แต่ยังไม่มี test ครอบ ดู finding O-4
 
 ## Review 5 — Context selection correctness
 
