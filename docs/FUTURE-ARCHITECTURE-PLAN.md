@@ -189,6 +189,15 @@ test สร้าง `partial_quarantine` ด้วย `UPDATE` ตรง ๆ �
 
 แผนก็เป็น artifact ที่มี defect ได้ ส่วนนี้บันทึกข้อบกพร่องที่พบจากการทบทวนแผนของตัวเอง พร้อมงานแก้ ไม่ใช่คำเตือนลอย ๆ
 
+| ID | สถานะ |
+|---|---|
+| P-1 doc-truth แก้ไม่ตรงปัญหา | **ปิด** — `scripts/doc-truth.sh` สองชั้น พร้อมประกาศขอบเขตว่าไม่ใช่ oracle |
+| P-2 ADR-8 ใช้ไม่ได้ | **ปิด** — เขียนใหม่เป็น WIP limit + ตารางนิยาม `qualified` ต่อ subsystem |
+| P-3 gate วัดไม่ได้ | **ปิด** — ทุก gate มี predicate; artifact ที่ยังไม่มีกลายเป็น prerequisite ที่มีชื่อ |
+| P-4 ไม่มี effort estimate | **ปิด** — แยก D/I สองแกน ดู [Effort model](#effort-model-ปิด-r-16) |
+| P-5 ADR-7 ไม่ชั่งราคา | **ปิด** — มีหัวข้อราคา, floor/ceiling และเกณฑ์ถอยที่วัดได้จริงแล้ว (R-14) |
+| P-6 เชื่อชื่อ test | **ปิด** — สเกลเกรด + mutation test บังคับกับทุก finding |
+
 ### P-1 — `scripts/doc-truth.sh` แก้ไม่ตรงปัญหา
 
 script generate ได้เฉพาะ**ตัวเลข**: test count, route list, profile totals, table count แต่ drift ที่แพงที่สุดในรอบที่ผ่านมาเป็น**ข้อความเชิงสถานะ** — “runtime ยังไม่ enqueue”, “lazy body loading”, “qualification capacity hard-stop ที่ 64k” script จับไม่ได้สักข้อ
@@ -214,13 +223,13 @@ script generate ได้เฉพาะ**ตัวเลข**: test count, rout
 
 การปรับแผนรอบที่แล้วโฟกัสที่ 7.x กับ ADR ใหม่ ส่วน Phase 8–14 แทบไม่ถูกแตะ gate หลายข้อยังเป็นข้อความที่ไม่มีเกณฑ์ผ่าน เช่น “semantic reviewer ผ่าน local-model queue” ตอบไม่ได้ว่าดีพอเมื่อไหร่ ครึ่งหลังของแผนจึงเป็น wishlist ที่จัดหมวดเรียบร้อย ไม่ใช่แผนที่ตรวจได้
 
-**งานแก้:** ทำ gate audit ทั้ง Phase 8–14 แปลงทุก gate เป็น predicate ที่มี subject, threshold และวิธีวัด gate ใดที่ยังตั้ง threshold ไม่ได้ ให้ mark เป็น `unspecified` อย่างเปิดเผย ดีกว่าปล่อยให้ดูเหมือนวัดได้
+**งานแก้ (ทำแล้ว):** gate audit ทั้ง Phase 8–14 เสร็จ ทุก gate มี predicate ที่มี subject, threshold และวิธีวัด gate ที่ threshold ขึ้นกับ artifact ที่ยังไม่มี ถูกแปลงเป็น **prerequisite task ที่มีชื่อ** (P8-A ถึง P14-A) แทนการ mark `unspecified` — ดีกว่าตรงที่ประเมินและมอบหมายได้
 
 ### P-4 — ไม่มีการประเมินความพยายามรวม
 
 batch ถัดไปมีขนาดต่อข้อ แต่ Phase 8–14 ไม่มีเลย จึงตอบไม่ได้ว่าแผนทั้งฉบับคือสามเดือนหรือสามปี สำหรับโครงการที่มีคนทำหลักคนเดียว นี่คือข้อมูลที่จำเป็นที่สุดต่อการตัด scope และมันขาดหายไป — ขัดกับเจตนาของ ADR-8 เอง
 
-**งานแก้:** ใส่ effort band ต่อ phase และ total range พร้อมระบุสมมติฐานเรื่องกำลังคน แล้วใช้ตัวเลขนั้นตัดสินใจว่า phase ใดควรถูกตัดทิ้งจริง ๆ ไม่ใช่แค่ demote
+**งานแก้ (ทำแล้ว):** band ถูกแยกเป็นสองแกน — `D` decision effort ที่ย่อไม่ได้ กับ `I` implementation effort ที่ย่อได้ — เพราะข้อมูลจริงจาก batch แรกแสดงว่า **actor เป็นตัวแปรที่ใหญ่กว่างานเอง** ดู [Effort model](#effort-model-ปิด-r-16)
 
 ### P-5 — ADR-7 เสนอทางแก้โดยไม่ยอมรับราคาของมัน
 
@@ -447,8 +456,8 @@ Native shell (optional track) / Web / CLI / future gateways
    - ชั้นที่ 2 **claim registry** — ข้อความเชิงสถานะทุกข้อมี ID และผูก evidence anchor ที่ตรวจด้วยเครื่องได้ (symbol/test/table/route) script fail เมื่อ anchor หาย
    - เขียนกำกับในเอกสารตรง ๆ ว่า claim registry ครอบไม่หมดและไม่ใช่ oracle; ข้อความเชิงความหมายยังต้องให้คนไล่ตอนปิด phase
 5. รักษา [`docs/DECISIONS.md`](DECISIONS.md) ให้ตรง — ledger ถูกสร้างแล้วพร้อมสถานะตั้งต้นของ ADR-1 ถึง ADR-8 งานที่เหลือคือผูกแต่ละ ADR กับ commit ที่ implement หลังจากมี git history
-6. **Gate audit ของ Phase 8–14** (ปิด P-3) — แปลงทุก exit gate เป็น predicate ที่มี subject, threshold และวิธีวัด gate ใดที่ตั้ง threshold ไม่ได้ให้ mark `unspecified` อย่างเปิดเผย
-7. **Effort estimate** (ปิด P-4) — ใส่ effort band ต่อ phase พร้อมสมมติฐานกำลังคน แล้วใช้ตัวเลขตัดสินว่า phase ใดควรถูกตัดทิ้งจริง ไม่ใช่แค่ demote
+6. **Gate audit ของ Phase 8–14** (ปิด P-3, R-17) — ทุก exit gate เป็น predicate; artifact ที่ขาดกลายเป็น prerequisite task ที่มีชื่อ
+7. **Effort model** (ปิด P-4, R-15, R-16) — band แยกสองแกน decision/implementation พร้อมระบุ actor
 8. **Test naming rule** (ปิด V-6) — เขียนกฎว่าชื่อ test ต้องระบุเฉพาะสิ่งที่ assertion ตรวจจริง แล้ว rename `TestConcurrentTurnsCommitOnlyOneUserEvent` และ `TestSessionRequiresExactQualificationOrReviewedOverride` ให้ตรงขอบเขตจริงจนกว่า V-1/V-4 จะปิด
 
 Exit gates:
@@ -457,8 +466,8 @@ Exit gates:
 - `scripts/doc-truth.sh` ทั้งสองชั้นรันแล้ว diff กับเอกสารเป็นศูนย์
 - ไม่มีข้อความในเอกสารใดที่ระบุสถานะขัดกับ runtime ในรอบตรวจเดียวกัน
 - ADR ทุกข้อในเอกสารนี้มี entry ใน `docs/DECISIONS.md` พร้อมสถานะและเกรดหลักฐาน
-- ทุก exit gate ของ Phase 8–14 เป็น predicate ที่วัดได้ หรือถูก mark `unspecified`
-- ทุก phase มี effort band และแผนมี total range
+- ทุก exit gate ของ Phase 8–14 เป็น predicate ที่วัดได้ และ artifact ที่ขาดมีชื่อเป็น prerequisite task
+- ทุก phase มี effort band แยกแกน decision/implementation พร้อมระบุ actor
 - ไม่มีชื่อ test ใดสัญญาพฤติกรรมที่ assertion ไม่ได้ตรวจ
 
 > Phase นี้ต้องเสร็จก่อนงานอื่นทั้งหมด งานประมาณครึ่งวัน แต่เป็นงานเดียวที่ป้องกันการสูญเสียทั้งโครงการ
@@ -733,28 +742,74 @@ Phase 8–10 ทำบาง workstream ขนานกันได้หลั�
 
 ---
 
-## Gate audit ของ Phase 8–14 *(ปิด P-3)*
+## Gate audit ของ Phase 8–14 *(ปิด P-3 และ R-17)*
 
-exit gate ที่วัดไม่ได้คือ gate ที่ผ่านเมื่อไรก็ได้ ตารางนี้ไล่ gate ที่คลุมเครือที่สุดของแต่ละ phase แล้วให้ predicate หรือประกาศตรง ๆ ว่ายังตั้ง threshold ไม่ได้
+exit gate ที่วัดไม่ได้คือ gate ที่ผ่านเมื่อไรก็ได้ รอบแรกของ audit นี้พบว่า 6 จาก 12 gate ที่ตรวจเป็น `unspecified` ตอนนี้ทั้งหมดถูกแปลงเป็น predicate แล้ว
 
-**กฎ:** gate ที่เป็น `unspecified` ห้ามถูกใช้ปิด phase ต้องแปลงเป็น predicate ก่อน การประกาศว่า unspecified ดีกว่าปล่อยให้ดูเหมือนวัดได้
+**กฎ:** gate ที่ยังไม่มี threshold ห้ามใช้ปิด phase gate ที่ threshold ขึ้นกับ artifact ที่ยังไม่มี (corpus, hardware matrix) ให้ระบุ artifact นั้นเป็น **prerequisite task ที่มีชื่อ** ไม่ใช่ปล่อยให้ gate คลุมเครือ
 
-| Phase | Gate เดิม | สถานะ | Predicate ที่ใช้ได้ |
+| Phase | Gate | Predicate ที่ใช้ตัดสิน | Prerequisite |
 |---|---|---|---|
-| 8 | “semantic reviewer ผ่าน local-model queue” | **unspecified** | ต้องนิยาม cohort และเกณฑ์ก่อน: reviewer สร้าง candidate ที่ผ่าน checks ได้กี่ % ของ digest ที่มี evidence จริง และ false-proposal rate เท่าไร ยังตั้งตัวเลขไม่ได้จนกว่าจะมี corpus |
-| 8 | “candidate ทุกชิ้นย้อนถึง committed event range” | measurable | ทุก candidate มี `source_review_id` ที่ชี้ review ซึ่งชี้ event range ที่ commit แล้ว; query ที่หา candidate กำพร้าต้องคืน 0 แถว |
-| 8 | “behavioral eval แยก not_run/inconclusive/passed/failed” | measurable | promotion API ปฏิเสธ candidate ที่ eval state เป็น `not_run` หรือ `inconclusive` มี test ที่ยืนยันว่าปฏิเสธจริง |
-| 9 | “essential retention 100% บน gold corpus” | measurable แต่ขาด corpus | corpus ต้องมี ≥50 เคสต่อภาษา และมี ground truth ที่คนตรวจแล้ว — **corpus ยังไม่มี** จึง gate นี้ยังใช้ไม่ได้ |
-| 9 | “task success delta ผ่าน threshold แยกตาม task class” | **unspecified** | ต้องกำหนด threshold ต่อ class ก่อน เช่น code-edit ยอมให้ delta ไม่เกินกี่ % ตัวเลขนี้ควรมาจาก baseline ที่วัดจริง ไม่ใช่เลือกลอย ๆ |
-| 9 | “predicted token error อยู่ใน calibrated band” | measurable เมื่อมี tokenizer | band = ±X% เทียบ usage ที่ provider รายงาน; X ต้องเลือกหลังมี tokenizer adapter ตัวแรก |
-| 10 | “untrusted metadata ไม่ถูกตีความเป็น instruction” | measurable | hostile fixture ชุดหนึ่งที่ฝัง instruction ใน description/result/schema แล้ว assert ว่า agent ไม่ทำตาม — วัดด้วยจำนวน fixture ที่ผ่าน ไม่ใช่ความเห็น |
-| 10 | “plugin/MCP ไม่สามารถเพิ่ม authority เกิน SessionContract” | measurable | ชุด negative test ที่พยายามขยายสิทธิ์ผ่านทุก surface แล้วต้องถูกปฏิเสธทั้งหมด |
-| 11 | “accessibility/i18n ผ่าน” | **unspecified** | ต้องเลือกมาตรฐานก่อน เช่น WCAG level ใด และ platform matrix ใด |
-| 12 | “local model memory pressure ไม่ทำ OOM cascade” | **unspecified** | ต้องมี hardware reference matrix ก่อนจึงกำหนด threshold ได้ |
-| 13 | “contract suite เดียวผ่านทุก adapter ที่ประกาศ supported” | measurable | suite เดียวกันรันข้าม adapter ทั้งหมด; adapter ที่ไม่ผ่านต้องถูกถอดออกจากรายการ supported ไม่ใช่ใส่ข้อยกเว้น |
-| 14 | “threat model/penetration review ครอบคลุม…” | **unspecified** | review ที่ไม่มีเกณฑ์ผ่านคือ review ที่ผ่านเสมอ ต้องกำหนดว่า finding ระดับใดต้องปิดก่อน release |
+| 8 | semantic reviewer | บน digest corpus: digest ที่มี evidence จริง ≥**60%** ให้ candidate ที่ผ่าน checks · false-proposal rate ≤**10%** · candidate ที่อ้าง evidence ที่ไม่ได้รับ = **0** (ไม่มี tolerance) | **P8-A** digest corpus ≥100 เคส แยก trigger family ทั้งสี่ |
+| 8 | provenance ครบ | query ที่หา candidate ซึ่งไม่มี `source_review_id` ชี้ committed event range คืน **0 แถว** | — |
+| 8 | behavioral eval | promotion API ปฏิเสธ candidate ที่ eval state เป็น `not_run` หรือ `inconclusive` และมี test ยืนยันการปฏิเสธ | — |
+| 9 | essential retention | retention ของ goal/constraint/decision = **100%** บน gold corpus · causal split = **0** | **P9-A** gold corpus ≥50 เคสต่อภาษา พร้อม ground truth ที่คนตรวจแล้ว |
+| 9 | task success delta | เทียบ full context กับ compiled: code-edit ถอยได้ไม่เกิน **3 percentage point** · document/summarisation และ research/multi-step ไม่เกิน **5 pp** · **false-success delta = 0** วัดจาก ≥**30 task ต่อ class** ใช้ seed เดียวกันเมื่อ provider รองรับ | **P9-B** task corpus ต่อ class |
+| 9 | token error band | predicted เทียบ usage ที่ provider รายงาน อยู่ใน **±10%** ที่ p95 และไม่มี overflow/silent truncation แม้แต่ครั้งเดียว | **P9-C** tokenizer adapter ตัวแรก |
+| 10 | untrusted metadata | hostile fixture ที่ฝัง instruction ใน description, tool result, schema และ error ผ่าน **100%** — agent ไม่ทำตามสักเคส | **P10-A** hostile fixture ≥20 เคส |
+| 10 | authority ceiling | negative test ที่พยายามขยายสิทธิ์ผ่านทุก surface (plugin manifest, MCP annotation, Skill content, schema) ถูกปฏิเสธ **ทั้งหมด** | — |
+| 11 | accessibility / i18n | **WCAG 2.2 AA** สำหรับ chrome ของ shell เอง · ทุก action เข้าถึงด้วยคีย์บอร์ดได้ · string coverage ไทย+อังกฤษ **100%** · ผ่านบน macOS/Windows/Linux | **P11-A** เลือก a11y test harness |
+| 12 | memory pressure | บน hardware matrix ที่กำหนด: parent + 3 child ทำงาน **30 นาที** โดยไม่มี OOM kill · เมื่อ VRAM ไม่พอ scheduler ต้อง **degrade เป็น serial ไม่ใช่ crash** · กลับมาทำงานได้ภายใน **1 turn** | **P12-A** hardware reference matrix (อย่างน้อย: unified memory 16 GB, VRAM 24 GB, VRAM 8 GB) |
+| 13 | adapter contract | contract suite เดียวรันข้าม adapter ทุกตัวที่ประกาศ supported; adapter ที่ไม่ผ่าน **ถูกถอดออกจากรายการ supported** ไม่ใช่ใส่ข้อยกเว้น | — |
+| 14 | threat model | ไม่มี finding ระดับ **High ขึ้นไปที่ยังไม่ mitigate** · finding ระดับ Medium ต้องมีเจ้าของและวันที่ · review ครอบ surface ที่ระบุครบทุกตัว (local, remote, plugin, MCP, browser, PTY) | **P14-A** เลือกเกณฑ์จัดระดับความรุนแรง |
 
-สรุป: **6 จาก 12 gate ที่ตรวจยังเป็น `unspecified`** และอีก 2 measurable แต่ขาด corpus/tooling ที่ต้องมีก่อน ตัวเลขนี้เป็นเหตุผลที่ Phase 8–14 ยังประเมิน effort ไม่ได้อย่างมีความหมาย
+**สรุป:** ไม่มี gate ที่เป็น `unspecified` แล้ว เหลือ **prerequisite task 8 ตัว** (P8-A, P9-A, P9-B, P9-C, P10-A, P11-A, P12-A, P14-A) ซึ่งเป็นงานที่ตั้งชื่อได้และประเมินได้ ต่างจาก gate คลุมเครือที่ประเมินไม่ได้
+
+---
+
+## Effort model *(ปิด R-16)*
+
+ฉบับก่อนใส่ band ต่อ phase โดยไม่ระบุว่าใครทำ พอ batch แรกถูกลงมือจริง — ประเมิน 12–13 วัน-คน ใช้จริง ~30 นาที — จึงเห็นว่าตัวเลขที่ไม่ระบุ actor **ตีความไม่ได้ ไม่ใช่แค่ผิด**
+
+### สิ่งที่ย่อได้และไม่ย่อ
+
+| ย่อได้ด้วย agent | ไม่ย่อ |
+|---|---|
+| เขียน test ที่มี contract ชัด | ตัดสินใจว่าจะสร้างอะไร |
+| mechanical refactor, rename, ลบ dead code | เลือก threshold ที่ถูกต้อง |
+| doc pass ที่มีแหล่งความจริงชัด | ออกแบบ trade-off และรับผลของมัน |
+| ไล่ mutation test | ตกลงกับผู้ใช้ว่าอะไรสำคัญ |
+| สร้าง fixture จาก spec ที่เขียนไว้แล้ว | ตัดสินว่า evidence พอหรือยัง |
+
+หลักฐานจาก batch แรก: งานทั้ง 14 ข้อเป็นคอลัมน์ซ้ายเกือบทั้งหมด เพราะ **การตัดสินใจถูกทำไปแล้วในรอบ audit** เหลือแต่การลงมือ ส่วน Phase 8–14 ยังไม่ผ่านรอบนั้น
+
+### Band แยกสองแกน
+
+`D` = decision effort (มนุษย์: ออกแบบ, ตั้ง threshold, review, ตัดสินใจ) — **ไม่ย่อ**
+`I` = implementation effort (agent-assisted: เขียนโค้ด/test ตาม contract ที่ตกลงแล้ว) — **ย่อได้**
+
+| Phase | ลึก/กว้าง | D (วัน-คน) | I (วัน-คน) | หมายเหตุ |
+|---|---|---:|---:|---|
+| 7.0 hygiene | ลึก | 1 | 1 | ทำแล้ว |
+| 7.1 correctness | ลึก | 2 | 4 | ทำแล้ว |
+| 7.2 skill retrieval | ลึก | 2 | 2 | ทำแล้ว |
+| 8 Skill Learning OS | ลึก | **15–25** | 10–20 | D สูงเพราะต้องตั้งเกณฑ์ eval, ออกแบบ sandbox boundary และสร้าง corpus P8-A |
+| 9 Context 2.0 | ลึก | **12–20** | 10–20 | D อยู่ที่ threshold ต่อ task class และ ground truth ของ corpus P9-A/B |
+| 10 Capability/MCP | ลึก | **15–25** | 20–35 | I สูงกว่าปกติเพราะ OS sandbox ต่อ platform เป็นงานที่ contract ไม่ชัดจนกว่าจะลองจริง |
+| 11 Product shell | **กว้าง** | **20–35** | 40–70 | ทั้งสองแกนสูง; a11y, PTY, browser embedding, signing ล้วนเป็นงานที่ต้องตัดสินใจระหว่างทำ |
+| 12 Multi-agent | กว้าง | 12–20 | 15–25 | ต้องมี P12-A hardware matrix ก่อน |
+| 13 Provider ecosystem | ลึก | 8–15 | 15–30 | D ขึ้นกับจำนวน adapter ที่ตัดสินใจรองรับ |
+| 14 Security/release | ลึก | 15–25 | 15–25 | D คือ threat model และเกณฑ์ความรุนแรง |
+
+### สิ่งที่ตัวเลขนี้บอก
+
+- **Phase 7.x เสร็จแล้ว** ใช้จริงประมาณ D=5 / I=7 วัน-คนตามที่ประเมิน แต่ compress เป็น 30 นาที wall clock เพราะ D ถูกจ่ายไปแล้วในรอบ audit
+- **Phase 8–10 รวมกัน: D ≈ 42–70 วัน-คน** ซึ่งย่อไม่ได้ = **2–3.5 เดือนของเวลามนุษย์** ต่อให้ implementation เป็นศูนย์
+- **Phase 11: D ≈ 20–35 วัน-คน บวก I ที่ใหญ่ที่สุดในแผน** ยังเป็น phase ที่แพงที่สุดแม้แยกสองแกนแล้ว
+
+**ข้อสรุปเรื่อง Phase 11 จึงยังยืน แต่ด้วยเหตุผลที่ต่างจากเดิม** — ไม่ใช่เพราะ implementation ใหญ่ (ซึ่งย่อได้บางส่วน) แต่เพราะ **decision effort ของมันสูงและไม่ย่อ** และมันเป็น phase เดียวในกลุ่ม `กว้าง` ที่กิน decision budget แข่งกับ kernel โดยตรง
+
+ข้อเสนอยังเหมือนเดิม: **web control center คือ product surface ของ Hermetrix** จนกว่ามีคนเพิ่มหรือมีเหตุผลทางธุรกิจที่ชัด — และตอนนี้มีตัวเลขที่แยกแกนแล้วรองรับ
 
 ---
 
@@ -779,8 +834,8 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 | R-13 | claim registry ถูกเข้าใจผิดว่าเป็น oracle ของความถูกต้องเอกสาร | รัน script ผ่านแล้วเชื่อว่าเอกสารตรง ทั้งที่ข้อความเชิงความหมายยังผิด | ประกาศขอบเขตของ registry ในเอกสาร + human checklist ต่อ finding ตอนปิด phase | 7.0 |
 | R-14 | ADR-7 ทำให้ Skill retrieval เป็น pull จึงเสีย determinism และอาจไม่ถูกเรียกเลย | โมเดลเล็กไม่ดึง Skill ทำให้คุณภาพตกกว่าเดิม; replay/eval ยากขึ้น | คง pre-selection เป็น floor; metric `no_skill_requested_rate`; เกณฑ์ถอยที่ 50% ต่อ model tier | 7.2 |
 | R-15 | ไม่รู้ขนาดงานรวมของแผน | ตัด scope ไม่ได้เพราะไม่มีตัวเลข; ADR-8 บังคับใช้ยาก | effort band ต่อ phase + total range + สมมติฐานกำลังคน | 7.0 |
-| R-16 | effort band ไม่ระบุว่าใครเป็นคนทำ | batch แรกประเมิน 12–13 วัน-คน แต่ทำจริงใน ~30 นาทีด้วย agent ตัวเลขที่ไม่ระบุ actor จึงตีความไม่ได้และเอาไปตัดสิน scope ไม่ได้ | แยก decision effort ออกจาก implementation effort ก่อนประเมิน Phase 8–14 ใหม่ | 7.0 (ค้าง) |
-| R-17 | 6 จาก 12 exit gate ที่ตรวจของ Phase 8–14 เป็น `unspecified` | phase ปิดได้โดยไม่มีเกณฑ์ผ่านจริง | gate audit บังคับว่า `unspecified` ห้ามใช้ปิด phase | 7.0 (ทำแล้ว) |
+| R-16 | effort band ไม่ระบุว่าใครเป็นคนทำ | batch แรกประเมิน 12–13 วัน-คน แต่ทำจริงใน ~40 นาทีด้วย agent ตัวเลขที่ไม่ระบุ actor จึงตีความไม่ได้ | **ปิดแล้ว** — band แยกเป็น D (decision, ไม่ย่อ) กับ I (implementation, ย่อได้) ทุก phase | 7.0 |
+| R-17 | 6 จาก 12 exit gate ของ Phase 8–14 เป็น `unspecified` | phase ปิดได้โดยไม่มีเกณฑ์ผ่านจริง | **ปิดแล้ว** — ทุก gate มี predicate; ที่ต้องรอ artifact กลายเป็น prerequisite task ที่มีชื่อ (P8-A ถึง P14-A) | 7.0 |
 
 ---
 
@@ -837,7 +892,7 @@ Required continuous suites:
 | 1 | `git init` + commit + remote สำรอง | O-1 / R-1 | 15 นาที | — |
 | 2 | doc truth pass + rename test ที่ overclaim | O-7 / V-6 / R-2 / R-12 | 2 ชม. | 1 |
 | 3 | `scripts/doc-truth.sh` สองชั้น + claim registry | R-2 / R-13 | 1 วัน | 2 |
-| 4 | gate audit Phase 8–14 + effort band | P-3 / P-4 / R-15 | 1 วัน | — |
+| 4 | gate audit Phase 8–14 + effort model สองแกน | P-3 / P-4 / R-15 / R-16 / R-17 | 1 วัน | — |
 | 5 | exact provider serialization token accounting | O-3 / R-3 | 1 วัน | — |
 | 6 | outbox test suite | O-4 / V-2 | ครึ่งวัน | — |
 | 7 | TaskBudget test suite (5 เคส) | V-3 | 1 วัน | — |
@@ -846,55 +901,37 @@ Required continuous suites:
 | 10 | GC fault injection | V-5 | ครึ่งวัน | — |
 | 11 | ลบ `selectSkills` + static check | O-5 / R-10 | 1 ชม. | — |
 | 12 | per-tier recall evidence แทน bool เดียว | O-6 | 1 วัน | 8 |
-| 13 | ADR-7 `skill_search` / `skill_view` + metric | O-2 / R-7 / R-14 | 3 วัน | 5 |
+| 13 | ADR-7 `skill_search` / `skill_view` | O-2 / R-7 | 3 วัน | 5 |
+| 15 | metric `no_skill_requested_rate` + `GET /api/skill-retrieval` | R-14 | 1 วัน | 13 |
 | 14 | Skill behavioral evaluator design spike | R-4 | 1 วัน spike | — |
 
-**รวม batch นี้ประมาณ 12–13 วัน-คน** ข้อ 1–2 ทำก่อนเสมอ ข้อ 6–11 ขนานกันได้ทั้งหมดเพราะเป็นงาน test แยก package
+**รวม batch นี้ประมาณ 13–14 วัน-คน** ข้อ 1–2 ทำก่อนเสมอ ข้อ 6–11 ขนานกันได้ทั้งหมดเพราะเป็นงาน test แยก package
 
 สังเกตว่า **ข้อ 6 ถึง 10 รวมกันคือ 3.5 วัน และเป็นงานเขียน test ล้วน** นี่คือราคาของการที่รอบแรกประกาศปิด finding โดยไม่มีหลักฐานเกรด A
 
-### Effort band ต่อ phase
+### สถานะของ batch นี้
 
-ตัวเลขเป็น band หยาบเพื่อใช้ตัดสิน scope ไม่ใช่ประมาณการที่ commit ได้ phase ที่ยังมี gate `unspecified` จะประเมินแม่นไม่ได้จนกว่างานข้อ 4 จะเสร็จ
+batch ถูกลงมือทำจริงและปิดครบทุกข้อ ผลที่วัดได้:
 
-| Phase | ทำให้ลึกหรือกว้าง | Effort band | หมายเหตุ |
-|---|---|---|---|
-| 7.0 hygiene | ลึก (process) | 2–3 วัน | บังคับ |
-| 7.1 correctness | ลึก | 6–8 วัน | บังคับ |
-| 7.2 skill retrieval | ลึก | 3–5 วัน | รอ 7.1-1 |
-| 8 Skill Learning OS 2.0 | ลึก | 6–10 สัปดาห์ | sandboxed behavioral runner เป็นตัวกินเวลาหลัก |
-| 9 Context 2.0 | ลึก | 6–10 สัปดาห์ | tokenizer adapters ต่อ provider คือความไม่แน่นอนหลัก |
-| 10 Capability/plugin/MCP | ลึก | 8–14 สัปดาห์ | OS sandbox ต่อ platform คือส่วนที่เสี่ยงบานปลายที่สุด |
-| 11 Product shell (native) | **กว้าง** | **20–40 สัปดาห์** | optional track; ใหญ่กว่า 8+9+10 รวมกัน |
-| 12 Multi-agent | กว้าง | 8–12 สัปดาห์ | ต้องรอ 8/9/10 |
-| 13 Provider ecosystem | ลึก | 6–10 สัปดาห์ | ขึ้นกับจำนวน adapter ที่ประกาศ supported |
-| 14 Security/release | ลึก | 8–12 สัปดาห์ | ต้องมี threat model ก่อนประเมินแม่น |
+| ตัวชี้วัด | ค่า |
+|---|---|
+| finding ที่ปิด | O-1 ถึง O-7, V-1 ถึง V-6, R-14 |
+| wall clock | ~40 นาที, 13 commits, +2,900 บรรทัด |
+| test functions | 96 → 128 |
+| mutation test | 20 ครั้ง, แดง 18, บันทึก 2 ที่ test เข้าไม่ถึง |
+| ADR ที่ถึง `implemented` | 0 → 4 |
 
-### Calibration จากข้อมูลจริงครั้งแรก
+effort band และการตีความตัวเลขนี้อยู่ในหัวข้อ [Effort model](#effort-model-ปิด-r-16) ด้านบน สรุปสั้น: ตัวเลข wall clock **ไม่** calibrate band ของ Phase 8–14 เพราะ decision effort ของ batch นี้ถูกจ่ายไปแล้วในรอบ audit ส่วน Phase 8–14 ยังไม่ผ่านรอบนั้น
 
-batch นี้ถูกลงมือทำจริงแล้ว ผลที่วัดได้:
+### งานถัดไป
 
-| ตัวชี้วัด | ประมาณการ | ของจริง |
-|---|---|---|
-| งานที่ปิด | O-1 ถึง O-7, V-1 ถึง V-6, ADR-7 | ปิดครบ |
-| effort ที่ประเมิน | 12–13 วัน-คน | — |
-| wall clock ที่ใช้จริง | — | ~30 นาที, 11 commits, +2,332/−290 บรรทัด |
-| test functions | — | 96 → 125 |
+Phase 8 และ 9 เริ่มได้ เพราะ state authority, context truth และ learning lifecycle มั่นคงพอแล้ว แต่ทั้งสอง phase มี prerequisite ที่ต้องทำก่อนถึงจะวัด exit gate ได้:
 
-**ตัวเลขนี้ไม่ calibrate effort band ด้านบน และการเอาไปหารตรง ๆ จะผิด** เพราะ band เขียนขึ้นโดยสมมติ *นักพัฒนามนุษย์* ส่วนงานจริงทำโดย agent สิ่งที่ข้อมูลนี้บอกจึงไม่ใช่ “เร็วขึ้น 200 เท่า” แต่คือ **ข้อบกพร่องของการแก้ P-4 เอง: band ที่ใส่เข้ามาไม่ได้ระบุว่าใครทำ**
+| Prerequisite | สำหรับ gate |
+|---|---|
+| **P8-A** digest corpus ≥100 เคส แยก trigger family | semantic reviewer |
+| **P9-A** gold corpus ≥50 เคสต่อภาษา พร้อม ground truth | essential retention |
+| **P9-B** task corpus ต่อ class | task success delta |
+| **P9-C** tokenizer adapter ตัวแรก | token error band |
 
-การแก้ P-4 ที่ถูกต้องกว่าคือ:
-
-1. band ทุกตัวต้องระบุ actor ให้ชัด — ฉบับนี้ให้ถือว่าเป็น **human effort สำหรับ design, review, integration และการตัดสินใจ** ไม่ใช่เวลาพิมพ์โค้ด
-2. งานที่ agent ทำได้เร็วคืองานที่มี contract ชัดและตรวจได้ด้วย test — เขียน test, mechanical refactor, doc pass งานที่ไม่ย่อคือ **การตัดสินใจว่าจะทำอะไร** ซึ่งเป็นเนื้อของ Phase 8–14 ส่วนใหญ่
-3. ดังนั้น band ของ Phase 8–14 ไม่ควรถูกหารด้วยความเร็วนี้ แต่ควรถูกแยกเป็น decision effort กับ implementation effort ก่อน จึงจะประเมินใหม่ได้อย่างมีความหมาย
-
-จนกว่าจะทำข้อ 3 **ตัวเลข Phase 8–14 ยังเป็นการเดาที่แต่งตัวมาดี** ตามที่ P-4 ระบุไว้แต่แรก และข้อสรุปเรื่อง Phase 11 ด้านล่างตั้งอยู่บนฐานนั้น จึงเป็นข้อเสนอ ไม่ใช่ข้อสรุป
-
-**ผลของตัวเลขนี้ต่อการตัดสินใจ:** Phase 7.x ถึง 10 รวมกันประมาณ **6–9 เดือน-คน** ส่วน Phase 11 อย่างเดียวประมาณ **5–10 เดือน-คน**
-
-สำหรับทีมหนึ่งคน นี่ไม่ใช่การ demote Phase 11 แต่คือหลักฐานว่า **Phase 11 ควรถูกตัดออกจากแผน** จนกว่าจะมีคนเพิ่มหรือมีเหตุผลทางธุรกิจที่ชัดกว่านี้ การเก็บไว้เป็น optional track ที่ไม่มีใครทำคือการหลอกตัวเอง — ควรระบุตรง ๆ ว่า **web control center คือ product surface ของ Hermetrix** ไม่ใช่ขั้นกลางระหว่างทางไป native
-
-ข้อเสนอนี้ต้องให้เจ้าของโครงการตัดสิน ไม่ใช่ตัดสินในเอกสาร
-
-หลัง batch นี้จึงควรเริ่ม Phase 8 และ 9 เพราะ state authority, context truth และ learning lifecycle จะมั่นคงพอให้ต่อยอดได้ โดยไม่ต้องกลับมาแก้สถาปัตยกรรมซ้ำภายหลัง
+งานสร้าง corpus เป็น decision effort เกือบทั้งหมด — ต้องตัดสินว่าอะไรคือ ground truth ซึ่งเป็นงานที่ย่อไม่ได้ ควรเริ่มจากตรงนี้ ไม่ใช่จากโค้ด
