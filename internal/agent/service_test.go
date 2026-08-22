@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestSessionRequiresExactQualificationOrReviewedOverride(t *testing.T) {
 	}
 }
 
-func TestConcurrentTurnsCommitOnlyOneUserEvent(t *testing.T) {
+func TestSecondTurnIsRejectedWhileFirstHoldsLease(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var requests atomic.Int32
@@ -115,6 +116,86 @@ func TestConcurrentTurnsCommitOnlyOneUserEvent(t *testing.T) {
 	if users != 1 || detail.Session.State != "active" || detail.Session.ActiveTurnID != "" || requests.Load() != 1 {
 		t.Fatalf("lease invariant failed users=%d state=%s active=%q requests=%d", users, detail.Session.State,
 			detail.Session.ActiveTurnID, requests.Load())
+	}
+}
+
+// TestConcurrentTurnsNeverDoubleCommitUnderRace releases N goroutines into
+// RunTurn at the same instant with nothing holding the provider open, so the
+// lease acquisition itself is the contended path. TestSecondTurnIsRejected...
+// covers the sequenced case and its error message; this one covers the race.
+func TestConcurrentTurnsNeverDoubleCommitUnderRace(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+
+	const rounds = 100
+	const racers = 4
+	totalAccepted := 0
+	for round := 0; round < rounds; round++ {
+		session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+			ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		results := make(chan error, racers)
+		var wg sync.WaitGroup
+		for racer := 0; racer < racers; racer++ {
+			wg.Add(1)
+			go func(racer int) {
+				defer wg.Done()
+				<-start
+				_, runErr := service.RunTurn(ctx, session.ID, TurnInput{Content: fmt.Sprintf("racer-%d", racer)}, nil)
+				results <- runErr
+			}(racer)
+		}
+		close(start)
+		wg.Wait()
+		close(results)
+
+		accepted := 0
+		for runErr := range results {
+			if runErr == nil {
+				accepted++
+				continue
+			}
+			if !strings.Contains(runErr.Error(), "only one turn") {
+				t.Fatalf("round %d: turn failed for a reason other than the lease: %v", round, runErr)
+			}
+		}
+		if accepted == 0 {
+			t.Fatalf("round %d: every racer was rejected, so the lease never released", round)
+		}
+		totalAccepted += accepted
+
+		detail, err := service.GetSessionDetail(ctx, session.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		users := 0
+		for _, event := range detail.Events {
+			if event.EventKind == "message" && event.Role == "user" {
+				users++
+			}
+		}
+		// The invariant is not "exactly one turn wins" -- a fast first turn may
+		// release the lease in time for a later racer. It is that a committed
+		// user event never outnumbers the turns that were actually admitted.
+		if users != accepted {
+			t.Fatalf("round %d: %d user events committed for %d admitted turns", round, users, accepted)
+		}
+		if detail.Session.State != "active" || detail.Session.ActiveTurnID != "" {
+			t.Fatalf("round %d: lease leaked state=%s active=%q", round, detail.Session.State, detail.Session.ActiveTurnID)
+		}
+	}
+	if int(requests.Load()) != totalAccepted {
+		t.Fatalf("provider saw %d requests for %d admitted turns", requests.Load(), totalAccepted)
 	}
 }
 
