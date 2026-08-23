@@ -158,6 +158,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
 | **O-13** | tool-call arguments ที่พังถูก replay กลับไปหา provider ทำให้ทั้ง turn ตาย | high | **แก้แล้ว** |
 | **O-14** | ค่าที่อยู่กลางไฟล์ใหญ่เข้าถึงไม่ได้ — ไม่มี search ไม่มี range read | high | **แก้แล้ว** |
+| **O-15** | reviewer จ่าย model call ทุก turn เพื่อได้ `no_change` | medium | **แก้แล้ว** |
 
 #### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
 
@@ -322,6 +323,28 @@ model ทำถูกทุกอย่าง — รายงานตรงว
 direct tools 8 → 9 = **1,446 จาก 3,584 token** ของ compact-32k
 
 รันงานเดิมซ้ำกับ model จริง: `read_file` → เห็นว่าถูกตัด → `search_files` → เจอบรรทัด 701 → `read_file` window ยืนยัน แล้วตอบถูกพร้อมข้อความเต็ม
+
+#### O-15 — reviewer จ่ายแพงเพื่อรู้ว่าไม่มีอะไร *(แก้แล้ว)*
+
+ขับงานหลากหลาย 7 turn (review โค้ด, แก้บั๊ก, อ่านไฟล์ใหญ่, ค้นหา, เรียก MCP) ผลคือ:
+
+```
+trigger ที่ยิง:     successful_milestone × 7
+model call:        7
+candidate:         0
+```
+
+`successful_milestone` ต้องการแค่ `outcome == success && (มี tool สำเร็จ || มี Skill activation)` — การอ่านไฟล์สำเร็จก็เข้าเงื่อนไข จึงยิงเกือบทุก turn
+
+reviewer แยกแยะได้ดี (เหตุผลทั้ง 7 ข้อจำเพาะกับงานจริง ไม่ใช่ข้อความสำเร็จรูป) แต่ **ต้นทุนไม่คุ้ม** บน local-first ที่ reviewer แย่ง device กับ foreground การจ่าย model call เพื่อฟังว่า "ไม่มีอะไร" คือต้นทุนที่กระทบผู้ใช้โดยตรง
+
+และมันขัดหลักการที่โครงการเขียนไว้เองใน ROADMAP: *"exact/deterministic reduction ก่อน semantic LLM call"*
+
+แก้ด้วย `worthAModelCall` — filter แบบ deterministic ที่รันก่อน ส่งต่อให้ model เมื่อมีอย่างน้อยหนึ่งอย่าง: user correction, Skill activation, explicit learn request, หรือ tool receipt ที่ไม่ใช่ read-only
+
+**filter ข้ามได้เฉพาะสิ่งที่มั่นใจ** — receipt ที่ parse ไม่ได้ถือว่าไม่ใช่ read-only จึงถูกส่งต่อ ไม่ถูกทิ้งเงียบ
+
+ผลข้างเคียงที่ดี: marker vocabulary ของ trigger เคยอยู่ใน `internal/agent` ที่เดียว พอ filter ต้องใช้ด้วยจึงย้ายไป `internal/learning/triggers.go` เป็นแหล่งเดียว — สอง list ที่ถามคำถามเดียวกันย่อม drift ไปคนละคำตอบ
 
 #### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
 

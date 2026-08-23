@@ -71,6 +71,9 @@ func (r *ModelReviewer) Review(ctx context.Context, digest Digest) (Decision, er
 	if digest.SuggestedSkill != nil && strings.TrimSpace(digest.SuggestedSkill.Markdown) != "" {
 		return StructuredReviewer{}.Review(ctx, digest)
 	}
+	if reason, worth := worthAModelCall(digest); !worth {
+		return Decision{Kind: "no_change", Reason: reason}, nil
+	}
 	if r.providers == nil || strings.TrimSpace(r.providerID) == "" {
 		return Decision{Kind: "no_change", Reason: "no review provider is configured"}, nil
 	}
@@ -136,4 +139,57 @@ func parseReviewerDecision(raw string) (Decision, error) {
 		Risks:           []string{"proposed by a model from evidence; needs lint, security checks, review and explicit promotion"},
 		SuggestedSkill: &SuggestedSkill{CanonicalName: name, ScopeKind: "user", Owner: "user",
 			ChangeKind: "create", Reason: reason, Markdown: markdown + "\n"}}, nil
+}
+
+// worthAModelCall is the deterministic filter that runs before the expensive
+// one. successful_milestone fires on any turn that read a file, which is nearly
+// every turn: driving seven varied turns produced seven review calls and zero
+// candidates. On a local-first harness the reviewer competes with foreground
+// work for the same device, so paying a model call to be told "nothing here" is
+// the cost that matters.
+//
+// This is the project's own rule -- deterministic reduction before a semantic
+// call -- applied where it was missing. It only skips work the model would
+// almost certainly decline: a turn with no correction, no effect on anything,
+// and no Skill in play has no procedure in it to find.
+func worthAModelCall(digest Digest) (string, bool) {
+	if len(digest.UserCorrections) > 0 {
+		return "", true
+	}
+	if len(digest.SkillActivations) > 0 {
+		return "", true
+	}
+	if ExplicitLearnRequested(digest.GoalAndConstraints) {
+		return "", true
+	}
+	for _, receipt := range digest.ToolReceipts {
+		if !isReadOnlyReceipt(receipt) {
+			return "", true
+		}
+	}
+	return "read-only work with no correction, Skill or explicit request: nothing durable to propose", false
+}
+
+// readOnlyToolNames are the primitives that observe without changing anything.
+// A turn built only from these cannot have established a procedure worth
+// keeping -- it looked at things.
+var readOnlyToolNames = map[string]bool{
+	"workspace.list_files":   true,
+	"workspace.read_file":    true,
+	"workspace.search_files": true,
+	"skill_search":           true,
+	"skill_view":             true,
+	"tool_search":            true,
+	"tool_describe":          true,
+}
+
+// isReadOnlyReceipt reads the "event:<id>:<tool>:<status>" shape the runtime
+// writes. Anything it cannot parse counts as not read-only, so an unrecognised
+// receipt sends the digest to the model rather than silently dropping it.
+func isReadOnlyReceipt(receipt string) bool {
+	parts := strings.Split(receipt, ":")
+	if len(parts) < 4 {
+		return false
+	}
+	return readOnlyToolNames[parts[len(parts)-2]]
 }

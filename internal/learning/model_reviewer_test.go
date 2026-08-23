@@ -90,11 +90,88 @@ func TestReviewerPassesThroughAnExplicitProcedure(t *testing.T) {
 // review" rather than "there was nothing worth keeping".
 func TestReviewerWithoutAProviderSaysSo(t *testing.T) {
 	reviewer := NewModelReviewer(nil, "")
-	decision, err := reviewer.Review(context.Background(), Digest{GoalAndConstraints: "do a thing", Outcome: "success"})
+	// The digest has to be worth reviewing, or the deterministic filter answers
+	// first and the provider is never consulted.
+	decision, err := reviewer.Review(context.Background(), Digest{GoalAndConstraints: "do a thing",
+		Outcome: "success", UserCorrections: []string{"event:a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decision.Kind != "no_change" || !strings.Contains(decision.Reason, "no review provider") {
 		t.Fatalf("missing provider was not reported: %+v", decision)
+	}
+}
+
+// --- O-15: do not pay a model call to be told nothing happened ---
+//
+// successful_milestone fires on any turn that read a file, which is nearly
+// every turn. Seven varied turns driven live produced seven review calls and
+// zero candidates. On a local-first harness the reviewer shares a device with
+// foreground work, so that cost is the one that matters.
+
+func TestReadOnlyWorkSkipsTheModelCall(t *testing.T) {
+	// The provider ID points at nothing. Reaching a decision at all proves the
+	// deterministic filter answered before anything tried to call a model.
+	reviewer := NewModelReviewer(nil, "provider-that-does-not-exist")
+	decision, err := reviewer.Review(context.Background(), Digest{
+		GoalAndConstraints: "read the README and summarise it", Outcome: "success",
+		ToolReceipts: []string{
+			"event:a:workspace.list_files:succeeded",
+			"event:b:workspace.read_file:succeeded",
+			"event:c:workspace.search_files:succeeded",
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != "no_change" {
+		t.Fatalf("kind %q, want no_change", decision.Kind)
+	}
+	if !strings.Contains(decision.Reason, "nothing durable") {
+		t.Fatalf("read-only work still went to the model: %+v", decision)
+	}
+}
+
+func TestWorkWorthReviewingStillReachesTheModel(t *testing.T) {
+	cases := []struct {
+		name   string
+		digest Digest
+	}{
+		{"a correction", Digest{Outcome: "success", UserCorrections: []string{"event:a"}}},
+		{"a Skill was in play", Digest{Outcome: "success", SkillActivations: []string{"skill:x@v1"}}},
+		{"an explicit request", Digest{GoalAndConstraints: "จำไว้ว่าต้องทำแบบนี้", Outcome: "success"}},
+		{"something was written", Digest{Outcome: "success",
+			ToolReceipts: []string{"event:a:workspace.write_file:succeeded"}}},
+		{"a remote capability ran", Digest{Outcome: "success",
+			ToolReceipts: []string{"event:a:tool_call:succeeded"}}},
+		// An unrecognised receipt must send the digest onward rather than be
+		// dropped: the filter may only skip work it is sure about.
+		{"an unparseable receipt", Digest{Outcome: "success", ToolReceipts: []string{"garbled"}}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if reason, worth := worthAModelCall(testCase.digest); !worth {
+				t.Fatalf("filter skipped work that deserved review: %q", reason)
+			}
+		})
+	}
+}
+
+// The trigger vocabulary has one home; both the agent's classifier and this
+// filter read it.
+func TestTriggerVocabularyIsSharedAndCaseInsensitive(t *testing.T) {
+	if !CorrectionRequested("ผิด report.py ยังหารด้วยศูนย์ได้") {
+		t.Fatal("a Thai correction was not recognised")
+	}
+	if !CorrectionRequested("That's Wrong, try again") {
+		t.Fatal("an English correction was not recognised regardless of case")
+	}
+	if CorrectionRequested("please summarise the report") {
+		t.Fatal("an ordinary request was read as a correction")
+	}
+	if !ExplicitLearnRequested("จำไว้ว่าต้องทำแบบนี้") || !ExplicitLearnRequested("Remember this procedure") {
+		t.Fatal("an explicit request to keep something was not recognised")
+	}
+	if ExplicitLearnRequested("what files are here") {
+		t.Fatal("an ordinary question was read as a request to learn")
 	}
 }

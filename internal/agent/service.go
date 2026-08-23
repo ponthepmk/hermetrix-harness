@@ -1498,9 +1498,9 @@ func (s *Service) learningTriggerForTurn(ctx context.Context, sessionID, turnID,
 		if item.EventKind == "message" && item.Role == "user" {
 			if item.TurnID == turnID {
 				digest.GoalAndConstraints = boundedText(item.Content, 2000)
-				currentCorrection = correctionRequested(item.Content)
+				currentCorrection = learning.CorrectionRequested(item.Content)
 			}
-			if correctionRequested(item.Content) {
+			if learning.CorrectionRequested(item.Content) {
 				digest.UserCorrections = append(digest.UserCorrections, "event:"+item.ID)
 			}
 		}
@@ -1529,7 +1529,7 @@ func (s *Service) learningTriggerForTurn(ctx context.Context, sessionID, turnID,
 	trigger := ""
 	if outcome == "failure" && len(digest.SkillActivations) > 0 {
 		trigger = "skill_failure"
-	} else if explicitLearnRequested(digest.GoalAndConstraints) {
+	} else if learning.ExplicitLearnRequested(digest.GoalAndConstraints) {
 		trigger = "explicit_learn"
 	} else if currentCorrection && len(digest.UserCorrections) >= 2 {
 		trigger = "repeated_correction"
@@ -1549,26 +1549,6 @@ func boundedText(value string, limit int) string {
 		return string(runes[:limit]) + "…"
 	}
 	return string(runes)
-}
-
-func explicitLearnRequested(value string) bool {
-	value = strings.ToLower(value)
-	for _, marker := range []string{"จำไว้", "เรียนรู้จาก", "สร้างสกิล", "สร้าง skill", "remember this", "learn this", "create a skill", "save as a skill"} {
-		if strings.Contains(value, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func correctionRequested(value string) bool {
-	value = strings.ToLower(value)
-	for _, marker := range []string{"แก้ใหม่", "ไม่ใช่", "ผิด", "ทำซ้ำ", "correct that", "that's wrong", "not what i asked", "try again"} {
-		if strings.Contains(value, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Service) appendEvent(ctx context.Context, event Event) (Event, error) {
