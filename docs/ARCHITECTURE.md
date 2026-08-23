@@ -24,6 +24,7 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - learning trigger outbox ที่เขียน trigger ใน transaction เดียวกับ turn commit แล้ว drain เป็น review job แบบ idempotent
 - multi-step model/tool loop พร้อม bounded reads และ approval-gated atomic text write ที่มี path boundary, optimistic hash, deadline และ normalized receipt
 - deferred capability catalog ที่ prompt เห็นเพียง `tool_search`, `tool_describe`, `tool_call` โดยไม่โตตามจำนวน remote tools
+- bounded workspace search (`workspace.search_files`, RE2) และ range read (`offset_line`/`max_lines`) เพื่อให้ไฟล์ใหญ่เข้าถึงได้เกินหัวกับท้าย
 - MCP Streamable HTTP registry/client ที่รองรับ current stateless `2026-07-28` และ legacy handshake `2025-11-25`
 - MCP Control Center สำหรับ connection, atomic discovery, bounded search และ on-demand schema inspection
 - deterministic Skill metadata selection, lazy version-body injection และ activation receipt จาก runtime จริง

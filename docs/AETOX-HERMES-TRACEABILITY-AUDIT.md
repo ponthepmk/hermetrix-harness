@@ -157,6 +157,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-11** | output reserve ไม่รู้จัก reasoning token | high | **บรรเทาแล้ว** — turn ที่ถูกตัดถูกติดธงพร้อมสัดส่วน reasoning; การจัดสรร reserve ยังไม่แก้ |
 | **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
 | **O-13** | tool-call arguments ที่พังถูก replay กลับไปหา provider ทำให้ทั้ง turn ตาย | high | **แก้แล้ว** |
+| **O-14** | ค่าที่อยู่กลางไฟล์ใหญ่เข้าถึงไม่ได้ — ไม่มี search ไม่มี range read | high | **แก้แล้ว** |
 
 #### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
 
@@ -297,6 +298,30 @@ catch-all `mux.Handle("/", spa(...))` กว้างกว่า pattern ที
 แก้ด้วย `replayableArguments`: history ส่ง `{}` แทน bytes ที่ parse ไม่ได้ ส่วน receipt ยังบอก model ว่าพลาดอะไร รันซ้ำงานเดิมกับ model จริงแล้วผ่านทั้งเส้น: อ่านไฟล์ → เสนอเขียน → หยุดรออนุมัติ → อนุมัติ → เขียนจริง → turn จบปกติ และโค้ดที่ได้ทำตามกฎของ Skill (integer satang, ปัดครึ่งขึ้นด้วย `(2n+d)//(2d)`)
 
 นี่เป็นการยืนยัน effectful write slice ทั้งเส้นกับ model จริงครั้งแรก
+
+#### O-14 — ไฟล์ใหญ่อ่านได้แค่หัวกับท้าย *(แก้แล้ว)*
+
+เจอจากการขับจริง วางกฎไว้กลางไฟล์ 1,400 บรรทัด แล้วถามหา
+
+```
+read_file → ไฟล์ 61,490 token → spill เหลือ 7,067
+model เห็นแค่หัวกับท้าย
+ตอบ: "ผมหา RULE 4242 ไม่เจอ ... ตอนกลางถูกตัด
+      และผมไม่มีเครื่องมือ grep/ค้นหาในไฟล์"
+```
+
+model ทำถูกทุกอย่าง — รายงานตรงว่าหาไม่เจอ ระบุว่าเห็นแค่ส่วนไหน และบอกสาเหตุ สิ่งที่ขาดคือ **เครื่องมือ**
+
+`workspace.read_file` คืนทั้งไฟล์อย่างเดียว ไม่มี range ส่วน spill เก็บของจริงลง CAS พร้อม checksum แต่ไม่มีทางอ่านกลับ ไฟล์ใหญ่จึงใช้งานไม่ได้เกินหัวกับท้าย ซึ่งสำหรับ harness ที่ตั้งใจทำงาน coding คือช่องว่างใหญ่
+
+แก้ตาม footprint ladder สองชั้น:
+
+1. **extend primitive เดิม** — `read_file` v2 รับ `offset_line`/`max_lines` และรายงาน `total_lines` กลับมา; **hash ยังเป็นของทั้งไฟล์เสมอ** เพื่อไม่ให้อ่านทีละหน้าไปตอบ `expected_sha256` ที่ใช้ป้องกัน write ได้
+2. **primitive ใหม่** — `workspace.search_files` ใช้ RE2 (ไม่มี catastrophic backtracking) จำกัด match/ไฟล์ที่สแกน/ความยาวบรรทัด ข้ามไฟล์ binary และไฟล์เกิน 1 MiB
+
+direct tools 8 → 9 = **1,446 จาก 3,584 token** ของ compact-32k
+
+รันงานเดิมซ้ำกับ model จริง: `read_file` → เห็นว่าถูกตัด → `search_files` → เจอบรรทัด 701 → `read_file` window ยืนยัน แล้วตอบถูกพร้อมข้อความเต็ม
 
 #### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
 

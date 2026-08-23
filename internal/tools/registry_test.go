@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -72,7 +73,7 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 	want := []string{
 		"skill_search", "skill_view", // session-scoped Skill retrieval
 		"tool_call", "tool_describe", "tool_search", // deferred capability catalog
-		"workspace.list_files", "workspace.read_file", "workspace.write_file",
+		"workspace.list_files", "workspace.read_file", "workspace.search_files", "workspace.write_file",
 	}
 	var got []string
 	for _, definition := range registry.Definitions() {
@@ -322,5 +323,93 @@ func TestRealPayloadFitsEveryProfileDirectToolBudget(t *testing.T) {
 			t.Fatalf("direct tools bill %d tokens, over the %s budget of %d", used, profile.Name, profile.DirectToolBudget)
 		}
 		t.Logf("%s: %d of %d direct-tool tokens used", profile.Name, used, profile.DirectToolBudget)
+	}
+}
+
+// --- O-14: a value in the middle of a large file must be reachable ---
+//
+// Driving a real model at a 1400-line file put the answer at line 700. The file
+// spilled to an artifact, the model saw its head and tail, said honestly that
+// it could not find the rule, and named the reason: no way to search. Reading
+// returned the whole file or nothing.
+
+func searchWorkspace(t *testing.T) (*Registry, string) {
+	t.Helper()
+	root := t.TempDir()
+	var builder strings.Builder
+	for line := 1; line <= 1400; line++ {
+		if line == 700 {
+			builder.WriteString("CRITICAL RULE 4242: never net NAKHON against PHUKET.\n")
+			continue
+		}
+		fmt.Fprintf(&builder, "%d. reconcile ledger batch %04d\n", line, line)
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte(builder.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry, root
+}
+
+func TestSearchFindsAValueBuriedInTheMiddleOfAFile(t *testing.T) {
+	registry, _ := searchWorkspace(t)
+	receipt := registry.Execute(context.Background(), providers.ToolCall{ID: "c1", Name: "workspace.search_files",
+		Arguments: `{"pattern":"RULE 4242","path":"."}`})
+	if receipt.Status != "succeeded" {
+		t.Fatalf("search failed: %+v", receipt)
+	}
+	if !strings.Contains(receipt.Output, "notes.md:700:") {
+		t.Fatalf("search did not report the line the value sits on:\n%s", receipt.Output)
+	}
+	if !strings.Contains(receipt.Output, "NAKHON") {
+		t.Fatalf("search did not return the matching line:\n%s", receipt.Output)
+	}
+}
+
+func TestReadFileWindowReachesTheMiddleAndReportsTheWhole(t *testing.T) {
+	registry, _ := searchWorkspace(t)
+	receipt := registry.Execute(context.Background(), providers.ToolCall{ID: "c2", Name: "workspace.read_file",
+		Arguments: `{"path":"notes.md","offset_line":698,"max_lines":5}`})
+	if receipt.Status != "succeeded" {
+		t.Fatalf("windowed read failed: %+v", receipt)
+	}
+	if !strings.Contains(receipt.Output, "RULE 4242") {
+		t.Fatalf("window did not contain the requested lines:\n%s", receipt.Output)
+	}
+	if lines := strings.Count(receipt.Output, "\n") + 1; lines > 5 {
+		t.Fatalf("window returned %d lines, want at most 5", lines)
+	}
+	if receipt.Metadata["total_lines"] == nil || receipt.Metadata["offset_line"] == nil {
+		t.Fatalf("window receipt does not say where it sits in the file: %+v", receipt.Metadata)
+	}
+	// The hash must stay the hash of the whole file, or a windowed read could
+	// satisfy the expected_sha256 that guards a write.
+	whole := registry.Execute(context.Background(), providers.ToolCall{ID: "c3", Name: "workspace.read_file",
+		Arguments: `{"path":"notes.md"}`})
+	if receipt.Metadata["sha256"] != whole.Metadata["sha256"] {
+		t.Fatal("a windowed read reported a different file hash than the whole file")
+	}
+}
+
+func TestSearchIsBoundedAndRejectsABadPattern(t *testing.T) {
+	registry, _ := searchWorkspace(t)
+	capped := registry.Execute(context.Background(), providers.ToolCall{ID: "c4", Name: "workspace.search_files",
+		Arguments: `{"pattern":"reconcile","path":".","max_matches":10}`})
+	if capped.Status != "succeeded" {
+		t.Fatalf("bounded search failed: %+v", capped)
+	}
+	if matches, _ := capped.Metadata["matches"].(int); matches != 10 {
+		t.Fatalf("search returned %v matches, want the requested cap of 10", capped.Metadata["matches"])
+	}
+	if capped.Metadata["truncated"] != true {
+		t.Fatalf("a capped search did not say it was truncated: %+v", capped.Metadata)
+	}
+	broken := registry.Execute(context.Background(), providers.ToolCall{ID: "c5", Name: "workspace.search_files",
+		Arguments: `{"pattern":"([unclosed","path":"."}`})
+	if broken.Status != "failed" || !strings.Contains(broken.Error, "does not compile") {
+		t.Fatalf("an invalid pattern was not reported: %+v", broken)
 	}
 }

@@ -318,8 +318,18 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requestNumber == 1 {
-			if len(request.Tools) != 8 {
-				t.Errorf("expected frozen direct tools, got %d", len(request.Tools))
+			// The waist may grow deliberately; what must not happen is the
+			// deferred catalog leaking into it. Assert the ceiling and the
+			// shape, not today's exact count.
+			if len(request.Tools) > 10 {
+				t.Errorf("direct tool waist grew past its ceiling: %d", len(request.Tools))
+			}
+			for _, tool := range request.Tools {
+				name := tool.Function.Name
+				if !strings.HasPrefix(name, "workspace.") && !strings.HasPrefix(name, "tool_") &&
+					!strings.HasPrefix(name, "skill_") {
+					t.Errorf("unexpected tool in the direct waist: %s", name)
+				}
 			}
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-list\",\"type\":\"function\",\"function\":{\"name\":\"workspace.list_files\",\"arguments\":\"{\\\"path\\\":\\\".\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 			return

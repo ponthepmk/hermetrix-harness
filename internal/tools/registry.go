@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -97,9 +99,21 @@ func NewRegistry(root string) (*Registry, error) {
 		{Name: "workspace.list_files", Revision: "v1", Effect: "read",
 			Description: "List files and directories at a relative path inside the configured workspace.",
 			Parameters:  objectSchema(map[string]any{"path": map[string]any{"type": "string", "description": "Workspace-relative directory; use . for the root"}}, []string{"path"})},
-		{Name: "workspace.read_file", Revision: "v1", Effect: "read",
-			Description: "Read a UTF-8 text file at a relative path inside the configured workspace, up to 1 MiB.",
-			Parameters:  objectSchema(map[string]any{"path": map[string]any{"type": "string", "description": "Workspace-relative file path"}}, []string{"path"})},
+		{Name: "workspace.read_file", Revision: "v2", Effect: "read",
+			Description: "Read a UTF-8 text file inside the workspace, up to 1 MiB. Pass offset_line and max_lines to page through a file too large to read at once; the receipt reports the total line count so you know how much is left.",
+			Parameters: objectSchema(map[string]any{
+				"path":        map[string]any{"type": "string", "description": "Workspace-relative file path"},
+				"offset_line": map[string]any{"type": "integer", "minimum": 1, "description": "1-based first line to return; omit for the start of the file"},
+				"max_lines":   map[string]any{"type": "integer", "minimum": 1, "maximum": 2000, "description": "How many lines to return from offset_line"},
+			}, []string{"path"})},
+		{Name: "workspace.search_files", Revision: "v1", Effect: "read",
+			Description: "Search workspace files for a regular expression and return matching lines with their line numbers. Use this before reading a large file: reading returns the whole file or one page of it, so a value in the middle is otherwise unreachable.",
+			Parameters: objectSchema(map[string]any{
+				"pattern":     map[string]any{"type": "string", "description": "RE2 regular expression; a plain string works as a literal search"},
+				"path":        map[string]any{"type": "string", "description": "Workspace-relative file or directory to search; use . for the whole workspace"},
+				"ignore_case": map[string]any{"type": "boolean", "description": "Match without regard to case"},
+				"max_matches": map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "Stop after this many matches; defaults to 50"},
+			}, []string{"pattern", "path"})},
 		{Name: "workspace.write_file", Revision: "v1", Effect: "write", RequiresApproval: true,
 			Description: "Write one UTF-8 text file inside the workspace after explicit user approval. Read existing files first and pass their SHA-256; use expected_sha256=absent only when creating a new file. Call this tool alone, never in a parallel tool batch.",
 			Parameters: objectSchema(map[string]any{
@@ -165,6 +179,13 @@ func (r *Registry) ProviderDefinitions() []providers.ToolDefinition {
 	}
 	return items
 }
+
+const (
+	maxSearchMatches     = 200
+	defaultSearchMatches = 50
+	maxSearchFiles       = 400
+	maxSearchLineBytes   = 400
+)
 
 func (r *Registry) ContextSpecs() []ctxcompiler.ToolSpec {
 	items := make([]ctxcompiler.ToolSpec, 0, len(r.definitions))
@@ -240,7 +261,12 @@ func (r *Registry) Execute(ctx context.Context, call providers.ToolCall) Receipt
 		return receipt
 	}
 	var args struct {
-		Path string `json:"path"`
+		Path       string `json:"path"`
+		OffsetLine int    `json:"offset_line"`
+		MaxLines   int    `json:"max_lines"`
+		Pattern    string `json:"pattern"`
+		IgnoreCase bool   `json:"ignore_case"`
+		MaxMatches int    `json:"max_matches"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(call.Arguments))
 	decoder.DisallowUnknownFields()
@@ -264,7 +290,9 @@ func (r *Registry) Execute(ctx context.Context, call providers.ToolCall) Receipt
 	case "workspace.list_files":
 		receipt.Output, receipt.Metadata, err = listFiles(path, r.root)
 	case "workspace.read_file":
-		receipt.Output, receipt.Metadata, err = readFile(path, r.root)
+		receipt.Output, receipt.Metadata, err = readFile(path, r.root, args.OffsetLine, args.MaxLines)
+	case "workspace.search_files":
+		receipt.Output, receipt.Metadata, err = searchFiles(path, r.root, args.Pattern, args.IgnoreCase, args.MaxMatches)
 	default:
 		err = fmt.Errorf("no handler for bound tool")
 	}
@@ -441,7 +469,10 @@ func listFiles(path, root string) (string, map[string]any, error) {
 	return strings.Join(lines, "\n"), map[string]any{"path": filepath.ToSlash(rel), "entries": len(lines)}, nil
 }
 
-func readFile(path, root string) (string, map[string]any, error) {
+// readFile returns a whole file, or one window of it. Without a window a file
+// larger than the context is unusable beyond whatever survives spilling, which
+// is its head and tail.
+func readFile(path, root string, offsetLine, maxLines int) (string, map[string]any, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", nil, fmt.Errorf("open file: %w", err)
@@ -469,7 +500,30 @@ func readFile(path, root string) (string, map[string]any, error) {
 	}
 	rel, _ := filepath.Rel(root, path)
 	sum := sha256.Sum256(data)
-	return string(data), map[string]any{"path": filepath.ToSlash(rel), "bytes": len(data), "sha256": hex.EncodeToString(sum[:])}, nil
+	metadata := map[string]any{"path": filepath.ToSlash(rel), "bytes": len(data), "sha256": hex.EncodeToString(sum[:])}
+	if offsetLine <= 0 && maxLines <= 0 {
+		return string(data), metadata, nil
+	}
+	lines := strings.Split(string(data), "\n")
+	metadata["total_lines"] = len(lines)
+	start := offsetLine - 1
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(lines) {
+		metadata["offset_line"], metadata["returned_lines"] = offsetLine, 0
+		return "", metadata, nil
+	}
+	end := len(lines)
+	if maxLines > 0 && start+maxLines < end {
+		end = start + maxLines
+	}
+	window := lines[start:end]
+	// The hash stays the hash of the whole file: an approval that pairs a write
+	// with expected_sha256 must not be satisfiable by reading one page.
+	metadata["offset_line"], metadata["returned_lines"] = start+1, len(window)
+	metadata["truncated"] = end < len(lines)
+	return strings.Join(window, "\n"), metadata, nil
 }
 
 func (r *Registry) PlanApproval(ctx context.Context, call providers.ToolCall) (ApprovalPlan, error) {
@@ -727,4 +781,84 @@ func decodeStrict(raw string, target any) error {
 		return err
 	}
 	return nil
+}
+
+// searchFiles answers the question reading cannot: where in this file is the
+// thing I need. A large file spills to an artifact and the model sees only its
+// head and tail, so anything in the middle is unreachable without search --
+// observed live, where a model correctly reported it could not find a rule
+// sitting at line 700 of 1400 and had no tool to go looking.
+//
+// Bounded on every axis a hostile or careless pattern could exploit: RE2 has no
+// catastrophic backtracking, matches and scanned files are capped, oversized
+// and binary files are skipped rather than read, and long lines are cut.
+func searchFiles(path, root, pattern string, ignoreCase bool, maxMatches int) (string, map[string]any, error) {
+	if strings.TrimSpace(pattern) == "" {
+		return "", nil, fmt.Errorf("pattern is required")
+	}
+	if maxMatches <= 0 || maxMatches > maxSearchMatches {
+		maxMatches = defaultSearchMatches
+	}
+	expression := pattern
+	if ignoreCase {
+		expression = "(?i)" + expression
+	}
+	compiled, err := regexp.Compile(expression)
+	if err != nil {
+		return "", nil, fmt.Errorf("pattern does not compile: %w", err)
+	}
+	var matches []string
+	filesScanned, filesSkipped, truncated := 0, 0, false
+	walkErr := filepath.WalkDir(path, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" || entry.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(matches) >= maxMatches {
+			truncated = true
+			return filepath.SkipAll
+		}
+		if filesScanned >= maxSearchFiles {
+			truncated = true
+			return filepath.SkipAll
+		}
+		info, statErr := entry.Info()
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() > maxReadBytes {
+			filesSkipped++
+			return nil
+		}
+		data, readErr := os.ReadFile(current)
+		if readErr != nil || bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
+			filesSkipped++
+			return nil
+		}
+		filesScanned++
+		rel, _ := filepath.Rel(root, current)
+		for index, line := range strings.Split(string(data), "\n") {
+			if len(matches) >= maxMatches {
+				truncated = true
+				break
+			}
+			if !compiled.MatchString(line) {
+				continue
+			}
+			if len(line) > maxSearchLineBytes {
+				line = line[:maxSearchLineBytes] + "…"
+			}
+			matches = append(matches, fmt.Sprintf("%s:%d: %s", filepath.ToSlash(rel), index+1, line))
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return "", nil, walkErr
+	}
+	rel, _ := filepath.Rel(root, path)
+	return strings.Join(matches, "\n"), map[string]any{
+		"path": filepath.ToSlash(rel), "pattern": pattern, "matches": len(matches),
+		"files_scanned": filesScanned, "files_skipped": filesSkipped, "truncated": truncated}, nil
 }
