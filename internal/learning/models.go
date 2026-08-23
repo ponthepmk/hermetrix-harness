@@ -50,6 +50,14 @@ type Decision struct {
 	Reason          string   `json:"reason"`
 	ExpectedBenefit string   `json:"expected_benefit,omitempty"`
 	Risks           []string `json:"risks,omitempty"`
+	// SuggestedSkill is what the reviewer proposes writing down. Without it a
+	// reviewer could decide "create" and have nowhere to put the procedure, so
+	// the runner read the *digest's* suggestion instead and any reviewer that
+	// wanted to propose something new was structurally unable to.
+	//
+	// It is a proposal and nothing more: the runner turns it into a candidate
+	// that still passes every check and still needs a human to promote.
+	SuggestedSkill *SuggestedSkill `json:"suggested_skill,omitempty"`
 }
 
 type Job struct {

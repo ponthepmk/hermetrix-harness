@@ -30,6 +30,25 @@ func NewService(dataStore *store.Store, skillService *skills.Service, gate *runt
 	return &Service{store: dataStore, skills: skillService, gate: gate, reviewer: reviewer}
 }
 
+// WithReviewer swaps the review worker once a provider is known. Reviews are
+// enqueued from the first turn, so the service has to exist before any provider
+// does; without this the learner would be fixed at startup to the one reviewer
+// that cannot read evidence.
+func (s *Service) WithReviewer(reviewer Reviewer) *Service {
+	if reviewer != nil {
+		s.reviewer = reviewer
+	}
+	return s
+}
+
+// ReviewerRevision reports which worker will handle the next review.
+func (s *Service) ReviewerRevision() string {
+	if s.reviewer == nil {
+		return ""
+	}
+	return s.reviewer.Revision()
+}
+
 func (s *Service) RecoverInterrupted(ctx context.Context) (int64, error) {
 	result, err := s.store.DB.ExecContext(ctx, `UPDATE learning_reviews SET state=?, error=?, started_at=NULL
 		WHERE state=?`, StateQueued, "requeued after process interruption", StateRunning)
@@ -251,7 +270,13 @@ func (s *Service) RunNext(ctx context.Context) (Job, error) {
 			return reviewErr
 		}
 		job.Decision = decision
-		if decision.Kind == "no_change" || job.Digest.SuggestedSkill == nil {
+		// The reviewer's own proposal wins; the digest's is the API path, where
+		// a caller hands over markdown it already wrote.
+		suggestion := decision.SuggestedSkill
+		if suggestion == nil {
+			suggestion = job.Digest.SuggestedSkill
+		}
+		if decision.Kind == "no_change" || suggestion == nil {
 			return nil
 		}
 		if existing, findErr := s.skills.GetCandidateBySourceReview(reviewCtx, job.ID); findErr == nil {
@@ -260,7 +285,7 @@ func (s *Service) RunNext(ctx context.Context) (Job, error) {
 		} else if !errors.Is(findErr, skills.ErrNotFound) {
 			return findErr
 		}
-		suggested := job.Digest.SuggestedSkill
+		suggested := suggestion
 		origin := "agent_candidate"
 		if suggested.TargetSkillID != "" {
 			target, targetErr := s.skills.GetSkill(reviewCtx, suggested.TargetSkillID)

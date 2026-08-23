@@ -152,7 +152,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
 | **O-8** | probe output budget เล็กเกินไปสำหรับ reasoning model | high | **แก้แล้ว** |
-| **O-9** | runtime evidence ไม่มีทางกลายเป็น Skill candidate ได้เลย | **critical** | เปิด |
+| **O-9** | runtime evidence ไม่มีทางกลายเป็น Skill candidate ได้เลย | **critical** | **แก้แล้ว** |
 | **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | **แก้แล้ว** |
 | **O-11** | output reserve ไม่รู้จัก reasoning token | high | **บรรเทาแล้ว** — turn ที่ถูกตัดถูกติดธงพร้อมสัดส่วน reasoning; การจัดสรร reserve ยังไม่แก้ |
 | **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
@@ -207,6 +207,43 @@ system prompt ที่ compile จริงมีสอง fragment:
 R-14 ข้อมูลจริงชุดแรก: `relevant=1 requested=0 rate=1.0` (`insufficient_evidence` เพราะ sample=1)
 
 นี่ตรงกับ failure mode ข้อ 2 ที่ ADR-7 เขียนทำนายไว้เอง มาตรการที่ ADR ระบุคือขยาย floor แต่หลักฐานชี้ว่าต้องแก้ prompt ก่อน เพราะ floor ปัจจุบันก็ไม่ทำงาน (`preselected: []` ทั้งสอง turn)
+
+#### O-9 — ผลหลังแก้ *(ขับจริงกับ gateway)*
+
+ต้นตอลึกกว่าที่รายงานรอบแรก มีสามชั้น ไม่ใช่ชั้นเดียว:
+
+1. `Decision` ไม่มี field ให้ reviewer ใส่ Skill ที่เสนอ
+2. `RunNext` อ่าน `job.Digest.SuggestedSkill` — **ของ digest ไม่ใช่ของ reviewer** ต่อให้ reviewer ตัดสินใจ `create` ก็ไม่มีที่ให้วาง
+3. `StructuredReviewer` อ่าน evidence ไม่เป็นอยู่แล้ว
+
+แก้ทั้งสามชั้น: `Decision.SuggestedSkill`, runner ใช้ข้อเสนอของ reviewer ก่อนแล้ว fallback ไป digest (เส้นทาง API), และเพิ่ม `ModelReviewer` ที่อ่าน digest แล้วตัดสินใจเอง โดย parser **fail closed** — อะไรที่อ่านไม่ครบกลายเป็น `no_change` ทั้งหมด
+
+ขับจริง: ทำงานหนึ่ง turn แล้วให้ผู้ใช้แก้สองครั้ง
+
+```
+review 1  successful_milestone (แค่อ่านไฟล์)
+          → no_change "only shows reading files and a one-off VAT amount;
+                       no reusable, non-specific steps"
+review 2  repeated_correction (ผู้ใช้แก้ซ้ำ)
+          → create → cand_b8450c8e... "vat-rounding-consistency-check"
+             lint ✓ security ✓ state=needs_review
+             active skills = 0
+```
+
+Skill ที่ model เขียน:
+
+```markdown
+1. Calculate net, VAT, and gross amounts.
+2. Apply half-up rounding to the monetary values.
+3. Check that net + VAT = gross after rounding.
+4. If the check fails, redo the calculation and recheck.
+```
+
+จับสิ่งที่ผู้ใช้แก้ได้ตรง generalize โดยไม่มีค่าเฉพาะของรอบนั้น และ **แยกแยะถูกระหว่างงานที่มี procedure กับงานที่ไม่มี** ซึ่งเป็นเงื่อนไขที่ทำให้ learning loop มีค่ามากกว่ามีเสียงรบกวน
+
+นี่คือครั้งแรกที่ runtime evidence กลายเป็น Skill candidate ได้ authority ladder ยังยืนครบ: origin `agent_candidate`, created_by `background_reviewer`, ต้องมีมนุษย์ promote
+
+ผลต่อแผน: spike วัดคุณค่า Skill ที่ค้างอยู่ **ทำได้แล้ว** เพราะมีตัวผลิต Skill จาก evidence จริง
 
 #### O-10 — ผลหลังแก้ *(before/after กับ model จริง)*
 

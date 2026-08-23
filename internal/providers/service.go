@@ -131,6 +131,22 @@ func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	return items, rows.Err()
 }
 
+// FirstEnabled returns a usable provider for work that has no session behind
+// it, such as background review. It prefers the oldest enabled profile so the
+// choice does not move when profiles are edited.
+func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
+	items, err := s.List(ctx)
+	if err != nil {
+		return Profile{}, err
+	}
+	for _, item := range items {
+		if item.Enabled && strings.TrimSpace(item.APIKeyEnv) != "" {
+			return item, nil
+		}
+	}
+	return Profile{}, fmt.Errorf("no enabled provider profile is configured")
+}
+
 func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
     context_evidence,max_output_tokens,enabled,created_at,updated_at FROM provider_profiles WHERE id=?`, id)
