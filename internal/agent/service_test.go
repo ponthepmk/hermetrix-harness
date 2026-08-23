@@ -1668,3 +1668,74 @@ func TestCompleteOutputCarriesNoTruncationFlag(t *testing.T) {
 		t.Fatalf("a complete answer was flagged as truncated: %+v", result.AssistantEvent.Metadata)
 	}
 }
+
+// --- O-13: a malformed tool call must not kill the turn ---
+//
+// A model that runs out of output budget mid-arguments emits unparseable JSON.
+// The registry rejects it and writes a failure receipt, which is correct. What
+// was not correct was replaying those bytes to the provider on the next step:
+// the provider rejected the whole request, so one recoverable bad call ended
+// the turn. Observed live against a gateway, on a file-write task.
+func TestMalformedToolArgumentsDoNotPoisonTheNextRequest(t *testing.T) {
+	step := 0
+	var replayed []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []providers.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		for _, message := range request.Messages {
+			for _, call := range message.ToolCalls {
+				replayed = append(replayed, call.Function.Arguments)
+				if !json.Valid([]byte(call.Function.Arguments)) {
+					t.Errorf("history replayed unparseable arguments: %q", call.Function.Arguments)
+				}
+			}
+		}
+		step++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if step == 1 {
+			// Arguments cut off mid-string, exactly as a budget-exhausted
+			// reasoning model produces them.
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-cut\",\"type\":\"function\","+
+				"\"function\":{\"name\":\"workspace.write_file\",\"arguments\":\"{\\\"path\\\": \\\"a.py\\\", \\\"content\\\": \\\"def f(\"}}]},"+
+				"\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "write a file"}, nil)
+	if err != nil {
+		t.Fatalf("a malformed tool call ended the turn: %v", err)
+	}
+	if result.AssistantEvent.Content != "recovered" {
+		t.Fatalf("the turn did not continue past the bad call: %+v", result.AssistantEvent)
+	}
+	if len(replayed) == 0 {
+		t.Fatal("the bad call never reached history, so this test proves nothing")
+	}
+	// The receipt, not the arguments, is what tells the model it failed.
+	detail, err := service.GetSessionDetail(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawFailure := false
+	for _, event := range detail.Events {
+		if event.EventKind == "tool_result" && strings.Contains(event.Content, "invalid arguments") {
+			sawFailure = true
+		}
+	}
+	if !sawFailure {
+		t.Fatal("no failure receipt explained the malformed call to the model")
+	}
+}

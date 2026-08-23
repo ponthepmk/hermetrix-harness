@@ -1633,7 +1633,8 @@ func renderMessages(fragments []ctxcompiler.Fragment) []providers.Message {
 			for index < len(active) && active[index].Kind == ctxcompiler.KindToolCall && active[index].Metadata["tool_step"] == step {
 				call := active[index]
 				message.ToolCalls = append(message.ToolCalls, providers.MessageToolCall{ID: call.Metadata["tool_call_id"],
-					Type: call.Metadata["tool_type"], Function: providers.ToolCallInvocation{Name: call.Metadata["tool_name"], Arguments: call.Content}})
+					Type: call.Metadata["tool_type"], Function: providers.ToolCallInvocation{
+						Name: call.Metadata["tool_name"], Arguments: replayableArguments(call.Content)}})
 				index++
 			}
 			messages = append(messages, message)
@@ -1944,4 +1945,23 @@ func summariseSkillRetrieval(model string, turns, relevant, requested, preloaded
 		}
 	}
 	return stats
+}
+
+// replayableArguments keeps a malformed tool call from killing the next
+// request. A model whose output budget runs out mid-arguments emits unparseable
+// JSON; the registry rejects it correctly and writes a failure receipt, but
+// replaying those same bytes as history made the *provider* reject the whole
+// request, turning one recoverable bad call into a dead turn.
+//
+// The receipt already tells the model what went wrong, so history only has to
+// carry a shape the provider will accept.
+func replayableArguments(arguments string) string {
+	trimmed := strings.TrimSpace(arguments)
+	if trimmed == "" {
+		return "{}"
+	}
+	if json.Valid([]byte(trimmed)) {
+		return arguments
+	}
+	return "{}"
 }

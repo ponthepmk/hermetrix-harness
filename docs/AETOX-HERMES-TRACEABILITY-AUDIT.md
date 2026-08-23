@@ -156,6 +156,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | **แก้แล้ว** |
 | **O-11** | output reserve ไม่รู้จัก reasoning token | high | **บรรเทาแล้ว** — turn ที่ถูกตัดถูกติดธงพร้อมสัดส่วน reasoning; การจัดสรร reserve ยังไม่แก้ |
 | **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
+| **O-13** | tool-call arguments ที่พังถูก replay กลับไปหา provider ทำให้ทั้ง turn ตาย | high | **แก้แล้ว** |
 
 #### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
 
@@ -239,6 +240,26 @@ GET  /api/skills/typo      404 {"error":"not found"}
 catch-all `mux.Handle("/", spa(...))` กว้างกว่า pattern ที่ลงทะเบียนไว้ จึงกลืนทั้ง path ที่พิมพ์ผิดและ method ที่ผิด client แยกไม่ออกจาก success — เป็น false success ระดับ transport ซึ่งขัดกับหลักการของโครงการเองที่ว่าห้ามอ้างผลโดยไม่มี receipt
 
 แก้ด้วย handler `/api/` ที่คืน JSON 404 พร้อมระบุ method+path
+
+#### O-13 — tool call ที่พังฆ่าทั้ง turn *(แก้แล้ว)*
+
+เจอตอนสั่งงานเขียนไฟล์จริง — งานที่ arguments ยาวที่สุดโดยธรรมชาติ
+
+```
+1. model ส่ง workspace.write_file arguments 788 bytes ถูกตัดกลาง string
+2. registry จับได้ถูก: status=failed "invalid arguments: unexpected EOF"   ✓
+3. arguments พังถูกเก็บเป็น tool_call event
+4. step ถัดไป renderMessages ส่ง bytes เดิมกลับไปเป็น history
+5. gateway parse ไม่ได้ → HTTP 400 → turn ตายทั้ง turn
+```
+
+ขั้นที่ 2 คือพฤติกรรมที่ถูกต้อง ปัญหาคือขั้นที่ 4 — harness เปลี่ยนสถานการณ์ที่ **กู้ได้** (tool call เสียหนึ่งครั้ง ซึ่งมี receipt อธิบายให้ model แก้อยู่แล้ว) ให้กลายเป็น turn ที่ตาย
+
+น่าสังเกตว่า qualification มี check ชื่อ `malformed_argument_recovery` ที่ **ผ่าน** — แต่เส้นทางกู้นั้นถูกตัดขาดก่อน เพราะ request เองกลายเป็น invalid ก่อน model จะได้เห็น error
+
+แก้ด้วย `replayableArguments`: history ส่ง `{}` แทน bytes ที่ parse ไม่ได้ ส่วน receipt ยังบอก model ว่าพลาดอะไร รันซ้ำงานเดิมกับ model จริงแล้วผ่านทั้งเส้น: อ่านไฟล์ → เสนอเขียน → หยุดรออนุมัติ → อนุมัติ → เขียนจริง → turn จบปกติ และโค้ดที่ได้ทำตามกฎของ Skill (integer satang, ปัดครึ่งขึ้นด้วย `(2n+d)//(2d)`)
+
+นี่เป็นการยืนยัน effectful write slice ทั้งเส้นกับ model จริงครั้งแรก
 
 #### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
 
