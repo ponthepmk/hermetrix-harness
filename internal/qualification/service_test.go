@@ -18,6 +18,14 @@ import (
 
 func qualificationRuntime(t *testing.T) *httptest.Server {
 	t.Helper()
+	return qualificationServerEchoingLabels(t, []string{"HEAD", "QUARTER", "MIDDLE", "THREE_QUARTER", "TAIL"})
+}
+
+// qualificationServerEchoingLabels models a runtime that can recover only
+// the sentinels at the given positions, which is how a real model behaves
+// when a tier holds its head but loses its middle.
+func qualificationServerEchoingLabels(t *testing.T, labels []string) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/ps":
@@ -43,7 +51,16 @@ func qualificationRuntime(t *testing.T) *httptest.Server {
 			case strings.Contains(content, "[QUALIFY:CONNECT]"):
 				writeQualificationChunk(w, map[string]any{"content": "HERMETRIX_QUALIFIED_OK"}, "stop", 24, 4)
 			case strings.Contains(content, "[QUALIFY:RECALL]"):
-				writeQualificationChunk(w, map[string]any{"content": "HERMETRIX_SENTINEL_7F3A"}, "stop", 43000, 5)
+				// Echo back only the sentinels this probe actually planted, so
+				// the fixture cannot pass a probe it never received.
+				var recovered []string
+				for _, label := range labels {
+					marker := "HERMETRIX_SENTINEL_7F3A_" + label
+					if strings.Contains(content, marker) {
+						recovered = append(recovered, marker)
+					}
+				}
+				writeQualificationChunk(w, map[string]any{"content": strings.Join(recovered, "\n")}, "stop", 43000, 5)
 			case strings.Contains(content, "[QUALIFY:THAI_TOOL]"):
 				writeToolChunk(w, []map[string]any{toolDelta(0, "thai", "qualification_echo", `{"text":"ภาษาไทย","mode":"safe"}`)})
 			case strings.Contains(content, "[QUALIFY:SEQUENTIAL]"):
@@ -144,4 +161,69 @@ func TestContextTierCoversEverySelectableEnvelope(t *testing.T) {
 			t.Fatalf("tier=%s capacity=%d want=%d", item.tier, got, item.allocated)
 		}
 	}
+}
+
+// --- O-6: recall evidence per position ---
+//
+// The probe used to plant one sentinel at the head of the prompt, so a model
+// that echoed the opening line certified any tier up to its allocation. A tier
+// is an envelope, and certifying one means reaching into its middle.
+func TestHeadOnlyRecallDoesNotCertifyATier(t *testing.T) {
+	server := qualificationServerEchoingLabels(t, []string{"HEAD"})
+	defer server.Close()
+	run := runQualificationAgainst(t, server, "certified-64k")
+	if run.Results.LongContextRecall {
+		t.Fatal("recall passed on the head sentinel alone")
+	}
+	if run.ContextTier != "limited" || run.Eligible {
+		t.Fatalf("a head-only echo certified tier=%s eligible=%v", run.ContextTier, run.Eligible)
+	}
+	if len(run.Results.RecallPositions) != 5 {
+		t.Fatalf("probe recorded %d positions, want 5", len(run.Results.RecallPositions))
+	}
+	recovered := 0
+	for _, position := range run.Results.RecallPositions {
+		if position.Recovered {
+			recovered++
+		}
+	}
+	if recovered != 1 {
+		t.Fatalf("%d positions were recovered from a head-only echo, want 1", recovered)
+	}
+}
+
+func TestEveryPositionRecoveredCertifiesTheTier(t *testing.T) {
+	server := qualificationServerEchoingLabels(t, []string{"HEAD", "QUARTER", "MIDDLE", "THREE_QUARTER", "TAIL"})
+	defer server.Close()
+	run := runQualificationAgainst(t, server, "certified-64k")
+	if !run.Results.LongContextRecall {
+		t.Fatalf("full recall did not pass: %+v", run.Results.RecallPositions)
+	}
+	if run.ContextTier != "certified-64k" || !run.Eligible {
+		t.Fatalf("full recall did not certify: tier=%s eligible=%v", run.ContextTier, run.Eligible)
+	}
+}
+
+func runQualificationAgainst(t *testing.T, server *httptest.Server, requestedProfile string) Run {
+	t.Helper()
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dataStore.Close() })
+	providerService := providers.NewService(dataStore, providers.NewOpenAIAdapter(server.Client()))
+	profile, err := providerService.Save(ctx, providers.SaveInput{Name: "qualified", BaseURL: server.URL + "/v1",
+		Model: "qualified-model", ContextWindow: 65536, ContextEvidence: "declared", MaxOutputTokens: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(dataStore, providerService, localmodel.NewProberWithClient(server.Client()),
+		hruntime.NewInferenceGate(), ctxcompiler.NewAdaptiveEstimator())
+	run, err := service.Run(ctx, Input{ProviderID: profile.ID, RequestedProfile: requestedProfile,
+		RuntimeProbe: &localmodel.ProbeRequest{Runtime: "ollama", Endpoint: server.URL, Model: "qualified-model"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run
 }

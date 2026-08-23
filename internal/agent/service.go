@@ -653,7 +653,14 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			return &approval, nil
 		}
 		toolCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		receipt := s.tools.Execute(toolCtx, call)
+		var receipt toolruntime.Receipt
+		if call.Name == "skill_search" || call.Name == "skill_view" {
+			// Session-scoped: the frozen contract decides what is visible, so
+			// the registry cannot answer these on its own.
+			receipt = s.executeSkillTool(toolCtx, session, turnID, call, definition)
+		} else {
+			receipt = s.tools.Execute(toolCtx, call)
+		}
 		cancel()
 		if err := s.persistToolResult(ctx, session, provider, turnID, binding, receipt, emit); err != nil {
 			return nil, err
@@ -1240,66 +1247,6 @@ func contextSpecsFor(bindings []toolruntime.Definition) []ctxcompiler.ToolSpec {
 	return items
 }
 
-func (s *Service) selectSkills(ctx context.Context, goal string) ([]selectedSkill, error) {
-	if s.skills == nil || strings.TrimSpace(goal) == "" {
-		return nil, nil
-	}
-	items, err := s.skills.ListSkills(ctx, false)
-	if err != nil {
-		return nil, err
-	}
-	type scored struct {
-		skill  skills.Skill
-		score  int
-		reason string
-	}
-	query := strings.ToLower(goal)
-	queryTerms := termSet(query)
-	var candidates []scored
-	for _, item := range items {
-		if !item.Enabled || item.State != skills.StateActive || item.CurrentVersionID == "" {
-			continue
-		}
-		score := 0
-		reason := ""
-		if item.Pinned {
-			score += 100
-			reason = "pinned active skill"
-		}
-		name := strings.ToLower(strings.ReplaceAll(item.CanonicalName, "-", " "))
-		if strings.Contains(query, name) || strings.Contains(name, query) {
-			score += 40
-			reason = "canonical name matched the current goal"
-		}
-		for term := range termSet(name + " " + strings.ToLower(item.Summary)) {
-			if queryTerms[term] {
-				score += 4
-			}
-		}
-		if score > 0 {
-			if reason == "" {
-				reason = "metadata terms matched the current goal"
-			}
-			candidates = append(candidates, scored{skill: item, score: score, reason: reason})
-		}
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].score != candidates[j].score {
-			return candidates[i].score > candidates[j].score
-		}
-		return candidates[i].skill.CanonicalName < candidates[j].skill.CanonicalName
-	})
-	if len(candidates) > 3 {
-		candidates = candidates[:3]
-	}
-	selected := make([]selectedSkill, 0, len(candidates))
-	for _, candidate := range candidates {
-		selected = append(selected, selectedSkill{SkillID: candidate.skill.ID, VersionID: candidate.skill.CurrentVersionID,
-			FragmentID: "skill:" + candidate.skill.ID + ":" + candidate.skill.CurrentVersionID, Reason: candidate.reason})
-	}
-	return selected, nil
-}
-
 func (s *Service) recordSkillActivations(ctx context.Context, sessionID, turnID string, selected map[string]selectedSkill) error {
 	if s.skills == nil {
 		return nil
@@ -1742,4 +1689,218 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+// --- ADR-7: Skill retrieval as a tool ---
+//
+// Skill bodies used to be injected into the prompt from the first turn's goal
+// and never revisited, so a session that changed topic could not reach the
+// procedure it needed. These two primitives let the model pull instead, while
+// the frozen catalog still decides what exists: a version promoted after the
+// session opened stays invisible, and the prompt prefix never changes.
+
+type skillSearchResult struct {
+	SkillID   string `json:"skill_id"`
+	VersionID string `json:"version_id"`
+	Name      string `json:"name"`
+	Summary   string `json:"summary,omitempty"`
+	Pinned    bool   `json:"pinned,omitempty"`
+	Preloaded bool   `json:"preloaded,omitempty"`
+}
+
+func (s *Service) executeSkillTool(ctx context.Context, session Session, turnID string,
+	call providers.ToolCall, definition toolruntime.Definition) toolruntime.Receipt {
+	started := time.Now()
+	receipt := toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision,
+		Effect: definition.Effect, Status: "failed"}
+	finish := func() toolruntime.Receipt {
+		receipt.DurationMS = time.Since(started).Milliseconds()
+		return receipt
+	}
+	if s.skills == nil {
+		receipt.Error = "no Skill service is configured"
+		return finish()
+	}
+	if call.Name == "skill_search" {
+		var arguments struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(call.Arguments))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&arguments); err != nil {
+			receipt.Error = "decode skill_search arguments: " + err.Error()
+			return finish()
+		}
+		if strings.TrimSpace(arguments.Query) == "" {
+			receipt.Error = "skill_search requires a query"
+			return finish()
+		}
+		limit := arguments.Limit
+		if limit <= 0 || limit > 10 {
+			limit = 5
+		}
+		preloaded := map[string]bool{}
+		for _, binding := range session.Contract.SelectedSkills {
+			preloaded[binding.VersionID] = true
+		}
+		results := []skillSearchResult{}
+		for _, binding := range selectSkillBindings(arguments.Query, session.Contract.SkillCatalog) {
+			if len(results) == limit {
+				break
+			}
+			results = append(results, skillSearchResult{SkillID: binding.SkillID, VersionID: binding.VersionID,
+				Name: binding.CanonicalName, Summary: boundedText(binding.Summary, 400), Pinned: binding.Pinned,
+				Preloaded: preloaded[binding.VersionID]})
+		}
+		encoded, err := json.Marshal(map[string]any{"results": results, "catalog_size": len(session.Contract.SkillCatalog),
+			"contract_revision": session.Contract.Revision})
+		if err != nil {
+			receipt.Error = err.Error()
+			return finish()
+		}
+		receipt.Status, receipt.Output = "succeeded", string(encoded)
+		receipt.Metadata = map[string]any{"results": len(results), "catalog_size": len(session.Contract.SkillCatalog)}
+		return finish()
+	}
+
+	var arguments struct {
+		SkillID   string `json:"skill_id"`
+		VersionID string `json:"version_id"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(call.Arguments))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&arguments); err != nil {
+		receipt.Error = "decode skill_view arguments: " + err.Error()
+		return finish()
+	}
+	// The frozen catalog is the whole authority here. Falling back to the
+	// current active version would reintroduce mid-session drift, which is
+	// exactly what ADR-1 exists to prevent.
+	var match *SessionSkillBinding
+	for index := range session.Contract.SkillCatalog {
+		binding := &session.Contract.SkillCatalog[index]
+		if binding.SkillID == arguments.SkillID && binding.VersionID == arguments.VersionID {
+			match = binding
+			break
+		}
+	}
+	if match == nil {
+		receipt.Error = "skill version is not part of this session contract; call skill_search first"
+		return finish()
+	}
+	version, err := s.skills.GetVersion(ctx, match.VersionID)
+	if err != nil {
+		receipt.Error = "load skill version: " + err.Error()
+		return finish()
+	}
+	if _, err := s.skills.RecordActivation(ctx, skills.ActivationInput{SessionID: session.ID, TurnID: turnID,
+		SkillID: match.SkillID, VersionID: match.VersionID, SelectionSource: "skill_view_v1",
+		SelectionReason: "model_requested", MetadataExposed: true, BodyInjected: true, Outcome: "unknown",
+		OutcomeSource: "runtime_completion", AttributionKind: "exposure_only"}); err != nil {
+		receipt.Error = "record activation: " + err.Error()
+		return finish()
+	}
+	encoded, err := json.Marshal(map[string]any{"skill_id": match.SkillID, "version_id": match.VersionID,
+		"name": match.CanonicalName, "body": version.Markdown})
+	if err != nil {
+		receipt.Error = err.Error()
+		return finish()
+	}
+	receipt.Status, receipt.Output = "succeeded", string(encoded)
+	receipt.Metadata = map[string]any{"skill_id": match.SkillID, "version_id": match.VersionID,
+		"selection_reason": "model_requested"}
+	return finish()
+}
+
+// SkillRetrievalMetrics computes the ADR-7 exit criterion from committed events
+// only. It runs the same deterministic scorer the search tool uses, so the
+// denominator is "a Skill this session could have found for this goal" rather
+// than "any Skill existed", which would flatter the result.
+func (s *Service) SkillRetrievalMetrics(ctx context.Context) ([]SkillRetrievalStats, error) {
+	sessions, err := s.ListSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type counter struct {
+		turns, relevant, requested, preloaded int
+	}
+	byModel := map[string]*counter{}
+	overall := &counter{}
+	for _, session := range sessions {
+		if len(session.Contract.SkillCatalog) == 0 {
+			continue
+		}
+		events, err := s.ListEvents(ctx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		goals := map[string]string{}
+		requested := map[string]bool{}
+		order := []string{}
+		for _, event := range events {
+			switch {
+			case event.EventKind == "message" && event.Role == "user":
+				if _, seen := goals[event.TurnID]; !seen {
+					goals[event.TurnID] = event.Content
+					order = append(order, event.TurnID)
+				}
+			case event.EventKind == "tool_call":
+				if name := metadataString(event.Metadata, "tool_name"); name == "skill_search" || name == "skill_view" {
+					requested[event.TurnID] = true
+				}
+			}
+		}
+		model := session.Model
+		if _, ok := byModel[model]; !ok {
+			byModel[model] = &counter{}
+		}
+		preloaded := len(session.Contract.SelectedSkills) > 0
+		for _, turnID := range order {
+			for _, target := range []*counter{byModel[model], overall} {
+				target.turns++
+				if len(selectSkillBindings(goals[turnID], session.Contract.SkillCatalog)) == 0 {
+					continue
+				}
+				target.relevant++
+				if requested[turnID] {
+					target.requested++
+				}
+				if preloaded {
+					target.preloaded++
+				}
+			}
+		}
+	}
+	models := make([]string, 0, len(byModel))
+	for model := range byModel {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	stats := make([]SkillRetrievalStats, 0, len(models)+1)
+	for _, model := range models {
+		stats = append(stats, summariseSkillRetrieval(model, byModel[model].turns, byModel[model].relevant,
+			byModel[model].requested, byModel[model].preloaded))
+	}
+	if len(models) > 1 {
+		stats = append(stats, summariseSkillRetrieval("(all models)", overall.turns, overall.relevant,
+			overall.requested, overall.preloaded))
+	}
+	return stats, nil
+}
+
+func summariseSkillRetrieval(model string, turns, relevant, requested, preloaded int) SkillRetrievalStats {
+	stats := SkillRetrievalStats{Model: model, Turns: turns, TurnsWithRelevantSkill: relevant,
+		TurnsModelRequested: requested, TurnsPreloaded: preloaded, Verdict: "insufficient_evidence"}
+	if relevant == 0 {
+		return stats
+	}
+	stats.NoSkillRequestedRate = 1 - float64(requested)/float64(relevant)
+	if relevant >= SkillRetrievalMinimumTurns {
+		stats.Verdict = "pull_working"
+		if stats.NoSkillRequestedRate > 0.5 {
+			stats.Verdict = "pull_failing"
+		}
+	}
+	return stats
 }

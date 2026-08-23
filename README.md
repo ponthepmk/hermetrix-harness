@@ -8,7 +8,7 @@ Hermetrix is a local-first, provider-flexible agent harness built around three h
 2. token-efficient context compilation across 32k, 64k, 128k, 256k and 1M envelopes while keeping declared, probed and qualified context evidence distinct.
 3. an auditable agent loop that freezes model, context and capabilities before every sampling step.
 
-The implementation is original. The product requirements were informed by the research in `../nuerix-harness`, but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
+The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
 
 The name reflects the architecture: a **hermetic core** for bounded local authority plus a **matrix** of versioned skills, tools, context and model capabilities. Product-owned identity files and their usage contract live in [assets/brand](assets/brand/README.md).
 
@@ -29,6 +29,10 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - runtime-allocation probes for Ollama, LM Studio, vLLM and llama.cpp
 - provider registry with secret-by-environment references and OpenAI-compatible streaming
 - append-only agent sessions, context snapshots and immutable step bindings
+- an immutable session contract that freezes the provider revision, model, context profile, policy and capability revisions, Skill catalog, cache epoch and task budget when the session opens
+- a persisted per-session turn lease so two concurrent requests cannot both commit a user message, with orphaned turns recovered on restart
+- a task budget of model steps, tool calls, wall time and cumulative tokens instead of a hard-coded step limit
+- a learning trigger outbox written in the same transaction as the turn commit and drained into idempotent review jobs
 - bounded workspace read tools plus approval-gated atomic text writes with optimistic SHA-256 checks
 - persisted one-shot effect grants, denial receipts and restart recovery that marks interrupted effects `uncertain` instead of retrying
 - deferred capability catalog with fixed-size `tool_search`, `tool_describe` and `tool_call` prompt primitives
@@ -89,4 +93,29 @@ node --check internal/web/ui/app.js
 
 For deterministic manual/E2E MCP QA, run `python3 scripts/e2e/mcp_fixture.py` on loopback and connect the MCP screen to `http://127.0.0.1:18444/mcp`.
 
-The architecture and invariants are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). See [docs/REVIEW.md](docs/REVIEW.md) for the multi-pass review, [docs/AETOX-HERMES-TRACEABILITY-AUDIT.md](docs/AETOX-HERMES-TRACEABILITY-AUDIT.md) for the source-to-Hermetrix comparison, and [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md) for the corrective and future delivery gates. [docs/ROADMAP.md](docs/ROADMAP.md) remains the historical phase ledger.
+## Known gaps
+
+This is a vertical slice, not a finished product. Kernel correctness is closed and every claim behind it is
+mutation-tested — disabling a guard turns its test red. The gaps that matter most right now:
+
+- no real local model has been run against `no_skill_requested_rate` yet, so whether small models actually reach for `skill_search` is measurable but unmeasured;
+- token estimation still has no exact per-model tokenizer, so budget numbers carry a calibrated error band rather than an exact one;
+- long-context recall now probes five positions across the envelope, but only against fixtures; no real local model has been qualified at 128k or above;
+- there is no OS-level sandbox, no authenticated principal and no managed browser or native shell.
+
+Each gap has an ID, evidence down to file and line, and a mitigation phase. See [docs/AETOX-HERMES-TRACEABILITY-AUDIT.md](docs/AETOX-HERMES-TRACEABILITY-AUDIT.md) section 4.2 and the risk register in [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md).
+
+## Documentation map
+
+| Document | Role |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | current implementation and safety contracts |
+| [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md) | **forward source of truth** — ADRs, open findings, phases, risk register |
+| [docs/AETOX-HERMES-TRACEABILITY-AUDIT.md](docs/AETOX-HERMES-TRACEABILITY-AUDIT.md) | source-to-Hermetrix comparison against the Aetox and Hermes snapshots |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR ledger — status and implementation evidence per decision |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | historical phase ledger through 2026-08-21 |
+| [docs/REVIEW.md](docs/REVIEW.md) | multi-pass review log kept during the build |
+| [docs/PHASE-COMPLETION.md](docs/PHASE-COMPLETION.md) | Phase 0–7 completion report |
+| [`../Hermetrix-research`](../Hermetrix-research/README.md) | research and requirement source; not updated to track this implementation |
+
+When any document disagrees with the runtime, the runtime is the truth and the document is the bug.

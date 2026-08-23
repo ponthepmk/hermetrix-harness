@@ -47,7 +47,7 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 		}}
 	toolTokens := 0
 	for _, tool := range request.DirectTools {
-		toolTokens += c.estimator.Count(tool.Name + "\n" + tool.Schema)
+		toolTokens += c.estimator.Count(tool.BillableText())
 	}
 	report.Slices["tools"] = SliceUsage{Budget: profile.DirectToolBudget, Used: toolTokens}
 	if toolTokens > profile.DirectToolBudget {

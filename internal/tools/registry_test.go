@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"hermetrix-harness/internal/capabilities"
+	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/providers"
 )
 
@@ -64,8 +66,25 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registry.Definitions()) != 6 || len(registry.ProviderDefinitions()) != 6 || len(registry.ContextSpecs()) != 6 {
-		t.Fatal("expected three workspace tools and three deferred capability primitives")
+	// Assert the exact set rather than a bare count. A count alone fails on any
+	// deliberate change and says nothing about what leaked in; the set fails
+	// only when the waist actually changes, and names the offender.
+	want := []string{
+		"skill_search", "skill_view", // session-scoped Skill retrieval
+		"tool_call", "tool_describe", "tool_search", // deferred capability catalog
+		"workspace.list_files", "workspace.read_file", "workspace.write_file",
+	}
+	var got []string
+	for _, definition := range registry.Definitions() {
+		got = append(got, definition.Name)
+	}
+	sort.Strings(want)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("direct tool waist is\n  %v\nwant\n  %v", got, want)
+	}
+	if len(registry.ProviderDefinitions()) != len(want) || len(registry.ContextSpecs()) != len(want) {
+		t.Fatalf("provider definitions %d and context specs %d disagree with %d definitions",
+			len(registry.ProviderDefinitions()), len(registry.ContextSpecs()), len(want))
 	}
 	if registry.Revision() == "" || registry.Revision() != registry.Revision() {
 		t.Fatal("capability revision must be deterministic")
@@ -227,5 +246,81 @@ func TestApprovedWriteFailsClosedWhenFileChanges(t *testing.T) {
 	content, _ := os.ReadFile(path)
 	if string(content) != "changed while waiting" {
 		t.Fatalf("stale approval overwrote newer content: %q", content)
+	}
+}
+
+// --- O-3: direct-tool token accounting ---
+//
+// ContextSpecs used to hand the estimator only the parameter schema, dropping
+// the description and the provider's function wrapper. The compiler budget
+// therefore passed on a number smaller than the request it was approving.
+func TestContextSpecsCountTheExactProviderPayload(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	specs := registry.ContextSpecs()
+	definitions := registry.ProviderDefinitions()
+	if len(specs) != len(definitions) || len(specs) == 0 {
+		t.Fatalf("specs=%d provider definitions=%d", len(specs), len(definitions))
+	}
+	for index, spec := range specs {
+		definition := definitions[index]
+		if spec.Name != definition.Function.Name {
+			t.Fatalf("spec %d is %q but provider definition %d is %q", index, spec.Name, index, definition.Function.Name)
+		}
+		expected, err := json.Marshal(definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if spec.Serialized != string(expected) {
+			t.Fatalf("tool %q bills\n  %s\nbut the provider receives\n  %s", spec.Name, spec.Serialized, expected)
+		}
+		if definition.Function.Description == "" {
+			t.Fatalf("tool %q has no description, so this test cannot prove the description is counted", spec.Name)
+		}
+		if !strings.Contains(spec.BillableText(), definition.Function.Description) {
+			t.Fatalf("tool %q does not bill its description", spec.Name)
+		}
+	}
+}
+
+// The gap is not academic: the old accounting understated the direct-tool
+// slice, and this records by how much so a regression is visible as a number.
+func TestBillableTextIsLargerThanTheBareSchema(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, billed := 0, 0
+	for _, spec := range registry.ContextSpecs() {
+		bare += len(spec.Name + "\n" + spec.Schema)
+		billed += len(spec.BillableText())
+	}
+	if billed <= bare {
+		t.Fatalf("billable payload %d bytes is not larger than name+schema %d bytes", billed, bare)
+	}
+	t.Logf("direct-tool payload: %d bytes billed, %d bytes under the old accounting (+%.0f%%)",
+		billed, bare, float64(billed-bare)/float64(bare)*100)
+}
+
+// With the real payload counted, the smallest envelope must still fit the
+// direct tools. If this fails, the tool waist has outgrown Compact 32k and the
+// fix is fewer or smaller tools, not a bigger budget.
+func TestRealPayloadFitsEveryProfileDirectToolBudget(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	estimator := ctxcompiler.NewAdaptiveEstimator()
+	used := 0
+	for _, spec := range registry.ContextSpecs() {
+		used += estimator.Count(spec.BillableText())
+	}
+	for _, profile := range ctxcompiler.Profiles() {
+		if used > profile.DirectToolBudget {
+			t.Fatalf("direct tools bill %d tokens, over the %s budget of %d", used, profile.Name, profile.DirectToolBudget)
+		}
+		t.Logf("%s: %d of %d direct-tool tokens used", profile.Name, used, profile.DirectToolBudget)
 	}
 }

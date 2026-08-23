@@ -1,6 +1,9 @@
 package context
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type Kind string
 
@@ -42,6 +45,19 @@ type ToolSpec struct {
 	Revision string   `json:"revision"`
 	Source   string   `json:"source"`
 	Effects  []string `json:"effects,omitempty"`
+	// Serialized is the exact bytes this tool contributes to the provider
+	// request, wrapper and description included. Name plus schema undercounts
+	// it, which lets a request pass the compiler budget and still overflow the
+	// real context window. Empty falls back to name plus schema.
+	Serialized string `json:"serialized,omitempty"`
+}
+
+// BillableText returns what the estimator should count for this tool.
+func (t ToolSpec) BillableText() string {
+	if strings.TrimSpace(t.Serialized) != "" {
+		return t.Serialized
+	}
+	return t.Name + "\n" + t.Schema
 }
 
 type Request struct {
