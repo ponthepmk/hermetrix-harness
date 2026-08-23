@@ -68,6 +68,8 @@ gc-compensating-rollback|RestoreFromQuarantine\(prior.Ref|internal/curator/maint
 gc-no-hard-delete|partial_quarantine|internal/curator/maintenance.go
 mcp-no-auto-retry|automatic_retry|internal/mcp/service.go
 skill-retrieval-metric|func \(s \*Service\) SkillRetrievalMetrics|internal/agent/service.go
+model-reviewer|func \(r \*ModelReviewer\) Review|internal/learning/model_reviewer.go
+reviewer-fails-closed|func parseReviewerDecision|internal/learning/model_reviewer.go
 adr7-exit-threshold|NoSkillRequestedRate > 0.5|internal/agent/service.go
 CLAIMS
 )

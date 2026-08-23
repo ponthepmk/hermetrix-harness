@@ -1543,3 +1543,199 @@ func TestSkillRetrievalVerdictFollowsTheAdrThreshold(t *testing.T) {
 		})
 	}
 }
+
+// --- O-10: the prompt must say a Skill catalog exists ---
+func TestPromptTellsTheModelWhichSkillsAreAvailable(t *testing.T) {
+	var systemPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []providers.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		systemPrompt = ""
+		for _, message := range request.Messages {
+			if message.Role == "system" {
+				systemPrompt += message.Content + "\n"
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	seedSkill(t, service, "thai-withholding-tax", "TAX_BODY")
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A goal that matches nothing, which is exactly when the model has to be
+	// told the catalog exists rather than shown a body.
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "what files are here"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"thai-withholding-tax", "skill_search"} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("system prompt never mentions %q:\n%s", want, systemPrompt)
+		}
+	}
+	if strings.Contains(systemPrompt, "TAX_BODY") {
+		t.Fatal("an unselected Skill body was injected; only its name belongs in the catalog notice")
+	}
+}
+
+func TestNoSkillNoticeWhenTheCatalogIsEmpty(t *testing.T) {
+	var systemPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []providers.Message `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		systemPrompt = ""
+		for _, message := range request.Messages {
+			if message.Role == "system" {
+				systemPrompt += message.Content + "\n"
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "hello"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(systemPrompt, "skill_search with the task") {
+		t.Fatalf("a session with no Skills still carries the catalog notice:\n%s", systemPrompt)
+	}
+}
+
+// --- O-11: a truncated answer must not read as a finished one ---
+func TestTruncatedOutputIsFlaggedWithItsReasoningShare(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// A reasoning model that spends its budget thinking and gets cut off.
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"weighing the options at some length before answering\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial ans\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "explain something long"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := result.AssistantEvent.Metadata
+	if metadata["output_truncated"] != true {
+		t.Fatalf("a cut-off answer was recorded as complete: %+v", metadata)
+	}
+	reasoning, _ := metadata["reasoning_tokens_estimated"].(int)
+	if reasoning <= 0 {
+		t.Fatalf("reasoning spend was not recorded: %+v", metadata)
+	}
+	if note, _ := metadata["truncation_note"].(string); !strings.Contains(note, "incomplete") {
+		t.Fatalf("truncation note does not say the answer is incomplete: %q", note)
+	}
+}
+
+func TestCompleteOutputCarriesNoTruncationFlag(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "ตอบสั้น ๆ"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, flagged := result.AssistantEvent.Metadata["output_truncated"]; flagged {
+		t.Fatalf("a complete answer was flagged as truncated: %+v", result.AssistantEvent.Metadata)
+	}
+}
+
+// --- O-13: a malformed tool call must not kill the turn ---
+//
+// A model that runs out of output budget mid-arguments emits unparseable JSON.
+// The registry rejects it and writes a failure receipt, which is correct. What
+// was not correct was replaying those bytes to the provider on the next step:
+// the provider rejected the whole request, so one recoverable bad call ended
+// the turn. Observed live against a gateway, on a file-write task.
+func TestMalformedToolArgumentsDoNotPoisonTheNextRequest(t *testing.T) {
+	step := 0
+	var replayed []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []providers.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		for _, message := range request.Messages {
+			for _, call := range message.ToolCalls {
+				replayed = append(replayed, call.Function.Arguments)
+				if !json.Valid([]byte(call.Function.Arguments)) {
+					t.Errorf("history replayed unparseable arguments: %q", call.Function.Arguments)
+				}
+			}
+		}
+		step++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if step == 1 {
+			// Arguments cut off mid-string, exactly as a budget-exhausted
+			// reasoning model produces them.
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-cut\",\"type\":\"function\","+
+				"\"function\":{\"name\":\"workspace.write_file\",\"arguments\":\"{\\\"path\\\": \\\"a.py\\\", \\\"content\\\": \\\"def f(\"}}]},"+
+				"\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "write a file"}, nil)
+	if err != nil {
+		t.Fatalf("a malformed tool call ended the turn: %v", err)
+	}
+	if result.AssistantEvent.Content != "recovered" {
+		t.Fatalf("the turn did not continue past the bad call: %+v", result.AssistantEvent)
+	}
+	if len(replayed) == 0 {
+		t.Fatal("the bad call never reached history, so this test proves nothing")
+	}
+	// The receipt, not the arguments, is what tells the model it failed.
+	detail, err := service.GetSessionDetail(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawFailure := false
+	for _, event := range detail.Events {
+		if event.EventKind == "tool_result" && strings.Contains(event.Content, "invalid arguments") {
+			sawFailure = true
+		}
+	}
+	if !sawFailure {
+		t.Fatal("no failure receipt explained the malformed call to the model")
+	}
+}

@@ -145,6 +145,165 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **P-3** | exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้ | medium | ยังไม่ทำ gate audit |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |
 
+### 4.2b Findings จากการขับใช้งานจริง (2026-08-23)
+
+รอบนี้เอา Hermetrix ไปรันกับ gateway จริง (`qwen3.8-27b-fp8` บน vLLM) แล้วขับงานจริงสองสาย — review โค้ดภาษี และคำนวณภาษีหัก ณ ที่จ่าย ทุก finding ด้านล่างมาจาก runtime จริง ไม่ใช่การอ่านโค้ด
+
+| ID | เรื่อง | severity | สถานะ |
+|---|---|---|---|
+| **O-8** | probe output budget เล็กเกินไปสำหรับ reasoning model | high | **แก้แล้ว** |
+| **O-9** | runtime evidence ไม่มีทางกลายเป็น Skill candidate ได้เลย | **critical** | **แก้แล้ว** |
+| **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | **แก้แล้ว** |
+| **O-11** | output reserve ไม่รู้จัก reasoning token | high | **บรรเทาแล้ว** — turn ที่ถูกตัดถูกติดธงพร้อมสัดส่วน reasoning; การจัดสรร reserve ยังไม่แก้ |
+| **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
+| **O-13** | tool-call arguments ที่พังถูก replay กลับไปหา provider ทำให้ทั้ง turn ตาย | high | **แก้แล้ว** |
+
+#### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
+
+`long_context_recall` ล้มบน gateway จริงโดยคืน sentinel ได้ 2 จาก 5 ตำแหน่ง ดูเผิน ๆ เหมือน model recall ไม่ไหว
+
+ความจริง: เรียกตรงด้วย prompt เดียวกัน `max_tokens=256` คืนครบ 5/5 ต่างกันที่ **streaming**
+
+```
+non-stream: reasoning 377 chars → finish=stop   → 5/5
+stream:     reasoning 656 chars → finish=length → 2/5 ตัดกลาง token
+```
+
+reasoning ถูกนับเป็น completion token แต่ทุก probe จอง `MaxTokens` 128–256 ไว้เผื่อแค่คำตอบ suite จึงรายงาน capability failure ที่จริงเป็น output-budget failure — และรายงาน external gateway วันที่ 22 ส.ค. ที่บันทึกว่า “sentinel run did not pass” น่าจะเป็นสาเหตุเดียวกันโดยไม่เคยถูกวินิจฉัย
+
+แก้เป็น `qualificationOutputBudget = 1024` ตัวเดียวใช้ทุก probe พร้อม test ที่ห้าม hardcode `MaxTokens` ตัวเลข หลังแก้ recall ผ่าน 5/5 กับ model จริง
+
+#### O-9 — learning loop ต่อท่อครบ แต่ไม่มีสมอง *(critical)*
+
+ขับงานจริงหนึ่ง turn แล้วตามรอยทั้งเส้น:
+
+```
+turn สำเร็จ (tool 2 ตัว)
+  → outbox: successful_milestone = processed   ✓
+  → review job: queued                          ✓
+  → reviewer รัน                                ✓
+  → decision: no_change
+     "digest contains no bounded, reusable procedure"
+  → candidates: 0
+```
+
+ท่อทุกท่อนทำงานถูก แต่ `StructuredReviewer` คืน candidate เฉพาะเมื่อ `digest.SuggestedSkill` ถูกเซ็ตมาแล้ว และ **ไม่มีที่ไหนใน runtime เซ็ตมันเลย** — `learningTriggerForTurn` ไม่เคยแตะ field นี้ มีแต่ HTTP enqueue path (`internal/learning/service.go:200`) ที่รับมาจาก caller ภายนอก
+
+ดังนั้นเส้นทาง **runtime evidence → Skill candidate เป็นไปไม่ได้เชิงโครงสร้าง** ไม่ใช่ “reviewer ยังอ่อน” แต่เป็น “ไม่มีเส้นทาง” เอกสารเดิมเขียนว่า reviewer เป็น deterministic acknowledgement ซึ่งจริงแต่บอกไม่ครบ
+
+ผลต่อแผน: Phase 8 ไม่ใช่การ *ปรับปรุง* learning loop แต่คือการ **สร้างส่วนที่ขาดไปตั้งแต่แรก** — และ spike วัดคุณค่า Skill ทำไม่ได้จนกว่าจะมีตัวผลิต Skill
+
+#### O-10 — prompt ไม่เคยบอกว่ามี Skill *(high)*
+
+system prompt ที่ compile จริงมีสอง fragment:
+
+- identity: “You are Hermetrix, a friendly and precise intelligent tool…”
+- policy: “Skills and durable knowledge are proposal-only…”
+
+**ไม่มีประโยคไหนบอกว่า session นี้มี Skill catalog หรือควรเรียก `skill_search` เมื่องานตรงกับ procedure** ประโยคที่พูดถึง Skill พูดเรื่อง *อำนาจ* และคำว่า “proposal-only” อ่านแล้วชวนให้คิดว่า Skill ยังไม่ใช่ความรู้ที่ใช้ได้
+
+หลักฐานจากการขับจริง: session ที่มี Skill `thai-withholding-tax` อยู่ใน catalog แล้วผู้ใช้เปลี่ยนหัวข้อมาถามภาษีหัก ณ ที่จ่ายโดยตรง — model **ไม่เรียก tool ใดเลย** และตอบด้วยทศนิยมบนหน่วยสตางค์ แล้วย้อนถามผู้ใช้ว่าจะปัดเศษแบบไหน ซึ่งเป็นข้อที่ Skill ระบุคำตอบไว้แล้ว
+
+R-14 ข้อมูลจริงชุดแรก: `relevant=1 requested=0 rate=1.0` (`insufficient_evidence` เพราะ sample=1)
+
+นี่ตรงกับ failure mode ข้อ 2 ที่ ADR-7 เขียนทำนายไว้เอง มาตรการที่ ADR ระบุคือขยาย floor แต่หลักฐานชี้ว่าต้องแก้ prompt ก่อน เพราะ floor ปัจจุบันก็ไม่ทำงาน (`preselected: []` ทั้งสอง turn)
+
+#### O-9 — ผลหลังแก้ *(ขับจริงกับ gateway)*
+
+ต้นตอลึกกว่าที่รายงานรอบแรก มีสามชั้น ไม่ใช่ชั้นเดียว:
+
+1. `Decision` ไม่มี field ให้ reviewer ใส่ Skill ที่เสนอ
+2. `RunNext` อ่าน `job.Digest.SuggestedSkill` — **ของ digest ไม่ใช่ของ reviewer** ต่อให้ reviewer ตัดสินใจ `create` ก็ไม่มีที่ให้วาง
+3. `StructuredReviewer` อ่าน evidence ไม่เป็นอยู่แล้ว
+
+แก้ทั้งสามชั้น: `Decision.SuggestedSkill`, runner ใช้ข้อเสนอของ reviewer ก่อนแล้ว fallback ไป digest (เส้นทาง API), และเพิ่ม `ModelReviewer` ที่อ่าน digest แล้วตัดสินใจเอง โดย parser **fail closed** — อะไรที่อ่านไม่ครบกลายเป็น `no_change` ทั้งหมด
+
+ขับจริง: ทำงานหนึ่ง turn แล้วให้ผู้ใช้แก้สองครั้ง
+
+```
+review 1  successful_milestone (แค่อ่านไฟล์)
+          → no_change "only shows reading files and a one-off VAT amount;
+                       no reusable, non-specific steps"
+review 2  repeated_correction (ผู้ใช้แก้ซ้ำ)
+          → create → cand_b8450c8e... "vat-rounding-consistency-check"
+             lint ✓ security ✓ state=needs_review
+             active skills = 0
+```
+
+Skill ที่ model เขียน:
+
+```markdown
+1. Calculate net, VAT, and gross amounts.
+2. Apply half-up rounding to the monetary values.
+3. Check that net + VAT = gross after rounding.
+4. If the check fails, redo the calculation and recheck.
+```
+
+จับสิ่งที่ผู้ใช้แก้ได้ตรง generalize โดยไม่มีค่าเฉพาะของรอบนั้น และ **แยกแยะถูกระหว่างงานที่มี procedure กับงานที่ไม่มี** ซึ่งเป็นเงื่อนไขที่ทำให้ learning loop มีค่ามากกว่ามีเสียงรบกวน
+
+นี่คือครั้งแรกที่ runtime evidence กลายเป็น Skill candidate ได้ authority ladder ยังยืนครบ: origin `agent_candidate`, created_by `background_reviewer`, ต้องมีมนุษย์ promote
+
+ผลต่อแผน: spike วัดคุณค่า Skill ที่ค้างอยู่ **ทำได้แล้ว** เพราะมีตัวผลิต Skill จาก evidence จริง
+
+#### O-10 — ผลหลังแก้ *(before/after กับ model จริง)*
+
+เพิ่ม fragment ที่ derive จาก frozen catalog อย่างเดียว (จึง byte-stable ตลอด session) บอกชื่อ Skill ที่มีและสั่งให้เรียก `skill_search` ก่อนตอบ พร้อมแก้ประโยค policy เดิมที่อ่านแล้วเหมือน Skill ใช้ไม่ได้
+
+รัน prompt เดิมเป๊ะ model เดิม:
+
+| | ก่อน | หลัง |
+|---|---|---|
+| tool calls | `[]` | `skill_search` → `skill_view` |
+| คำตอบ | ทศนิยมบนหน่วยสตางค์ แล้วย้อนถามผู้ใช้ว่าจะปัดแบบไหน | จำนวนเต็ม ปัดครึ่งขึ้น WHT บน net ก่อน VAT และตรวจยอดกระทบตามข้อ 5 ของ Skill |
+| `no_skill_requested_rate` | 1.00 | 0.00 |
+
+model อ้าง Skill ตามชื่อและทำครบทั้งห้าข้อ นี่คือหลักฐานตรงว่า ADR-7 ทำงานได้ทั้งเส้น และ O-10 คือสิ่งที่ขวางอยู่ — ไม่ใช่ขนาดของ model
+
+เป็นข้อมูลชุดแรกของคำถาม Phase 8 ด้วย: Skill ทำให้คำตอบดีขึ้นแบบชี้ได้ (n=1)
+
+#### O-12 — API path ที่ไม่ match คืน HTML 200 *(แก้แล้ว)*
+
+พบตอนเรียก `GET /api/activations` ซึ่งลงทะเบียนไว้เฉพาะ `POST` ผลที่ได้คือ SPA HTML พร้อม status 200
+
+ตรวจต่อพบว่าเป็นทั้งระบบ:
+
+```
+GET  /api/does-not-exist   200 <!doctype html>
+GET  /api/activations      200 <!doctype html>
+POST /api/usage            200 <!doctype html>   ← route จริง แต่ method ผิด
+GET  /api/skills/typo      404 {"error":"not found"}
+```
+
+catch-all `mux.Handle("/", spa(...))` กว้างกว่า pattern ที่ลงทะเบียนไว้ จึงกลืนทั้ง path ที่พิมพ์ผิดและ method ที่ผิด client แยกไม่ออกจาก success — เป็น false success ระดับ transport ซึ่งขัดกับหลักการของโครงการเองที่ว่าห้ามอ้างผลโดยไม่มี receipt
+
+แก้ด้วย handler `/api/` ที่คืน JSON 404 พร้อมระบุ method+path
+
+#### O-13 — tool call ที่พังฆ่าทั้ง turn *(แก้แล้ว)*
+
+เจอตอนสั่งงานเขียนไฟล์จริง — งานที่ arguments ยาวที่สุดโดยธรรมชาติ
+
+```
+1. model ส่ง workspace.write_file arguments 788 bytes ถูกตัดกลาง string
+2. registry จับได้ถูก: status=failed "invalid arguments: unexpected EOF"   ✓
+3. arguments พังถูกเก็บเป็น tool_call event
+4. step ถัดไป renderMessages ส่ง bytes เดิมกลับไปเป็น history
+5. gateway parse ไม่ได้ → HTTP 400 → turn ตายทั้ง turn
+```
+
+ขั้นที่ 2 คือพฤติกรรมที่ถูกต้อง ปัญหาคือขั้นที่ 4 — harness เปลี่ยนสถานการณ์ที่ **กู้ได้** (tool call เสียหนึ่งครั้ง ซึ่งมี receipt อธิบายให้ model แก้อยู่แล้ว) ให้กลายเป็น turn ที่ตาย
+
+น่าสังเกตว่า qualification มี check ชื่อ `malformed_argument_recovery` ที่ **ผ่าน** — แต่เส้นทางกู้นั้นถูกตัดขาดก่อน เพราะ request เองกลายเป็น invalid ก่อน model จะได้เห็น error
+
+แก้ด้วย `replayableArguments`: history ส่ง `{}` แทน bytes ที่ parse ไม่ได้ ส่วน receipt ยังบอก model ว่าพลาดอะไร รันซ้ำงานเดิมกับ model จริงแล้วผ่านทั้งเส้น: อ่านไฟล์ → เสนอเขียน → หยุดรออนุมัติ → อนุมัติ → เขียนจริง → turn จบปกติ และโค้ดที่ได้ทำตามกฎของ Skill (integer satang, ปัดครึ่งขึ้นด้วย `(2n+d)//(2d)`)
+
+นี่เป็นการยืนยัน effectful write slice ทั้งเส้นกับ model จริงครั้งแรก
+
+#### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
+
+`Profile.OutputReserve` เป็นตัวเลขเดียว (4,096 ถึง 65,536) ที่สมมติโดยปริยายว่า completion token ทั้งหมดคือคำตอบ บน reasoning model ไม่จริง — และจากที่วัด reasoning ยาวไม่คงที่แม้ prompt เดิม (`grep -rn Reasoning internal/context/` ได้ศูนย์ผลลัพธ์)
+
+turn ที่จองไว้ 8,192 แล้วโดน reasoning กิน 6,000 จะเหลือ 2,192 ให้คำตอบจริงโดย compiler ไม่รู้ตัว O-8 คือกรณีเดียวกันที่เกิดใน probe; O-11 คือกรณีเดียวกันที่ยังเปิดอยู่ใน agent loop
+
 ### 4.3 Findings เดิมที่ยังคงสถานะ
 
 - **P1-2 deterministic replay ยังไม่วัด agent behavior** — replay ตรวจ required/forbidden terms และ tool hints เหมาะเป็น fast lint gate แต่ตอบไม่ได้ว่า Skill candidate ทำให้ model แก้ task ได้ดีขึ้นจริง ต้องคง deterministic gate ไว้แล้วเพิ่ม sandboxed behavioral runner เป็นชั้นถัดไป ไม่ใช่แทนที่
@@ -181,7 +340,7 @@ tab names ปัจจุบันไม่เท่ากับ function parity
 
 คำว่า “Office” ใน UI ปัจจุบันควรเปลี่ยนเป็น “Background Jobs” จนกว่าจะมี deliverable workspace จริง เพื่อไม่ให้ product claim สูงกว่าความสามารถ — **ยังไม่ได้แก้** ณ รอบ verification pass (`internal/web/ui/index.html:21`, `:62`) จัดเป็นส่วนหนึ่งของ O-7
 
-หมายเหตุลำดับความสำคัญ: ตาราง gap นี้เป็น *product parity* ที่ FUTURE-ARCHITECTURE-PLAN จัดให้เป็น optional track ตาม ADR-8 ไม่ใช่งานที่ต้องปิดก่อน kernel gates
+หมายเหตุลำดับความสำคัญ: ตาราง gap นี้เป็น *product parity* ซึ่งอยู่ใน Phase 11 เต็มรูปแบบ แต่ตาม dependency ต้องทำหลัง kernel (8/9/10) ถึงระดับ  ก่อน
 
 ## 7. Test evidence
 

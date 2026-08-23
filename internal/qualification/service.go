@@ -124,7 +124,7 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 	completion, err := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: []providers.Message{
 		{Role: "system", Content: "Qualification probe. Follow exact output instructions."},
 		{Role: "user", Content: "[QUALIFY:CONNECT] Reply exactly HERMETRIX_QUALIFIED_OK"}}, Temperature: &temperature,
-		MaxTokens: 128}, func(delta providers.Delta) error {
+		MaxTokens: qualificationOutputBudget}, func(delta providers.Delta) error {
 		if firstDelta.IsZero() && (delta.Content != "" || delta.Reasoning != "" || len(delta.ToolCalls) > 0) {
 			firstDelta = time.Now()
 		}
@@ -203,7 +203,7 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 	prompt.WriteString("\n[QUALIFY:RECALL] Return every HERMETRIX_SENTINEL_ token above, one per line, and nothing else.")
 	recallStarted := time.Now()
 	recall, recallErr := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: []providers.Message{{Role: "user", Content: prompt.String()}},
-		Temperature: &temperature, MaxTokens: 256}, nil)
+		Temperature: &temperature, MaxTokens: qualificationOutputBudget}, nil)
 	recovered := 0
 	run.Results.RecallPositions = run.Results.RecallPositions[:0]
 	for _, placement := range placements {
@@ -229,7 +229,7 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 	tool := providers.ToolDefinition{Type: "function", Function: providers.ToolFunction{Name: "qualification_echo",
 		Description: "Return qualification evidence", Parameters: toolSchema}}
 	toolCompletion, toolErr := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: []providers.Message{{Role: "user",
-		Content: "[QUALIFY:THAI_TOOL] กรุณาเรียก qualification_echo ด้วย text=ภาษาไทย และ mode=safe"}}, Tools: []providers.ToolDefinition{tool}, Temperature: &temperature, MaxTokens: 256}, nil)
+		Content: "[QUALIFY:THAI_TOOL] กรุณาเรียก qualification_echo ด้วย text=ภาษาไทย และ mode=safe"}}, Tools: []providers.ToolDefinition{tool}, Temperature: &temperature, MaxTokens: qualificationOutputBudget}, nil)
 	validTool := toolErr == nil && len(toolCompletion.ToolCalls) == 1 && toolCompletion.ToolCalls[0].Name == "qualification_echo" &&
 		validateArguments(toolSchema, toolCompletion.ToolCalls[0].Arguments) == nil
 	run.Results.NativeToolCall, run.Results.ThaiEnglishSchema = validTool, validTool
@@ -241,7 +241,7 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 		Content: "[QUALIFY:SEQUENTIAL] Call qualification_first and qualification_second in this response."}}, Tools: []providers.ToolDefinition{
 		{Type: "function", Function: providers.ToolFunction{Name: "qualification_first", Parameters: emptySchema()}},
 		{Type: "function", Function: providers.ToolFunction{Name: "qualification_second", Parameters: emptySchema()}},
-	}, Temperature: &temperature, MaxTokens: 256}, nil)
+	}, Temperature: &temperature, MaxTokens: qualificationOutputBudget}, nil)
 	names := map[string]bool{}
 	for _, call := range sequential.ToolCalls {
 		names[call.Name] = validateArguments(emptySchema(), call.Arguments) == nil
@@ -259,7 +259,7 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 		{Role: "tool", ToolCallID: "bad", Content: `{"status":"failed","error":"schema validation failed"}`},
 	}
 	recovery, recoveryErr := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: recoveryMessages,
-		Tools: []providers.ToolDefinition{tool}, Temperature: &temperature, MaxTokens: 256}, nil)
+		Tools: []providers.ToolDefinition{tool}, Temperature: &temperature, MaxTokens: qualificationOutputBudget}, nil)
 	run.Results.MalformedRecovery = recoveryErr == nil && len(recovery.ToolCalls) == 1 &&
 		validateArguments(toolSchema, recovery.ToolCalls[0].Arguments) == nil
 	run.Results.Checks = append(run.Results.Checks, Check{Name: "malformed_argument_recovery", State: state(run.Results.MalformedRecovery),
@@ -270,7 +270,7 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 			"required": []string{"query"}, "additionalProperties": false}}}
 	deferred, deferredErr := s.providers.StreamChat(ctx, profile, providers.ChatRequest{Messages: []providers.Message{{Role: "user",
 		Content: "[QUALIFY:DEFERRED] Search for a calendar capability using tool_search."}}, Tools: []providers.ToolDefinition{deferredTool},
-		Temperature: &temperature, MaxTokens: 256}, nil)
+		Temperature: &temperature, MaxTokens: qualificationOutputBudget}, nil)
 	run.Results.DeferredToolCall = deferredErr == nil && len(deferred.ToolCalls) == 1 && deferred.ToolCalls[0].Name == "tool_search" &&
 		validateArguments(deferredTool.Function.Parameters, deferred.ToolCalls[0].Arguments) == nil
 	run.Results.Checks = append(run.Results.Checks, Check{Name: "deferred_tool", State: state(run.Results.DeferredToolCall),
@@ -372,6 +372,19 @@ func mustJSON(value any) string {
 func emptySchema() map[string]any {
 	return map[string]any{"type": "object", "additionalProperties": false}
 }
+
+// qualificationOutputBudget caps the completion for every probe in the suite.
+//
+// It is deliberately larger than any probe's answer needs. Reasoning models
+// bill their reasoning as completion tokens, and the amount is not stable: the
+// same prompt at the same max_tokens produced 377 characters of reasoning
+// unstreamed and 656 streamed on the gateway this was measured against. A
+// budget sized for the answer alone truncates the answer instead, and the suite
+// then reports a recall failure that is really an output-budget failure.
+//
+// Anything that reads a probe's content must therefore assume the model spent
+// an unknown share of this budget thinking first.
+const qualificationOutputBudget = 1024
 
 func contextTier(allocated int, recall bool) string {
 	if !recall {

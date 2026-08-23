@@ -641,3 +641,36 @@ func TestSkillRetrievalMetricsAreServed(t *testing.T) {
 		t.Fatal("metrics must serialise as an array, never null")
 	}
 }
+
+// O-12: an API path that matches no route must not answer with the SPA. A
+// typo or a wrong method used to return 200 and HTML, which a client reads as
+// success.
+func TestUnmatchedAPIRoutesReturnJSONNotFound(t *testing.T) {
+	server := testHTTPServer(t)
+	cases := []struct{ method, path string }{
+		{http.MethodGet, "/api/does-not-exist"},
+		{http.MethodGet, "/api/activations"}, // real route, GET is not registered
+		{http.MethodPost, "/api/usage"},      // real route, wrong method
+	}
+	for _, testCase := range cases {
+		request, err := http.NewRequest(testCase.method, server.URL+testCase.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s %s returned %d, want 404", testCase.method, testCase.path, response.StatusCode)
+		}
+		if contentType := response.Header.Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+			t.Fatalf("%s %s answered %s, want JSON", testCase.method, testCase.path, contentType)
+		}
+		if strings.Contains(string(body), "<!doctype") {
+			t.Fatalf("%s %s answered with the SPA:\n%s", testCase.method, testCase.path, body[:80])
+		}
+	}
+}

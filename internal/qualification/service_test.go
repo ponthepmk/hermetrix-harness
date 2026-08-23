@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -226,4 +228,26 @@ func runQualificationAgainst(t *testing.T, server *httptest.Server, requestedPro
 		t.Fatal(err)
 	}
 	return run
+}
+
+// --- O-8: probe output budget on reasoning models ---
+//
+// The suite reads content out of every probe. Reasoning models bill their
+// thinking as completion tokens, so a budget sized for the answer truncates the
+// answer and the suite reports a capability failure that is really an output
+// budget failure. Measured live: the same recall prompt at max_tokens=256
+// produced 377 characters of reasoning unstreamed and 656 streamed, and only
+// the streamed run was cut off mid-sentinel.
+func TestEveryProbeUsesTheSharedOutputBudget(t *testing.T) {
+	source, err := os.ReadFile("service.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hardcoded := regexp.MustCompile(`MaxTokens:\s*\d+`)
+	if matches := hardcoded.FindAllString(string(source), -1); len(matches) > 0 {
+		t.Fatalf("probes must use qualificationOutputBudget, found hardcoded: %v", matches)
+	}
+	if qualificationOutputBudget < 512 {
+		t.Fatalf("probe budget %d is too small to hold reasoning plus an answer", qualificationOutputBudget)
+	}
 }

@@ -170,3 +170,82 @@ func TestLearningTriggerPolicyRequiresObservedEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// stubReviewer proposes a fixed procedure so the runner path can be tested
+// without a provider.
+type stubReviewer struct{ decision Decision }
+
+func (stubReviewer) Revision() string { return "stub-reviewer-v1" }
+func (r stubReviewer) Review(_ context.Context, _ Digest) (Decision, error) {
+	return r.decision, nil
+}
+
+// O-9: the runner used to read the *digest's* suggestion and ignore the
+// reviewer's, so a reviewer that wanted to propose something new had nowhere to
+// put it and every review from real work ended in no_change.
+func TestReviewerProposalBecomesACandidateAndNothingMore(t *testing.T) {
+	proposal := Decision{Kind: "create", Reason: "the same correction came up twice",
+		SuggestedSkill: &SuggestedSkill{CanonicalName: "satang-rounding", ScopeKind: "user", Owner: "user",
+			ChangeKind: "create", Reason: "observed in completed work",
+			Markdown: "---\nname: satang-rounding\ndescription: \"Round Thai money half up in satang\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. Keep amounts as integers.\n"}}
+	service, skillService, _ := setupLearning(t, stubReviewer{decision: proposal})
+	ctx := context.Background()
+	if _, _, err := service.Enqueue(ctx, EnqueueInput{SessionID: "session-1", MilestoneID: "turn-1",
+		TriggerKind: "repeated_correction", Digest: Digest{GoalAndConstraints: "fix the rounding",
+			Outcome: "success", UserCorrections: []string{"event:a", "event:b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.RunNext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.CandidateID == "" {
+		t.Fatalf("a reviewer proposal produced no candidate: %+v", job.Decision)
+	}
+	candidate, err := skillService.GetCandidate(ctx, job.CandidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.CanonicalName != "satang-rounding" {
+		t.Fatalf("candidate does not carry the proposal: %+v", candidate)
+	}
+	if candidate.Origin != "agent_candidate" {
+		t.Fatalf("origin is %q; a proposal must not look like trusted knowledge", candidate.Origin)
+	}
+	if candidate.CreatedBy != "background_reviewer" {
+		t.Fatalf("created_by is %q, want background_reviewer", candidate.CreatedBy)
+	}
+	// The whole point of the authority ladder: nothing became active.
+	active, err := skillService.ListSkills(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("a reviewer proposal reached the active store: %+v", active)
+	}
+}
+
+func TestReviewerDeclineCreatesNothing(t *testing.T) {
+	service, skillService, _ := setupLearning(t, stubReviewer{
+		decision: Decision{Kind: "no_change", Reason: "one-off work, no procedure"}})
+	ctx := context.Background()
+	if _, _, err := service.Enqueue(ctx, EnqueueInput{SessionID: "session-1", MilestoneID: "turn-1",
+		TriggerKind: "successful_milestone", Digest: Digest{GoalAndConstraints: "read a file",
+			Outcome: "success", ToolReceipts: []string{"event:a:workspace.read_file:succeeded"}}}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.RunNext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.CandidateID != "" {
+		t.Fatalf("a decline still created candidate %s", job.CandidateID)
+	}
+	candidates, err := skillService.ListCandidates(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("a decline left %d candidates behind", len(candidates))
+	}
+}
