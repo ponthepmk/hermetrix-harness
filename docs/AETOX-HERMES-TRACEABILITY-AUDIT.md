@@ -181,7 +181,7 @@ tab names ปัจจุบันไม่เท่ากับ function parity
 
 คำว่า “Office” ใน UI ปัจจุบันควรเปลี่ยนเป็น “Background Jobs” จนกว่าจะมี deliverable workspace จริง เพื่อไม่ให้ product claim สูงกว่าความสามารถ — **ยังไม่ได้แก้** ณ รอบ verification pass (`internal/web/ui/index.html:21`, `:62`) จัดเป็นส่วนหนึ่งของ O-7
 
-หมายเหตุลำดับความสำคัญ: ตาราง gap นี้เป็น *product parity* ที่ FUTURE-ARCHITECTURE-PLAN จัดให้เป็น optional track ตาม ADR-8 ไม่ใช่งานที่ต้องปิดก่อน kernel gates
+หมายเหตุลำดับความสำคัญ: ตาราง gap นี้เป็น *product parity* ซึ่งอยู่ใน Phase 11 เต็มรูปแบบ แต่ตาม dependency ต้องทำหลัง kernel (8/9/10) ถึงระดับ  ก่อน
 
 ## 7. Test evidence
 

@@ -386,7 +386,7 @@ ADR นี้ไม่ฟรี ต้องบันทึกราคาไว
 2. **ยกระดับก่อนขยาย** — จะเริ่ม subsystem ที่สามได้ต้องผลัก subsystem ใดตัวหนึ่งขึ้นถึง `qualified` ก่อน
 3. **kernel ก่อน surface** — เมื่อเลือกไม่ได้ว่าจะทำอะไร ให้เลือกงานที่ทำให้ kernel ลึกขึ้น (Phase 7.x, 8, 9, 10) ก่อนงานที่ทำให้ surface กว้างขึ้น (Phase 11, 12) เสมอ
 4. **ทุก phase ต้องประกาศ** ว่ากำลังทำให้ kernel ลึกขึ้นหรือ surface กว้างขึ้น ถ้าตอบไม่ได้ ไม่ต้องทำ
-5. Phase 11 native shell ถูก **demote จาก milestone บังคับเป็น optional distribution track** — local web control center ยังเป็น product surface หลัก การลงทุน Wails/Tauri + PTY + managed browser + signing เป็นงานที่ใหญ่กว่าทุก phase ก่อนหน้ารวมกัน และไม่เพิ่มความต่างเชิงสถาปัตยกรรมเลย
+5. Phase 11 native shell **อยู่ในแผนเต็ม** แต่ยังอยู่ใต้กฎข้อ 3: ทำหลัง kernel เพราะ shell เป็นหน้าต่างของ kernel ไม่ใช่ตัว kernel ต้นทุนของมัน (D 20–35 / I 40–70) ถูกบันทึกไว้เป็นข้อมูลประกอบการจัด WIP ไม่ใช่เหตุผลตัดทิ้ง
 
 #### นิยาม `qualified` ต่อ subsystem
 
@@ -411,7 +411,7 @@ ADR นี้ไม่ฟรี ต้องบันทึกราคาไว
 ## Target architecture
 
 ```text
-Native shell (optional track) / Web / CLI / future gateways
+Native shell / Web / CLI / future gateways
                   │ typed session API + event stream
                   ▼
 ┌──────────────── Session Authority ─────────────────┐
@@ -611,13 +611,15 @@ Exit gates:
 - stdio/HTTP cancellation, timeout, restart, OAuth expiry และ no-retry effect tests ผ่าน
 - signed plugin update rollback ได้; unsigned/local plugin มี trust badge ชัด
 
-## Phase 11 — Product shell *(optional distribution track ตาม ADR-8)*
+## Phase 11 — Native product shell
 
 เป้าหมาย: ให้ Aetox เป็น Main ในระดับ function/UX โดยไม่ copy implementation
 
-**สถานะ: demote จาก milestone บังคับ** local web control center ยังเป็น product surface หลัก งานใน phase นี้เริ่มได้เฉพาะเมื่อ 7.x/8/9/10 ผ่าน exit gate ระดับ `qualified` แล้ว และเริ่มด้วย spike ไม่ใช่ commitment
+**สถานะ: phase เต็ม อยู่ในแผน** เจ้าของโครงการยืนยันว่าไม่ตัด เอกสารรอบก่อนเคยเสนอให้ demote เป็น optional track ด้วยเหตุผลเรื่องต้นทุน — ข้อเสนอนั้นถูกพิจารณาและ**ปฏิเสธ** ต้นทุนยังบันทึกไว้ใน [Effort model](#effort-model-ปิด-r-16) และ R-6 เพื่อให้ตัดสินใจซ้ำได้เมื่อสถานการณ์เปลี่ยน ไม่ใช่เพื่อค้านซ้ำ
 
-Spike ที่ต้องทำก่อนตัดสินใจ (ไม่ใช่ implementation):
+ลำดับยังคงเดิมตาม dependency: เริ่มหลัง 8/9/10 ถึงระดับ `qualified` เพราะ shell เป็นหน้าต่างของ kernel ถ้า kernel ยังขยับ shell จะต้องรื้อตาม
+
+Spike ที่ต้องทำก่อน commit สถาปัตยกรรม (ไม่ใช่ก่อนตัดสินใจว่าจะทำ):
 
 - PTY behavior บนสาม platform
 - managed browser embedding + download/artifact policy
@@ -735,7 +737,7 @@ Exit gates:
                                 │
                                 └─→ 14 Release/security
 
-11 Product shell — optional track, spike ได้หลัง 7.x, commit ได้หลัง 8/9/10 qualified
+11 Product shell — spike ได้หลัง 7.x, implement หลัง 8/9/10 qualified
 ```
 
 Phase 8–10 ทำบาง workstream ขนานกันได้หลัง 7.2 แต่ acceptance gates ของแต่ละ phase ห้ามข้าม
@@ -796,7 +798,7 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 | 8 Skill Learning OS | ลึก | **15–25** | 10–20 | D สูงเพราะต้องตั้งเกณฑ์ eval, ออกแบบ sandbox boundary และสร้าง corpus P8-A |
 | 9 Context 2.0 | ลึก | **12–20** | 10–20 | D อยู่ที่ threshold ต่อ task class และ ground truth ของ corpus P9-A/B |
 | 10 Capability/MCP | ลึก | **15–25** | 20–35 | I สูงกว่าปกติเพราะ OS sandbox ต่อ platform เป็นงานที่ contract ไม่ชัดจนกว่าจะลองจริง |
-| 11 Product shell | **กว้าง** | **20–35** | 40–70 | ทั้งสองแกนสูง; a11y, PTY, browser embedding, signing ล้วนเป็นงานที่ต้องตัดสินใจระหว่างทำ |
+| 11 Product shell | **กว้าง** | **20–35** | 40–70 | phase ที่แพงที่สุดในแผนทั้งสองแกน; a11y, PTY, browser embedding, signing ล้วนต้องตัดสินใจระหว่างทำ — อยู่ในแผนเต็ม ทำหลัง 8/9/10 |
 | 12 Multi-agent | กว้าง | 12–20 | 15–25 | ต้องมี P12-A hardware matrix ก่อน |
 | 13 Provider ecosystem | ลึก | 8–15 | 15–30 | D ขึ้นกับจำนวน adapter ที่ตัดสินใจรองรับ |
 | 14 Security/release | ลึก | 15–25 | 15–25 | D คือ threat model และเกณฑ์ความรุนแรง |
@@ -807,9 +809,12 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 - **Phase 8–10 รวมกัน: D ≈ 42–70 วัน-คน** ซึ่งย่อไม่ได้ = **2–3.5 เดือนของเวลามนุษย์** ต่อให้ implementation เป็นศูนย์
 - **Phase 11: D ≈ 20–35 วัน-คน บวก I ที่ใหญ่ที่สุดในแผน** ยังเป็น phase ที่แพงที่สุดแม้แยกสองแกนแล้ว
 
-**ข้อสรุปเรื่อง Phase 11 จึงยังยืน แต่ด้วยเหตุผลที่ต่างจากเดิม** — ไม่ใช่เพราะ implementation ใหญ่ (ซึ่งย่อได้บางส่วน) แต่เพราะ **decision effort ของมันสูงและไม่ย่อ** และมันเป็น phase เดียวในกลุ่ม `กว้าง` ที่กิน decision budget แข่งกับ kernel โดยตรง
+**Phase 11 อยู่ในแผนเต็ม** เอกสารรอบก่อนเสนอให้ตัด เจ้าของโครงการพิจารณาแล้วปฏิเสธ ตัวเลขยังอยู่ตรงนี้เพื่อสองอย่าง:
 
-ข้อเสนอยังเหมือนเดิม: **web control center คือ product surface ของ Hermetrix** จนกว่ามีคนเพิ่มหรือมีเหตุผลทางธุรกิจที่ชัด — และตอนนี้มีตัวเลขที่แยกแกนแล้วรองรับ
+1. **จัด WIP** — D 20–35 วัน-คนของ Phase 11 แข่งกับ D ของ kernel โดยตรง ADR-8 จำกัด subsystem ที่ยังไม่ `qualified` ไว้ที่สองตัว ดังนั้น Phase 11 เข้าคิวหลัง 8/9/10 ไม่ใช่เพราะสำคัญน้อยกว่า แต่เพราะ shell เป็นหน้าต่างของ kernel — kernel ที่ยังขยับจะทำให้ shell ต้องรื้อตาม
+2. **ตัดสินใจซ้ำได้** — ถ้าสถานการณ์เปลี่ยน (มีคนเพิ่ม, มีเหตุผลใหม่) ตัวเลขที่แยกแกนแล้วอยู่ตรงนี้ให้ประเมินใหม่ได้ทันที ไม่ต้องเริ่มจากศูนย์
+
+web control center จึงเป็น product surface **ระหว่างทาง** ไม่ใช่ปลายทาง
 
 ---
 
@@ -824,7 +829,7 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 | R-3 | ไม่มี exact tokenizer ทำให้ budget math มี error band ที่ไม่รู้ขนาด | คำโฆษณาหลัก “token-efficient” พิสูจน์ไม่ได้ และเสี่ยง provider overflow | exact serialization ก่อน แล้ว tokenizer adapters + error band ที่แสดงใน UI | 7.1 → 9 |
 | R-4 | Skill effectiveness เป็น correlation ล้วน | วงจร learning พิสูจน์คุณค่าตัวเองไม่ได้ และ curator/auto-promote ในอนาคตจะอิงหลักฐานผิด | คง label `exposure_only`; เพิ่ม controlled baseline/candidate eval แยกจาก activation stats | 8 |
 | R-5 | breadth สิบ subsystem ระดับ vertical slice ไม่มีตัวไหน production | กว้างแต่ตื้นทุกด้าน แข่ง Aetox/Hermes ไม่ได้ทั้ง breadth และ depth | ADR-8 scope discipline; ห้ามเริ่ม subsystem ใหม่จนของเดิมถึง `qualified` | ต่อเนื่อง |
-| R-6 | native shell เป็นงานใหญ่กว่าทุก phase ก่อนหน้ารวมกัน | ดูด resource จาก kernel ซึ่งเป็นความต่างจริงของโครงการ | demote Phase 11 เป็น optional track เริ่มด้วย spike | 11 |
+| R-6 | native shell เป็นงานใหญ่ที่สุดในแผน (D 20–35 / I 40–70) | ดูด decision budget จาก kernel ซึ่งเป็นความต่างจริงของโครงการ | **ไม่ตัด** ตามมติเจ้าของโครงการ; คุมด้วย WIP limit และ dependency แทน — เริ่มหลัง 8/9/10 qualified และเริ่มด้วย spike | 11 |
 | R-7 | Skill retrieval ผูกกับ goal แรกของ session | session ที่เปลี่ยนหัวข้อไม่ได้ Skill ที่ตรง และจอง token ที่ไม่ได้ใช้ | ADR-7 `skill_search`/`skill_view` | 7.2 |
 | R-8 | ไม่มี OS-level sandbox สำหรับ background process | untrusted executable ทำอะไรก็ได้ในสิทธิ์ผู้ใช้ | คง allowlist/no-shell/deadline ไว้ และระบุชัดว่าไม่ใช่ sandbox จนกว่าจะถึง Phase 10 | 10 |
 | R-9 | ไม่มี actor identity จริง provenance เป็น claim | audit trail อ้างผู้กระทำไม่ได้ | local principal + keychain + signed audit export | 14 |
