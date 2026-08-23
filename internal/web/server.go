@@ -178,6 +178,14 @@ func (s *Server) Handler() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	// O-12: without this, any /api/ path that matches no route -- a typo, or a
+	// real route called with the wrong method -- falls through to the SPA and
+	// answers 200 with HTML. A client cannot tell that apart from success, which
+	// is the transport-level version of claiming a result with no receipt.
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "no API route matches " + r.Method + " " + r.URL.Path})
+	})
 	mux.Handle("/", spa(http.FileServer(http.FS(assets)), assets))
 	return requestLog(s.logger, securityHeaders(mux))
 }

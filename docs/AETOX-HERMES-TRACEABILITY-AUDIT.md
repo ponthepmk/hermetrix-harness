@@ -153,8 +153,9 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 |---|---|---|---|
 | **O-8** | probe output budget เล็กเกินไปสำหรับ reasoning model | high | **แก้แล้ว** |
 | **O-9** | runtime evidence ไม่มีทางกลายเป็น Skill candidate ได้เลย | **critical** | เปิด |
-| **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | เปิด |
-| **O-11** | output reserve ไม่รู้จัก reasoning token | high | เปิด |
+| **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | **แก้แล้ว** |
+| **O-11** | output reserve ไม่รู้จัก reasoning token | high | **บรรเทาแล้ว** — turn ที่ถูกตัดถูกติดธงพร้อมสัดส่วน reasoning; การจัดสรร reserve ยังไม่แก้ |
+| **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
 
 #### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
 
@@ -205,6 +206,39 @@ system prompt ที่ compile จริงมีสอง fragment:
 R-14 ข้อมูลจริงชุดแรก: `relevant=1 requested=0 rate=1.0` (`insufficient_evidence` เพราะ sample=1)
 
 นี่ตรงกับ failure mode ข้อ 2 ที่ ADR-7 เขียนทำนายไว้เอง มาตรการที่ ADR ระบุคือขยาย floor แต่หลักฐานชี้ว่าต้องแก้ prompt ก่อน เพราะ floor ปัจจุบันก็ไม่ทำงาน (`preselected: []` ทั้งสอง turn)
+
+#### O-10 — ผลหลังแก้ *(before/after กับ model จริง)*
+
+เพิ่ม fragment ที่ derive จาก frozen catalog อย่างเดียว (จึง byte-stable ตลอด session) บอกชื่อ Skill ที่มีและสั่งให้เรียก `skill_search` ก่อนตอบ พร้อมแก้ประโยค policy เดิมที่อ่านแล้วเหมือน Skill ใช้ไม่ได้
+
+รัน prompt เดิมเป๊ะ model เดิม:
+
+| | ก่อน | หลัง |
+|---|---|---|
+| tool calls | `[]` | `skill_search` → `skill_view` |
+| คำตอบ | ทศนิยมบนหน่วยสตางค์ แล้วย้อนถามผู้ใช้ว่าจะปัดแบบไหน | จำนวนเต็ม ปัดครึ่งขึ้น WHT บน net ก่อน VAT และตรวจยอดกระทบตามข้อ 5 ของ Skill |
+| `no_skill_requested_rate` | 1.00 | 0.00 |
+
+model อ้าง Skill ตามชื่อและทำครบทั้งห้าข้อ นี่คือหลักฐานตรงว่า ADR-7 ทำงานได้ทั้งเส้น และ O-10 คือสิ่งที่ขวางอยู่ — ไม่ใช่ขนาดของ model
+
+เป็นข้อมูลชุดแรกของคำถาม Phase 8 ด้วย: Skill ทำให้คำตอบดีขึ้นแบบชี้ได้ (n=1)
+
+#### O-12 — API path ที่ไม่ match คืน HTML 200 *(แก้แล้ว)*
+
+พบตอนเรียก `GET /api/activations` ซึ่งลงทะเบียนไว้เฉพาะ `POST` ผลที่ได้คือ SPA HTML พร้อม status 200
+
+ตรวจต่อพบว่าเป็นทั้งระบบ:
+
+```
+GET  /api/does-not-exist   200 <!doctype html>
+GET  /api/activations      200 <!doctype html>
+POST /api/usage            200 <!doctype html>   ← route จริง แต่ method ผิด
+GET  /api/skills/typo      404 {"error":"not found"}
+```
+
+catch-all `mux.Handle("/", spa(...))` กว้างกว่า pattern ที่ลงทะเบียนไว้ จึงกลืนทั้ง path ที่พิมพ์ผิดและ method ที่ผิด client แยกไม่ออกจาก success — เป็น false success ระดับ transport ซึ่งขัดกับหลักการของโครงการเองที่ว่าห้ามอ้างผลโดยไม่มี receipt
+
+แก้ด้วย handler `/api/` ที่คืน JSON 404 พร้อมระบุ method+path
 
 #### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
 

@@ -1543,3 +1543,128 @@ func TestSkillRetrievalVerdictFollowsTheAdrThreshold(t *testing.T) {
 		})
 	}
 }
+
+// --- O-10: the prompt must say a Skill catalog exists ---
+func TestPromptTellsTheModelWhichSkillsAreAvailable(t *testing.T) {
+	var systemPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []providers.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		systemPrompt = ""
+		for _, message := range request.Messages {
+			if message.Role == "system" {
+				systemPrompt += message.Content + "\n"
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	seedSkill(t, service, "thai-withholding-tax", "TAX_BODY")
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A goal that matches nothing, which is exactly when the model has to be
+	// told the catalog exists rather than shown a body.
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "what files are here"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"thai-withholding-tax", "skill_search"} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("system prompt never mentions %q:\n%s", want, systemPrompt)
+		}
+	}
+	if strings.Contains(systemPrompt, "TAX_BODY") {
+		t.Fatal("an unselected Skill body was injected; only its name belongs in the catalog notice")
+	}
+}
+
+func TestNoSkillNoticeWhenTheCatalogIsEmpty(t *testing.T) {
+	var systemPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []providers.Message `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		systemPrompt = ""
+		for _, message := range request.Messages {
+			if message.Role == "system" {
+				systemPrompt += message.Content + "\n"
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "hello"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(systemPrompt, "skill_search with the task") {
+		t.Fatalf("a session with no Skills still carries the catalog notice:\n%s", systemPrompt)
+	}
+}
+
+// --- O-11: a truncated answer must not read as a finished one ---
+func TestTruncatedOutputIsFlaggedWithItsReasoningShare(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// A reasoning model that spends its budget thinking and gets cut off.
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"weighing the options at some length before answering\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial ans\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "explain something long"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := result.AssistantEvent.Metadata
+	if metadata["output_truncated"] != true {
+		t.Fatalf("a cut-off answer was recorded as complete: %+v", metadata)
+	}
+	reasoning, _ := metadata["reasoning_tokens_estimated"].(int)
+	if reasoning <= 0 {
+		t.Fatalf("reasoning spend was not recorded: %+v", metadata)
+	}
+	if note, _ := metadata["truncation_note"].(string); !strings.Contains(note, "incomplete") {
+		t.Fatalf("truncation note does not say the answer is incomplete: %q", note)
+	}
+}
+
+func TestCompleteOutputCarriesNoTruncationFlag(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "ตอบสั้น ๆ"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, flagged := result.AssistantEvent.Metadata["output_truncated"]; flagged {
+		t.Fatalf("a complete answer was flagged as truncated: %+v", result.AssistantEvent.Metadata)
+	}
+}
