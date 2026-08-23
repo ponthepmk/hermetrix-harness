@@ -145,6 +145,73 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **P-3** | exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้ | medium | ยังไม่ทำ gate audit |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |
 
+### 4.2b Findings จากการขับใช้งานจริง (2026-08-23)
+
+รอบนี้เอา Hermetrix ไปรันกับ gateway จริง (`qwen3.8-27b-fp8` บน vLLM) แล้วขับงานจริงสองสาย — review โค้ดภาษี และคำนวณภาษีหัก ณ ที่จ่าย ทุก finding ด้านล่างมาจาก runtime จริง ไม่ใช่การอ่านโค้ด
+
+| ID | เรื่อง | severity | สถานะ |
+|---|---|---|---|
+| **O-8** | probe output budget เล็กเกินไปสำหรับ reasoning model | high | **แก้แล้ว** |
+| **O-9** | runtime evidence ไม่มีทางกลายเป็น Skill candidate ได้เลย | **critical** | เปิด |
+| **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | เปิด |
+| **O-11** | output reserve ไม่รู้จัก reasoning token | high | เปิด |
+
+#### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
+
+`long_context_recall` ล้มบน gateway จริงโดยคืน sentinel ได้ 2 จาก 5 ตำแหน่ง ดูเผิน ๆ เหมือน model recall ไม่ไหว
+
+ความจริง: เรียกตรงด้วย prompt เดียวกัน `max_tokens=256` คืนครบ 5/5 ต่างกันที่ **streaming**
+
+```
+non-stream: reasoning 377 chars → finish=stop   → 5/5
+stream:     reasoning 656 chars → finish=length → 2/5 ตัดกลาง token
+```
+
+reasoning ถูกนับเป็น completion token แต่ทุก probe จอง `MaxTokens` 128–256 ไว้เผื่อแค่คำตอบ suite จึงรายงาน capability failure ที่จริงเป็น output-budget failure — และรายงาน external gateway วันที่ 22 ส.ค. ที่บันทึกว่า “sentinel run did not pass” น่าจะเป็นสาเหตุเดียวกันโดยไม่เคยถูกวินิจฉัย
+
+แก้เป็น `qualificationOutputBudget = 1024` ตัวเดียวใช้ทุก probe พร้อม test ที่ห้าม hardcode `MaxTokens` ตัวเลข หลังแก้ recall ผ่าน 5/5 กับ model จริง
+
+#### O-9 — learning loop ต่อท่อครบ แต่ไม่มีสมอง *(critical)*
+
+ขับงานจริงหนึ่ง turn แล้วตามรอยทั้งเส้น:
+
+```
+turn สำเร็จ (tool 2 ตัว)
+  → outbox: successful_milestone = processed   ✓
+  → review job: queued                          ✓
+  → reviewer รัน                                ✓
+  → decision: no_change
+     "digest contains no bounded, reusable procedure"
+  → candidates: 0
+```
+
+ท่อทุกท่อนทำงานถูก แต่ `StructuredReviewer` คืน candidate เฉพาะเมื่อ `digest.SuggestedSkill` ถูกเซ็ตมาแล้ว และ **ไม่มีที่ไหนใน runtime เซ็ตมันเลย** — `learningTriggerForTurn` ไม่เคยแตะ field นี้ มีแต่ HTTP enqueue path (`internal/learning/service.go:200`) ที่รับมาจาก caller ภายนอก
+
+ดังนั้นเส้นทาง **runtime evidence → Skill candidate เป็นไปไม่ได้เชิงโครงสร้าง** ไม่ใช่ “reviewer ยังอ่อน” แต่เป็น “ไม่มีเส้นทาง” เอกสารเดิมเขียนว่า reviewer เป็น deterministic acknowledgement ซึ่งจริงแต่บอกไม่ครบ
+
+ผลต่อแผน: Phase 8 ไม่ใช่การ *ปรับปรุง* learning loop แต่คือการ **สร้างส่วนที่ขาดไปตั้งแต่แรก** — และ spike วัดคุณค่า Skill ทำไม่ได้จนกว่าจะมีตัวผลิต Skill
+
+#### O-10 — prompt ไม่เคยบอกว่ามี Skill *(high)*
+
+system prompt ที่ compile จริงมีสอง fragment:
+
+- identity: “You are Hermetrix, a friendly and precise intelligent tool…”
+- policy: “Skills and durable knowledge are proposal-only…”
+
+**ไม่มีประโยคไหนบอกว่า session นี้มี Skill catalog หรือควรเรียก `skill_search` เมื่องานตรงกับ procedure** ประโยคที่พูดถึง Skill พูดเรื่อง *อำนาจ* และคำว่า “proposal-only” อ่านแล้วชวนให้คิดว่า Skill ยังไม่ใช่ความรู้ที่ใช้ได้
+
+หลักฐานจากการขับจริง: session ที่มี Skill `thai-withholding-tax` อยู่ใน catalog แล้วผู้ใช้เปลี่ยนหัวข้อมาถามภาษีหัก ณ ที่จ่ายโดยตรง — model **ไม่เรียก tool ใดเลย** และตอบด้วยทศนิยมบนหน่วยสตางค์ แล้วย้อนถามผู้ใช้ว่าจะปัดเศษแบบไหน ซึ่งเป็นข้อที่ Skill ระบุคำตอบไว้แล้ว
+
+R-14 ข้อมูลจริงชุดแรก: `relevant=1 requested=0 rate=1.0` (`insufficient_evidence` เพราะ sample=1)
+
+นี่ตรงกับ failure mode ข้อ 2 ที่ ADR-7 เขียนทำนายไว้เอง มาตรการที่ ADR ระบุคือขยาย floor แต่หลักฐานชี้ว่าต้องแก้ prompt ก่อน เพราะ floor ปัจจุบันก็ไม่ทำงาน (`preselected: []` ทั้งสอง turn)
+
+#### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
+
+`Profile.OutputReserve` เป็นตัวเลขเดียว (4,096 ถึง 65,536) ที่สมมติโดยปริยายว่า completion token ทั้งหมดคือคำตอบ บน reasoning model ไม่จริง — และจากที่วัด reasoning ยาวไม่คงที่แม้ prompt เดิม (`grep -rn Reasoning internal/context/` ได้ศูนย์ผลลัพธ์)
+
+turn ที่จองไว้ 8,192 แล้วโดน reasoning กิน 6,000 จะเหลือ 2,192 ให้คำตอบจริงโดย compiler ไม่รู้ตัว O-8 คือกรณีเดียวกันที่เกิดใน probe; O-11 คือกรณีเดียวกันที่ยังเปิดอยู่ใน agent loop
+
 ### 4.3 Findings เดิมที่ยังคงสถานะ
 
 - **P1-2 deterministic replay ยังไม่วัด agent behavior** — replay ตรวจ required/forbidden terms และ tool hints เหมาะเป็น fast lint gate แต่ตอบไม่ได้ว่า Skill candidate ทำให้ model แก้ task ได้ดีขึ้นจริง ต้องคง deterministic gate ไว้แล้วเพิ่ม sandboxed behavioral runner เป็นชั้นถัดไป ไม่ใช่แทนที่
