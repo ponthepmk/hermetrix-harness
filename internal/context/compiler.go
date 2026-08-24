@@ -14,7 +14,12 @@ import (
 var (
 	ErrDirectToolsOverflow = errors.New("direct tool schemas exceed profile budget")
 	ErrPinnedOverflow      = errors.New("pinned context exceeds profile budget")
-	ErrContextOverflow     = errors.New("compiled context exceeds allocated window")
+	// ErrLedgerImbalance means the compiler cannot say where every token went.
+	// It fails the compile rather than shipping a report with a hole in it,
+	// because a budget nobody can reconcile is a declared budget, not a
+	// certified one.
+	ErrLedgerImbalance = errors.New("context token ledger does not balance")
+	ErrContextOverflow = errors.New("compiled context exceeds allocated window")
 )
 
 type Compiler struct {
@@ -53,16 +58,18 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 	if toolTokens > profile.DirectToolBudget {
 		return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrDirectToolsOverflow, toolTokens, profile.DirectToolBudget)
 	}
-	for _, fragment := range request.Fragments {
-		report.OriginalTokens += c.estimator.Count(fragment.Content)
-	}
+	report.OriginalTokens = tokens(c.estimator, request.Fragments)
 	fragments := deduplicate(request.Fragments)
+	afterDedup := tokens(c.estimator, fragments)
+	report.DeduplicatedTokens = report.OriginalTokens - afterDedup
+	report.DeduplicatedFragments = len(request.Fragments) - len(fragments)
 	fragments = propagatePairPins(fragments)
 	var err error
 	fragments, report.Spilled, err = c.spillLargeTools(ctx, fragments, profile.MaxInlineTool)
 	if err != nil {
 		return Compiled{}, err
 	}
+	report.SpilledTokens = afterDedup - tokens(c.estimator, fragments)
 	groups := map[string][]Fragment{"system": {}, "skills_project": {}, "pinned": {}, "active": {}}
 	for _, fragment := range fragments {
 		slice := sliceFor(fragment)
@@ -126,6 +133,9 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 	}
 	if report.OriginalTokens > 0 {
 		report.CompressionRatio = float64(report.SelectedTokens) / float64(report.OriginalTokens)
+	}
+	if err := report.reconcile(); err != nil {
+		return Compiled{}, err
 	}
 	report.Integrity, err = evaluateIntegrity(fragments, selected, checkpoint.Content)
 	if err != nil {
@@ -385,4 +395,32 @@ func tokens(estimator Estimator, fragments []Fragment) int {
 		total += estimator.Count(fragment.Content)
 	}
 	return total
+}
+
+// reconcile balances the token ledger and refuses to return a report that
+// cannot say where its input went. Every token that entered leaves exactly one
+// way: deduplicated, spilled to an artifact, selected, or dropped. The
+// checkpoint is derived text rather than input, so it is subtracted from the
+// selected total before the sum is compared.
+func (r *Report) reconcile() error {
+	r.UnaccountedTokens = r.OriginalTokens - r.DeduplicatedTokens - r.SpilledTokens -
+		(r.SelectedTokens - r.CompactedTokens) - r.DroppedTokens
+	if r.UnaccountedTokens != 0 {
+		return fmt.Errorf(
+			"%w: original=%d deduplicated=%d spilled=%d selected=%d compacted=%d dropped=%d unaccounted=%d",
+			ErrLedgerImbalance, r.OriginalTokens, r.DeduplicatedTokens, r.SpilledTokens,
+			r.SelectedTokens, r.CompactedTokens, r.DroppedTokens, r.UnaccountedTokens)
+	}
+	// A balanced total is not the same as an honest one. If counting drifts
+	// mid-compile the sum still closes, because the difference lands on whichever
+	// term has no independent witness. These two do have one.
+	if r.DeduplicatedFragments == 0 && r.DeduplicatedTokens != 0 {
+		return fmt.Errorf("%w: %d tokens attributed to deduplication but no fragment was removed",
+			ErrLedgerImbalance, r.DeduplicatedTokens)
+	}
+	if len(r.Spilled) == 0 && r.SpilledTokens != 0 {
+		return fmt.Errorf("%w: %d tokens attributed to spill but nothing was spilled",
+			ErrLedgerImbalance, r.SpilledTokens)
+	}
+	return nil
 }

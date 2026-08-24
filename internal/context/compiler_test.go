@@ -4,6 +4,7 @@ import (
 	stdcontext "context"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -194,4 +195,184 @@ func checkpointContent(result Compiled) string {
 		}
 	}
 	return ""
+}
+
+// TestEveryTokenIsAccountedForWhenSpillDropAndCompactionAllHappen pins the
+// ledger identity on a compile where all four disposals actually occur, so a
+// balance cannot be reached by every term being zero.
+//
+// The regression it guards: a live session reported 34,038 tokens in, 10,794
+// selected, 0 compacted and 0 dropped. Spill had taken the other 23,244, but
+// the report had no field for that, so the missing two thirds were invisible
+// and the compactor looked broken.
+func TestEveryTokenIsAccountedForWhenSpillDropAndCompactionAllHappen(t *testing.T) {
+	compiler := testCompiler(t)
+	now := time.Unix(300, 0).UTC()
+	duplicated := Fragment{ID: "dup", Kind: KindConversation, Priority: 40,
+		Content: strings.Repeat("บทสนทนาซ้ำที่ต้องถูกตัดออกก่อนนับ ", 40), CreatedAt: now}
+	fragments := []Fragment{
+		{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: "เป้าหมายที่ต้องคงไว้", CreatedAt: now},
+		{ID: "huge-tool", Kind: KindToolResult, PairID: "pair-1", Priority: 70,
+			Content: strings.Repeat("ผลลัพธ์เครื่องมือขนาดใหญ่มาก ", 1500), CreatedAt: now.Add(time.Second)},
+		duplicated, duplicated,
+	}
+	for i := 0; i < 60; i++ {
+		fragments = append(fragments, Fragment{ID: "hist-" + strconv.Itoa(i), Kind: KindConversation,
+			Priority: 30 + i%3, Content: "ลำดับ " + strconv.Itoa(i) + " " + strings.Repeat("ประวัติที่ยาวพอจะล้น active slice ", 100),
+			CreatedAt: now.Add(time.Duration(i+2) * time.Second)})
+	}
+	result, err := compiler.Compile(stdcontext.Background(), Request{Profile: Compact32K(), Fragments: fragments, WorstCaseToolBurst: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := result.Report
+	for name, value := range map[string]int{
+		"deduplicated": report.DeduplicatedTokens, "spilled": report.SpilledTokens,
+		"dropped": report.DroppedTokens, "compacted": report.CompactedTokens,
+	} {
+		if value <= 0 {
+			t.Fatalf("%s tokens = %d; the ledger would balance trivially without this term", name, value)
+		}
+	}
+	if report.UnaccountedTokens != 0 {
+		t.Fatalf("unaccounted = %d, want 0; report = %+v", report.UnaccountedTokens, report)
+	}
+	balance := report.DeduplicatedTokens + report.SpilledTokens +
+		(report.SelectedTokens - report.CompactedTokens) + report.DroppedTokens
+	if balance != report.OriginalTokens {
+		t.Fatalf("ledger terms sum to %d, original = %d", balance, report.OriginalTokens)
+	}
+}
+
+// TestLedgerRefusesAReportThatLosesTokens drives the failure side directly:
+// each case is a report where exactly one disposal went uncounted, which is how
+// this defect appeared in production -- spill moved tokens and no field
+// recorded it.
+func TestLedgerRefusesAReportThatLosesTokens(t *testing.T) {
+	cases := []struct {
+		name            string
+		report          Report
+		wantUnaccounted int
+	}{
+		{"spill went uncounted", Report{OriginalTokens: 34038, SelectedTokens: 10794}, 23244},
+		{"dedup went uncounted", Report{OriginalTokens: 1000, SpilledTokens: 400, SelectedTokens: 500}, 100},
+		{"drop went uncounted", Report{OriginalTokens: 800, SelectedTokens: 300}, 500},
+		{"checkpoint counted as input", Report{OriginalTokens: 500, SelectedTokens: 600, CompactedTokens: 0, DroppedTokens: 0}, -100},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			report := testCase.report
+			err := report.reconcile()
+			if err == nil {
+				t.Fatalf("reconcile accepted a report missing %d tokens", testCase.wantUnaccounted)
+			}
+			if !errors.Is(err, ErrLedgerImbalance) {
+				t.Fatalf("error = %v, want ErrLedgerImbalance", err)
+			}
+			if report.UnaccountedTokens != testCase.wantUnaccounted {
+				t.Fatalf("unaccounted = %d, want %d", report.UnaccountedTokens, testCase.wantUnaccounted)
+			}
+			if !strings.Contains(err.Error(), "unaccounted=") {
+				t.Fatalf("error does not report the size of the hole: %v", err)
+			}
+		})
+	}
+}
+
+// TestLedgerAcceptsABalancedReport keeps the check from being a blanket reject.
+func TestLedgerAcceptsABalancedReport(t *testing.T) {
+	report := Report{OriginalTokens: 34038, DeduplicatedTokens: 1000, DeduplicatedFragments: 2,
+		SpilledTokens: 22244, Spilled: []SpillReceipt{{Ref: "a"}},
+		SelectedTokens: 11294, CompactedTokens: 500, DroppedTokens: 0}
+	if err := report.reconcile(); err != nil {
+		t.Fatalf("balanced report rejected: %v", err)
+	}
+	if report.UnaccountedTokens != 0 {
+		t.Fatalf("unaccounted = %d, want 0", report.UnaccountedTokens)
+	}
+}
+
+// driftingEstimator recalibrates in the middle of a compile. AdaptiveEstimator
+// really can do this -- Observe changes the multiplier, and a concurrent turn
+// reporting its usage is enough to move it -- so the ledger would silently
+// stop balancing rather than the compiler noticing.
+type driftingEstimator struct {
+	inner  Estimator
+	calls  int
+	driftA int
+}
+
+func (e *driftingEstimator) Count(text string) int {
+	e.calls++
+	count := e.inner.Count(text)
+	if e.calls > e.driftA {
+		return count / 2
+	}
+	return count
+}
+
+// TestCompileRefusesToReturnAReportItCannotReconcile drives the gate inside
+// Compile, not the arithmetic beside it: when a mid-compile change makes the
+// input and output totals disagree, the compile must fail rather than hand back
+// a report with a hole in it.
+func TestCompileRefusesToReturnAReportItCannotReconcile(t *testing.T) {
+	store, err := blob.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(500, 0).UTC()
+	fragments := []Fragment{
+		{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: "เป้าหมายที่ต้องคงไว้", CreatedAt: now},
+	}
+	for i := 0; i < 30; i++ {
+		fragments = append(fragments, Fragment{ID: "hist-" + strconv.Itoa(i), Kind: KindConversation,
+			Priority: 40, Content: "ลำดับ " + strconv.Itoa(i) + " " + strings.Repeat("ประวัติบทสนทนา ", 60),
+			CreatedAt: now.Add(time.Duration(i) * time.Second)})
+	}
+	steady := NewCompiler(NewAdaptiveEstimator(), NewBlobSpiller(store), StructuredCompactor{})
+	if _, err := steady.Compile(stdcontext.Background(), Request{Profile: Compact32K(), Fragments: fragments}); err != nil {
+		t.Fatalf("baseline compile should succeed: %v", err)
+	}
+	drifting := NewCompiler(&driftingEstimator{inner: NewAdaptiveEstimator(), driftA: len(fragments)},
+		NewBlobSpiller(store), StructuredCompactor{})
+	_, err = drifting.Compile(stdcontext.Background(), Request{Profile: Compact32K(), Fragments: fragments})
+	if err == nil {
+		t.Fatalf("compile returned a report whose tokens do not add up")
+	}
+	if !errors.Is(err, ErrLedgerImbalance) {
+		t.Fatalf("error = %v, want ErrLedgerImbalance", err)
+	}
+}
+
+// TestLedgerRejectsABalancedTotalWithNoWitness covers the case the sum alone
+// cannot catch: the arithmetic closes, but a term claims work that leaves no
+// trace anywhere else in the report.
+func TestLedgerRejectsABalancedTotalWithNoWitness(t *testing.T) {
+	cases := []struct {
+		name   string
+		report Report
+		want   string
+	}{
+		{"spill claimed with no receipt",
+			Report{OriginalTokens: 1000, SpilledTokens: 400, SelectedTokens: 600},
+			"attributed to spill"},
+		{"dedup claimed with no fragment removed",
+			Report{OriginalTokens: 1000, DeduplicatedTokens: 400, SelectedTokens: 600},
+			"attributed to deduplication"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			report := testCase.report
+			err := report.reconcile()
+			if report.UnaccountedTokens != 0 {
+				t.Fatalf("precondition: the total should balance, unaccounted = %d", report.UnaccountedTokens)
+			}
+			if err == nil {
+				t.Fatal("reconcile accepted a term with no witness")
+			}
+			if !errors.Is(err, ErrLedgerImbalance) || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("error = %v, want ErrLedgerImbalance mentioning %q", err, testCase.want)
+			}
+		})
+	}
 }

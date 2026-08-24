@@ -80,24 +80,44 @@ type SpillReceipt struct {
 }
 
 type Report struct {
-	Profile            string                `json:"profile"`
-	TotalContext       int                   `json:"total_context"`
-	OutputReserve      int                   `json:"output_reserve"`
-	UncertaintyReserve int                   `json:"uncertainty_reserve"`
-	WorstCaseToolBurst int                   `json:"worst_case_tool_burst"`
-	PredictedInput     int                   `json:"predicted_input"`
-	Free               int                   `json:"free"`
-	OriginalTokens     int                   `json:"original_tokens"`
-	SelectedTokens     int                   `json:"selected_tokens"`
-	CompactedTokens    int                   `json:"compacted_tokens"`
-	DroppedTokens      int                   `json:"dropped_tokens"`
-	CompressionRatio   float64               `json:"compression_ratio"`
-	SelectedIDs        []string              `json:"selected_ids"`
-	DroppedIDs         []string              `json:"dropped_ids"`
-	Spilled            []SpillReceipt        `json:"spilled"`
-	Slices             map[string]SliceUsage `json:"slices"`
-	Warnings           []string              `json:"warnings"`
-	Integrity          IntegrityReport       `json:"integrity"`
+	Profile            string `json:"profile"`
+	TotalContext       int    `json:"total_context"`
+	OutputReserve      int    `json:"output_reserve"`
+	UncertaintyReserve int    `json:"uncertainty_reserve"`
+	WorstCaseToolBurst int    `json:"worst_case_tool_burst"`
+	PredictedInput     int    `json:"predicted_input"`
+	Free               int    `json:"free"`
+	OriginalTokens     int    `json:"original_tokens"`
+	SelectedTokens     int    `json:"selected_tokens"`
+	CompactedTokens    int    `json:"compacted_tokens"`
+	DroppedTokens      int    `json:"dropped_tokens"`
+	DeduplicatedTokens int    `json:"deduplicated_tokens"`
+	// DeduplicatedFragments is the count behind DeduplicatedTokens. The two must
+	// agree about whether anything happened: a token total is easy to balance by
+	// attributing a discrepancy to whichever term nobody counts separately, and
+	// dedup was that term. The same reasoning pairs SpilledTokens with Spilled.
+	DeduplicatedFragments int `json:"deduplicated_fragments"`
+	SpilledTokens         int `json:"spilled_tokens"`
+	// UnaccountedTokens closes the ledger. Every token that entered the compiler
+	// left it in exactly one way: deduplicated, spilled to an artifact, selected,
+	// or dropped. This field is that identity written down, and it must be zero.
+	//
+	// It was not written down before, and the report was unreadable because of
+	// it: a live session showed 34,038 tokens in, 10,794 selected, 0 compacted
+	// and 0 dropped, with 23,244 simply missing. Spill had absorbed them, but
+	// nothing in the report said so in tokens, so "compaction never fires" looked
+	// like a compactor bug for as long as it took to read the arithmetic.
+	//
+	// A context compiler whose whole claim is a certified budget cannot lose
+	// two thirds of its input off the books.
+	UnaccountedTokens int                   `json:"unaccounted_tokens"`
+	CompressionRatio  float64               `json:"compression_ratio"`
+	SelectedIDs       []string              `json:"selected_ids"`
+	DroppedIDs        []string              `json:"dropped_ids"`
+	Spilled           []SpillReceipt        `json:"spilled"`
+	Slices            map[string]SliceUsage `json:"slices"`
+	Warnings          []string              `json:"warnings"`
+	Integrity         IntegrityReport       `json:"integrity"`
 }
 
 type IntegrityReport struct {
