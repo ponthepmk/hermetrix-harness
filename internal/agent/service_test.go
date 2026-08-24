@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2004,5 +2005,201 @@ func TestATerseSkillOutranksAWordyOneOnALongGoal(t *testing.T) {
 	}
 	if selected[0].SkillID != "terse" {
 		t.Fatalf("ranked %s first; a wordy summary won on length", selected[0].SkillID)
+	}
+}
+
+// TestTokenAccuracyReportsTheSpreadNotTheAverage pins the shape of the Phase 9
+// token-error-band gate. An estimator can average to nothing while missing
+// badly in both directions, which is exactly what the first real measurement
+// looked like: one step 26% over, the next 28% under.
+func TestTokenAccuracyReportsTheSpreadNotTheAverage(t *testing.T) {
+	// Symmetric misses: the mean signed error is ~0 and the band is blown.
+	signed := make([]float64, 0, 40)
+	for i := 0; i < 20; i++ {
+		signed = append(signed, 0.28, -0.26)
+	}
+	stats := summariseTokenAccuracy("p1", "qwen-test", signed, 0)
+	if stats.MeanSignedError > 0.02 {
+		t.Fatalf("precondition: the bias should nearly cancel, got %v", stats.MeanSignedError)
+	}
+	if stats.P95AbsError <= TokenAccuracyBand {
+		t.Fatalf("p95 = %v; a symmetric miss must not read as accuracy", stats.P95AbsError)
+	}
+	if stats.Verdict != "out_of_band" {
+		t.Fatalf("verdict = %q, want out_of_band", stats.Verdict)
+	}
+	if stats.WithinBandRate != 0 {
+		t.Fatalf("within_band_rate = %v, want 0", stats.WithinBandRate)
+	}
+}
+
+// TestTokenAccuracyWithholdsAVerdictOnThinEvidence keeps a p95 over a handful of
+// samples from being read as a passing gate. The live data had two usable
+// pairs; a p95 of two numbers is arithmetic, not evidence.
+// TestATightMedianDoesNotHideABadTail is the realistic failure: the estimator
+// is close on ordinary turns and badly wrong on a few, and those few are the
+// ones that overflow a window. A gate reported at the median would pass.
+func TestATightMedianDoesNotHideABadTail(t *testing.T) {
+	signed := make([]float64, 0, 40)
+	for i := 0; i < 36; i++ {
+		signed = append(signed, 0.02)
+	}
+	for i := 0; i < 4; i++ {
+		signed = append(signed, 0.90)
+	}
+	stats := summariseTokenAccuracy("p1", "m", signed, 0)
+	if stats.MedianAbsError > TokenAccuracyBand {
+		t.Fatalf("precondition: the median should sit inside the band, got %v", stats.MedianAbsError)
+	}
+	if stats.P95AbsError <= TokenAccuracyBand {
+		t.Fatalf("p95 = %v; the tail was averaged away", stats.P95AbsError)
+	}
+	if stats.Verdict != "out_of_band" {
+		t.Fatalf("verdict = %q, want out_of_band", stats.Verdict)
+	}
+}
+
+func TestTokenAccuracyWithholdsAVerdictOnThinEvidence(t *testing.T) {
+	stats := summariseTokenAccuracy("p1", "qwen-test", []float64{0.01, -0.01}, 0)
+	if stats.Verdict != "insufficient_evidence" {
+		t.Fatalf("verdict = %q on %d samples, want insufficient_evidence", stats.Verdict, stats.Samples)
+	}
+	if stats.P95AbsError == 0 {
+		t.Fatal("the number should still be reported, only the verdict withheld")
+	}
+	good := make([]float64, TokenAccuracyMinimumSamples)
+	for i := range good {
+		good[i] = 0.02
+	}
+	if verdict := summariseTokenAccuracy("p1", "qwen-test", good, 0).Verdict; verdict != "within_band" {
+		t.Fatalf("verdict = %q at the sample floor, want within_band", verdict)
+	}
+}
+
+// TestOneOverflowFailsTheGate covers the half of the gate that is not an
+// average: a request the provider billed above the profile's own window means
+// the budget was never certified, however tight the error band looks.
+func TestOneOverflowFailsTheGate(t *testing.T) {
+	tight := make([]float64, TokenAccuracyMinimumSamples)
+	for i := range tight {
+		tight[i] = 0.01
+	}
+	if verdict := summariseTokenAccuracy("p1", "m", tight, 0).Verdict; verdict != "within_band" {
+		t.Fatalf("precondition: verdict = %q, want within_band", verdict)
+	}
+	stats := summariseTokenAccuracy("p1", "m", tight, 1)
+	if stats.Verdict != "out_of_band" {
+		t.Fatalf("verdict = %q with one overflow, want out_of_band", stats.Verdict)
+	}
+	if stats.P95AbsError > TokenAccuracyBand {
+		t.Fatalf("precondition: the band itself should still be tight, got %v", stats.P95AbsError)
+	}
+}
+
+func TestQuantileTakesTheNearestRank(t *testing.T) {
+	sorted := []float64{0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 1.00}
+	if got := quantile(sorted, 0.95); got != 1.00 {
+		t.Fatalf("p95 = %v, want the outlier at 1.00; a p95 that drops the tail hides the failure", got)
+	}
+	if got := quantile(sorted, 0.50); got != 0.05 {
+		t.Fatalf("p50 = %v, want 0.05", got)
+	}
+	if got := quantile(nil, 0.95); got != 0 {
+		t.Fatalf("empty quantile = %v, want 0", got)
+	}
+}
+
+// TestEachModelStepRecordsItsOwnPredictionAndUsage covers why the token error
+// band could not be measured at all. A turn sends its context once per model
+// step, and the only usage written anywhere was the whole turn's total stored
+// against the last step's snapshot. Those are different quantities: comparing
+// them made a two-step turn look like a 100% prediction error, and of ninety
+// live snapshots exactly two could be compared honestly.
+func TestEachModelStepRecordsItsOwnPredictionAndUsage(t *testing.T) {
+	requestNumber := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber++
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requestNumber == 1 {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-list\",\"type\":\"function\","+
+				"\"function\":{\"name\":\"workspace.list_files\",\"arguments\":\"{\\\"path\\\":\\\".\\\"}\"}}]},"+
+				"\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":5,\"total_tokens\":105}}\n\ndata: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],"+
+			"\"usage\":{\"prompt_tokens\":250,\"completion_tokens\":4,\"total_tokens\":254}}\n\ndata: [DONE]\n\n")
+	}))
+	service, profile, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "steps", ProviderID: profile.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "list the workspace"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := service.store.DB.QueryContext(ctx,
+		`SELECT step_number, predicted_input, actual_input FROM token_observations
+		 WHERE session_id=? ORDER BY step_number`, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	type observation struct{ step, predicted, actual int }
+	var observed []observation
+	for rows.Next() {
+		var item observation
+		if err := rows.Scan(&item.step, &item.predicted, &item.actual); err != nil {
+			t.Fatal(err)
+		}
+		observed = append(observed, item)
+	}
+	if len(observed) != 2 {
+		t.Fatalf("observations = %+v, want one per model step", observed)
+	}
+	if observed[0].actual != 100 || observed[1].actual != 250 {
+		t.Fatalf("usage was not recorded per step: %+v", observed)
+	}
+	for _, item := range observed {
+		if item.actual == 350 {
+			t.Fatalf("step %d recorded the turn total instead of its own request: %+v", item.step, observed)
+		}
+		if item.predicted <= 0 {
+			t.Fatalf("step %d recorded no prediction: %+v", item.step, observed)
+		}
+	}
+	// Each step must be pinned to its own compile. Note that the predictions do
+	// not simply grow with history: Observe recalibrates the shared estimator
+	// between steps, so a later, larger context can score lower than an earlier
+	// one. That is why the snapshot identity, not the size, is the check.
+	var snapshots []string
+	snapshotRows, err := service.store.DB.QueryContext(ctx,
+		`SELECT context_snapshot_id FROM token_observations WHERE session_id=? ORDER BY step_number`, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshotRows.Close()
+	for snapshotRows.Next() {
+		var id string
+		if err := snapshotRows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		snapshots = append(snapshots, id)
+	}
+	if len(snapshots) != 2 || snapshots[0] == snapshots[1] || snapshots[0] == "" {
+		t.Fatalf("steps did not record distinct compiles: %v", snapshots)
+	}
+	stats, err := service.TokenAccuracyMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 || stats[0].Samples != 2 {
+		t.Fatalf("metrics = %+v, want one model with two samples", stats)
+	}
+	if stats[0].Verdict != "insufficient_evidence" {
+		t.Fatalf("verdict = %q on two samples, want insufficient_evidence", stats[0].Verdict)
 	}
 }

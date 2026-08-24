@@ -154,6 +154,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v17: %w", err)
 		}
 	}
+	if version < 18 {
+		if _, err := tx.ExecContext(ctx, schemaV18); err != nil {
+			return fmt.Errorf("apply schema v18: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -166,7 +171,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 17
+const CurrentSchemaVersion = 18
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -950,4 +955,34 @@ CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_run ON agent_team_tasks(run_id, 
 const schemaV17 = `
 ALTER TABLE provider_profiles ADD COLUMN reasoning_ratio REAL NOT NULL DEFAULT 0;
 ALTER TABLE provider_profiles ADD COLUMN reasoning_sample INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV18 keeps every token prediction beside what the provider actually
+// billed for the same request.
+//
+// The Phase 9 exit gate asks whether predicted input sits within ±10% of
+// reported usage at p95. That could not be answered at all: Observe() folded
+// each pair into an in-memory average and discarded it, and the only usage
+// written anywhere was the whole turn's total against the last step's
+// snapshot -- two different quantities, so of ninety snapshots exactly two
+// were usable. A gate whose evidence is thrown away the moment it is produced
+// is not a gate.
+//
+// One row per model step, so the volume is the volume of work already done.
+const schemaV18 = `
+CREATE TABLE IF NOT EXISTS token_observations (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  step_number INTEGER NOT NULL,
+  provider_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  profile_name TEXT NOT NULL,
+  context_snapshot_id TEXT NOT NULL,
+  predicted_input INTEGER NOT NULL,
+  actual_input INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(session_id, turn_id, step_number)
+);
+CREATE INDEX IF NOT EXISTS idx_token_observations_model ON token_observations(provider_id, model, created_at);
 `

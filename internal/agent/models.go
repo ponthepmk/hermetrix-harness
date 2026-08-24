@@ -218,3 +218,38 @@ type SkillRetrievalStats struct {
 // SkillRetrievalMinimumTurns is the sample below which the rate is reported but
 // carries no verdict. A single unlucky turn must not condemn a model tier.
 const SkillRetrievalMinimumTurns = 20
+
+// TokenAccuracyStats answers the Phase 9 token-error-band gate: predicted input
+// within ±10% of provider-reported usage at p95, with no overflow.
+//
+// It is computed per model because the quantity being measured is a tokenizer.
+// One number averaged across models describes none of them.
+type TokenAccuracyStats struct {
+	ProviderID string `json:"provider_id"`
+	Model      string `json:"model"`
+	// Samples counts model steps, not turns. A turn sends its context once per
+	// step and the turn total is the sum of those sends, so a step is the only
+	// unit where a prediction and a billed amount describe the same request.
+	Samples int `json:"samples"`
+	// MedianAbsError and P95AbsError are fractions: 0.10 is ten percent.
+	MedianAbsError float64 `json:"median_abs_error"`
+	P95AbsError    float64 `json:"p95_abs_error"`
+	// MeanSignedError separates a biased estimator from a noisy one. A bias can
+	// be calibrated away; noise cannot, and only the second one means the
+	// heuristic is wrong about the text rather than about the scale.
+	MeanSignedError float64 `json:"mean_signed_error"`
+	WithinBandRate  float64 `json:"within_band_rate"`
+	// Overflows counts requests the provider billed above the profile's own
+	// total window. The gate treats a single one as failure: a certified budget
+	// that was exceeded was never certified.
+	Overflows int    `json:"overflows"`
+	Verdict   string `json:"verdict"`
+}
+
+const (
+	// TokenAccuracyBand is the gate's ±10%.
+	TokenAccuracyBand = 0.10
+	// TokenAccuracyMinimumSamples is the sample below which a p95 is arithmetic
+	// rather than evidence. Reported either way, but the verdict withholds.
+	TokenAccuracyMinimumSamples = 30
+)

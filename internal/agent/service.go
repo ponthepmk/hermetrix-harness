@@ -534,6 +534,16 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		}
 		if completion.Usage.PromptTokens > 0 {
 			s.estimator.Observe(compiled.Report.PredictedInput, completion.Usage.PromptTokens)
+			// Keep the pair, not just its effect on the average. The Phase 9 gate
+			// asks whether prediction sits within ±10% of reported usage at p95,
+			// and Observe answers by folding the pair into an EWMA and forgetting
+			// it. The only usage written anywhere else is the whole turn's total
+			// stored against the last step's snapshot, which is a different
+			// quantity: of ninety snapshots exactly two could be compared.
+			if err := s.recordTokenObservation(ctx, session, provider, profile, binding,
+				stepNumber, compiled.Report.PredictedInput, completion.Usage.PromptTokens); err != nil {
+				return TurnResult{}, err
+			}
 		}
 		// O-11: OutputReserve is one number that implicitly assumed every
 		// completion token was answer. On a reasoning model it is not, and the
@@ -2008,3 +2018,120 @@ func answerBudget(outputReserve int, reasoningRatio float64) int {
 	}
 	return int(float64(outputReserve) * (1 - reasoningRatio))
 }
+
+// recordTokenObservation writes one prediction beside the usage the provider
+// billed for the same request. It is keyed by step, because a turn sends its
+// context once per model step and the turn total is the sum of those sends --
+// comparing that total against any single step's prediction measures nothing.
+func (s *Service) recordTokenObservation(ctx context.Context, session Session, provider providers.Profile,
+	profile ctxcompiler.Profile, binding StepBinding, stepNumber, predicted, actual int) error {
+	_, err := s.store.DB.ExecContext(ctx, `INSERT INTO token_observations(id,session_id,turn_id,step_number,
+      provider_id,model,profile_name,context_snapshot_id,predicted_input,actual_input,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(session_id,turn_id,step_number) DO UPDATE SET
+      predicted_input=excluded.predicted_input, actual_input=excluded.actual_input, created_at=excluded.created_at`,
+		identity.New("tokobs"), session.ID, binding.TurnID, stepNumber, provider.ID, provider.Model,
+		profile.Name, binding.ContextSnapshotID, predicted, actual, formatTime(time.Now().UTC()))
+	if err != nil {
+		return fmt.Errorf("record token observation: %w", err)
+	}
+	return nil
+}
+
+// TokenAccuracyMetrics reads the recorded pairs and reports the error band per
+// model. It reads only committed observations, so it describes work that
+// actually happened rather than a replay of the estimator.
+func (s *Service) TokenAccuracyMetrics(ctx context.Context) ([]TokenAccuracyStats, error) {
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT provider_id, model, profile_name,
+      predicted_input, actual_input FROM token_observations ORDER BY provider_id, model, created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type bucket struct {
+		signed    []float64
+		overflows int
+	}
+	buckets := map[[2]string]*bucket{}
+	var order [][2]string
+	for rows.Next() {
+		var providerID, model, profileName string
+		var predicted, actual int
+		if err := rows.Scan(&providerID, &model, &profileName, &predicted, &actual); err != nil {
+			return nil, err
+		}
+		if predicted <= 0 || actual <= 0 {
+			continue
+		}
+		key := [2]string{providerID, model}
+		item, seen := buckets[key]
+		if !seen {
+			item = &bucket{}
+			buckets[key] = item
+			order = append(order, key)
+		}
+		item.signed = append(item.signed, float64(actual-predicted)/float64(predicted))
+		if profile, ok := ctxcompiler.ProfileByName(profileName); ok && actual > profile.Total {
+			item.overflows++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]TokenAccuracyStats, 0, len(order))
+	for _, key := range order {
+		out = append(out, summariseTokenAccuracy(key[0], key[1], buckets[key].signed, buckets[key].overflows))
+	}
+	return out, nil
+}
+
+func summariseTokenAccuracy(providerID, model string, signed []float64, overflows int) TokenAccuracyStats {
+	stats := TokenAccuracyStats{ProviderID: providerID, Model: model, Samples: len(signed),
+		Overflows: overflows, Verdict: "insufficient_evidence"}
+	if len(signed) == 0 {
+		return stats
+	}
+	absolute := make([]float64, len(signed))
+	total := 0.0
+	for index, value := range signed {
+		absolute[index] = math.Abs(value)
+		total += value
+	}
+	sort.Float64s(absolute)
+	stats.MeanSignedError = round3(total / float64(len(signed)))
+	stats.MedianAbsError = round3(quantile(absolute, 0.50))
+	stats.P95AbsError = round3(quantile(absolute, 0.95))
+	within := 0
+	for _, value := range absolute {
+		if value <= TokenAccuracyBand {
+			within++
+		}
+	}
+	stats.WithinBandRate = round3(float64(within) / float64(len(signed)))
+	if len(signed) >= TokenAccuracyMinimumSamples {
+		stats.Verdict = "within_band"
+		// One overflow fails the gate on its own: a budget that was exceeded was
+		// never a budget, however good the average looks.
+		if stats.P95AbsError > TokenAccuracyBand || overflows > 0 {
+			stats.Verdict = "out_of_band"
+		}
+	}
+	return stats
+}
+
+// quantile takes the nearest-rank value of an already sorted slice.
+func quantile(sorted []float64, fraction float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	index := int(math.Ceil(fraction*float64(len(sorted)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(sorted) {
+		index = len(sorted) - 1
+	}
+	return sorted[index]
+}
+
+func round3(value float64) float64 { return math.Round(value*1000) / 1000 }

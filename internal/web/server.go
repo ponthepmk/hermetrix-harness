@@ -174,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/memories/{id}/archive", s.archiveMemory)
 	mux.HandleFunc("GET /api/usage", s.usageSummary)
 	mux.HandleFunc("GET /api/skill-retrieval", s.skillRetrievalMetrics)
+	mux.HandleFunc("GET /api/token-accuracy", s.tokenAccuracyMetrics)
 	mux.HandleFunc("GET /api/backups", s.listBackups)
 	mux.HandleFunc("POST /api/backups", s.exportBackup)
 	mux.HandleFunc("GET /api/backups/{id}/download", s.downloadBackup)
@@ -1155,4 +1156,18 @@ func requestLog(logger *slog.Logger, next http.Handler) http.Handler {
 		logger.Debug("http request", "method", r.Method, "path", r.URL.Path)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) tokenAccuracyMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service is unavailable"})
+		return
+	}
+	items, err := s.agent.TokenAccuracyMetrics(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"band": agent.TokenAccuracyBand,
+		"minimum_samples": agent.TokenAccuracyMinimumSamples, "models": items})
 }
