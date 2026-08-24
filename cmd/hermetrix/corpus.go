@@ -34,17 +34,28 @@ func runCorpus(args []string) error {
 	}
 }
 
-// corpusExport writes every committed review out as an unlabelled case.
+// corpusExport writes committed reviews out as unlabelled cases.
 //
-// Exporting a case without a label is deliberate: the label is the judgement
-// this corpus exists to capture, and pre-filling it from what the reviewer
-// already decided would make the gate measure the reviewer against itself.
+// Exporting without a label is deliberate: the label is the judgement this
+// corpus exists to capture, and pre-filling it from what the reviewer already
+// decided would make the gate measure the reviewer against itself.
+//
+// Selection groups by trigger family and then by evidence shape, and draws
+// round-robin across a family's shapes. A hundred and eighty-two milestone
+// digests collapsed to twelve shapes with one holding a hundred and seven:
+// taken whole that would put most of the corpus on a single easy negative and
+// make the false-proposal ceiling trivially satisfiable. Capping the shape
+// instead starves a family whose cases are all one shape -- repeated_correction
+// has two, and a per-shape cap of five left it with six cases against a target
+// of twenty-five. Round-robin covers the variety a family actually has and caps
+// the family, which is the thing worth capping.
 func corpusExport(args []string) error {
 	flags := flag.NewFlagSet("corpus export", flag.ExitOnError)
 	dataRoot := flags.String("data", ".hermetrix", "local data directory")
 	out := flags.String("out", "corpus/digests", "directory to write case files into")
 	labeller := flags.String("labeller", "", "name recorded on cases you are about to label")
-	maxPerShape := flags.Int("max-per-shape", 0, "keep at most this many cases per digest shape (0 keeps all)")
+	perFamily := flags.Int("per-family", 0,
+		"keep at most this many cases per trigger family, drawn round-robin across that family's shapes (0 keeps all)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -63,58 +74,85 @@ func corpusExport(args []string) error {
 		return err
 	}
 	defer rows.Close()
-	written, skipped, sampled := 0, 0, 0
-	coverage := map[string]int{}
-	// A hundred and sixty-two milestone digests collapsed to twelve distinct
-	// shapes, one of which accounted for a hundred and seven. That is one case
-	// repeated, not a hundred and seven cases, and letting it stand would put
-	// two thirds of the corpus on a single easy negative and make the
-	// false-proposal rate trivially satisfiable. Keeping every shape and capping
-	// how many of each covers the space instead of the volume.
-	perShape := map[string]int{}
+	type pending struct {
+		id     string
+		digest learning.Digest
+	}
+	byShape := map[string]map[string][]pending{}
+	shapeOrder := map[string][]string{}
+	families := []string{}
+	skipped := 0
 	for rows.Next() {
-		var id, trigger, digestJSON string
-		if err := rows.Scan(&id, &trigger, &digestJSON); err != nil {
+		var id, family, digestJSON string
+		if err := rows.Scan(&id, &family, &digestJSON); err != nil {
 			return err
 		}
 		var digest learning.Digest
 		if err := json.Unmarshal([]byte(digestJSON), &digest); err != nil {
 			return fmt.Errorf("review %s: %w", id, err)
 		}
-		if *maxPerShape > 0 {
-			shape := trigger + "|" + digestShape(digest)
-			if perShape[shape] >= *maxPerShape {
-				sampled++
-				continue
-			}
-			perShape[shape]++
-		}
-		path := filepath.Join(*out, id+".json")
-		if _, err := os.Stat(path); err == nil {
+		if _, err := os.Stat(filepath.Join(*out, id+".json")); err == nil {
 			// Never overwrite: a case on disk may already carry a label.
 			skipped++
 			continue
 		}
-		item := learning.CorpusCase{ID: id, TriggerKind: trigger, Provenance: "driven",
-			SourceReviewID: id, Digest: digest,
-			Label: learning.Label{Rationale: "TODO", LabeledBy: *labeller,
-				LabeledAt: time.Now().UTC().Format("2006-01-02")}}
-		raw, err := json.MarshalIndent(item, "", "  ")
-		if err != nil {
-			return err
+		if byShape[family] == nil {
+			byShape[family] = map[string][]pending{}
+			families = append(families, family)
 		}
-		if err := os.WriteFile(path, append(raw, '\n'), 0o600); err != nil {
-			return err
+		shape := digestShape(digest)
+		if _, seen := byShape[family][shape]; !seen {
+			shapeOrder[family] = append(shapeOrder[family], shape)
 		}
-		coverage[trigger]++
-		written++
+		byShape[family][shape] = append(byShape[family][shape], pending{id: id, digest: digest})
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	sort.Strings(families)
+	written, setAside := 0, 0
+	coverage := map[string]int{}
+	for _, family := range families {
+		available := 0
+		for _, bucket := range byShape[family] {
+			available += len(bucket)
+		}
+		taken := 0
+		for cursor := 0; ; cursor++ {
+			progressed := false
+			for _, shape := range shapeOrder[family] {
+				if *perFamily > 0 && taken >= *perFamily {
+					break
+				}
+				bucket := byShape[family][shape]
+				if cursor >= len(bucket) {
+					continue
+				}
+				progressed = true
+				item := bucket[cursor]
+				raw, err := json.MarshalIndent(learning.CorpusCase{ID: item.id, TriggerKind: family,
+					Provenance: "driven", SourceReviewID: item.id, Digest: item.digest,
+					Label: learning.Label{Rationale: "TODO", LabeledBy: *labeller,
+						LabeledAt: time.Now().UTC().Format("2006-01-02")}}, "", "  ")
+				if err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(*out, item.id+".json"), append(raw, '\n'), 0o600); err != nil {
+					return err
+				}
+				coverage[family]++
+				written++
+				taken++
+			}
+			if !progressed || (*perFamily > 0 && taken >= *perFamily) {
+				break
+			}
+		}
+		setAside += available - taken
+	}
 	fmt.Printf("wrote %d cases, skipped %d already on disk", written, skipped)
-	if sampled > 0 {
-		fmt.Printf(", set aside %d beyond %d per shape", sampled, *maxPerShape)
+	if setAside > 0 {
+		fmt.Printf(", set aside %d beyond %d per family", setAside, *perFamily)
 	}
 	fmt.Println()
 	fmt.Println("family coverage of what was exported:")
