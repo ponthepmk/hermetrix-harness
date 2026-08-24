@@ -276,7 +276,8 @@ func (s *Service) ApplyImport(ctx context.Context, previewID, actor string) (Imp
 		return ImportResult{}, err
 	}
 	run.State, run.Counts, run.CompletedAt = "imported", counts, &completed
-	return ImportResult{BackupRun: run, CandidateIDs: candidateIDs, Conflicts: conflicts}, nil
+	return ImportResult{BackupRun: run, CandidateIDs: candidateIDs, Conflicts: conflicts,
+		NotRestored: tablesNotRestored(envelope.Payload.Tables)}, nil
 }
 
 func validateBackupEnvelope(data []byte) (backupEnvelope, error) {
@@ -428,4 +429,24 @@ func scanBackup(row backupScanner) (BackupRun, error) {
 		item.CompletedAt = &value
 	}
 	return item, nil
+}
+
+// restoredTables are the only tables ApplyImport reads. Everything else the
+// export wrote is carried in the file and ignored.
+var restoredTables = map[string]bool{"skills": true, "skill_versions": true}
+
+// tablesNotRestored reports what the file held that the import did not use, so
+// the caller can see the gap instead of inferring it from missing data later.
+func tablesNotRestored(tables map[string][]map[string]any) map[string]int {
+	out := map[string]int{}
+	for name, rows := range tables {
+		if restoredTables[name] || len(rows) == 0 {
+			continue
+		}
+		out[name] = len(rows)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

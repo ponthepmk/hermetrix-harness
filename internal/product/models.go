@@ -157,4 +157,13 @@ type ImportResult struct {
 	BackupRun
 	CandidateIDs []string `json:"candidate_ids"`
 	Conflicts    int      `json:"conflicts"`
+	// NotRestored names the tables the file carried that this import did not
+	// read, with the row count each held. Export writes the whole database;
+	// import reads Skills and turns them into candidates. Those are not
+	// inverses, and a result that says only "imported" reads like they are.
+	//
+	// A user restoring what they were told is a backup should not have to
+	// discover from an empty session list that their conversations were in the
+	// file and were dropped on the floor.
+	NotRestored map[string]int `json:"not_restored,omitempty"`
 }

@@ -236,3 +236,35 @@ func waitForJob(t *testing.T, service *Service, id string) Job {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestImportReportsTheTablesItDidNotRestore covers the gap between what export
+// writes and what import reads. Export serialises the whole database -- every
+// session, event, provider profile and snapshot. Import reads Skills and turns
+// them into candidates. A live restore into an empty instance produced three
+// candidates and nothing else from a file carrying 210 events and 4 sessions,
+// while reporting state "imported" and zero conflicts.
+//
+// The asymmetry is a design question. Reporting it is not: a result that says
+// only "imported" reads as a restore that worked.
+func TestImportReportsTheTablesItDidNotRestore(t *testing.T) {
+	tables := map[string][]map[string]any{
+		"skills":         {{"canonical_name": "a"}},
+		"skill_versions": {{"id": "v1"}},
+		"agent_events":   {{"id": "e1"}, {"id": "e2"}},
+		"agent_sessions": {{"id": "s1"}},
+		"artifacts":      {},
+	}
+	notRestored := tablesNotRestored(tables)
+	if notRestored["skills"] != 0 || notRestored["skill_versions"] != 0 {
+		t.Fatalf("tables the import does read were reported as dropped: %v", notRestored)
+	}
+	if notRestored["agent_events"] != 2 || notRestored["agent_sessions"] != 1 {
+		t.Fatalf("not_restored = %v, want agent_events 2 and agent_sessions 1", notRestored)
+	}
+	if _, present := notRestored["artifacts"]; present {
+		t.Fatalf("an empty table was reported as dropped data: %v", notRestored)
+	}
+	if tablesNotRestored(map[string][]map[string]any{"skills": {{"canonical_name": "a"}}}) != nil {
+		t.Fatal("a file holding only restorable tables should report nothing dropped")
+	}
+}
