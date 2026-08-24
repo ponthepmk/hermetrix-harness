@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -266,5 +267,90 @@ func TestFamilyCoverageCountsWhatARateCannotShow(t *testing.T) {
 	}
 	if coverage["skill_failure"] != 0 || coverage["repeated_correction"] != 0 {
 		t.Fatalf("absent families should read zero, got %v", coverage)
+	}
+}
+
+// brokenReviewer answers nothing usable, the way a model does when it returns
+// prose instead of a decision object or a proposal with no body.
+type brokenReviewer struct{ failFor map[string]bool }
+
+func (r brokenReviewer) Revision() string { return "broken-reviewer-test" }
+
+func (r brokenReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	if r.failFor[digest.GoalAndConstraints] {
+		return Decision{Kind: "no_change", Unusable: true,
+			Reason: "reviewer returned no decision object"}, nil
+	}
+	return Decision{Kind: "create", Reason: "scripted",
+		SuggestedSkill: &SuggestedSkill{CanonicalName: "scripted",
+			Markdown: "---\nname: scripted\ndescription: \"d\"\n---\n\n1. Do it.\n"}}, nil
+}
+
+// TestAReviewerThatCannotAnswerIsNotAReviewerThatDeclined separates the two
+// causes a single no_change hides. Live, one review in forty-four came back
+// with no parseable decision at all; counted as a judgement it is invisible,
+// and recall limited by availability calls for a completely different fix than
+// recall limited by judgement.
+func TestAReviewerThatCannotAnswerIsNotAReviewerThatDeclined(t *testing.T) {
+	dir := t.TempDir()
+	failFor := map[string]bool{}
+	for i := 0; i < 10; i++ {
+		goal := "positive-" + string(rune('a'+i))
+		writeCase(t, dir, CorpusCase{ID: goal, TriggerKind: "explicit_learn", Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: goal}, Label: labelled(true)})
+	}
+	// Five of the ten come back unusable rather than declined.
+	for i := 0; i < 5; i++ {
+		failFor["positive-"+string(rune('a'+i))] = true
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := ScoreCorpus(context.Background(), brokenReviewer{failFor: failFor}, cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := results[len(results)-1]
+	if all.ReviewerErrors != 5 {
+		t.Fatalf("reviewer_errors = %d, want 5", all.ReviewerErrors)
+	}
+	// They still count against recall: a reviewer that could not answer did not
+	// propose, and hiding that would flatter the rate.
+	if all.Proposed != 5 || all.ProposalRate != 0.5 {
+		t.Fatalf("proposed %d at rate %v; unusable answers must not be excluded from the denominator",
+			all.Proposed, all.ProposalRate)
+	}
+	var namedAsError int
+	for _, failure := range all.Failures {
+		if strings.Contains(failure, "not a judgement") {
+			namedAsError++
+		}
+	}
+	if namedAsError != 5 {
+		t.Fatalf("%d failures identified as reviewer errors, want 5:\n%v", namedAsError, all.Failures)
+	}
+}
+
+// TestAWorkingReviewerReportsNoErrors keeps the counter from firing on ordinary
+// declines.
+func TestAWorkingReviewerReportsNoErrors(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 6; i++ {
+		goal := "case-" + string(rune('a'+i))
+		writeCase(t, dir, CorpusCase{ID: goal, TriggerKind: "successful_milestone", Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: goal}, Label: labelled(i < 3)})
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	propose := map[string]bool{"case-a": true, "case-b": true, "case-c": true}
+	results, err := ScoreCorpus(context.Background(), fixedReviewer{proposeFor: propose}, cases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errors := results[len(results)-1].ReviewerErrors; errors != 0 {
+		t.Fatalf("reviewer_errors = %d on a reviewer that answered every case", errors)
 	}
 }

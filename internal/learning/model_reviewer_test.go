@@ -175,3 +175,59 @@ func TestTriggerVocabularyIsSharedAndCaseInsensitive(t *testing.T) {
 		t.Fatal("an ordinary question was read as a request to learn")
 	}
 }
+
+// TestFailClosedDecisionsAreMarkedUnusable covers the difference between the
+// reviewer declining and the reviewer breaking. Both fail closed to no_change,
+// which is right for authority and wrong for measurement.
+func TestFailClosedDecisionsAreMarkedUnusable(t *testing.T) {
+	unusable := []struct{ name, raw string }{
+		{"no decision object at all", "I think there might be something here."},
+		{"unparseable object", `{"kind": "create", "reason": }`},
+		{"proposal with no body", `{"kind":"create","reason":"r","canonical_name":"n","description":"d"}`},
+		{"body not naming the skill", `{"kind":"create","reason":"r","canonical_name":"n","description":"d",` +
+			`"markdown":"---\nname: other\n---\n"}`},
+	}
+	for _, item := range unusable {
+		decision, err := parseReviewerDecision(item.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", item.name, err)
+		}
+		if decision.Kind != "no_change" {
+			t.Fatalf("%s: kind = %q, want no_change", item.name, decision.Kind)
+		}
+		if !decision.Unusable {
+			t.Fatalf("%s: not marked unusable, so it counts as a judgement the reviewer never made", item.name)
+		}
+	}
+	// The deterministic pre-filter is a judgement too, and a confident one:
+	// read-only work with no correction establishes nothing. It must never be
+	// counted as the reviewer failing.
+	prefiltered, err := (&ModelReviewer{}).Review(context.Background(), Digest{
+		GoalAndConstraints: "อธิบาย order_total ให้หน่อย",
+		ToolReceipts:       []string{"event:e1:workspace.read_file:succeeded"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefiltered.Kind != "no_change" {
+		t.Fatalf("pre-filter decision = %+v, want no_change", prefiltered)
+	}
+	if prefiltered.Unusable {
+		t.Fatal("the deterministic pre-filter was counted as the reviewer failing to answer")
+	}
+
+	declined, err := parseReviewerDecision(`{"kind":"no_change","reason":"nothing durable here"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if declined.Unusable {
+		t.Fatal("a considered decline was marked unusable")
+	}
+	created, err := parseReviewerDecision(`{"kind":"create","reason":"r","canonical_name":"n",` +
+		`"description":"d","markdown":"---\nname: n\ndescription: \"d\"\n---\n\n1. Do it.\n"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Unusable || created.Kind != "create" {
+		t.Fatalf("a good proposal came back %+v", created)
+	}
+}

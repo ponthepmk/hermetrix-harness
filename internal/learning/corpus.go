@@ -65,8 +65,15 @@ type CorpusResult struct {
 	// what it was not given is not a weak proposal but a fabricated one.
 	InventedEvidence int      `json:"invented_evidence"`
 	InventedIDs      []string `json:"invented_ids,omitempty"`
-	Verdict          string   `json:"verdict"`
-	Failures         []string `json:"failures,omitempty"`
+	// ReviewerErrors counts cases where the reviewer did not answer at all --
+	// no parseable decision, or a proposal missing the parts that make it one.
+	// They stay in the denominator, because a reviewer that could not answer did
+	// not propose, but they are reported separately: recall limited by
+	// availability and recall limited by judgement look identical in a single
+	// rate and call for completely different fixes.
+	ReviewerErrors int      `json:"reviewer_errors"`
+	Verdict        string   `json:"verdict"`
+	Failures       []string `json:"failures,omitempty"`
 }
 
 const (
@@ -159,10 +166,16 @@ func scoreSubset(ctx context.Context, reviewer Reviewer, provenance string, case
 			return CorpusResult{}, fmt.Errorf("review %s: %w", item.ID, err)
 		}
 		proposed := decision.Kind == "create" && decision.SuggestedSkill != nil
+		if decision.Unusable {
+			result.ReviewerErrors++
+		}
 		if item.Label.ShouldPropose {
 			result.ShouldPropose++
 			if proposed {
 				result.Proposed++
+			} else if decision.Unusable {
+				result.Failures = append(result.Failures,
+					item.ID+": reviewer returned nothing usable, so this is not a judgement: "+decision.Reason)
 			} else {
 				result.Failures = append(result.Failures, item.ID+": missed a procedure the label says is there")
 			}

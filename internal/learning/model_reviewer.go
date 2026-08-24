@@ -106,7 +106,7 @@ var jsonObjectPattern = regexp.MustCompile(`(?s)\{.*\}`)
 func parseReviewerDecision(raw string) (Decision, error) {
 	match := jsonObjectPattern.FindString(raw)
 	if match == "" {
-		return Decision{Kind: "no_change", Reason: "reviewer returned no decision object"}, nil
+		return Decision{Kind: "no_change", Unusable: true, Reason: "reviewer returned no decision object"}, nil
 	}
 	var parsed struct {
 		Kind          string `json:"kind"`
@@ -116,7 +116,7 @@ func parseReviewerDecision(raw string) (Decision, error) {
 		Markdown      string `json:"markdown"`
 	}
 	if err := json.Unmarshal([]byte(match), &parsed); err != nil {
-		return Decision{Kind: "no_change", Reason: "reviewer decision did not parse: " + err.Error()}, nil
+		return Decision{Kind: "no_change", Unusable: true, Reason: "reviewer decision did not parse: " + err.Error()}, nil
 	}
 	reason := strings.TrimSpace(parsed.Reason)
 	if reason == "" {
@@ -128,10 +128,10 @@ func parseReviewerDecision(raw string) (Decision, error) {
 	name := strings.TrimSpace(parsed.CanonicalName)
 	markdown := strings.TrimSpace(parsed.Markdown)
 	if name == "" || markdown == "" || strings.TrimSpace(parsed.Description) == "" {
-		return Decision{Kind: "no_change", Reason: "reviewer proposed a Skill without a name, description or body"}, nil
+		return Decision{Kind: "no_change", Unusable: true, Reason: "reviewer proposed a Skill without a name, description or body"}, nil
 	}
 	if !strings.HasPrefix(markdown, "---") || !strings.Contains(markdown, "name: "+name) {
-		return Decision{Kind: "no_change",
+		return Decision{Kind: "no_change", Unusable: true,
 			Reason: "reviewer body does not carry frontmatter naming " + name}, nil
 	}
 	return Decision{Kind: "create", Reason: reason,

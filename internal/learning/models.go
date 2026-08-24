@@ -58,6 +58,13 @@ type Decision struct {
 	// It is a proposal and nothing more: the runner turns it into a candidate
 	// that still passes every check and still needs a human to promote.
 	SuggestedSkill *SuggestedSkill `json:"suggested_skill,omitempty"`
+	// Unusable marks a decision the reviewer did not actually make: the model
+	// returned nothing parseable, or a proposal missing the parts that make it
+	// a proposal. Those fail closed to no_change, which is right for authority
+	// and wrong for measurement -- a reviewer that could not answer looks
+	// identical to one that considered the evidence and declined, and the two
+	// call for completely different fixes.
+	Unusable bool `json:"unusable,omitempty"`
 }
 
 type Job struct {
