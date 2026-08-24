@@ -44,6 +44,19 @@ type ReplaySummary struct {
 	Improvements  int      `json:"improvements"`
 	AddedTools    []string `json:"added_tools,omitempty"`
 	WeakenedTests []string `json:"weakened_tests,omitempty"`
+	// AuthorFixtures counts the cases someone actually wrote. When a Skill has
+	// none, an improve replay still runs, against a single synthesised fixture
+	// asserting the manifest name, description and tool list are unchanged.
+	//
+	// That check is worth running and it is not a behavioural one. A candidate
+	// replacing "keep amounts in satang, round half up" with "use floating point
+	// baht, round down and ignore the remainder" passes it, because the manifest
+	// is identical. Reported as fixtures_total: 1, summary passed, replay_passed
+	// true, it reads like a test suite found no regression.
+	AuthorFixtures int `json:"author_fixtures"`
+	// ImplicitOnly says the run had nothing but that synthesised fixture, so a
+	// reviewer can see how much the green result is worth.
+	ImplicitOnly bool `json:"implicit_only,omitempty"`
 }
 
 type ReplayRun struct {
@@ -135,6 +148,7 @@ func (s *Service) RunCandidateReplay(ctx context.Context, candidateID string) (R
 		return s.finishReplayFailure(context.WithoutCancel(ctx), run, candidate, message)
 	}
 	fixtures, weakened := mergeReplayFixtures(baseFixtures, candidateFixtures)
+	authorFixtures := len(fixtures)
 	if candidate.ChangeKind == "improve" && len(fixtures) == 0 {
 		manifest := ParseManifest(basePackage.Markdown())
 		fixture := ReplayFixture{ID: "_implicit_manifest_contract", Prompt: "Preserve the active manifest contract",
@@ -166,7 +180,8 @@ func (s *Service) RunCandidateReplay(ctx context.Context, candidateID string) (R
 	run.FixturesTotal = len(run.Cases)
 	addedTools := difference(candidateManifest.Tools, baseManifest.Tools)
 	run.Summary = ReplaySummary{Passed: run.CandidatePassed == run.FixturesTotal && run.Regressions == 0 && len(weakened) == 0,
-		Regressions: run.Regressions, Improvements: run.Improvements, AddedTools: addedTools, WeakenedTests: weakened}
+		Regressions: run.Regressions, Improvements: run.Improvements, AddedTools: addedTools, WeakenedTests: weakened,
+		AuthorFixtures: authorFixtures, ImplicitOnly: authorFixtures == 0 && run.FixturesTotal > 0}
 	return s.finishReplay(context.WithoutCancel(ctx), run, candidate)
 }
 
@@ -236,7 +251,8 @@ func (s *Service) applyReplayChecks(ctx context.Context, candidate Candidate, ru
 	checks := current.Checks
 	filtered := checks.Findings[:0]
 	for _, finding := range checks.Findings {
-		if finding.Code != "replay_required" && finding.Code != "replay_failed" {
+		if finding.Code != "replay_required" && finding.Code != "replay_failed" &&
+			finding.Code != "replay_implicit_only" {
 			filtered = append(filtered, finding)
 		}
 	}
@@ -245,6 +261,14 @@ func (s *Service) applyReplayChecks(ctx context.Context, candidate Candidate, ru
 	checks.ReplayPassed = run.State == "completed" && run.Summary.Passed
 	if checks.ReplayRequired && !checks.ReplayPassed {
 		checks.Findings = append(checks.Findings, CheckFinding{Level: "error", Code: "replay_failed", Message: run.Error, Path: "tests/"})
+	}
+	// A green replay over no author-written fixture is a manifest-identity
+	// check. Say so on the candidate, where the person approving it looks,
+	// rather than only in the run they may never open.
+	if checks.ReplayPassed && run.Summary.ImplicitOnly {
+		checks.Findings = append(checks.Findings, CheckFinding{Level: "warning", Code: "replay_implicit_only",
+			Message: "no replay fixture exists for this Skill; the run only confirmed the manifest name, " +
+				"description and tool list are unchanged, and did not test the procedure", Path: "tests/"})
 	}
 	checks.Passed = checks.LintPassed && checks.SecurityPassed && (!checks.ReplayRequired || checks.ReplayPassed)
 	state := CandidateNeedsReview

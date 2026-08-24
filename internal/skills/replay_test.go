@@ -123,3 +123,100 @@ func TestActivationOutcomeAttributionIsRuntimeBoundAndOneShot(t *testing.T) {
 		t.Fatalf("outcome aggregate=%+v", observed)
 	}
 }
+
+// TestImplicitOnlyReplayIsReportedAsSuch covers what a green replay is worth
+// when the Skill has no fixtures. CreateCandidate runs the replay itself for an
+// improve, and with no author fixture the runner synthesises one asserting the
+// manifest name, description and tool list are unchanged. A candidate that
+// reverses every procedural step passes it, and the result reads as
+// fixtures_total 1, summary passed, replay_passed true.
+//
+// The gate's strictness is a policy question. Its honesty is not: the reviewer
+// approving the promotion must be able to see that nothing behavioural ran.
+func TestImplicitOnlyReplayIsReportedAsSuch(t *testing.T) {
+	service, _ := testService(t)
+	ctx := context.Background()
+	base := "---\nname: probe-skill\ndescription: \"probe\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. Keep amounts in satang.\n2. Round half up.\n"
+	seed, err := service.CreateCandidate(ctx, CreateCandidateInput{CanonicalName: "probe-skill", ScopeKind: "user",
+		Origin: "user_created", Owner: "user", ChangeKind: "create", CreatedBy: "t", TriggerKind: "manual",
+		Reason: "seed", EvidenceRefs: []string{"e"}, Markdown: base})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, err := service.PromoteCandidate(ctx, seed.ID, "t", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reversed := "---\nname: probe-skill\ndescription: \"probe\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. Use floating point baht.\n2. Round down and ignore the remainder.\n"
+	improve, err := service.CreateCandidate(ctx, CreateCandidateInput{CanonicalName: "probe-skill", ScopeKind: "user",
+		Origin: "user_created", Owner: "user", ChangeKind: "improve", TargetSkillID: skill.ID,
+		BaseVersionID: skill.CurrentVersionID, CreatedBy: "t", TriggerKind: "manual",
+		Reason: "reverse every step", EvidenceRefs: []string{"e"}, Markdown: reversed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err := service.ListCandidateReplays(ctx, improve.ID)
+	if err != nil || len(runs) == 0 {
+		t.Fatalf("runs=%d err=%v", len(runs), err)
+	}
+	run := runs[0]
+	if run.Summary.AuthorFixtures != 0 || !run.Summary.ImplicitOnly {
+		t.Fatalf("summary = %+v, want no author fixtures and implicit_only", run.Summary)
+	}
+	if run.FixturesTotal != 1 || !run.Summary.Passed {
+		t.Fatalf("precondition: the implicit fixture should run and pass, got %+v", run)
+	}
+	var warned bool
+	for _, finding := range improve.Checks.Findings {
+		if finding.Code == "replay_implicit_only" {
+			warned = true
+			if finding.Level != "warning" {
+				t.Fatalf("finding level = %q, want warning", finding.Level)
+			}
+		}
+	}
+	if !warned {
+		t.Fatalf("a candidate whose replay tested only the manifest carries no such finding: %+v", improve.Checks)
+	}
+}
+
+// TestAnAuthoredFixtureIsNotReportedAsImplicit keeps the warning from firing on
+// a Skill that does carry tests.
+func TestAnAuthoredFixtureIsNotReportedAsImplicit(t *testing.T) {
+	service, _ := testService(t)
+	ctx := context.Background()
+	fixture := `{"id":"keeps-satang","prompt":"round a total","required_phrases":["satang"]}`
+	base := "---\nname: probe-skill\ndescription: \"probe\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. Keep amounts in satang.\n"
+	seed, err := service.CreateCandidate(ctx, CreateCandidateInput{CanonicalName: "probe-skill", ScopeKind: "user",
+		Origin: "user_created", Owner: "user", ChangeKind: "create", CreatedBy: "t", TriggerKind: "manual",
+		Reason: "seed", EvidenceRefs: []string{"e"}, Markdown: base,
+		Files: []File{{Path: "tests/keeps-satang.json", Content: []byte(fixture)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, err := service.PromoteCandidate(ctx, seed.ID, "t", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	improved := base + "2. Round half up.\n"
+	improve, err := service.CreateCandidate(ctx, CreateCandidateInput{CanonicalName: "probe-skill", ScopeKind: "user",
+		Origin: "user_created", Owner: "user", ChangeKind: "improve", TargetSkillID: skill.ID,
+		BaseVersionID: skill.CurrentVersionID, CreatedBy: "t", TriggerKind: "manual",
+		Reason: "add rounding", EvidenceRefs: []string{"e"}, Markdown: improved,
+		Files: []File{{Path: "tests/keeps-satang.json", Content: []byte(fixture)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err := service.ListCandidateReplays(ctx, improve.ID)
+	if err != nil || len(runs) == 0 {
+		t.Fatalf("runs=%d err=%v", len(runs), err)
+	}
+	if runs[0].Summary.AuthorFixtures == 0 || runs[0].Summary.ImplicitOnly {
+		t.Fatalf("an authored fixture was reported as implicit: %+v", runs[0].Summary)
+	}
+	for _, finding := range improve.Checks.Findings {
+		if finding.Code == "replay_implicit_only" {
+			t.Fatalf("warning fired on a Skill that has fixtures: %+v", improve.Checks.Findings)
+		}
+	}
+}
