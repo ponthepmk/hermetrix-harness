@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2260,5 +2261,55 @@ func TestACalibratedProviderCompilesADifferentBudget(t *testing.T) {
 	// drop rather than an exact ratio keeps this from testing the arithmetic.
 	if float64(calibrated) > 0.9*float64(uncalibrated) {
 		t.Fatalf("calibration barely moved the budget: %d then %d", uncalibrated, calibrated)
+	}
+}
+
+// TestCalibrationLearnsFromThePromptNotTheBudget covers the wiring the split
+// exists for. predicted_input carries the worst-case tool burst, which is
+// budget held back for a tool result that has not happened. A multiplier fed
+// that number would absorb the reserve into the ruler and leave real content
+// under-predicted by roughly the size of the reserve.
+func TestCalibrationLearnsFromThePromptNotTheBudget(t *testing.T) {
+	const reported = 4000
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"+
+			"\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":2,\"total_tokens\":%d}}\n\ndata: [DONE]\n\n",
+			reported, reported+2)
+	}))
+	service, profile, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "calibration source", ProviderID: profile.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "สรุปงานให้สั้นที่สุด"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var predictedPrompt, predictedInput int
+	if err := service.store.DB.QueryRowContext(ctx,
+		`SELECT predicted_prompt, predicted_input FROM token_observations WHERE session_id=?`,
+		session.ID).Scan(&predictedPrompt, &predictedInput); err != nil {
+		t.Fatal(err)
+	}
+	if predictedInput <= predictedPrompt {
+		t.Fatalf("precondition: this turn reserved no burst, so the two predictions cannot be told apart: %d and %d",
+			predictedPrompt, predictedInput)
+	}
+	learned, err := service.providers.Get(ctx, profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromPrompt := float64(reported) / float64(predictedPrompt)
+	fromBudget := float64(reported) / float64(predictedInput)
+	if math.Abs(learned.TokenMultiplier-fromPrompt) > 0.01 {
+		t.Fatalf("multiplier %v matches neither; prompt gives %v and budget gives %v",
+			learned.TokenMultiplier, fromPrompt, fromBudget)
+	}
+	if learned.TokenSample != 1 {
+		t.Fatalf("sample = %d after one step, want 1", learned.TokenSample)
 	}
 }

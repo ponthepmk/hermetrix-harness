@@ -541,19 +541,23 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			// it survives a restart and never mixes two tokenizers. The in-memory
 			// adaptive estimator is still fed because the qualification lab and
 			// the profiles endpoint report it.
+			// Calibrate against the prompt, never the budget: a multiplier fed the
+			// budget would quietly absorb the tool-burst reserve and leave real
+			// content under-predicted by about thirteen percent.
 			if err := s.providers.ObserveTokenScale(ctx, provider.ID,
-				compiled.Report.PredictedInput, completion.Usage.PromptTokens); err != nil {
+				compiled.Report.PredictedPrompt, completion.Usage.PromptTokens); err != nil {
 				return TurnResult{}, err
 			}
-			s.estimator.Observe(compiled.Report.PredictedInput, completion.Usage.PromptTokens)
+			s.estimator.Observe(compiled.Report.PredictedPrompt, completion.Usage.PromptTokens)
 			// Keep the pair, not just its effect on the average. The Phase 9 gate
 			// asks whether prediction sits within ±10% of reported usage at p95,
 			// and Observe answers by folding the pair into an EWMA and forgetting
 			// it. The only usage written anywhere else is the whole turn's total
 			// stored against the last step's snapshot, which is a different
 			// quantity: of ninety snapshots exactly two could be compared.
-			if err := s.recordTokenObservation(ctx, session, provider, profile, binding,
-				stepNumber, compiled.Report.PredictedInput, completion.Usage.PromptTokens); err != nil {
+			if err := s.recordTokenObservation(ctx, session, provider, profile, binding, stepNumber,
+				compiled.Report.PredictedPrompt, compiled.Report.PredictedInput,
+				completion.Usage.PromptTokens); err != nil {
 				return TurnResult{}, err
 			}
 		}
@@ -2036,14 +2040,15 @@ func answerBudget(outputReserve int, reasoningRatio float64) int {
 // context once per model step and the turn total is the sum of those sends --
 // comparing that total against any single step's prediction measures nothing.
 func (s *Service) recordTokenObservation(ctx context.Context, session Session, provider providers.Profile,
-	profile ctxcompiler.Profile, binding StepBinding, stepNumber, predicted, actual int) error {
+	profile ctxcompiler.Profile, binding StepBinding, stepNumber, predictedPrompt, predictedInput, actual int) error {
 	_, err := s.store.DB.ExecContext(ctx, `INSERT INTO token_observations(id,session_id,turn_id,step_number,
-      provider_id,model,profile_name,context_snapshot_id,predicted_input,actual_input,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)
+      provider_id,model,profile_name,context_snapshot_id,predicted_prompt,predicted_input,actual_input,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(session_id,turn_id,step_number) DO UPDATE SET
-      predicted_input=excluded.predicted_input, actual_input=excluded.actual_input, created_at=excluded.created_at`,
+      predicted_prompt=excluded.predicted_prompt, predicted_input=excluded.predicted_input,
+      actual_input=excluded.actual_input, created_at=excluded.created_at`,
 		identity.New("tokobs"), session.ID, binding.TurnID, stepNumber, provider.ID, provider.Model,
-		profile.Name, binding.ContextSnapshotID, predicted, actual, formatTime(time.Now().UTC()))
+		profile.Name, binding.ContextSnapshotID, predictedPrompt, predictedInput, actual, formatTime(time.Now().UTC()))
 	if err != nil {
 		return fmt.Errorf("record token observation: %w", err)
 	}
@@ -2054,8 +2059,11 @@ func (s *Service) recordTokenObservation(ctx context.Context, session Session, p
 // model. It reads only committed observations, so it describes work that
 // actually happened rather than a replay of the estimator.
 func (s *Service) TokenAccuracyMetrics(ctx context.Context) ([]TokenAccuracyStats, error) {
+	// predicted_prompt is the comparable quantity; rows written before it was
+	// recorded carry zero and are skipped rather than silently mismeasured.
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT provider_id, model, profile_name,
-      predicted_input, actual_input FROM token_observations ORDER BY provider_id, model, created_at`)
+      predicted_prompt, actual_input FROM token_observations
+      WHERE predicted_prompt > 0 ORDER BY provider_id, model, created_at`)
 	if err != nil {
 		return nil, err
 	}

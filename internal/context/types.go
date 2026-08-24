@@ -85,13 +85,24 @@ type Report struct {
 	OutputReserve      int    `json:"output_reserve"`
 	UncertaintyReserve int    `json:"uncertainty_reserve"`
 	WorstCaseToolBurst int    `json:"worst_case_tool_burst"`
-	PredictedInput     int    `json:"predicted_input"`
-	Free               int    `json:"free"`
-	OriginalTokens     int    `json:"original_tokens"`
-	SelectedTokens     int    `json:"selected_tokens"`
-	CompactedTokens    int    `json:"compacted_tokens"`
-	DroppedTokens      int    `json:"dropped_tokens"`
-	DeduplicatedTokens int    `json:"deduplicated_tokens"`
+	// PredictedPrompt is what this request is expected to cost: the selected
+	// context plus the tool schemas. PredictedInput adds WorstCaseToolBurst,
+	// which is budget held back for a tool result that has not happened yet.
+	//
+	// Only the first is comparable to the usage a provider reports. Measuring
+	// the error band against the second made it look size-dependent -- from
+	// -51.7% on a small context to -27.9% on a large one, purely because a
+	// fixed reserve was being diluted by a growing prompt. Against the prompt
+	// those same eighteen requests are a flat -21.5% with a 2.0% spread, which
+	// is a bias a calibration can remove rather than noise it cannot.
+	PredictedPrompt    int `json:"predicted_prompt"`
+	PredictedInput     int `json:"predicted_input"`
+	Free               int `json:"free"`
+	OriginalTokens     int `json:"original_tokens"`
+	SelectedTokens     int `json:"selected_tokens"`
+	CompactedTokens    int `json:"compacted_tokens"`
+	DroppedTokens      int `json:"dropped_tokens"`
+	DeduplicatedTokens int `json:"deduplicated_tokens"`
 	// DeduplicatedFragments is the count behind DeduplicatedTokens. The two must
 	// agree about whether anything happened: a token total is easy to balance by
 	// attributing a discrepancy to whichever term nobody counts separately, and

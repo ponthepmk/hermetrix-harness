@@ -164,6 +164,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v19: %w", err)
 		}
 	}
+	if version < 20 {
+		if _, err := tx.ExecContext(ctx, schemaV20); err != nil {
+			return fmt.Errorf("apply schema v20: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -176,7 +181,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 19
+const CurrentSchemaVersion = 20
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -1005,4 +1010,18 @@ CREATE INDEX IF NOT EXISTS idx_token_observations_model ON token_observations(pr
 const schemaV19 = `
 ALTER TABLE provider_profiles ADD COLUMN token_multiplier REAL NOT NULL DEFAULT 1;
 ALTER TABLE provider_profiles ADD COLUMN token_sample INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV20 separates the prediction that can be compared against a bill from
+// the budget that cannot.
+//
+// predicted_input includes the worst-case tool burst -- budget held back for a
+// tool result that has not happened. Comparing it to reported prompt usage made
+// the error band a function of context size: eighteen consecutive requests
+// drifted from -51.7% to -27.9% as the fixed reserve was diluted by a growing
+// prompt. Measured against the prompt alone the same requests are a flat -21.5%
+// with a 2.0% spread. The first shape looks like an estimator that improves
+// with use; the second is the truth, and it is a bias a calibration removes.
+const schemaV20 = `
+ALTER TABLE token_observations ADD COLUMN predicted_prompt INTEGER NOT NULL DEFAULT 0;
 `

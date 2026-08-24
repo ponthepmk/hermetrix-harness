@@ -137,7 +137,8 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 		report.DroppedIDs = append(report.DroppedIDs, fragment.ID)
 		report.DroppedTokens += c.estimator.Count(fragment.Content)
 	}
-	report.PredictedInput = report.SelectedTokens + toolTokens + request.WorstCaseToolBurst
+	report.PredictedPrompt = report.SelectedTokens + toolTokens
+	report.PredictedInput = report.PredictedPrompt + request.WorstCaseToolBurst
 	report.Free = profile.Total - profile.OutputReserve - profile.UncertaintyReserve - report.PredictedInput
 	if report.PredictedInput+profile.OutputReserve+profile.UncertaintyReserve > profile.Total {
 		return Compiled{}, fmt.Errorf("%w: predicted=%d output=%d uncertainty=%d total=%d", ErrContextOverflow,

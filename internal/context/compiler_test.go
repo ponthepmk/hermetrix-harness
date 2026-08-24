@@ -445,3 +445,38 @@ func TestWithEstimatorLeavesTheOriginalAlone(t *testing.T) {
 		t.Fatal("WithEstimator(nil) should keep the existing estimator")
 	}
 }
+
+// TestTheReservedBurstIsNotPartOfThePredictedPrompt separates the two numbers
+// that were previously one. Comparing the budget against a provider's bill made
+// the error band a function of context size: eighteen consecutive live requests
+// drifted from -51.7% to -27.9% purely because the fixed reserve was being
+// diluted by a growing prompt.
+func TestTheReservedBurstIsNotPartOfThePredictedPrompt(t *testing.T) {
+	compiler := testCompiler(t)
+	now := time.Unix(700, 0).UTC()
+	fragments := []Fragment{{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100,
+		Content: strings.Repeat("เนื้อหาที่ต้องวัด ", 40), CreatedAt: now}}
+	const burst = 2048
+	withBurst, err := compiler.Compile(stdcontext.Background(),
+		Request{Profile: Compact32K(), Fragments: fragments, WorstCaseToolBurst: burst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withBurst.Report.PredictedInput != withBurst.Report.PredictedPrompt+burst {
+		t.Fatalf("predicted_input %d is not prompt %d plus the %d reserve",
+			withBurst.Report.PredictedInput, withBurst.Report.PredictedPrompt, burst)
+	}
+	noBurst, err := compiler.Compile(stdcontext.Background(),
+		Request{Profile: Compact32K(), Fragments: fragments})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The reserve must not change what the request is expected to cost.
+	if noBurst.Report.PredictedPrompt != withBurst.Report.PredictedPrompt {
+		t.Fatalf("the reserve moved the prompt prediction: %d without, %d with",
+			noBurst.Report.PredictedPrompt, withBurst.Report.PredictedPrompt)
+	}
+	if withBurst.Report.PredictedPrompt == 0 {
+		t.Fatal("prompt prediction is zero")
+	}
+}
