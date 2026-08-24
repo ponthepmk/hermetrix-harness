@@ -1,5 +1,8 @@
 .hermetrix/
 tmp-*-data/
-hermetrix
+# Root-anchored: without the leading slash this also matched the cmd/hermetrix
+# directory, and the whole main package went unversioned. The repository built
+# green and contained no program.
+/hermetrix
 coverage.out
 .DS_Store

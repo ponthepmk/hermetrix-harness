@@ -27,6 +27,17 @@ jobs:
       - name: build
         run: go build ./...
 
+      # go build ./... passes on a repository with no main package, which is
+      # exactly what a loose .gitignore entry once produced: green CI, no
+      # program. Build the binary by name and run it.
+      - name: the program exists and runs
+        run: |
+          go build -o "${RUNNER_TEMP}/hermetrix" ./cmd/hermetrix
+          if ! "${RUNNER_TEMP}/hermetrix" 2>&1 | grep -q "^usage:"; then
+            echo "the built binary did not print its usage"
+            exit 1
+          fi
+
       - name: vet
         run: go vet ./...
 
