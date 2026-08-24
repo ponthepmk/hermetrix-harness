@@ -25,6 +25,7 @@ import (
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/qualification"
 	"hermetrix-harness/internal/skills"
+	"hermetrix-harness/internal/store"
 )
 
 //go:embed ui/*
@@ -44,6 +45,7 @@ type Server struct {
 	fidelity  *fidelity.Service
 	qualifier *qualification.Service
 	product   *product.Service
+	store     *store.Store
 	logger    *slog.Logger
 }
 
@@ -70,7 +72,8 @@ func (s *Server) WithQualification(service *qualification.Service) *Server {
 
 func New(skillService *skills.Service, learningService *learning.Service, curatorService *curator.Service,
 	compiler *ctxcompiler.Compiler, estimator *ctxcompiler.AdaptiveEstimator, models *localmodel.Prober,
-	providerService *providers.Service, agentService *agent.Service, logger *slog.Logger) *Server {
+	providerService *providers.Service, agentService *agent.Service, dataStore *store.Store,
+	logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -78,13 +81,25 @@ func New(skillService *skills.Service, learningService *learning.Service, curato
 		models = localmodel.NewProber()
 	}
 	return &Server{skills: skillService, learning: learningService, curator: curatorService, compiler: compiler,
-		estimator: estimator, models: models, providers: providerService, agent: agentService, logger: logger}
+		estimator: estimator, models: models, providers: providerService, agent: agentService,
+		store: dataStore, logger: logger}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "hermetrix-harness", "schema": 16})
+	// O-19: this reported a hardcoded 16 while the database was at 17. Health is
+	// the one endpoint a client uses to decide whether the server is the one it
+	// expects, so a constant written by hand is the least useful thing it can
+	// say. It now reports what the open database actually contains.
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		schema, err := s.store.SchemaVersion(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError,
+				map[string]any{"ok": false, "service": "hermetrix-harness", "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "hermetrix-harness",
+			"schema": schema, "expected_schema": store.CurrentSchemaVersion})
 	})
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/skills", s.listSkills)

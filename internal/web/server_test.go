@@ -62,7 +62,7 @@ func testHTTPServer(t *testing.T) *httptest.Server {
 	}
 	qualificationService := qualification.NewService(dataStore, providerService, localmodel.NewProber(), gate, estimator)
 	server := httptest.NewServer(New(skillService, learningService, curatorService, compiler, estimator,
-		localmodel.NewProber(), providerService, agentService, logger).WithMCP(mcpService, capabilityCatalog).
+		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).Handler())
 	t.Cleanup(server.Close)
 	return server
@@ -672,5 +672,50 @@ func TestUnmatchedAPIRoutesReturnJSONNotFound(t *testing.T) {
 		if strings.Contains(string(body), "<!doctype") {
 			t.Fatalf("%s %s answered with the SPA:\n%s", testCase.method, testCase.path, body[:80])
 		}
+	}
+}
+
+// TestHealthReportsTheSchemaTheDatabaseActuallyHas covers a health endpoint
+// that answered with a hardcoded 16 while the database had migrated to 17.
+// Health is what a client reads to decide whether the server is the one it
+// expects, so a number typed by hand is worse than no number.
+func TestHealthReportsTheSchemaTheDatabaseActuallyHas(t *testing.T) {
+	server := testHTTPServer(t)
+	response, err := http.Get(server.URL + "/api/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var body struct {
+		OK             bool `json:"ok"`
+		Schema         int  `json:"schema"`
+		ExpectedSchema int  `json:"expected_schema"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK {
+		t.Fatal("health reported not ok")
+	}
+	if body.ExpectedSchema != store.CurrentSchemaVersion {
+		t.Fatalf("expected_schema = %d, build targets %d", body.ExpectedSchema, store.CurrentSchemaVersion)
+	}
+	// The reported version must come from the database, not from the same
+	// constant the expectation came from: a freshly opened store has migrated,
+	// so the two agree here, and they must agree for that reason.
+	dataStore, err := store.Open(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	fromDatabase, err := dataStore.SchemaVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body.Schema != fromDatabase {
+		t.Fatalf("health reported schema %d, PRAGMA user_version = %d", body.Schema, fromDatabase)
+	}
+	if body.Schema != store.CurrentSchemaVersion {
+		t.Fatalf("migrated database is at %d, build targets %d", body.Schema, store.CurrentSchemaVersion)
 	}
 }

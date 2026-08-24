@@ -48,6 +48,17 @@ func Open(ctx context.Context, root string) (*Store, error) {
 
 func (s *Store) Close() error { return s.DB.Close() }
 
+// SchemaVersion reports what the open database actually says, not what the
+// build intended. Those are the same number when migration succeeded and
+// different when it did not, which is the whole reason to ask.
+func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
+	var version int
+	if err := s.DB.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
 func migrate(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
