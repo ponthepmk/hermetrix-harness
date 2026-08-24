@@ -29,12 +29,21 @@ type Profile struct {
 	// NonASCIIRate is tokens per character for scripts the ASCII rules do not
 	// cover. Learned rather than assumed: the value that fits one model and one
 	// language is not a fact about tokenizers.
-	NonASCIIRate   float64   `json:"nonascii_rate"`
-	NonASCIISample int       `json:"nonascii_sample"`
-	Enabled        bool      `json:"enabled"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Revision       string    `json:"revision"`
+	NonASCIIRate   float64 `json:"nonascii_rate"`
+	NonASCIISample int     `json:"nonascii_sample"`
+	// MessageOverhead and RequestOverhead are the chat template's cost: what
+	// each message is wrapped in, and what the request carries besides its
+	// messages. Both are billed and neither is context. They are measured by
+	// probe rather than learned from traffic -- two requests with known
+	// message counts pin them exactly, while production traffic grows message
+	// count, size and language mix together and cannot separate them.
+	MessageOverhead    int       `json:"token_message_overhead"`
+	RequestOverhead    int       `json:"token_request_overhead"`
+	OverheadMeasuredAt string    `json:"token_overhead_measured_at,omitempty"`
+	Enabled            bool      `json:"enabled"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	Revision           string    `json:"revision"`
 }
 
 type SaveInput struct {

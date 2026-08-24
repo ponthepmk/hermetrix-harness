@@ -524,3 +524,52 @@ func TestHeuristicPartsSeparatesTheTwoRules(t *testing.T) {
 		t.Fatalf("Thai text produced %d ASCII tokens", ascii)
 	}
 }
+
+// TestTransportCostPricesTheChatTemplate covers the compiler charging what the
+// provider bills before any content: a wrapper per message and a constant per
+// request. Neither is context, so both stay out of the ledger and enter only
+// the prediction.
+func TestTransportCostPricesTheChatTemplate(t *testing.T) {
+	compiler := testCompiler(t)
+	now := time.Unix(800, 0).UTC()
+	fragments := []Fragment{
+		{ID: "policy", Kind: KindPolicy, Priority: 100, Content: "proposal-only learning", CreatedAt: now},
+		{ID: "identity", Kind: KindIdentity, Priority: 100, Content: "you are a tool", CreatedAt: now},
+		{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: "รักษาเป้าหมายนี้", CreatedAt: now},
+	}
+	for i := 0; i < 6; i++ {
+		fragments = append(fragments, Fragment{ID: "turn-" + strconv.Itoa(i), Kind: KindConversation,
+			Priority: 50, Content: "ข้อความที่ " + strconv.Itoa(i), CreatedAt: now.Add(time.Duration(i) * time.Second)})
+	}
+	unmeasured, err := compiler.Compile(stdcontext.Background(), Request{Profile: Compact32K(), Fragments: fragments})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A provider whose template has never been measured is charged nothing: a
+	// guessed overhead is subtracted from usable context on every request.
+	if unmeasured.Report.TransportTokens != 0 {
+		t.Fatalf("an unmeasured provider was charged %d transport tokens", unmeasured.Report.TransportTokens)
+	}
+	measured, err := compiler.Compile(stdcontext.Background(), Request{Profile: Compact32K(), Fragments: fragments,
+		MessageOverhead: 9, RequestOverhead: 43})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The two system-kind fragments join one message; the goal and six turns are
+	// seven more. Eight messages at nine, plus the constant.
+	if want := 43 + 9*8; measured.Report.TransportTokens != want {
+		t.Fatalf("transport = %d, want %d", measured.Report.TransportTokens, want)
+	}
+	if measured.Report.PredictedPrompt != unmeasured.Report.PredictedPrompt+measured.Report.TransportTokens {
+		t.Fatalf("the transport cost did not reach the prediction: %d and %d",
+			unmeasured.Report.PredictedPrompt, measured.Report.PredictedPrompt)
+	}
+	// It is transport, not content: the ledger still balances what came in.
+	if measured.Report.UnaccountedTokens != 0 {
+		t.Fatalf("transport tokens entered the content ledger: %+v", measured.Report)
+	}
+	if measured.Report.SelectedTokens != unmeasured.Report.SelectedTokens {
+		t.Fatalf("transport changed the selected content total: %d then %d",
+			unmeasured.Report.SelectedTokens, measured.Report.SelectedTokens)
+	}
+}

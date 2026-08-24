@@ -174,6 +174,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v21: %w", err)
 		}
 	}
+	if version < 22 {
+		if _, err := tx.ExecContext(ctx, schemaV22); err != nil {
+			return fmt.Errorf("apply schema v22: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -186,7 +191,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 21
+const CurrentSchemaVersion = 22
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -1049,4 +1054,25 @@ ALTER TABLE provider_profiles ADD COLUMN nonascii_rate REAL NOT NULL DEFAULT 1;
 ALTER TABLE provider_profiles ADD COLUMN nonascii_sample INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE token_observations ADD COLUMN ascii_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE token_observations ADD COLUMN nonascii_chars INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV22 stores the part of a request the estimator was never counting: the
+// chat template.
+//
+// Every message is wrapped by the model's template, and a request carries a
+// preamble besides. Both are billed and neither is context. Measured against a
+// live gateway the relationship is exactly linear in message count: sending the
+// same content split across 1, 3, 5, 9, 17 and 33 messages cost 9 more tokens
+// each time, over a constant of 43. The probe, which uses empty messages
+// instead, reads the same line as 7 and 45; both describe the corpus equally
+// well (p95 7.42% and 7.54%).
+//
+// These are measured rather than learned. Two requests with known message
+// counts determine both exactly, which is a better answer than any amount of
+// regression on production traffic -- where message count, content size and
+// language mix all grow together and no fit can separate them.
+const schemaV22 = `
+ALTER TABLE provider_profiles ADD COLUMN token_message_overhead INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_profiles ADD COLUMN token_request_overhead INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_profiles ADD COLUMN token_overhead_measured_at TEXT NOT NULL DEFAULT '';
 `

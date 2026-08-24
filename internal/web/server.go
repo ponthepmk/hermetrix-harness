@@ -146,6 +146,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/providers", s.listProviders)
 	mux.HandleFunc("POST /api/providers", s.saveProvider)
 	mux.HandleFunc("POST /api/providers/{id}/test", s.testProvider)
+	mux.HandleFunc("POST /api/providers/{id}/measure-overhead", s.measureProviderOverhead)
 	mux.HandleFunc("GET /api/mcp/servers", s.listMCPServers)
 	mux.HandleFunc("POST /api/mcp/servers", s.saveMCPServer)
 	mux.HandleFunc("POST /api/mcp/servers/{id}/discover", s.discoverMCPServer)
@@ -1170,4 +1171,13 @@ func (s *Server) tokenAccuracyMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"band": agent.TokenAccuracyBand,
 		"minimum_samples": agent.TokenAccuracyMinimumSamples, "models": items})
+}
+
+func (s *Server) measureProviderOverhead(w http.ResponseWriter, r *http.Request) {
+	item, err := s.providers.MeasureTokenOverhead(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }

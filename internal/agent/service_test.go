@@ -2459,3 +2459,65 @@ func TestALearnedScriptRateReachesTheCompileAndTheLedger(t *testing.T) {
 
 // DefaultNonASCIIRateForTest names the assumption the estimator started with.
 const DefaultNonASCIIRateForTest = 1.0
+
+// TestMeasuredChatTemplateReachesTheCompile covers the agent handing the
+// provider's measured template cost to the compiler. Without it the learned
+// script rate silently absorbs a per-message constant, which is correct only
+// for traffic with the message density it was learned on.
+func TestMeasuredChatTemplateReachesTheCompile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"+
+			"\"usage\":{\"prompt_tokens\":2500,\"completion_tokens\":2,\"total_tokens\":2502}}\n\ndata: [DONE]\n\n")
+	}))
+	service, profile, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	const messageOverhead, requestOverhead = 9, 43
+
+	if profile.MessageOverhead != 0 || profile.RequestOverhead != 0 {
+		t.Fatalf("precondition: a new profile has no measured template, got %d and %d",
+			profile.MessageOverhead, profile.RequestOverhead)
+	}
+
+	// A turn also updates the script rate and the residual scale, so comparing
+	// two runs would confound three changes at once. Pin the content calibration
+	// before each one so only the template differs.
+	predictionWith := func(title string, message, request int) int {
+		if _, err := service.store.DB.ExecContext(ctx, `UPDATE provider_profiles
+			SET nonascii_rate=0.55, nonascii_sample=100, token_multiplier=1, token_sample=100,
+			    token_message_overhead=?, token_request_overhead=? WHERE id=?`,
+			message, request, profile.ID); err != nil {
+			t.Fatal(err)
+		}
+		session, err := service.CreateSession(ctx, CreateSessionInput{Title: title, ProviderID: profile.ID,
+			ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "สรุปรายการบัญชี"}, nil); err != nil {
+			t.Fatal(err)
+		}
+		var predicted int
+		if err := service.store.DB.QueryRowContext(ctx,
+			`SELECT predicted_prompt FROM token_observations WHERE session_id=?`, session.ID).Scan(&predicted); err != nil {
+			t.Fatal(err)
+		}
+		return predicted
+	}
+
+	unmeasured := predictionWith("unmeasured template", 0, 0)
+	measured := predictionWith("measured template", messageOverhead, requestOverhead)
+	if measured <= unmeasured {
+		t.Fatalf("the measured template did not reach the compile: %d predicted before, %d after",
+			unmeasured, measured)
+	}
+	// One short turn carries a handful of messages, so the difference must be
+	// the constant plus a few wrappers rather than anything content-shaped.
+	difference := measured - unmeasured
+	if difference < requestOverhead || difference > requestOverhead+20*messageOverhead {
+		t.Fatalf("difference of %d tokens does not look like %d plus a few wrappers of %d",
+			difference, requestOverhead, messageOverhead)
+	}
+}

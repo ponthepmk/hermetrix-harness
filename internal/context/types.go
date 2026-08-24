@@ -65,6 +65,11 @@ type Request struct {
 	Fragments          []Fragment `json:"fragments"`
 	DirectTools        []ToolSpec `json:"direct_tools"`
 	WorstCaseToolBurst int        `json:"worst_case_tool_burst"`
+	// MessageOverhead and RequestOverhead come from the provider's measured
+	// chat template. Zero means unmeasured, and the compiler charges nothing
+	// rather than guessing.
+	MessageOverhead int `json:"message_overhead"`
+	RequestOverhead int `json:"request_overhead"`
 }
 
 type SliceUsage struct {
@@ -85,6 +90,11 @@ type Report struct {
 	OutputReserve      int    `json:"output_reserve"`
 	UncertaintyReserve int    `json:"uncertainty_reserve"`
 	WorstCaseToolBurst int    `json:"worst_case_tool_burst"`
+	// TransportTokens is what the chat template costs: a per-message wrapper
+	// plus a per-request constant. Billed on every request and never part of
+	// the context, so it is added to the prediction and kept out of the
+	// content ledger, which balances what came in against where it went.
+	TransportTokens int `json:"transport_tokens"`
 	// PredictedPrompt is what this request is expected to cost: the selected
 	// context plus the tool schemas. PredictedInput adds WorstCaseToolBurst,
 	// which is budget held back for a tool result that has not happened yet.

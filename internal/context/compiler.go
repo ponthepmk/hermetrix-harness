@@ -137,7 +137,13 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 		report.DroppedIDs = append(report.DroppedIDs, fragment.ID)
 		report.DroppedTokens += c.estimator.Count(fragment.Content)
 	}
-	report.PredictedPrompt = report.SelectedTokens + toolTokens
+	// The template wraps every message the selection produces. System-kind
+	// fragments are joined into one message; everything else becomes its own,
+	// except tool calls from the same step which the caller groups. Counting
+	// each of those separately over-charges by a wrapper per group, which
+	// reserves slightly more than needed rather than slightly less.
+	report.TransportTokens = transportCost(request, selected)
+	report.PredictedPrompt = report.SelectedTokens + toolTokens + report.TransportTokens
 	report.PredictedInput = report.PredictedPrompt + request.WorstCaseToolBurst
 	report.Free = profile.Total - profile.OutputReserve - profile.UncertaintyReserve - report.PredictedInput
 	if report.PredictedInput+profile.OutputReserve+profile.UncertaintyReserve > profile.Total {
@@ -436,4 +442,26 @@ func (r *Report) reconcile() error {
 			ErrLedgerImbalance, r.SpilledTokens)
 	}
 	return nil
+}
+
+// transportCost prices the chat template for a selection. Unmeasured providers
+// are charged nothing: a guessed overhead is subtracted from usable context on
+// every request, and being wrong there is worse than being incomplete.
+func transportCost(request Request, selected []Fragment) int {
+	// An unmeasured provider carries zeros and is therefore charged nothing by
+	// the arithmetic below. That is deliberate: a guessed overhead is subtracted
+	// from usable context on every request, and being wrong there is worse than
+	// being incomplete.
+	messages, systemSeen := 0, false
+	for _, fragment := range selected {
+		if sliceFor(fragment) == "system" || fragment.Kind == KindProjectInstruction || fragment.Kind == KindSelectedSkill {
+			systemSeen = true
+			continue
+		}
+		messages++
+	}
+	if systemSeen {
+		messages++
+	}
+	return request.RequestOverhead + request.MessageOverhead*messages
 }

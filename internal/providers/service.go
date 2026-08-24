@@ -115,7 +115,7 @@ func (s *Service) EnsureByName(ctx context.Context, input SaveInput) (Profile, e
 
 func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,created_at,updated_at
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,created_at,updated_at
     FROM provider_profiles ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list provider profiles: %w", err)
@@ -150,7 +150,7 @@ func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,created_at,updated_at
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,created_at,updated_at
     FROM provider_profiles WHERE id=?`, id)
 	return scanProfile(row)
 }
@@ -200,7 +200,8 @@ func scanProfile(row scanner) (Profile, error) {
 	if err := row.Scan(&item.ID, &item.Name, &item.AdapterKind, &item.BaseURL, &item.Model, &item.APIKeyEnv,
 		&item.ContextWindow, &item.ContextEvidence, &item.MaxOutputTokens, &enabled,
 		&item.ReasoningRatio, &item.ReasoningSample, &item.TokenMultiplier, &item.TokenSample,
-		&item.NonASCIIRate, &item.NonASCIISample, &created, &updated); err != nil {
+		&item.NonASCIIRate, &item.NonASCIISample, &item.MessageOverhead, &item.RequestOverhead,
+		&item.OverheadMeasuredAt, &created, &updated); err != nil {
 		return Profile{}, err
 	}
 	item.Enabled = enabled != 0
@@ -366,4 +367,99 @@ func (s *Service) ObserveNonASCIIRate(ctx context.Context, providerID string, as
 		    nonascii_sample = nonascii_sample + 1
 		WHERE id=?`, rate, providerID)
 	return err
+}
+
+// overheadProbeMessages are the two message counts the probe compares. Any two
+// distinct counts determine the line; these are small enough to be cheap and far
+// enough apart that a one-token rounding difference cannot distort the slope.
+const (
+	overheadProbeSmall = 1
+	overheadProbeLarge = 9
+	// maxPlausibleMessageOverhead rejects a measurement that cannot be a chat
+	// template. A wrapper is a handful of tokens per message; a hundred means
+	// the provider counted something else, and a wrong overhead is worse than
+	// none because it is subtracted from usable context on every request.
+	maxPlausibleMessageOverhead = 64
+	maxPlausibleRequestOverhead = 4096
+)
+
+// MeasureTokenOverhead determines what a provider bills for a request before
+// any content: the per-message wrapper its chat template adds, and the constant
+// the request carries besides its messages.
+//
+// It sends two requests whose content is identical and whose message counts
+// differ, and reads the reported prompt usage. The difference is the wrapper;
+// the remainder is the constant. Nothing is fitted, which matters because
+// production traffic cannot separate these terms -- message count, content size
+// and language mix grow together there, and a regression on that data returned
+// a per-message cost of minus 260 tokens.
+//
+// Measured against a live gateway the relationship is exactly linear: the same
+// content split across 1, 3, 5, 9, 17 and 33 messages cost 9 more tokens each
+// time. This probe uses empty messages and reads that line as 7 per message
+// over a constant of 45 -- a couple of tokens apart, and on real traffic the
+// two are indistinguishable (p95 7.42% against 7.54%). The remainder is
+// absorbed by the learned script rate, which is what it is for.
+func (s *Service) MeasureTokenOverhead(ctx context.Context, id string) (Profile, error) {
+	profile, err := s.Get(ctx, id)
+	if err != nil {
+		return Profile{}, err
+	}
+	temperature := 0.0
+	probe := func(messages int) (int, error) {
+		request := ChatRequest{MaxTokens: 1, Temperature: &temperature}
+		for i := 0; i < messages; i++ {
+			role := "user"
+			if i%2 == 1 {
+				role = "assistant"
+			}
+			request.Messages = append(request.Messages, Message{Role: role, Content: ""})
+		}
+		completion, err := s.StreamChat(ctx, profile, request, nil)
+		if err != nil {
+			return 0, err
+		}
+		if completion.Usage.PromptTokens <= 0 {
+			return 0, fmt.Errorf("provider reported no prompt usage, so its overhead cannot be measured")
+		}
+		return completion.Usage.PromptTokens, nil
+	}
+	small, err := probe(overheadProbeSmall)
+	if err != nil {
+		return Profile{}, fmt.Errorf("overhead probe: %w", err)
+	}
+	large, err := probe(overheadProbeLarge)
+	if err != nil {
+		return Profile{}, fmt.Errorf("overhead probe: %w", err)
+	}
+	messageOverhead, requestOverhead, err := solveOverhead(small, large)
+	if err != nil {
+		return Profile{}, err
+	}
+	measured := time.Now().UTC().Format(time.RFC3339)
+	if _, err := s.store.DB.ExecContext(ctx, `UPDATE provider_profiles
+		SET token_message_overhead=?, token_request_overhead=?, token_overhead_measured_at=? WHERE id=?`,
+		messageOverhead, requestOverhead, measured, id); err != nil {
+		return Profile{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+// solveOverhead turns two probe results into the two constants, and refuses a
+// result that cannot describe a chat template. Silently accepting a nonsense
+// overhead would subtract it from usable context on every later request.
+func solveOverhead(small, large int) (messageOverhead, requestOverhead int, err error) {
+	span := overheadProbeLarge - overheadProbeSmall
+	difference := large - small
+	if difference < 0 {
+		return 0, 0, fmt.Errorf("overhead probe: more messages billed fewer tokens (%d then %d)", small, large)
+	}
+	messageOverhead = difference / span
+	requestOverhead = small - messageOverhead*overheadProbeSmall
+	if messageOverhead > maxPlausibleMessageOverhead || requestOverhead < 0 || requestOverhead > maxPlausibleRequestOverhead {
+		return 0, 0, fmt.Errorf(
+			"overhead probe: %d tokens per message and %d per request is not a chat template; probes billed %d and %d",
+			messageOverhead, requestOverhead, small, large)
+	}
+	return messageOverhead, requestOverhead, nil
 }

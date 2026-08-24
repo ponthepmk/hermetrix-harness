@@ -472,6 +472,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 	// with the same ruler. The shared adaptive estimator moved between steps and
 	// made a larger context score smaller than the one before it.
 	scale := ctxcompiler.ScriptEstimator{NonASCIIRate: provider.NonASCIIRate, Scale: provider.TokenMultiplier}
+	transport := TransportOverhead{MessageOverhead: provider.MessageOverhead, RequestOverhead: provider.RequestOverhead}
 	maxTokens := provider.MaxOutputTokens
 	if maxTokens > profile.OutputReserve {
 		maxTokens = profile.OutputReserve
@@ -491,7 +492,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		if err != nil {
 			return TurnResult{}, err
 		}
-		compiled, selected, err := s.compileTurn(ctx, profile, events, turnID, session.Contract, scale)
+		compiled, selected, err := s.compileTurn(ctx, profile, events, turnID, session.Contract, scale, transport)
 		if err != nil {
 			return TurnResult{}, err
 		}
@@ -1256,7 +1257,8 @@ type selectedSkill struct {
 }
 
 func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, events []Event, currentTurnID string,
-	contract SessionContract, scale ctxcompiler.ScriptEstimator) (ctxcompiler.Compiled, []selectedSkill, error) {
+	contract SessionContract, scale ctxcompiler.ScriptEstimator,
+	transport TransportOverhead) (ctxcompiler.Compiled, []selectedSkill, error) {
 	now := time.Now().UTC()
 	fragments := []ctxcompiler.Fragment{
 		{ID: "identity:hermetrix", Kind: ctxcompiler.KindIdentity, Scope: "runtime", Provenance: "hermetrix",
@@ -1338,7 +1340,8 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 				CacheClass: "rolling", Content: event.Content, CreatedAt: event.CreatedAt, Metadata: metadata})
 		}
 	}
-	request := ctxcompiler.Request{Profile: profile, Fragments: fragments}
+	request := ctxcompiler.Request{Profile: profile, Fragments: fragments,
+		MessageOverhead: transport.MessageOverhead, RequestOverhead: transport.RequestOverhead}
 	if len(contract.ToolBindings) > 0 {
 		request.DirectTools = contextSpecsFor(contract.ToolBindings)
 		request.WorstCaseToolBurst = 2048
@@ -2186,4 +2189,11 @@ func compiledParts(compiled ctxcompiler.Compiled) (asciiTokens, nonASCIIChars in
 		nonASCIIChars += nonASCII
 	}
 	return asciiTokens, nonASCIIChars
+}
+
+// TransportOverhead is the measured cost of a provider's chat template, read
+// once at the start of a turn so every step of that turn prices it the same.
+type TransportOverhead struct {
+	MessageOverhead int
+	RequestOverhead int
 }
