@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2519,5 +2520,191 @@ func TestMeasuredChatTemplateReachesTheCompile(t *testing.T) {
 	if difference < requestOverhead || difference > requestOverhead+20*messageOverhead {
 		t.Fatalf("difference of %d tokens does not look like %d plus a few wrappers of %d",
 			difference, requestOverhead, messageOverhead)
+	}
+}
+
+// TestTheVerdictLooksAtTheRecentWindowNotTheColdStart covers a metric that
+// never forgot. The estimator calibrates itself, so its lifetime record
+// contains the period before it had calibrated. Measured live from a cold
+// start, the first seven requests missed by 9% to 21% and all thirty-one after
+// them landed inside the band -- lifetime p95 19.9%, last fifteen 6.5%. Judged
+// over all history that provider stays out of band forever, because of requests
+// it made before it knew anything.
+func TestTheVerdictLooksAtTheRecentWindowNotTheColdStart(t *testing.T) {
+	service, profile, cleanup := testAgentService(t, httptest.NewServer(http.NotFoundHandler()))
+	defer cleanup()
+	ctx := context.Background()
+	record := func(index, predicted, actual int) {
+		if _, err := service.store.DB.ExecContext(ctx, `INSERT INTO token_observations(id,session_id,turn_id,
+			step_number,provider_id,model,profile_name,context_snapshot_id,predicted_prompt,predicted_input,
+			actual_input,ascii_tokens,nonascii_chars,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			"tokobs_"+strconv.Itoa(index), "s1", "t"+strconv.Itoa(index), 1, profile.ID, profile.Model,
+			"compact-32k", "ctx1", predicted, predicted, actual, 0, 0,
+			time.Unix(int64(1000+index), 0).UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A cold start that misses badly, then a long run inside the band.
+	for i := 0; i < 7; i++ {
+		record(i, 1000, 1200) // +20%
+	}
+	for i := 7; i < 7+TokenAccuracyWindow; i++ {
+		record(i, 1000, 1030) // +3%
+	}
+	stats, err := service.TokenAccuracyMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("stats = %+v, want one model", stats)
+	}
+	item := stats[0]
+	if item.LifetimeSamples != 7+TokenAccuracyWindow {
+		t.Fatalf("lifetime_samples = %d, want %d", item.LifetimeSamples, 7+TokenAccuracyWindow)
+	}
+	if item.Samples != TokenAccuracyWindow {
+		t.Fatalf("samples = %d, want the window of %d", item.Samples, TokenAccuracyWindow)
+	}
+	if item.P95AbsError > 0.05 {
+		t.Fatalf("p95 = %.3f; the cold start is still being judged", item.P95AbsError)
+	}
+	if item.Verdict != "within_band" {
+		t.Fatalf("verdict = %q, want within_band once the cold start has aged out", item.Verdict)
+	}
+}
+
+// TestAnOverflowIsNeverForgotten is the other half. Calibration state ages out;
+// a request billed above its profile's own ceiling does not, because that is a
+// fact about safety rather than about how well the estimator was doing that day.
+func TestAnOverflowIsNeverForgotten(t *testing.T) {
+	service, profile, cleanup := testAgentService(t, httptest.NewServer(http.NotFoundHandler()))
+	defer cleanup()
+	ctx := context.Background()
+	record := func(index, predicted, actual int) {
+		if _, err := service.store.DB.ExecContext(ctx, `INSERT INTO token_observations(id,session_id,turn_id,
+			step_number,provider_id,model,profile_name,context_snapshot_id,predicted_prompt,predicted_input,
+			actual_input,ascii_tokens,nonascii_chars,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			"tokobs_"+strconv.Itoa(index), "s1", "t"+strconv.Itoa(index), 1, profile.ID, profile.Model,
+			"compact-32k", "ctx1", predicted, predicted, actual, 0, 0,
+			time.Unix(int64(1000+index), 0).UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One request billed past the 32,768-token ceiling of compact-32k, long ago.
+	record(0, 40000, 40001)
+	for i := 1; i <= 2*TokenAccuracyWindow; i++ {
+		record(i, 1000, 1010)
+	}
+	stats, err := service.TokenAccuracyMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats[0].Overflows != 1 {
+		t.Fatalf("overflows = %d after ageing out of the window, want 1", stats[0].Overflows)
+	}
+	if stats[0].P95AbsError > 0.05 {
+		t.Fatalf("precondition: recent accuracy should be fine, got p95 %.3f", stats[0].P95AbsError)
+	}
+	if stats[0].Verdict != "out_of_band" {
+		t.Fatalf("verdict = %q; an overflow stopped counting once it left the window", stats[0].Verdict)
+	}
+}
+
+// TestUnsendableToolArgumentsAreNotBudgetedFor covers the gap between what the
+// compiler counted and what the request carried. A tool call's arguments are
+// replayed through replayableArguments, which substitutes "{}" for anything a
+// provider would reject, so counting the original reserved context for bytes
+// that were then dropped.
+//
+// Live, a reasoning model emitted three calls whose arguments were 12,131
+// characters of a repeated Thai tone mark, truncated mid-string. About 6,700
+// tokens were charged for them; the request carried "{}"; the provider billed
+// 11,744 against a prediction of 16,722. The same ballast was replayed into
+// every later compile, taking active budget from real evidence to send nothing.
+func TestUnsendableToolArgumentsAreNotBudgetedFor(t *testing.T) {
+	service, profile, cleanup := testAgentService(t, httptest.NewServer(http.NotFoundHandler()))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "ballast", ProviderID: profile.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	truncated := `{"query": "` + strings.Repeat("ยื่", 1200) // no closing quote or brace
+	if json.Valid([]byte(truncated)) {
+		t.Fatal("precondition: the fixture arguments should not parse")
+	}
+	events := []Event{
+		{ID: "event_user", SessionID: session.ID, TurnID: "t1", EventKind: "message", Role: "user",
+			Content: "คำนวณภาษี", CreatedAt: now},
+		{ID: "event_call", SessionID: session.ID, TurnID: "t1", EventKind: "tool_call", Role: "assistant",
+			Content: truncated, CreatedAt: now.Add(time.Second),
+			Metadata: map[string]any{"tool_call_id": "call-1", "tool_name": "skill_search",
+				"tool_type": "function", "tool_step": "1"}},
+		{ID: "event_result", SessionID: session.ID, TurnID: "t1", EventKind: "tool_result", Role: "tool",
+			Content: `{"status":"failed","error":"decode skill_search arguments"}`, CreatedAt: now.Add(2 * time.Second),
+			Metadata: map[string]any{"tool_call_id": "call-1", "tool_name": "skill_search"}},
+	}
+	profileSpec, ok := ctxcompiler.ProfileByName("certified-64k")
+	if !ok {
+		t.Fatal("missing profile")
+	}
+	compiled, _, err := service.compileTurn(ctx, profileSpec, events, "t1", session.Contract,
+		ctxcompiler.ScriptEstimator{NonASCIIRate: 0.55, Scale: 1}, TransportOverhead{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var callContent string
+	for _, fragment := range compiled.Fragments {
+		if fragment.Kind == ctxcompiler.KindToolCall {
+			callContent = fragment.Content
+		}
+	}
+	if callContent != "{}" {
+		t.Fatalf("the compile carried %d characters of unsendable arguments", len(callContent))
+	}
+	// What the transport will send is what the budget must reflect.
+	messages := renderMessages(compiled.Fragments)
+	for _, message := range messages {
+		for _, call := range message.ToolCalls {
+			if call.Function.Arguments != callContent {
+				t.Fatalf("compiled %q but the request carries %q", callContent, call.Function.Arguments)
+			}
+		}
+	}
+	if compiled.Report.SelectedTokens > 2000 {
+		t.Fatalf("selected %d tokens for a turn whose only large content is never sent",
+			compiled.Report.SelectedTokens)
+	}
+	// A tool result is not a tool call and is never rewritten. Its content is
+	// often not JSON at all -- a spilled result is an artifact receipt in plain
+	// text -- and blanking that would destroy the evidence of what a tool did.
+	events[2].Content = "[artifact ref=abc123 bytes=8075 sha256=abc123]\nPreview: ยอดรวมหลังปัดเศษ 1,234.57 บาท"
+	events[2].ID = "event_result_spilled"
+	compiled, _, err = service.compileTurn(ctx, profileSpec, events, "t1", session.Contract,
+		ctxcompiler.ScriptEstimator{NonASCIIRate: 0.55, Scale: 1}, TransportOverhead{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range compiled.Fragments {
+		if fragment.Kind == ctxcompiler.KindToolResult && fragment.Content != events[2].Content {
+			t.Fatalf("a spilled tool result was rewritten to %q", fragment.Content)
+		}
+	}
+
+	// Valid arguments must survive untouched: this is about what cannot be sent,
+	// not about trimming tool calls.
+	events[1].Content = `{"query":"ปัดเศษสตางค์"}`
+	events[1].ID = "event_call2"
+	compiled, _, err = service.compileTurn(ctx, profileSpec, events, "t1", session.Contract,
+		ctxcompiler.ScriptEstimator{NonASCIIRate: 0.55, Scale: 1}, TransportOverhead{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range compiled.Fragments {
+		if fragment.Kind == ctxcompiler.KindToolCall && fragment.Content != events[1].Content {
+			t.Fatalf("valid arguments were rewritten to %q", fragment.Content)
+		}
 	}
 }

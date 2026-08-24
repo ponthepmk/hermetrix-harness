@@ -1332,12 +1332,30 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 			metadata["tool_step"] = metadataString(event.Metadata, "tool_step")
 			metadata["assistant_content"] = metadataString(event.Metadata, "assistant_content")
 			kind := ctxcompiler.KindToolCall
+			content := event.Content
 			if event.EventKind == "tool_result" {
 				kind = ctxcompiler.KindToolResult
+			} else {
+				// O-32: a tool call's arguments are replayed through
+				// replayableArguments, which substitutes "{}" for anything a
+				// provider would reject. Counting the original meant budgeting for
+				// bytes the transport then dropped.
+				//
+				// Live, a reasoning model emitted three calls whose arguments were
+				// 12,131 characters of a repeated Thai tone mark, truncated
+				// mid-string. The compiler charged about 6,700 tokens for them, the
+				// request carried "{}", and the provider billed 11,744 against a
+				// prediction of 16,722. Worse than the mismatch: that ballast was
+				// replayed into every later compile, taking active budget from real
+				// evidence and forcing compaction early, to send nothing.
+				//
+				// The event log still holds what the model actually emitted. This is
+				// the compile, and a compile should describe the request.
+				content = replayableArguments(content)
 			}
 			fragments = append(fragments, ctxcompiler.Fragment{ID: "event:" + event.ID, Kind: kind, Scope: "session",
 				Provenance: event.Role, Trust: "tool", Version: "v1", Priority: 82, PairID: callID,
-				CacheClass: "rolling", Content: event.Content, CreatedAt: event.CreatedAt, Metadata: metadata})
+				CacheClass: "rolling", Content: content, CreatedAt: event.CreatedAt, Metadata: metadata})
 		}
 	}
 	request := ctxcompiler.Request{Profile: profile, Fragments: fragments,
@@ -2086,6 +2104,7 @@ func (s *Service) TokenAccuracyMetrics(ctx context.Context) ([]TokenAccuracyStat
 	type bucket struct {
 		signed    []float64
 		overflows int
+		lifetime  int
 	}
 	buckets := map[[2]string]*bucket{}
 	var order [][2]string
@@ -2106,6 +2125,7 @@ func (s *Service) TokenAccuracyMetrics(ctx context.Context) ([]TokenAccuracyStat
 			order = append(order, key)
 		}
 		item.signed = append(item.signed, float64(actual-predicted)/float64(predicted))
+		item.lifetime++
 		if profile, ok := ctxcompiler.ProfileByName(profileName); ok && actual > profile.Total {
 			item.overflows++
 		}
@@ -2115,7 +2135,16 @@ func (s *Service) TokenAccuracyMetrics(ctx context.Context) ([]TokenAccuracyStat
 	}
 	out := make([]TokenAccuracyStats, 0, len(order))
 	for _, key := range order {
-		out = append(out, summariseTokenAccuracy(key[0], key[1], buckets[key].signed, buckets[key].overflows))
+		item := buckets[key]
+		// The verdict looks at the recent window; the lifetime count travels with
+		// it so the window is never mistaken for the whole record.
+		recent := item.signed
+		if len(recent) > TokenAccuracyWindow {
+			recent = recent[len(recent)-TokenAccuracyWindow:]
+		}
+		stats := summariseTokenAccuracy(key[0], key[1], recent, item.overflows)
+		stats.LifetimeSamples = item.lifetime
+		out = append(out, stats)
 	}
 	return out, nil
 }
