@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,7 +119,7 @@ func TestTokenScaleSurvivesAReopen(t *testing.T) {
 		t.Fatalf("a new profile starts at %v, want 1", profile.TokenMultiplier)
 	}
 	for i := 0; i < 10; i++ {
-		if err := service.ObserveTokenScale(ctx, profile.ID, 1000, 750); err != nil {
+		if err := service.ObserveTokenScale(ctx, profile.ID, 1, 1000, 750); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -171,10 +172,10 @@ func TestTokenScaleIsPerProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 5; i++ {
-		if err := service.ObserveTokenScale(ctx, thai.ID, 1000, 700); err != nil {
+		if err := service.ObserveTokenScale(ctx, thai.ID, 1, 1000, 700); err != nil {
 			t.Fatal(err)
 		}
-		if err := service.ObserveTokenScale(ctx, english.ID, 1000, 1400); err != nil {
+		if err := service.ObserveTokenScale(ctx, english.ID, 1, 1000, 1400); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -202,7 +203,7 @@ func TestOneBadUsageReportCannotReplaceTheCalibration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ObserveTokenScale(ctx, profile.ID, 3677, 100); err != nil {
+	if err := service.ObserveTokenScale(ctx, profile.ID, 1, 3677, 100); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := service.Get(ctx, profile.ID)
@@ -210,7 +211,7 @@ func TestOneBadUsageReportCannotReplaceTheCalibration(t *testing.T) {
 		t.Fatalf("a 0.027 ratio moved the multiplier to %v, below the %v floor",
 			after.TokenMultiplier, tokenScaleFloor)
 	}
-	if err := service.ObserveTokenScale(ctx, profile.ID, 100, 100000); err != nil {
+	if err := service.ObserveTokenScale(ctx, profile.ID, 1, 100, 100000); err != nil {
 		t.Fatal(err)
 	}
 	after, _ = service.Get(ctx, profile.ID)
@@ -219,15 +220,71 @@ func TestOneBadUsageReportCannotReplaceTheCalibration(t *testing.T) {
 			after.TokenMultiplier, tokenScaleCeiling)
 	}
 	before := after.TokenMultiplier
-	if err := service.ObserveTokenScale(ctx, profile.ID, 0, 500); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.ObserveTokenScale(ctx, profile.ID, 500, 0); err != nil {
-		t.Fatal(err)
+	for _, empty := range []struct {
+		name              string
+		applied           float64
+		predicted, actual int
+	}{
+		{"no prediction", 1, 0, 500},
+		{"no usage", 1, 500, 0},
+		// An unknown applied scale cannot be divided back out, so the sample
+		// carries no information about the ratio and must not be counted.
+		{"no applied scale", 0, 500, 400},
+	} {
+		if err := service.ObserveTokenScale(ctx, profile.ID, empty.applied, empty.predicted, empty.actual); err != nil {
+			t.Fatalf("%s: %v", empty.name, err)
+		}
 	}
 	unchanged, _ := service.Get(ctx, profile.ID)
 	if unchanged.TokenMultiplier != before || unchanged.TokenSample != after.TokenSample {
 		t.Fatalf("an empty observation was counted: %v/%d became %v/%d",
 			before, after.TokenSample, unchanged.TokenMultiplier, unchanged.TokenSample)
+	}
+}
+
+// TestCalibrationConvergesOnTheRatioNotItsSquareRoot is the property the first
+// version got wrong, and only live data exposed.
+//
+// The multiplier is learned from actual/predicted -- but predicted has already
+// been scaled by that same multiplier, so averaging the ratio is a feedback
+// loop. Its fixed point is the square root of the truth: for a model whose real
+// ratio is 0.80 the multiplier settles at 0.894 and leaves a permanent -10.6%
+// error, close enough to the +/-10% gate to read as noise and never close.
+func TestCalibrationConvergesOnTheRatioNotItsSquareRoot(t *testing.T) {
+	const trueRatio = 0.80
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	service := NewService(dataStore, nil)
+	profile, err := service.Save(ctx, SaveInput{Name: "gateway", BaseURL: "https://models.example/v1",
+		Model: "qwen-test", ContextWindow: 131072, MaxOutputTokens: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	multiplier := 1.0
+	for i := 0; i < 200; i++ {
+		// The compiler measures the same content with whatever ruler it has, and
+		// the provider counts the same content the same way every time.
+		predicted := int(1000 * multiplier)
+		actual := int(1000 * trueRatio)
+		if err := service.ObserveTokenScale(ctx, profile.ID, multiplier, predicted, actual); err != nil {
+			t.Fatal(err)
+		}
+		learned, err := service.Get(ctx, profile.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		multiplier = learned.TokenMultiplier
+	}
+	if math.Abs(multiplier-trueRatio) > 0.01 {
+		t.Fatalf("multiplier settled at %.4f, want %.2f (the square-root fixed point is %.4f)",
+			multiplier, trueRatio, math.Sqrt(trueRatio))
+	}
+	residual := (1000*trueRatio - 1000*multiplier) / (1000 * multiplier)
+	if math.Abs(residual) > 0.02 {
+		t.Fatalf("a converged calibration still leaves %.1f%% error", 100*residual)
 	}
 }

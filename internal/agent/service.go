@@ -544,7 +544,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			// Calibrate against the prompt, never the budget: a multiplier fed the
 			// budget would quietly absorb the tool-burst reserve and leave real
 			// content under-predicted by about thirteen percent.
-			if err := s.providers.ObserveTokenScale(ctx, provider.ID,
+			if err := s.providers.ObserveTokenScale(ctx, provider.ID, float64(scale),
 				compiled.Report.PredictedPrompt, completion.Usage.PromptTokens); err != nil {
 				return TurnResult{}, err
 			}

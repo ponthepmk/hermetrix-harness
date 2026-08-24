@@ -2248,7 +2248,7 @@ func TestACalibratedProviderCompilesADifferentBudget(t *testing.T) {
 	// Teach this provider that its tokenizer packs the text far tighter than the
 	// heuristic assumes, which is the direction the live gateway actually moved.
 	for i := 0; i < 40; i++ {
-		if err := service.providers.ObserveTokenScale(ctx, profile.ID, 1000, 550); err != nil {
+		if err := service.providers.ObserveTokenScale(ctx, profile.ID, 1, 1000, 550); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -2311,5 +2311,68 @@ func TestCalibrationLearnsFromThePromptNotTheBudget(t *testing.T) {
 	}
 	if learned.TokenSample != 1 {
 		t.Fatalf("sample = %d after one step, want 1", learned.TokenSample)
+	}
+}
+
+// TestTheAppliedScaleIsTheOneThatProducedThePrediction closes the loop between
+// the compile and the calibration. The prediction is already scaled by the
+// multiplier, so learning from actual/predicted without dividing that scale
+// back out converges on the square root of the truth instead of the truth.
+// This asserts the agent hands over the scale it actually compiled with.
+func TestTheAppliedScaleIsTheOneThatProducedThePrediction(t *testing.T) {
+	const reported = 3000
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"+
+			"\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":2,\"total_tokens\":%d}}\n\ndata: [DONE]\n\n",
+			reported, reported+2)
+	}))
+	service, profile, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	// Move the ruler well away from 1 so passing a constant 1 is distinguishable.
+	for i := 0; i < 30; i++ {
+		if err := service.providers.ObserveTokenScale(ctx, profile.ID, 1, 1000, 600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := service.providers.Get(ctx, profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.TokenMultiplier > 0.7 {
+		t.Fatalf("precondition: the ruler should be well below 1, got %v", before.TokenMultiplier)
+	}
+	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "applied scale", ProviderID: profile.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "สรุปสั้นๆ"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var predicted int
+	if err := service.store.DB.QueryRowContext(ctx,
+		`SELECT predicted_prompt FROM token_observations WHERE session_id=?`, session.ID).Scan(&predicted); err != nil {
+		t.Fatal(err)
+	}
+	after, err := service.providers.Get(ctx, profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expect := func(applied float64) float64 {
+		ratio := applied * float64(reported) / float64(predicted)
+		return (before.TokenMultiplier*float64(before.TokenSample) + ratio) / float64(before.TokenSample+1)
+	}
+	withApplied := expect(before.TokenMultiplier)
+	withOne := expect(1)
+	if math.Abs(withApplied-withOne) < 0.005 {
+		t.Fatalf("the two rules are indistinguishable here (%v vs %v); the fixture cannot tell them apart",
+			withApplied, withOne)
+	}
+	if math.Abs(after.TokenMultiplier-withApplied) > 0.005 {
+		t.Fatalf("multiplier %v; learning from the applied scale gives %v, learning from 1 gives %v",
+			after.TokenMultiplier, withApplied, withOne)
 	}
 }

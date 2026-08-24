@@ -306,11 +306,22 @@ const (
 // mean, the same way ObserveReasoning does. A running mean rather than a decaying
 // one because a tokenizer's ratio for a given model and language mix is close to
 // constant: the noise is in the sample, not in the truth.
-func (s *Service) ObserveTokenScale(ctx context.Context, providerID string, predicted, actual int) error {
-	if predicted <= 0 || actual <= 0 || strings.TrimSpace(providerID) == "" {
+//
+// applied is the multiplier that produced this prediction, and it is required.
+// Without it the average is taken over actual/predicted, where predicted has
+// already been scaled by the very number being learned. That is a feedback loop,
+// and its fixed point is not the truth but its square root: for a model whose
+// real ratio is 0.80 the multiplier settles at 0.894 and leaves a permanent
+// -10.6% error -- close enough to the ±10% gate to look like noise and never
+// close. Simulated over 200 steps, and matching what the live gateway did.
+//
+// Dividing the prediction back out first removes the loop, and the mean
+// converges on the ratio itself.
+func (s *Service) ObserveTokenScale(ctx context.Context, providerID string, applied float64, predicted, actual int) error {
+	if predicted <= 0 || actual <= 0 || applied <= 0 || strings.TrimSpace(providerID) == "" {
 		return nil
 	}
-	ratio := float64(actual) / float64(predicted)
+	ratio := applied * float64(actual) / float64(predicted)
 	if ratio < tokenScaleFloor {
 		ratio = tokenScaleFloor
 	}
