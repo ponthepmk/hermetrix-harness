@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -62,7 +63,8 @@ func (a *OpenAIAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 		if apiKey != "" {
 			clean = strings.ReplaceAll(clean, apiKey, "[redacted]")
 		}
-		return Completion{}, fmt.Errorf("provider returned HTTP %d: %s", response.StatusCode, clean)
+		return Completion{}, fmt.Errorf("provider returned HTTP %d: %s", response.StatusCode,
+			summariseErrorBody(response.Header.Get("Content-Type"), clean))
 	}
 
 	mediaType := response.Header.Get("Content-Type")
@@ -204,4 +206,65 @@ func mergeUsage(current, next Usage) Usage {
 		current.TotalTokens = next.TotalTokens
 	}
 	return current
+}
+
+const (
+	maxErrorBodyRunes = 600
+	maxErrorPageRunes = 200
+)
+
+var (
+	htmlTagPattern = regexp.MustCompile(`(?s)<[^>]*>`)
+	// Stripping tags alone leaves the contents of script and style elements
+	// behind, because that text sits between the tags rather than inside them --
+	// a stylesheet is not readable diagnosis.
+	// RE2 has no backreferences, so each element gets its own pattern.
+	htmlScriptPattern = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>`)
+	htmlStylePattern  = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
+)
+
+// summariseErrorBody keeps a failed request from putting a web page into the
+// conversation.
+//
+// A gateway timeout returned a 2 KiB Cloudflare error page. That text became
+// the turn_failed event, which is replayed to the model as assistant history
+// and was carried into a compacted checkpoint -- markup and all, occupying
+// summary budget meant for evidence and presenting an intermediary's HTML as
+// something the assistant had said.
+//
+// A provider's own error bodies are short and structured and are kept, bounded.
+// An HTML page is never the useful part: the status code is. The excerpt is
+// stripped of markup so what survives is readable rather than a fragment of a
+// stylesheet.
+func summariseErrorBody(contentType, body string) string {
+	if body == "" {
+		return "(empty response body)"
+	}
+	if looksLikeHTML(contentType, body) {
+		stripped := htmlStylePattern.ReplaceAllString(htmlScriptPattern.ReplaceAllString(body, " "), " ")
+		text := collapseSpaces(htmlTagPattern.ReplaceAllString(stripped, " "))
+		if text == "" {
+			return "(an HTML error page with no readable text)"
+		}
+		return "(HTML error page) " + truncateRunes(text, maxErrorPageRunes)
+	}
+	return truncateRunes(collapseSpaces(body), maxErrorBodyRunes)
+}
+
+func looksLikeHTML(contentType, body string) bool {
+	if strings.Contains(strings.ToLower(contentType), "html") {
+		return true
+	}
+	prefix := strings.ToLower(strings.TrimSpace(body))
+	return strings.HasPrefix(prefix, "<!doctype html") || strings.HasPrefix(prefix, "<html")
+}
+
+func collapseSpaces(value string) string { return strings.Join(strings.Fields(value), " ") }
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + " …"
 }

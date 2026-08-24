@@ -162,6 +162,106 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-14** | ค่าที่อยู่กลางไฟล์ใหญ่เข้าถึงไม่ได้ — ไม่มี search ไม่มี range read | high | **แก้แล้ว** |
 | **O-15** | reviewer จ่าย model call ทุก turn เพื่อได้ `no_change` | medium | **แก้แล้ว** |
 
+#### รอบขับใช้งานที่สอง (2026-08-24)
+
+รอบนี้ไล่ surface ที่ไม่เคยถูกขับเลย — compaction, GC, backup/import, fidelity lab, skill replay, capability review
+
+| ID | เรื่อง | severity | สถานะ |
+|---|---|---|---|
+| **O-18** | compile report บอกไม่ได้ว่า 68% ของ token หายไปไหน | high | **แก้แล้ว** |
+| **O-19** | `/api/health` ตอบ schema ที่ hardcode ไว้ | medium | **แก้แล้ว** |
+| **O-20** | query ภาษาไทยหา Skill ภาษาไทยไม่เจอ และ metric มองไม่เห็นทั้งภาษา | **critical** | **แก้แล้ว** |
+| **O-21** | export กับ import ไม่ใช่ฟังก์ชันผกผัน และไม่มีอะไรบอก | high | **แก้แล้ว (ส่วนรายงาน)** |
+| **O-22** | *(ถอน)* — ผมเรียก fidelity ผิด API เอง ไม่ใช่ข้อบกพร่อง | — | ถอน |
+| **O-23** | fidelity corpus ที่ seed มากับระบบล้มไม่ได้ | high | **แก้แล้ว** |
+| **O-24** | replay สีเขียวที่ทดสอบแค่ manifest ถูกรายงานเหมือนทดสอบ procedure | high | **แก้แล้ว (ส่วนรายงาน)** |
+
+surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
+
+#### O-18 — compile report บอกไม่ได้ว่า token หายไปไหน *(แก้แล้ว)*
+
+session จริงรายงาน:
+
+```
+original_tokens  : 34038
+selected_tokens  : 10794
+dropped_tokens   :     0
+compacted_tokens :     0
+unaccounted      : 23244   ← 68% ของ input
+```
+
+spill เอาไปหมด — 12 receipt × 8,075 bytes = 96,900 bytes ตรงกับช่องว่างพอดี แต่ report เก็บ spill เป็นรายการ receipt หน่วย **byte** ไม่มี term หน่วย token เลย สองในสามของ input จึงออกจากบัญชีเงียบๆ และ `compression_ratio` ยกความดีความชอบให้ selection
+
+ราคาไม่ใช่แค่ความสวยงาม: **"compaction ไม่เคยทำงาน" ดูเหมือนบั๊กของ compactor** อยู่หลายรอบ เพราะไม่มีอะไรใน report แสดงได้ว่า spill ดูดประวัติไปก่อนที่ active slice จะเต็ม
+
+`Report` เพิ่ม `deduplicated_tokens` / `spilled_tokens` / `unaccounted_tokens` และ `Compile` **fail แทนที่จะคืน report ที่ไม่สมดุล**
+
+และยอดที่สมดุลไม่ได้แปลว่าซื่อสัตย์ — ถ้าการนับ drift กลางคัน ผลรวมยังปิดได้เพราะส่วนต่างไปตกที่ term ที่ไม่มีพยานอิสระ dedup กับ spill จึงต้องมีพยาน (จำนวน fragment และรายการ receipt) และ term ที่อ้างงานโดยไม่ทิ้งร่องรอยที่อื่นถูกปฏิเสธ
+
+mutation 6 ตัว แดงทั้งหมด
+
+#### O-19 — health ตอบ schema ที่เขียนตายไว้ *(แก้แล้ว)*
+
+`GET /api/health` ตอบ `{"schema": 16}` จาก literal ใน handler ขณะที่ฐานข้อมูล migrate ไป 17 แล้ว health คือ endpoint เดียวที่ client ใช้ตัดสินว่า server ตรงกับที่คาดไหม ตัวเลขที่พิมพ์มือจึงแย่กว่าไม่มีตัวเลข — มัน**ผิดอย่างมั่นใจตลอดการ migrate ที่มันมีไว้ตรวจ**
+
+ตอนนี้อ่าน `PRAGMA user_version` จริง พร้อม `expected_schema` จาก build
+
+#### O-20 — retrieval ภาษาไทย *(critical, แก้แล้ว)*
+
+โค้ดเบสมีฟังก์ชันชื่อ `termSet` **สองตัว** ตัวใน `internal/skills/analyzer.go` ทำ character trigram สำหรับสคริปต์ที่ไม่เว้นวรรค ตัวใน `internal/agent/service.go` แยกด้วย whitespace และไม่ทำ ภาษาไทยไม่เว้นวรรคระหว่างคำ ประโยคไทยทั้งประโยคจึงกลายเป็น term เดียวและ match ได้เฉพาะประโยคที่เหมือนกันทุกไบต์
+
+วัดกับ Skill ที่ summary ตรงกับ query พอดี:
+
+```
+"ปัดเศษสตางค์"                        0 hits
+"การปัดเศษเงิน"                       0 hits
+"ปัดเศษเงินไทยเป็นสตางค์แบบครึ่งขึ้น"  1 hit   (คือ summary ทั้งสตริง)
+```
+
+**ตัวที่ตาบอดคือตัวที่ผู้ใช้เจอ** `selectSkillBindings` ป้อนทั้งสามอย่าง: preselection เข้า session contract · `skill_search` · และ **ตัวหารของ skill-retrieval metric** เทิร์นภาษาไทยจึงถูกนับว่า "ไม่มี Skill ที่เกี่ยวข้อง" `no_skill_requested_rate` เลยรายงานว่าไม่มีโอกาสพลาดเลยสำหรับภาษาที่ผลิตภัณฑ์นี้เขียนขึ้นมาเพื่อ — **metric ที่มองไม่เห็นหัวข้อของตัวเอง**
+
+ทั้งสองเส้นทางใช้ `internal/textmatch` ร่วมกันแล้ว word กับ trigram ให้คะแนนแยกกันเพราะให้ข้อมูลไม่เท่ากัน: ASCII word เป็นหน่วยความหมาย match เดียวคือหลักฐาน · trigram เป็นเศษ มีความหมายเฉพาะเป็นสัดส่วน
+
+สัดส่วนคิดเทียบฝั่งที่สั้นกว่า จาก goal ไทยยาวเรื่องปัดเศษสตางค์ Skill สั้นที่ตรงเป๊ะแชร์ 7 trigram ส่วน summary ยาวที่ไม่เกี่ยวแชร์ 17 เพราะยาว — **นับดิบจะจัดตัวที่ผิดขึ้นก่อน**
+
+**ยังไม่รองรับ และไม่กลบ:** query ภาษาไทยกับ catalog ที่เขียนเป็นอังกฤษ lexical matching ข้ามภาษาไม่ได้
+
+#### O-21 — export กับ import ไม่ใช่ฟังก์ชันผกผัน *(แก้ส่วนรายงาน)*
+
+export serialise 42 ตาราง — ทุก session, event, provider profile, tool approval, memory, snapshot · import อ่านสองตาราง (`skills`, `skill_versions`) แล้วแปลงเป็น candidate
+
+restore ของจริงลง instance เปล่า: ไฟล์ที่มี 210 event, 4 session, 21 blob ให้ผลเป็น **Skill candidate 3 ตัวและไม่มีอะไรอื่น** พร้อมรายงาน `state: imported`, `conflicts: 0` ไม่มีอะไรบอกว่าบทสนทนาอยู่ในไฟล์และถูกทิ้ง
+
+**export ควรใส่น้อยลง หรือ import ควรคืนมากขึ้น เป็นคำถามเชิงออกแบบ ยังเปิดอยู่** ส่วนการรายงานไม่ใช่ — ผลลัพธ์ระบุทุกตารางที่ไม่ว่างซึ่ง import ไม่ได้อ่าน
+
+candidate-only promotion เป็นเจตนาและไม่เปลี่ยน — ความรู้ที่ import เข้ามาต้องไม่ active โดยไม่ผ่าน review
+
+#### O-23 — fidelity corpus ล้มไม่ได้ *(แก้แล้ว)*
+
+สองเคสที่ seed มาเป็น fragment ละสามชิ้น รวมราว 30 token ใส่ลงทุก profile ได้ทั้งก้อน จึงไม่มีอะไรถูก drop/spill/compact เลย **ทุก metric = 1 โดยโครงสร้าง** `compression_ratio` = 1 พอดี `tokens_saved` = 0
+
+corpus ที่ถามว่า compaction รักษาสิ่งสำคัญไหม โดยไม่เคยทำให้เกิด compaction คือการตอบคำถามที่ไม่เคยถูกถาม — รูปแบบเดียวกับ threshold ของ duplicate analyzer ที่ตั้งเหนือทุกอย่างที่ข้อมูลจริงไปถึง
+
+เคสใหม่ `context-pressure` ฝัง fragment สี่ชิ้นที่ต้องรอดไว้ในเนื้อหาที่เกิน active budget ของทุก profile ถึง extended-128k รันกับ compact-32k: **255,824 token เข้า 13,905 ออก** โดย pinned goal คงคำต่อคำ decision ยังอยู่ causal pair ไม่ถูกแยก — **compiler ไม่เคยเป็นส่วนที่อ่อน การวัดต่างหาก**
+
+ปริมาณอย่างเดียวไม่ใช่แรงกดดัน: filler ที่เหมือนกันจะถูก dedup ทิ้งก่อนถึงขั้น selection ทำให้ `original_tokens` ใหญ่แต่ compiler ไม่ถูกทดสอบ ทุก filler จึงพก index ของตัวเอง และมี test ยืนยันคุณสมบัตินี้ตรงๆ
+
+#### O-24 — replay สีเขียวที่ไม่ได้ทดสอบ procedure *(แก้ส่วนรายงาน)*
+
+candidate `improve` ที่กลับด้านทุกขั้นตอน — จาก "เก็บเป็นสตางค์ ปัดครึ่งขึ้น" เป็น "ใช้ทศนิยมบาท ปัดลงและทิ้งเศษ" — ถูก promote ขึ้น active พร้อม `replay_passed: true` และไม่มีคำเตือน
+
+กลไกไม่ได้พัง gate ไม่ได้ถูกข้าม: `CreateCandidate` และ `UpdateCandidate` **รัน replay ให้เองสำหรับ `improve`** freshness check ใน `requireCurrentReplay` จึงเจอ run ที่ตรงเสมอ และเมื่อ Skill ไม่มี fixture runner จะ**สังเคราะห์**หนึ่งตัวที่ตรวจว่า manifest name/description/tool list ไม่เปลี่ยน
+
+การตรวจนั้นคุ้มที่จะรัน แต่ไม่ใช่การตรวจเชิงพฤติกรรม และผลถูกรายงานเป็น `fixtures_total: 1`, `summary.passed: true`, `replay_passed: true` — แยกไม่ออกจาก test suite ที่ไม่พบ regression
+
+**implicit-only replay ควรบล็อก promotion ไหม เป็นคำถามเชิงนโยบาย ยังเปิดอยู่** ส่วนความซื่อสัตย์ไม่ใช่: run รายงาน `author_fixtures` และ `implicit_only` และ candidate พก finding ระดับ warning บอกว่า run ยืนยันแค่ manifest ไม่ได้ทดสอบ procedure — อยู่ตรงที่คนกดอนุมัติมองเห็น
+
+#### ยังไม่ wired: memory ไม่เคยเข้า context
+
+`memories` เขียนได้ อ่านได้ archive ได้ แต่ผู้อ่านเพียงรายเดียวคือ list endpoint — ไม่มีเส้นทางใดพามันเข้า session context
+
+**แผนระบุไว้ถูกแล้ว** (บรรทัด 270: memory revision รอ Phase 11) จึงไม่ใช่ finding ที่ซ่อนอยู่ แต่ระดับผลิตภัณฑ์ยังมีช่องว่าง: API รับและเก็บ memory วันนี้ และผู้ใช้ย่อมเข้าใจว่ามันมีผล ไม่มีอะไรบอกว่ายังไม่ถูกใช้
+
 #### O-8 — probe budget กับ reasoning model *(แก้แล้ว)*
 
 `long_context_recall` ล้มบน gateway จริงโดยคืน sentinel ได้ 2 จาก 5 ตำแหน่ง ดูเผิน ๆ เหมือน model recall ไม่ไหว
@@ -422,7 +522,7 @@ reviewer แยกแยะได้ดี (เหตุผลทั้ง 7 ข
 
 ผลข้างเคียงที่ดี: marker vocabulary ของ trigger เคยอยู่ใน `internal/agent` ที่เดียว พอ filter ต้องใช้ด้วยจึงย้ายไป `internal/learning/triggers.go` เป็นแหล่งเดียว — สอง list ที่ถามคำถามเดียวกันย่อม drift ไปคนละคำตอบ
 
-#### O-11 — output reserve ไม่รู้จัก reasoning token *(high)*
+#### O-11 — output reserve ไม่รู้จัก reasoning token *(แก้แล้ว)*
 
 `Profile.OutputReserve` เป็นตัวเลขเดียว (4,096 ถึง 65,536) ที่สมมติโดยปริยายว่า completion token ทั้งหมดคือคำตอบ บน reasoning model ไม่จริง — และจากที่วัด reasoning ยาวไม่คงที่แม้ prompt เดิม (`grep -rn Reasoning internal/context/` ได้ศูนย์ผลลัพธ์)
 
