@@ -1749,3 +1749,193 @@ func TestMalformedToolArgumentsDoNotPoisonTheNextRequest(t *testing.T) {
 		t.Fatal("no failure receipt explained the malformed call to the model")
 	}
 }
+
+// --- O-16: an empty answer is not a completed turn ---
+//
+// A reasoning model bills its thinking as completion tokens. On a small
+// profile, a growing prompt leaves less and less room until reasoning consumes
+// the whole budget and nothing is emitted. Observed live: from the fourth turn
+// of a compact-32k session, every answer was empty and every one was committed
+// as complete. The session kept taking work and returning silence.
+func TestATurnThatReturnsNoAnswerFailsInsteadOfCommittingSilence(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking at great length about this\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "compact-32k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.RunTurn(ctx, session.ID, TurnInput{Content: "explain something"}, nil)
+	if err == nil {
+		t.Fatal("a turn that produced no answer was reported as complete")
+	}
+	if !strings.Contains(err.Error(), "no answer") || !strings.Contains(err.Error(), "reasoning") {
+		t.Fatalf("the failure does not tell the user why: %v", err)
+	}
+	// No empty assistant message may be left behind claiming to be an answer.
+	detail, err := service.GetSessionDetail(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range detail.Events {
+		if event.EventKind == "message" && event.Role == "assistant" && strings.TrimSpace(event.Content) == "" {
+			t.Fatalf("an empty assistant message was committed: %+v", event)
+		}
+	}
+	assertLeaseReleased(t, service, session.ID)
+}
+
+// A truncated answer that still said something is worth keeping -- it carries
+// the flag rather than failing, because partial work beats none.
+func TestATruncatedButNonEmptyAnswerIsKept(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"some thinking\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"as far as I got\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "compact-32k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "explain something"}, nil)
+	if err != nil {
+		t.Fatalf("a partial answer was thrown away: %v", err)
+	}
+	if result.AssistantEvent.Content != "as far as I got" {
+		t.Fatalf("the partial answer was not kept: %q", result.AssistantEvent.Content)
+	}
+	if result.AssistantEvent.Metadata["output_truncated"] != true {
+		t.Fatal("a partial answer was not flagged as truncated")
+	}
+}
+
+// --- O-11: the output reserve is not all answer ---
+func TestAnswerBudgetTakesReasoningOutOfTheReserve(t *testing.T) {
+	cases := []struct {
+		name    string
+		reserve int
+		ratio   float64
+		want    int
+	}{
+		{"unmeasured model keeps the whole reserve", 4096, 0, 4096},
+		{"a light reasoner keeps most of it", 4096, 0.25, 3072},
+		{"a heavy reasoner keeps little", 4096, 0.9, 409},
+		{"a model that only reasons leaves nothing", 4096, 1, 0},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := answerBudget(testCase.reserve, testCase.ratio); got != testCase.want {
+				t.Fatalf("answer budget %d, want %d", got, testCase.want)
+			}
+		})
+	}
+}
+
+// The measured ratio is frozen at session open. Calibration keeps moving
+// between sessions; inside one it must not, or the budget shifts under a live
+// conversation and changes which history fits -- the prompt moving mid-session,
+// which ADR-1 exists to prevent.
+func TestSessionFreezesTheReasoningRatioItOpenedWith(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	if err := service.providers.ObserveReasoning(ctx, provider.ID, 30, 100); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen := session.Contract.ReasoningRatio
+	if frozen <= 0 {
+		t.Fatalf("the session did not freeze a measured ratio: %+v", session.Contract)
+	}
+	if session.Contract.AnswerBudget >= 8192 || session.Contract.AnswerBudget <= 0 {
+		t.Fatalf("answer budget %d does not reflect the ratio", session.Contract.AnswerBudget)
+	}
+	// Move the global measurement well away from where it was.
+	for round := 0; round < 20; round++ {
+		if err := service.providers.ObserveReasoning(ctx, provider.ID, 95, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reloaded, err := service.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Contract.ReasoningRatio != frozen {
+		t.Fatalf("a live session's ratio moved from %v to %v", frozen, reloaded.Contract.ReasoningRatio)
+	}
+}
+
+// A model measured as spending nearly all of its output thinking cannot answer
+// inside a small profile. Say so at the door rather than let the user find out
+// one silent turn at a time.
+func TestSessionIsRefusedWhenNoAnswerWouldFit(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	// 90%%: compact-32k reserves 4096 and keeps 409, under the floor;
+	// extended-128k reserves 16384 and keeps 1638, which is a usable reply.
+	for round := 0; round < 10; round++ {
+		if err := service.providers.ObserveReasoning(ctx, provider.ID, 90, 100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "compact-32k", QualificationOverride: testQualificationOverride()})
+	if err == nil {
+		t.Fatal("a session opened where no answer could fit")
+	}
+	for _, want := range []string{"reasoning", "larger output reserve"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal does not explain itself (%q missing): %v", want, err)
+		}
+	}
+	// The same model still works where the reserve is big enough. extended-128k
+	// reserves 16384, so even a 99%% reasoner keeps enough for a reply.
+	if _, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "extended-128k", QualificationOverride: testQualificationOverride()}); err != nil {
+		t.Fatalf("a large profile was refused for a heavy reasoner: %v", err)
+	}
+}
+
+func TestReasoningRatioIsMeasuredFromCompletions(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	before, err := service.providers.Get(ctx, provider.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ReasoningSample != 0 {
+		t.Fatalf("a fresh provider already carries samples: %+v", before)
+	}
+	if err := service.providers.ObserveReasoning(ctx, provider.ID, 50, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.providers.ObserveReasoning(ctx, provider.ID, 100, 100); err != nil {
+		t.Fatal(err)
+	}
+	after, err := service.providers.Get(ctx, provider.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ReasoningSample != 2 {
+		t.Fatalf("samples %d, want 2", after.ReasoningSample)
+	}
+	if after.ReasoningRatio < 0.74 || after.ReasoningRatio > 0.76 {
+		t.Fatalf("ratio %v, want the mean of 0.5 and 1.0", after.ReasoningRatio)
+	}
+}

@@ -28,8 +28,17 @@ func TestMigrationFromV1AddsLearningAgentAndBindingTables(t *testing.T) {
 	}
 	defer dataStore.Close()
 	var schemaVersion int
-	if err := dataStore.DB.QueryRow(`PRAGMA user_version`).Scan(&schemaVersion); err != nil || schemaVersion != 16 {
+	if err := dataStore.DB.QueryRow(`PRAGMA user_version`).Scan(&schemaVersion); err != nil || schemaVersion != CurrentSchemaVersion {
 		t.Fatalf("schema version=%d err=%v", schemaVersion, err)
+	}
+	// A version number proves nothing on its own. Check that the newest
+	// migration actually added its columns.
+	for _, column := range []string{"reasoning_ratio", "reasoning_sample"} {
+		var found int
+		if err := dataStore.DB.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('provider_profiles') WHERE name=?`, column).Scan(&found); err != nil || found != 1 {
+			t.Fatalf("provider_profiles is missing column %s: found=%d err=%v", column, found, err)
+		}
 	}
 	for _, table := range []string{"learning_reviews", "learning_trigger_outbox", "curator_runs", "provider_profiles", "agent_sessions", "agent_events", "context_snapshots", "step_bindings", "tool_approvals", "mcp_servers", "mcp_tools", "skill_replay_runs", "skill_replay_cases", "candidate_capability_reviews", "context_eval_cases", "context_eval_runs", "model_qualification_runs", "projects", "artifacts", "background_jobs", "settings", "memories", "backup_runs", "curator_findings", "maintenance_schedules", "gc_runs", "skill_authority_policy", "skill_authority_actions", "terminal_sessions", "browser_tabs", "agent_teams", "agent_team_members", "agent_team_runs", "agent_team_tasks"} {
 		var found string
@@ -78,7 +87,7 @@ func TestMigrationFromV1AddsLearningAgentAndBindingTables(t *testing.T) {
 		t.Fatalf("tool_bindings_json columns = %d", toolBindingsColumn)
 	}
 	var version int
-	if err := dataStore.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 16 {
+	if err := dataStore.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, err=%v", version, err)
 	}
 }
@@ -117,7 +126,7 @@ func TestMigrationFromPreReleaseV11AcceptsQualificationColumnsAlreadyPresent(t *
 	}
 	defer dataStore.Close()
 	var version int
-	if err := dataStore.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 16 {
+	if err := dataStore.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
 		t.Fatalf("schema version=%d err=%v", version, err)
 	}
 }

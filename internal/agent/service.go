@@ -74,6 +74,16 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 	if err != nil {
 		return Session{}, err
 	}
+	// Refuse up front rather than let the user discover it turn by turn. A model
+	// measured at a high reasoning share leaves too little of a small profile's
+	// output reserve for an answer, and the failure mode is silence, not an
+	// error -- observed live, seven turns of empty replies in a row.
+	if budget := answerBudget(profile.OutputReserve, provider.ReasoningRatio); budget < minimumAnswerBudget {
+		return Session{}, fmt.Errorf(
+			"%s spends about %.0f%% of its output on reasoning, which leaves %d tokens for an answer in %s; "+
+				"choose a context profile with a larger output reserve, or a model that reasons less",
+			provider.Model, provider.ReasoningRatio*100, budget, profile.Name)
+	}
 	title := strings.TrimSpace(input.Title)
 	if title == "" {
 		title = "New Hermetrix session"
@@ -145,6 +155,7 @@ func (s *Service) buildSessionContract(ctx context.Context, provider providers.P
 	contract := SessionContract{ProviderRevision: providers.Revision(provider), ProviderID: provider.ID, Model: provider.Model,
 		ContextProfile: profile.Name, ProjectID: projectID, PolicyRevision: policyRevision,
 		CapabilityRevision: "no-tools-v1", Qualification: qualification, CacheEpoch: 1, CreatedAt: createdAt,
+		ReasoningRatio: provider.ReasoningRatio, AnswerBudget: answerBudget(profile.OutputReserve, provider.ReasoningRatio),
 		SkillCatalog: []SessionSkillBinding{}, SelectedSkills: []SessionSkillBinding{}, TaskBudget: TaskBudget{
 			MaxModelSteps: 12, MaxToolCalls: 24, MaxWallTimeSeconds: 600, MaxCumulativeTokens: profile.Total * 6}}
 	if s.tools != nil {
@@ -508,6 +519,13 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		// than return a truncated answer as though it were complete.
 		if reasoning := s.estimator.Count(completion.Reasoning); reasoning > 0 {
 			reasoningTokens += reasoning
+			// Calibration is global and keeps moving; this session already froze
+			// its own copy, so observing here cannot shift the budget underneath
+			// the conversation that produced the measurement.
+			if completion.Usage.CompletionTokens > 0 {
+				_ = s.providers.ObserveReasoning(context.WithoutCancel(ctx), provider.ID,
+					reasoning, completion.Usage.CompletionTokens)
+			}
 		}
 		if completion.FinishReason == "length" {
 			outputTruncated = true
@@ -539,6 +557,21 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 					FinishReason: "approval_required", Approval: approval}, nil
 			}
 			continue
+		}
+		// O-16: a reasoning model on a small profile can spend its entire output
+		// budget thinking and emit no answer at all. Observed live: from the
+		// fourth turn of a compact-32k session every answer came back empty and
+		// every one was recorded as a completed turn, so the session kept
+		// accepting work and returning nothing for seven turns running.
+		//
+		// An empty answer that was cut off is not a completed turn. Failing here
+		// puts the reason in front of the user instead of leaving them to notice
+		// the silence.
+		if outputTruncated && strings.TrimSpace(completion.Content) == "" && len(completion.ToolCalls) == 0 {
+			return TurnResult{}, fmt.Errorf(
+				"the model spent its whole %d-token output budget on reasoning and returned no answer; "+
+					"about %d tokens went to reasoning. Use a context profile with a larger output reserve, "+
+					"or a model that reasons less for this task", maxTokens, reasoningTokens)
 		}
 		metadata := map[string]any{"finish_reason": completion.FinishReason, "usage": totalUsage,
 			"step_binding_id": binding.ID, "context_snapshot_id": binding.ContextSnapshotID, "steps": stepNumber,
@@ -1944,4 +1977,22 @@ func replayableArguments(arguments string) string {
 		return arguments
 	}
 	return "{}"
+}
+
+// minimumAnswerBudget is the smallest reply worth opening a session for. Below
+// this a reasoning model is spending the whole reserve thinking and the user
+// receives a sentence or nothing.
+const minimumAnswerBudget = 512
+
+// answerBudget is what is left of the output reserve after the reasoning this
+// model is expected to do. A ratio of zero -- an unmeasured or non-reasoning
+// model -- leaves the reserve whole.
+func answerBudget(outputReserve int, reasoningRatio float64) int {
+	if reasoningRatio <= 0 {
+		return outputReserve
+	}
+	if reasoningRatio >= 1 {
+		return 0
+	}
+	return int(float64(outputReserve) * (1 - reasoningRatio))
 }

@@ -154,7 +154,8 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-8** | probe output budget เล็กเกินไปสำหรับ reasoning model | high | **แก้แล้ว** |
 | **O-9** | runtime evidence ไม่มีทางกลายเป็น Skill candidate ได้เลย | **critical** | **แก้แล้ว** |
 | **O-10** | system prompt ไม่เคยบอก model ว่ามี Skill catalog อยู่ | high | **แก้แล้ว** |
-| **O-11** | output reserve ไม่รู้จัก reasoning token | high | **บรรเทาแล้ว** — turn ที่ถูกตัดถูกติดธงพร้อมสัดส่วน reasoning; การจัดสรร reserve ยังไม่แก้ |
+| **O-11** | output reserve ไม่รู้จัก reasoning token | high | **แก้แล้ว** |
+| **O-16** | คำตอบว่างเปล่าถูกบันทึกว่า turn สำเร็จ | **critical** | **แก้แล้ว** |
 | **O-12** | `/api/` path ที่ไม่ match route คืน HTML 200 | high | **แก้แล้ว** |
 | **O-13** | tool-call arguments ที่พังถูก replay กลับไปหา provider ทำให้ทั้ง turn ตาย | high | **แก้แล้ว** |
 | **O-14** | ค่าที่อยู่กลางไฟล์ใหญ่เข้าถึงไม่ได้ — ไม่มี search ไม่มี range read | high | **แก้แล้ว** |
@@ -279,6 +280,55 @@ GET  /api/skills/typo      404 {"error":"not found"}
 catch-all `mux.Handle("/", spa(...))` กว้างกว่า pattern ที่ลงทะเบียนไว้ จึงกลืนทั้ง path ที่พิมพ์ผิดและ method ที่ผิด client แยกไม่ออกจาก success — เป็น false success ระดับ transport ซึ่งขัดกับหลักการของโครงการเองที่ว่าห้ามอ้างผลโดยไม่มี receipt
 
 แก้ด้วย handler `/api/` ที่คืน JSON 404 พร้อมระบุ method+path
+
+#### O-16 — session เงียบไปเฉย ๆ 7 turn ติด *(critical, แก้แล้ว)*
+
+เจอตอนพยายามดัน session ให้ยาวพอจะบังคับ compaction ผลคือ compaction ไม่เคยทำงาน และเหตุผลไม่ใช่เรื่อง compaction เลย
+
+```
+assistant len=7886  trunc=True
+assistant len=1397  trunc=True
+assistant len=3543  trunc=True
+assistant len=0     trunc=True   ← ตั้งแต่ turn 4
+assistant len=0     trunc=True
+... อีก 6 turn
+```
+
+`maxTokens` = `OutputReserve` = 4,096 ของ compact-32k พอ prompt โตขึ้น reasoning ก็ยาวขึ้นจน**กินหมด 4,096 ไม่เหลือให้คำตอบ** และเมื่อถึงจุดนั้นมันไม่กลับมาอีก เพราะ history โตขึ้นเรื่อย ๆ
+
+harness บันทึกทุก turn ว่าสำเร็จ ผู้ใช้ไม่ได้อะไรกลับมา 7 turn ติด และเป็นเหตุผลที่ active history โตแค่ ~90 token ต่อ turn — เพราะมีแต่ข้อความของผู้ใช้ ฝั่ง assistant ไม่เคยเติมอะไรเลย
+
+flag `output_truncated` จาก O-11 ทำงานถูกทุกครั้ง แต่ไม่มีใครอ่านมัน
+
+แก้: คำตอบว่างที่ถูกตัด **ไม่ใช่ turn ที่สำเร็จ** — fail พร้อมบอกตัวเลข แทนที่จะ commit ความเงียบ คำตอบที่ถูกตัดแต่ยังมีเนื้อยังเก็บไว้ตามเดิม เพราะงานบางส่วนดีกว่าไม่มีเลย
+
+#### O-11 — reserve ที่รู้จัก reasoning *(แก้แล้ว: ข + freeze)*
+
+เลือกทางที่วัดจริงแทนการตั้งค่าคงที่ เพราะค่าคงที่ตัวเดียวจะผิดกับ model ทุกตัวคนละแบบ
+
+```
+providers.ObserveReasoning   วัดสัดส่วนจากทุก completion เก็บเป็น running mean ต่อ provider
+SessionContract.ReasoningRatio   ตรึงค่าตอนเปิด session
+SessionContract.AnswerBudget     = OutputReserve × (1 − ratio)
+```
+
+**ทำไมต้อง freeze:** ถ้าปล่อยให้ ratio ขยับระหว่าง session budget จะเปลี่ยน → history ที่เลือกได้เปลี่ยน → **prompt เปลี่ยนกลาง session** ซึ่งขัด ADR-1 ตรง ๆ calibrate ข้าม session ได้ ภายใน session ห้ามขยับ
+
+สองชั้นป้องกัน:
+
+1. **ตอนเปิด session** — ถ้า answer budget ต่ำกว่า 512 token ปฏิเสธพร้อมบอกว่าทำไมและให้ทำอะไรแทน
+2. **ต่อ turn** — คำตอบว่างที่ถูกตัด fail ทันที (O-16)
+
+ชั้นเดียวไม่พอ: ratio ที่วัดได้จริงของ `qwen3.8-27b-fp8` คือ **0.597** ซึ่งผ่านด่านแรกใน compact-32k (เหลือ 1,650) แต่แต่ละ turn ยังล้นได้ตามความยาว prompt
+
+ยืนยันกับ model จริง:
+
+```
+compact-32k    turn ที่เคยเงียบ → error ที่บอกว่า reasoning กินไป 3,019 จาก 4,096
+certified-64k  answer_budget 3,303 → คำตอบกลับมาเต็ม 3,560 และ 4,938 ตัวอักษร
+```
+
+คำแนะนำที่ error บอกไว้ ("ใช้ profile ที่ output reserve ใหญ่กว่า") ทดสอบแล้วว่าแก้ได้จริง
 
 #### O-13 — tool call ที่พังฆ่าทั้ง turn *(แก้แล้ว)*
 

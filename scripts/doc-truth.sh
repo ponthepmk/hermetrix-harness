@@ -70,6 +70,9 @@ mcp-no-auto-retry|automatic_retry|internal/mcp/service.go
 skill-retrieval-metric|func \(s \*Service\) SkillRetrievalMetrics|internal/agent/service.go
 model-reviewer|func \(r \*ModelReviewer\) Review|internal/learning/model_reviewer.go
 workspace-search|func searchFiles|internal/tools/registry.go
+reasoning-aware-budget|func answerBudget|internal/agent/service.go
+reasoning-calibration|func \(s \*Service\) ObserveReasoning|internal/providers/service.go
+empty-answer-fails|returned no answer|internal/agent/service.go
 read-window-keeps-whole-hash|metadata\["total_lines"\]|internal/tools/registry.go
 reviewer-fails-closed|func parseReviewerDecision|internal/learning/model_reviewer.go
 adr7-exit-threshold|NoSkillRequestedRate > 0.5|internal/agent/service.go

@@ -138,7 +138,12 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v16: %w", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA user_version = 16`); err != nil {
+	if version < 17 {
+		if _, err := tx.ExecContext(ctx, schemaV17); err != nil {
+			return fmt.Errorf("apply schema v17: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -146,6 +151,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	}
 	return nil
 }
+
+// CurrentSchemaVersion is the version Open migrates to. Tests assert against
+// this rather than a literal, so adding a migration does not break a test that
+// was never about the number.
+const CurrentSchemaVersion = 17
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -921,4 +931,12 @@ CREATE INDEX IF NOT EXISTS idx_terminal_sessions_project ON terminal_sessions(pr
 CREATE INDEX IF NOT EXISTS idx_browser_tabs_updated ON browser_tabs(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_team_runs_team ON agent_team_runs(team_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_run ON agent_team_tasks(run_id, state);
+`
+
+// schemaV17 records how much of its output a model spends reasoning. Reasoning
+// bills as completion tokens, so a profile's output reserve is not all answer,
+// and on a small profile the answer can round down to nothing.
+const schemaV17 = `
+ALTER TABLE provider_profiles ADD COLUMN reasoning_ratio REAL NOT NULL DEFAULT 0;
+ALTER TABLE provider_profiles ADD COLUMN reasoning_sample INTEGER NOT NULL DEFAULT 0;
 `

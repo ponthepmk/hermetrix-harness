@@ -115,7 +115,8 @@ func (s *Service) EnsureByName(ctx context.Context, input SaveInput) (Profile, e
 
 func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,created_at,updated_at FROM provider_profiles ORDER BY name`)
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,created_at,updated_at
+    FROM provider_profiles ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list provider profiles: %w", err)
 	}
@@ -149,7 +150,8 @@ func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,created_at,updated_at FROM provider_profiles WHERE id=?`, id)
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,created_at,updated_at
+    FROM provider_profiles WHERE id=?`, id)
 	return scanProfile(row)
 }
 
@@ -196,7 +198,8 @@ func scanProfile(row scanner) (Profile, error) {
 	var enabled int
 	var created, updated string
 	if err := row.Scan(&item.ID, &item.Name, &item.AdapterKind, &item.BaseURL, &item.Model, &item.APIKeyEnv,
-		&item.ContextWindow, &item.ContextEvidence, &item.MaxOutputTokens, &enabled, &created, &updated); err != nil {
+		&item.ContextWindow, &item.ContextEvidence, &item.MaxOutputTokens, &enabled,
+		&item.ReasoningRatio, &item.ReasoningSample, &created, &updated); err != nil {
 		return Profile{}, err
 	}
 	item.Enabled = enabled != 0
@@ -266,4 +269,27 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ObserveReasoning folds one completion into the running share of output this
+// model spends thinking. Kept as a simple running mean: the value only has to
+// be good enough to tell "answers get the whole budget" from "answers get a
+// tenth of it", and a mean over every completion is harder to skew than a
+// window.
+//
+// Callers observe after every completion; sessions freeze the value at open so
+// a budget cannot shift under a live conversation.
+func (s *Service) ObserveReasoning(ctx context.Context, providerID string, reasoningTokens, completionTokens int) error {
+	if completionTokens <= 0 || reasoningTokens < 0 || strings.TrimSpace(providerID) == "" {
+		return nil
+	}
+	share := float64(reasoningTokens) / float64(completionTokens)
+	if share > 1 {
+		share = 1
+	}
+	_, err := s.store.DB.ExecContext(ctx, `UPDATE provider_profiles
+		SET reasoning_ratio = ((reasoning_ratio * reasoning_sample) + ?) / (reasoning_sample + 1),
+		    reasoning_sample = reasoning_sample + 1
+		WHERE id=?`, share, providerID)
+	return err
 }

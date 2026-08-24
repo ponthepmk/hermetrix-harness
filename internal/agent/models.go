@@ -73,7 +73,16 @@ type SessionContract struct {
 	Qualification      QualificationBinding     `json:"qualification"`
 	CacheEpoch         int                      `json:"cache_epoch"`
 	TaskBudget         TaskBudget               `json:"task_budget"`
-	CreatedAt          time.Time                `json:"created_at"`
+	// ReasoningRatio is the provider's measured reasoning share, frozen here at
+	// session open. Calibration keeps moving between sessions; inside one it
+	// must not, or the output budget would shift under a live conversation and
+	// change which history fits, which is the prompt moving mid-session.
+	ReasoningRatio float64 `json:"reasoning_ratio"`
+	// AnswerBudget is what is left of the output reserve once the expected
+	// reasoning is taken out. This is the number that matters to a user: it is
+	// how much answer they can actually receive.
+	AnswerBudget int       `json:"answer_budget"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type TaskBudget struct {
