@@ -169,6 +169,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v20: %w", err)
 		}
 	}
+	if version < 21 {
+		if _, err := tx.ExecContext(ctx, schemaV21); err != nil {
+			return fmt.Errorf("apply schema v21: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -181,7 +186,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 20
+const CurrentSchemaVersion = 21
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -1024,4 +1029,24 @@ ALTER TABLE provider_profiles ADD COLUMN token_sample INTEGER NOT NULL DEFAULT 0
 // with use; the second is the truth, and it is a bias a calibration removes.
 const schemaV20 = `
 ALTER TABLE token_observations ADD COLUMN predicted_prompt INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV21 learns how many tokens a character outside ASCII actually costs.
+//
+// The estimator charged one token per such character. No tokenizer does that;
+// measured against a live gateway, Thai runs about 0.51. On a context that is
+// ninety percent Thai the estimate came in thirty percent high, and a single
+// overall multiplier could not correct it, because the right correction depends
+// on how much of the text is non-ASCII and that changes every turn.
+//
+// Refitting twenty-three live requests with the rate as the only free parameter
+// took p95 error from 41.5% to 2.8% and within-band from 1 of 23 to 23 of 23.
+// The rate is learned per provider rather than written down, because 0.51 is
+// one model and one language, and a constant fitted to a single observation is
+// how the duplicate analyzer ended up unable to retrieve anything.
+const schemaV21 = `
+ALTER TABLE provider_profiles ADD COLUMN nonascii_rate REAL NOT NULL DEFAULT 1;
+ALTER TABLE provider_profiles ADD COLUMN nonascii_sample INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE token_observations ADD COLUMN ascii_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE token_observations ADD COLUMN nonascii_chars INTEGER NOT NULL DEFAULT 0;
 `

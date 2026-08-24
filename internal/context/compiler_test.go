@@ -480,3 +480,47 @@ func TestTheReservedBurstIsNotPartOfThePredictedPrompt(t *testing.T) {
 		t.Fatal("prompt prediction is zero")
 	}
 }
+
+// TestScriptEstimatorChargesTheLearnedRate covers the estimator half of the
+// change. The old rule charged one token per non-ASCII character, which no
+// tokenizer does; a Thai-dominant context came out about thirty percent high.
+func TestScriptEstimatorChargesTheLearnedRate(t *testing.T) {
+	thai := strings.Repeat("บัญชีภาษี", 100)
+	assumed := ScriptEstimator{NonASCIIRate: 1, Scale: 1}.Count(thai)
+	learned := ScriptEstimator{NonASCIIRate: 0.5, Scale: 1}.Count(thai)
+	if learned >= assumed {
+		t.Fatalf("halving the rate did not lower the estimate: %d then %d", assumed, learned)
+	}
+	if ratio := float64(learned) / float64(assumed); ratio < 0.45 || ratio > 0.55 {
+		t.Fatalf("halving the rate changed the estimate by %.2f, want about half", ratio)
+	}
+	english := "round every amount half up and reconcile the total"
+	englishLearned := ScriptEstimator{NonASCIIRate: 0.5, Scale: 1}.Count(english)
+	englishAssumed := ScriptEstimator{NonASCIIRate: 1, Scale: 1}.Count(english)
+	if englishLearned != englishAssumed {
+		t.Fatalf("the script rate moved an ASCII-only estimate: %d then %d", englishAssumed, englishLearned)
+	}
+	// An uncalibrated provider must reserve conservatively rather than overflow.
+	zeroRate := ScriptEstimator{}.Count(thai)
+	conservative := ScriptEstimator{NonASCIIRate: DefaultNonASCIIRate, Scale: 1}.Count(thai)
+	if zeroRate != conservative {
+		t.Fatalf("a zero rate counted %d, want the conservative default %d", zeroRate, conservative)
+	}
+	if scaled := (ScriptEstimator{NonASCIIRate: 0.5, Scale: 2}).Count(thai); scaled <= learned {
+		t.Fatalf("the residual scale had no effect: %d then %d", learned, scaled)
+	}
+}
+
+func TestHeuristicPartsSeparatesTheTwoRules(t *testing.T) {
+	ascii, nonASCII := HeuristicParts("abcd efgh")
+	if nonASCII != 0 || ascii == 0 {
+		t.Fatalf("ASCII text gave ascii=%d nonASCII=%d", ascii, nonASCII)
+	}
+	ascii, nonASCII = HeuristicParts("บัญชี")
+	if nonASCII != len([]rune("บัญชี")) {
+		t.Fatalf("nonASCII = %d, want one per character", nonASCII)
+	}
+	if ascii != 0 {
+		t.Fatalf("Thai text produced %d ASCII tokens", ascii)
+	}
+}

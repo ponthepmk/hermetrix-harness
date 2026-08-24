@@ -471,7 +471,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 	// Read once, at the start of the turn, so every step of this turn measures
 	// with the same ruler. The shared adaptive estimator moved between steps and
 	// made a larger context score smaller than the one before it.
-	scale := ctxcompiler.ScaledEstimator(provider.TokenMultiplier)
+	scale := ctxcompiler.ScriptEstimator{NonASCIIRate: provider.NonASCIIRate, Scale: provider.TokenMultiplier}
 	maxTokens := provider.MaxOutputTokens
 	if maxTokens > profile.OutputReserve {
 		maxTokens = profile.OutputReserve
@@ -544,7 +544,15 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			// Calibrate against the prompt, never the budget: a multiplier fed the
 			// budget would quietly absorb the tool-burst reserve and leave real
 			// content under-predicted by about thirteen percent.
-			if err := s.providers.ObserveTokenScale(ctx, provider.ID, float64(scale),
+			asciiTokens, nonASCIIChars := compiledParts(compiled)
+			// Learn the script rate before the residual scale: the rate explains
+			// most of the error, and a scale fitted on top of an unlearned rate
+			// would spend itself absorbing something that is not a scale.
+			if err := s.providers.ObserveNonASCIIRate(ctx, provider.ID,
+				asciiTokens, nonASCIIChars, completion.Usage.PromptTokens); err != nil {
+				return TurnResult{}, err
+			}
+			if err := s.providers.ObserveTokenScale(ctx, provider.ID, scale.Scale,
 				compiled.Report.PredictedPrompt, completion.Usage.PromptTokens); err != nil {
 				return TurnResult{}, err
 			}
@@ -557,7 +565,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			// quantity: of ninety snapshots exactly two could be compared.
 			if err := s.recordTokenObservation(ctx, session, provider, profile, binding, stepNumber,
 				compiled.Report.PredictedPrompt, compiled.Report.PredictedInput,
-				completion.Usage.PromptTokens); err != nil {
+				completion.Usage.PromptTokens, asciiTokens, nonASCIIChars); err != nil {
 				return TurnResult{}, err
 			}
 		}
@@ -1248,7 +1256,7 @@ type selectedSkill struct {
 }
 
 func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, events []Event, currentTurnID string,
-	contract SessionContract, scale ctxcompiler.ScaledEstimator) (ctxcompiler.Compiled, []selectedSkill, error) {
+	contract SessionContract, scale ctxcompiler.ScriptEstimator) (ctxcompiler.Compiled, []selectedSkill, error) {
 	now := time.Now().UTC()
 	fragments := []ctxcompiler.Fragment{
 		{ID: "identity:hermetrix", Kind: ctxcompiler.KindIdentity, Scope: "runtime", Provenance: "hermetrix",
@@ -2040,15 +2048,19 @@ func answerBudget(outputReserve int, reasoningRatio float64) int {
 // context once per model step and the turn total is the sum of those sends --
 // comparing that total against any single step's prediction measures nothing.
 func (s *Service) recordTokenObservation(ctx context.Context, session Session, provider providers.Profile,
-	profile ctxcompiler.Profile, binding StepBinding, stepNumber, predictedPrompt, predictedInput, actual int) error {
+	profile ctxcompiler.Profile, binding StepBinding, stepNumber, predictedPrompt, predictedInput, actual,
+	asciiTokens, nonASCIIChars int) error {
 	_, err := s.store.DB.ExecContext(ctx, `INSERT INTO token_observations(id,session_id,turn_id,step_number,
-      provider_id,model,profile_name,context_snapshot_id,predicted_prompt,predicted_input,actual_input,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+      provider_id,model,profile_name,context_snapshot_id,predicted_prompt,predicted_input,actual_input,
+      ascii_tokens,nonascii_chars,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(session_id,turn_id,step_number) DO UPDATE SET
       predicted_prompt=excluded.predicted_prompt, predicted_input=excluded.predicted_input,
-      actual_input=excluded.actual_input, created_at=excluded.created_at`,
+      actual_input=excluded.actual_input, ascii_tokens=excluded.ascii_tokens,
+      nonascii_chars=excluded.nonascii_chars, created_at=excluded.created_at`,
 		identity.New("tokobs"), session.ID, binding.TurnID, stepNumber, provider.ID, provider.Model,
-		profile.Name, binding.ContextSnapshotID, predictedPrompt, predictedInput, actual, formatTime(time.Now().UTC()))
+		profile.Name, binding.ContextSnapshotID, predictedPrompt, predictedInput, actual,
+		asciiTokens, nonASCIIChars, formatTime(time.Now().UTC()))
 	if err != nil {
 		return fmt.Errorf("record token observation: %w", err)
 	}
@@ -2155,3 +2167,23 @@ func quantile(sorted []float64, fraction float64) float64 {
 }
 
 func round3(value float64) float64 { return math.Round(value*1000) / 1000 }
+
+// compiledParts totals the two quantities the script rate is learned from: the
+// tokens the ASCII rules already model well, and the raw count of characters
+// they do not. Tool schemas are included because the provider bills for them --
+// leaving them out of an earlier fit put a fixed 1,200-token offset into the
+// residual and made a clean calibration look like a 135% error on small
+// contexts.
+func compiledParts(compiled ctxcompiler.Compiled) (asciiTokens, nonASCIIChars int) {
+	for _, fragment := range compiled.Fragments {
+		ascii, nonASCII := ctxcompiler.HeuristicParts(fragment.Content)
+		asciiTokens += ascii
+		nonASCIIChars += nonASCII
+	}
+	for _, tool := range compiled.DirectTools {
+		ascii, nonASCII := ctxcompiler.HeuristicParts(tool.BillableText())
+		asciiTokens += ascii
+		nonASCIIChars += nonASCII
+	}
+	return asciiTokens, nonASCIIChars
+}

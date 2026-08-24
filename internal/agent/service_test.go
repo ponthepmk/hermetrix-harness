@@ -2376,3 +2376,86 @@ func TestTheAppliedScaleIsTheOneThatProducedThePrediction(t *testing.T) {
 			after.TokenMultiplier, withApplied, withOne)
 	}
 }
+
+// TestALearnedScriptRateReachesTheCompileAndTheLedger covers the agent wiring
+// for the per-script rate: the compile must use it, and the observation must
+// record the two quantities it is learned from, tool schemas included.
+//
+// Leaving tool schemas out of those parts is not cosmetic. An earlier fit
+// omitted them and pushed a fixed 1,200-token offset into the residual, which
+// made a clean calibration look like a 135% error on the smallest contexts and
+// a 2% error on the largest -- a shape that reads as an estimator improving
+// with use.
+func TestALearnedScriptRateReachesTheCompileAndTheLedger(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"+
+			"\"usage\":{\"prompt_tokens\":2500,\"completion_tokens\":2,\"total_tokens\":2502}}\n\ndata: [DONE]\n\n")
+	}))
+	service, profile, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	goal := strings.Repeat("รายการบัญชีภาษีที่ต้องกระทบยอด ", 40)
+
+	run := func(title string) (predicted, ascii, nonASCII int) {
+		session, err := service.CreateSession(ctx, CreateSessionInput{Title: title, ProviderID: profile.ID,
+			ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: goal}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.DB.QueryRowContext(ctx,
+			`SELECT predicted_prompt, ascii_tokens, nonascii_chars FROM token_observations WHERE session_id=?`,
+			session.ID).Scan(&predicted, &ascii, &nonASCII); err != nil {
+			t.Fatal(err)
+		}
+		return predicted, ascii, nonASCII
+	}
+
+	assumed, ascii, nonASCII := run("assumed rate")
+	if nonASCII == 0 {
+		t.Fatal("the Thai goal recorded no non-ASCII characters")
+	}
+	// Tool schemas are ASCII and always present, so their absence would show as
+	// a near-zero ASCII half.
+	if ascii < 500 {
+		t.Fatalf("ascii_tokens = %d; the tool schemas were left out of the learned parts", ascii)
+	}
+	for i := 0; i < 30; i++ {
+		if err := service.providers.ObserveNonASCIIRate(ctx, profile.ID, 1000, 4000, 3000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	learned, err := service.providers.Get(ctx, profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if learned.NonASCIIRate > 0.7 {
+		t.Fatalf("precondition: the rate should have dropped well below 1, got %v", learned.NonASCIIRate)
+	}
+	// Comparing two runs directly would be confounded: a run also moves the
+	// residual scale. Read the calibration as it stood when the compile started,
+	// and ask which rate the recorded prediction is consistent with. Per-fragment
+	// rounding means it will not match either formula exactly, so the test asks
+	// which one it is closer to rather than pinning arithmetic.
+	atCompile, err := service.providers.Get(ctx, profile.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calibrated, ascii2, nonASCII2 := run("learned rate")
+	withLearned := (float64(ascii2) + atCompile.NonASCIIRate*float64(nonASCII2)) * atCompile.TokenMultiplier
+	withAssumed := (float64(ascii2) + DefaultNonASCIIRateForTest*float64(nonASCII2)) * atCompile.TokenMultiplier
+	if math.Abs(float64(calibrated)-withLearned) >= math.Abs(float64(calibrated)-withAssumed) {
+		t.Fatalf("predicted %d is not the learned rate %.3f (%.0f); the assumed rate 1.0 gives %.0f",
+			calibrated, atCompile.NonASCIIRate, withLearned, withAssumed)
+	}
+	if calibrated >= assumed {
+		t.Fatalf("the learned script rate did not lower the estimate: %d then %d", assumed, calibrated)
+	}
+}
+
+// DefaultNonASCIIRateForTest names the assumption the estimator started with.
+const DefaultNonASCIIRateForTest = 1.0

@@ -176,6 +176,9 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-23** | fidelity corpus ที่ seed มากับระบบล้มไม่ได้ | high | **แก้แล้ว** |
 | **O-24** | replay สีเขียวที่ทดสอบแค่ manifest ถูกรายงานเหมือนทดสอบ procedure | high | **แก้แล้ว (ส่วนรายงาน)** |
 | **O-25** | หน้า error HTML ของ gateway กลายเป็นบทสนทนาและถูกอัดเข้า checkpoint | high | **แก้แล้ว** |
+| **O-26** | token error band ประเมินไม่ได้ — คู่ค่าถูกทิ้ง calibration หายตอน restart ใช้ร่วมข้าม model | **critical** | **แก้แล้ว** |
+| **O-27** | band วัดเทียบ *งบ* ไม่ใช่ *prompt* ทำให้ค่าผิดแปรตามขนาด context | high | **แก้แล้ว** |
+| **O-28** | calibration ลู่เข้า **รากที่สอง** ของค่าจริง ทิ้ง error ถาวร −10.6% | high | **แก้แล้ว** |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -294,6 +297,51 @@ gateway timeout คืนหน้า error 2 KiB adapter ใส่ body ทั�
 ผิดสามชั้น: กินงบ summary ที่ควรเก็บสิ่งที่ session ตัดสินใจ · อ่านย้อนกลับเหมือนเป็นสิ่งที่ assistant พูด · และเป็น HTML ของ**ตัวกลาง** ไม่ใช่ของ provider ข้อความใดๆ ในนั้นจึงถูกนำเสนอเป็น output ของ assistant
 
 การ redact credential ทำถูกอยู่แล้วและไม่เปลี่ยน ตอนนี้ body ถูกจำกัดความยาว ยุบ whitespace และถอดเหลือข้อความอ่านได้เมื่อเป็นหน้าเว็บ — ตัดเนื้อใน `<script>`/`<style>` ก่อน เพราะข้อความนั้นอยู่*ระหว่าง*แท็กไม่ใช่*ใน*แท็ก และ stylesheet ไม่ใช่การวินิจฉัย · error แบบ structured สั้นๆ ของ provider ซึ่งเป็นกรณีที่มีประโยชน์ ผ่านไปครบถ้วน
+
+#### O-26 — gate ของ Phase 9 ประเมินไม่ได้เลย *(critical, แก้แล้ว)*
+
+exit gate ถามว่า predicted input อยู่ใน ±10% ของ usage ที่ provider รายงานที่ p95 ไหม **คำถามนี้ตอบไม่ได้เลย**
+
+`Observe(predicted, actual)` ยุบคู่ค่าเข้าค่าเฉลี่ยในหน่วยความจำแล้วทิ้งคู่ค่า ส่วน usage ที่เขียนลงที่อื่นคือ **ผลรวมทั้งเทิร์น** เก็บคู่กับ snapshot ของ step **สุดท้าย** — คนละปริมาณ เทิร์นหนึ่งส่ง context ซ้ำหนึ่งครั้งต่อ step ผลรวมจึงเป็นผลบวกของหลายการส่ง
+
+ผมจับคู่แบบนี้ตอนแรกแล้วได้ error +226% เกือบสรุปว่าเป็นข้อบกพร่องร้ายแรงของ compiler **ตรวจก่อนเขียนจึงพบว่าเป็นความผิดของการวัดเอง** จาก 90 snapshot มีแค่ **2 ตัว** ที่เทียบได้ซื่อสัตย์ และพลาดแบนด์คนละทิศทั้งคู่ (−26%, +28%)
+
+สามข้อบกพร่องในเรื่องเดียว:
+
+1. **คู่ค่าไม่ถูกเก็บ** — หลักฐานของ gate ถูกทิ้งทันทีที่ผลิต
+2. **calibration หายทุก restart** — 18 เทิร์นสอนจนได้ 0.766 บูตใหม่กลับเป็น 1.0 คือกระโดด 30% ทุก prediction
+3. **ตัวเลขเดียวใช้ร่วมทุก provider/model** — และ `Observe` เขียนทับ **ระหว่าง step ในเทิร์นเดียว** วัดได้ว่า step 2 ทำนาย 3,632 token ให้ context ที่มากกว่า step 1 ซึ่งได้ 3,677 — **งบที่เปลี่ยนระหว่างกำลังสร้าง context ไม่ใช่งบ**
+
+แก้: `token_observations` เก็บหนึ่งแถวต่อ model step · `GET /api/token-accuracy` รายงาน median/p95/mean signed/within-band/overflow **แยกตาม model** · verdict งดต่ำกว่า 30 sample · overflow เดียวตก gate ไม่ว่าแบนด์แคบแค่ไหน · calibration ย้ายไปบน provider profile ข้าง `reasoning_ratio` พร้อม clamp [0.50, 3.00] · เทิร์นอ่านค่าครั้งเดียวตอนเริ่ม ทุก step วัดด้วยไม้บรรทัดเดียวกัน
+
+#### O-27 — band วัดเทียบงบ ไม่ใช่ prompt *(แก้แล้ว)*
+
+`predicted_input` รวม `worst_case_tool_burst` 2,048 token ที่กันไว้ให้ tool result **ที่ยังไม่เกิด** เทียบกับ prompt usage คือเอาเงินสำรองไปเทียบใบเสร็จ
+
+18 request ต่อเนื่อง: error ไต่จาก **−51.7% ไป −27.9% แบบ monotonic** เพราะเงินสำรองคงที่ถูกเจือจางเมื่อ prompt โต อ่านเป็น gate จะดูเหมือน estimator ที่ดีขึ้นตามการใช้งาน
+
+| | mean | stdev | range |
+|---|---:|---:|---:|
+| รวมเงินสำรอง | −36.5% | 7.3% | 23.7 pp |
+| ไม่รวม | **−21.5%** | **2.0%** | **7.4 pp** |
+
+รูปร่างสำคัญกว่าตัวเลข: **offset เกือบคงที่ spread 2 จุด คือ bias ที่ calibration ลบออกได้** ไม่ใช่ noise ที่ลบไม่ได้ และถ้าไม่แยก multiplier จะดูดเงินสำรองเข้าไปเป็นส่วนหนึ่งของไม้บรรทัด ทำให้เนื้อหาจริงถูก under-predict ราว 13% **แบบเงียบ**
+
+#### O-28 — calibration ลู่เข้ารากที่สองของค่าจริง *(แก้แล้ว)*
+
+multiplier เรียนจาก `actual/predicted` แต่ `predicted` **ถูก scale ด้วย multiplier ตัวนั้นไปแล้ว** การเฉลี่ย ratio จึงเป็น feedback loop และจุดตรึงของมันไม่ใช่ ratio แต่เป็น **รากที่สองของ ratio**
+
+model ที่ค่าจริง 0.80 → multiplier นิ่งที่ **0.894** และเหลือ error ถาวร **−10.6%** ซึ่งอยู่*ในขอบ* ±10% พอดี — ตำแหน่งที่แย่ที่สุด: ใกล้พอจะดูเหมือน noise และไม่มีวันปิด
+
+ข้อมูลสดคือสิ่งที่เปิดโปงมัน 28 observation ต่อเนื่องใต้ calibration ที่ทำงานอยู่ ค้างที่ −20% ถึง −27% ขณะที่ multiplier เดินจาก 1.0 ไป 0.765 **โดยไม่เกิดผลอะไรเลย** จำลองสองกฎ 200 step แล้วเห็นรูปร่างชัด:
+
+```
+mean of actual/predicted            -> 0.8944   error −10.6%
+mean of applied*actual/predicted    -> 0.8000   error   0.0%
+sqrt(0.80) = 0.8944
+```
+
+`ObserveTokenScale` รับ multiplier ที่ผลิต prediction นั้นแล้วหารกลับออกก่อนเฉลี่ย observation ที่ไม่รู้ applied scale ไม่มีข้อมูลเรื่อง ratio จึงไม่ถูกนับ
 
 #### ยังไม่ wired: memory ไม่เคยเข้า context
 

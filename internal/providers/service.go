@@ -115,7 +115,7 @@ func (s *Service) EnsureByName(ctx context.Context, input SaveInput) (Profile, e
 
 func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,created_at,updated_at
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,created_at,updated_at
     FROM provider_profiles ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list provider profiles: %w", err)
@@ -150,7 +150,7 @@ func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,created_at,updated_at
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,created_at,updated_at
     FROM provider_profiles WHERE id=?`, id)
 	return scanProfile(row)
 }
@@ -200,7 +200,7 @@ func scanProfile(row scanner) (Profile, error) {
 	if err := row.Scan(&item.ID, &item.Name, &item.AdapterKind, &item.BaseURL, &item.Model, &item.APIKeyEnv,
 		&item.ContextWindow, &item.ContextEvidence, &item.MaxOutputTokens, &enabled,
 		&item.ReasoningRatio, &item.ReasoningSample, &item.TokenMultiplier, &item.TokenSample,
-		&created, &updated); err != nil {
+		&item.NonASCIIRate, &item.NonASCIISample, &created, &updated); err != nil {
 		return Profile{}, err
 	}
 	item.Enabled = enabled != 0
@@ -332,5 +332,38 @@ func (s *Service) ObserveTokenScale(ctx context.Context, providerID string, appl
 		SET token_multiplier = ((token_multiplier * token_sample) + ?) / (token_sample + 1),
 		    token_sample = token_sample + 1
 		WHERE id=?`, ratio, providerID)
+	return err
+}
+
+// nonASCIIRateFloor and nonASCIIRateCeiling bound one sample's influence. The
+// ceiling is the old assumption of a token per character, which is the most any
+// real tokenizer charges; the floor leaves room for scripts that pack far
+// tighter than Thai.
+const (
+	nonASCIIRateFloor   = 0.10
+	nonASCIIRateCeiling = 1.50
+)
+
+// ObserveNonASCIIRate learns tokens-per-character for the scripts the ASCII
+// rules do not cover, by subtracting the part that is already modelled well and
+// attributing the remainder to the characters that are not.
+//
+// A sample with no non-ASCII characters says nothing about their rate and is
+// skipped rather than counted as zero.
+func (s *Service) ObserveNonASCIIRate(ctx context.Context, providerID string, asciiTokens, nonASCIIChars, actual int) error {
+	if nonASCIIChars <= 0 || actual <= 0 || strings.TrimSpace(providerID) == "" {
+		return nil
+	}
+	rate := float64(actual-asciiTokens) / float64(nonASCIIChars)
+	if rate < nonASCIIRateFloor {
+		rate = nonASCIIRateFloor
+	}
+	if rate > nonASCIIRateCeiling {
+		rate = nonASCIIRateCeiling
+	}
+	_, err := s.store.DB.ExecContext(ctx, `UPDATE provider_profiles
+		SET nonascii_rate = ((nonascii_rate * nonascii_sample) + ?) / (nonascii_sample + 1),
+		    nonascii_sample = nonascii_sample + 1
+		WHERE id=?`, rate, providerID)
 	return err
 }

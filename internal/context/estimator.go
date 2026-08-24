@@ -48,6 +48,44 @@ func (e *AdaptiveEstimator) Multiplier() float64 {
 	return e.multiplier
 }
 
+// HeuristicParts splits an estimate into the part the ASCII rules cover and the
+// raw count of characters they do not.
+//
+// The two behave nothing alike. Four ASCII characters are about one token in
+// every tokenizer worth the name. The old rule charged one token per non-ASCII
+// character, which is true of no tokenizer at all: measured against a live
+// gateway, Thai runs about 0.51 tokens per character. On a Thai-dominant
+// context that single constant put the estimate 30% over, and no scalar
+// multiplier could fix it, because the correction depends on how much of the
+// text is Thai and that changes from turn to turn.
+//
+// Separating them lets the non-ASCII rate be learned per provider instead of
+// assumed. Refitting the same twenty-three live requests with the rate as the
+// only free parameter moved p95 error from 41.5% to 2.8%, and within-band from
+// 1 of 23 to 23 of 23.
+func HeuristicParts(text string) (asciiTokens, nonASCIIChars int) {
+	asciiLetters, whitespace, punctuation := 0, 0, 0
+	for _, r := range text {
+		switch {
+		case r > 127:
+			nonASCIIChars++
+		case unicode.IsSpace(r):
+			whitespace++
+		case strings.ContainsRune("{}[]():,;\"'`=<>/\\|+-*", r):
+			punctuation++
+		default:
+			asciiLetters++
+		}
+	}
+	return (asciiLetters+whitespace+3)/4 + (punctuation+2)/3, nonASCIIChars
+}
+
+// DefaultNonASCIIRate is what the old rule charged. It is kept as the starting
+// point for a provider with no measurements yet, not as a belief about any
+// tokenizer: it is deliberately the most conservative value, so an
+// uncalibrated provider over-reserves rather than overflows.
+const DefaultNonASCIIRate = 1.0
+
 func heuristicTokens(text string) int {
 	asciiLetters, whitespace, punctuation, nonASCII := 0, 0, 0, 0
 	for _, r := range text {
@@ -86,4 +124,28 @@ func (e ScaledEstimator) Count(text string) int {
 		multiplier = 1
 	}
 	return int(math.Ceil(float64(heuristicTokens(text)) * multiplier))
+}
+
+// ScriptEstimator measures with a per-provider non-ASCII rate. Scale is the
+// residual correction the running calibration still applies on top.
+type ScriptEstimator struct {
+	NonASCIIRate float64
+	Scale        float64
+}
+
+func (e ScriptEstimator) Count(text string) int {
+	rate := e.NonASCIIRate
+	if rate <= 0 {
+		rate = DefaultNonASCIIRate
+	}
+	scale := e.Scale
+	if scale <= 0 {
+		scale = 1
+	}
+	asciiTokens, nonASCIIChars := HeuristicParts(text)
+	count := int(math.Ceil((float64(asciiTokens) + rate*float64(nonASCIIChars)) * scale))
+	if count == 0 && text != "" {
+		return 1
+	}
+	return count
 }

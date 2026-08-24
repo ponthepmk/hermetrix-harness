@@ -24,12 +24,17 @@ type Profile struct {
 	// TokenMultiplier scales the heuristic token estimate for this model's
 	// tokenizer. It is per profile because the quantity is a tokenizer: one
 	// number shared across models describes none of them.
-	TokenMultiplier float64   `json:"token_multiplier"`
-	TokenSample     int       `json:"token_sample"`
-	Enabled         bool      `json:"enabled"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	Revision        string    `json:"revision"`
+	TokenMultiplier float64 `json:"token_multiplier"`
+	TokenSample     int     `json:"token_sample"`
+	// NonASCIIRate is tokens per character for scripts the ASCII rules do not
+	// cover. Learned rather than assumed: the value that fits one model and one
+	// language is not a fact about tokenizers.
+	NonASCIIRate   float64   `json:"nonascii_rate"`
+	NonASCIISample int       `json:"nonascii_sample"`
+	Enabled        bool      `json:"enabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Revision       string    `json:"revision"`
 }
 
 type SaveInput struct {
