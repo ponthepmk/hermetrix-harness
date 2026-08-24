@@ -92,6 +92,7 @@ func (s *Service) EnsureDefaultCorpus(ctx context.Context) error {
 				{ID: "en-result", Kind: ctxcompiler.KindToolResult, PairID: "pair-1", Scope: "session", Provenance: "fixture", Trust: "tool", Version: "v1", Priority: 70, Content: "write rejected because hash changed"},
 			}, Expectations: Expectations{EssentialIDs: []string{"en-goal"}, CausalPairIDs: []string{"pair-1"},
 				TaskAssertions: []string{"never fabricate tool success", "hash changed"}, MaxTaskDelta: 0.05}},
+		pressureCase(),
 	}
 	for _, item := range defaults {
 		var exists int
@@ -419,3 +420,56 @@ func scanRun(row runScanner) (Run, error) {
 
 func formatTime(value time.Time) string         { return value.UTC().Format(time.RFC3339Nano) }
 func parseTime(value string) (time.Time, error) { return time.Parse(time.RFC3339Nano, value) }
+
+// pressureCase exists because the other two cannot fail.
+//
+// Both original cases are three fragments and about thirty tokens. They fit
+// whole into the smallest profile, so nothing is ever dropped, spilled or
+// compacted: every retention metric is 1 by construction and compression_ratio
+// is exactly 1. A corpus that asks whether compaction preserves what matters,
+// while never causing compaction, answers a question it never posed.
+//
+// This case puts the compiler under the pressure it is built for. The same four
+// fragments that must survive are buried in filler far past the active budget
+// of every profile up to extended-128k, so retention is measured against real
+// selection rather than against having had room for everything.
+//
+// Measured on compact-32k when this was written: 255,824 tokens in, 13,905 out,
+// with the pinned goal preserved exactly, the decision retained and the causal
+// pair unsplit.
+func pressureCase() CaseInput {
+	fragments := []ctxcompiler.Fragment{
+		{ID: "pressure-goal", Kind: ctxcompiler.KindUserGoal, Scope: "session", Provenance: "fixture",
+			Trust: "user", Version: "v1", Priority: 100, Pinned: true,
+			Content: "ห้ามแก้ active skill โดยตรง ต้องผ่าน candidate เสมอ"},
+		{ID: "pressure-decision", Kind: ctxcompiler.KindDecision, Scope: "session", Provenance: "fixture",
+			Trust: "verified", Version: "v1", Priority: 90,
+			Content: "ใช้ replay เทียบ baseline กับ candidate ก่อน promotion"},
+		{ID: "pressure-call", Kind: ctxcompiler.KindToolCall, PairID: "pressure-pair", Scope: "session",
+			Provenance: "fixture", Trust: "tool", Version: "v1", Priority: 70,
+			Content: "write_file expected_sha256=abc"},
+		{ID: "pressure-result", Kind: ctxcompiler.KindToolResult, PairID: "pressure-pair", Scope: "session",
+			Provenance: "fixture", Trust: "tool", Version: "v1", Priority: 70,
+			Content: "write rejected because hash changed"},
+	}
+	// Deterministic filler. Each fragment carries its own index so nothing is
+	// removed as a duplicate -- deduplication would quietly relieve the pressure
+	// this case exists to apply.
+	for index := 0; index < pressureFillerFragments; index++ {
+		fragments = append(fragments, ctxcompiler.Fragment{
+			ID: fmt.Sprintf("pressure-filler-%02d", index), Kind: ctxcompiler.KindConversation,
+			Scope: "session", Provenance: "fixture", Trust: "assistant", Version: "v1", Priority: 30,
+			Content: fmt.Sprintf("ลำดับ %d ", index) +
+				strings.Repeat("บันทึกการสนทนาที่ยาวพอจะกินงบ active slice ทั้งหมด ", pressureFillerRepeats)})
+	}
+	return CaseInput{Name: "context-pressure", Language: "th", BenchmarkClass: "instruction-retention",
+		Fragments: fragments,
+		Expectations: Expectations{EssentialIDs: []string{"pressure-goal"},
+			DecisionIDs: []string{"pressure-decision"}, CausalPairIDs: []string{"pressure-pair"},
+			TaskAssertions: []string{"candidate", "hash changed"}, MaxTaskDelta: 0.05}}
+}
+
+const (
+	pressureFillerFragments = 80
+	pressureFillerRepeats   = 90
+)

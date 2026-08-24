@@ -34,8 +34,20 @@ func TestBilingualCorpusPersistsAndRunsWithExactIntegrityMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases, err := service.ListCases(ctx)
-	if err != nil || len(cases) != 2 {
-		t.Fatalf("cases=%+v err=%v", cases, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]Case{}
+	for _, item := range cases {
+		byName[item.Name] = item
+	}
+	for _, want := range []string{"thai-skill-lifecycle", "english-tool-causality", "context-pressure"} {
+		if _, ok := byName[want]; !ok {
+			t.Fatalf("default corpus is missing %q; it has %v", want, byName)
+		}
+	}
+	if len(cases) != len(byName) {
+		t.Fatalf("EnsureDefaultCorpus is not idempotent: %d cases for %d names", len(cases), len(byName))
 	}
 	for _, item := range cases {
 		run, err := service.Run(ctx, item.ID, "certified-64k")
@@ -48,8 +60,60 @@ func TestBilingualCorpusPersistsAndRunsWithExactIntegrityMetrics(t *testing.T) {
 		}
 	}
 	runs, err := service.ListRuns(ctx, 10)
-	if err != nil || len(runs) != 2 {
-		t.Fatalf("runs=%+v err=%v", runs, err)
+	if err != nil || len(runs) != len(cases) {
+		t.Fatalf("runs=%d for %d cases: err=%v", len(runs), len(cases), err)
+	}
+}
+
+// TestDefaultCorpusMeasuresTheCompilerUnderPressure is the property the corpus
+// lacked. Both original cases are about thirty tokens: they fit whole into
+// every profile, so nothing is dropped, spilled or compacted, every retention
+// metric is 1 by construction and compression_ratio is exactly 1. Retention
+// measured with room to spare is not retention.
+func TestDefaultCorpusMeasuresTheCompilerUnderPressure(t *testing.T) {
+	service := testFidelityService(t)
+	ctx := context.Background()
+	if err := service.EnsureDefaultCorpus(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cases, err := service.ListCases(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smallest := ctxcompiler.Compact32K()
+	pressured := 0
+	for _, item := range cases {
+		run, err := service.Run(ctx, item.ID, smallest.Name)
+		if err != nil {
+			t.Fatalf("%s: %v", item.Name, err)
+		}
+		if run.Metrics.OriginalTokens <= smallest.ActiveBudget {
+			continue
+		}
+		pressured++
+		if run.Metrics.TokensSaved <= 0 || run.Metrics.CompressionRatio >= 1 {
+			t.Fatalf("%s exceeded the active budget but nothing was compressed: %+v", item.Name, run.Metrics)
+		}
+		// The point of the pressure: what must survive, survives anyway.
+		if !run.Metrics.Passed || run.Metrics.EssentialExactRetention != 1 ||
+			run.Metrics.CausalPairSplits != 0 || run.Metrics.SilentTruncations != 0 {
+			t.Fatalf("%s lost something under pressure: %+v", item.Name, run.Metrics)
+		}
+	}
+	if pressured == 0 {
+		t.Fatalf("no default case exceeds the %d-token active budget of %s; the corpus cannot fail",
+			smallest.ActiveBudget, smallest.Name)
+	}
+	// Volume alone is not pressure. Identical filler would be removed as
+	// duplicates before selection ever runs, leaving original_tokens large and
+	// the compiler untested, so every filler fragment must be distinct.
+	pressure := pressureCase()
+	seen := map[string]bool{}
+	for _, fragment := range pressure.Fragments {
+		if seen[fragment.Content] {
+			t.Fatalf("pressure case repeats content; deduplication would relieve the pressure before selection")
+		}
+		seen[fragment.Content] = true
 	}
 }
 
