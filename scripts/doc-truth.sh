@@ -71,6 +71,7 @@ skill-retrieval-metric|func \(s \*Service\) SkillRetrievalMetrics|internal/agent
 model-reviewer|func \(r \*ModelReviewer\) Review|internal/learning/model_reviewer.go
 workspace-search|func searchFiles|internal/tools/registry.go
 reasoning-aware-budget|func answerBudget|internal/agent/service.go
+analyzer-retrieval|func similarityScore|internal/skills/analyzer.go
 reasoning-calibration|func \(s \*Service\) ObserveReasoning|internal/providers/service.go
 empty-answer-fails|returned no answer|internal/agent/service.go
 read-window-keeps-whole-hash|metadata\["total_lines"\]|internal/tools/registry.go

@@ -3,6 +3,8 @@ package skills
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -250,5 +252,79 @@ func TestDuplicateAnalysisIsAdvisoryAndVersionBound(t *testing.T) {
 	rightAfter, _ := service.GetSkill(ctx, rightSkill.ID)
 	if leftAfter.State != StateActive || rightAfter.State != StateActive {
 		t.Fatal("analysis mutated skill state")
+	}
+}
+
+// --- O-17: the duplicate analyzer never retrieved anything ---
+//
+// It is a retrieval stage feeding a human review, so its job is recall. It was
+// scored like a judge instead and returned nothing at all, which meant the
+// review stage behind it never saw a candidate.
+
+func seedAnalyzerSkill(t *testing.T, service *Service, name, description, body string) {
+	t.Helper()
+	ctx := context.Background()
+	candidate, err := service.CreateCandidate(ctx, CreateCandidateInput{CanonicalName: name, ScopeKind: "user",
+		Origin: "user_created", Owner: "user", ChangeKind: "create", CreatedBy: "test", TriggerKind: "manual",
+		Reason: "analyzer coverage",
+		Markdown: fmt.Sprintf("---\nname: %s\ndescription: \"%s\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n%s\n",
+			name, description, body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PromoteCandidate(ctx, candidate.ID, "test", candidate.Revision); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnalyzerRetrievesAParaphraseAndLeavesStrangersAlone(t *testing.T) {
+	service, _ := testService(t)
+	seedAnalyzerSkill(t, service, "satang-rounding", "Round Thai money amounts half up in satang",
+		"1. Keep every amount as an integer number of satang.\n2. Round half up at each step.\n3. Verify net plus VAT equals gross after rounding.")
+	seedAnalyzerSkill(t, service, "money-rounding-thai", "Round Thai monetary values half up using satang integers",
+		"1. Amounts are integers in satang, never floats.\n2. Apply half-up rounding at every step.\n3. Check that net + VAT = gross once rounded.")
+	seedAnalyzerSkill(t, service, "invoice-numbering", "Format Thai invoice numbers as INV plus five digits",
+		"1. Invoice numbers are INV followed by five digits.\n2. Zero pad the sequence on the left.\n3. Fail loudly when the sequence exceeds 99999.")
+	seedAnalyzerSkill(t, service, "browser-login", "Sign in to the supplier portal and download the monthly statement",
+		"1. Open the supplier portal.\n2. Sign in with the stored credential reference.\n3. Download the statement for the requested month.")
+
+	relations, err := service.AnalyzeRelations(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(relations) != 1 {
+		t.Fatalf("expected exactly the paraphrase pair, got %d: %+v", len(relations), relations)
+	}
+	pair := relations[0]
+	names := []string{pair.LeftName, pair.RightName}
+	sort.Strings(names)
+	if names[0] != "money-rounding-thai" || names[1] != "satang-rounding" {
+		t.Fatalf("the wrong pair was retrieved: %v", names)
+	}
+	if pair.Kind != "overlap" {
+		t.Fatalf("kind %q, want overlap", pair.Kind)
+	}
+	// Retrieval, never a decision: the finding has to say so.
+	if note, _ := pair.Evidence["note"].(string); !strings.Contains(note, "human review") {
+		t.Fatalf("a retrieval candidate does not say it needs review: %q", note)
+	}
+}
+
+// Two Skills that declare no tools have nothing to compare there. Jaccard
+// returns zero for two empty sets, which used to spend the tool weight as
+// evidence of difference -- and every agent-proposed Skill declares no tools.
+func TestAbsentToolsAreNotEvidenceOfDifference(t *testing.T) {
+	withTools := similarityScore(0.5, 0.4, 0.6, false)
+	absent := similarityScore(0.5, 0.4, 0, true)
+	penalised := 0.60*0.5 + 0.25*0.4 + 0.15*0
+	if absent <= penalised {
+		t.Fatalf("absent tools scored %.3f, no better than counting them as different (%.3f)", absent, penalised)
+	}
+	if withTools <= 0 {
+		t.Fatalf("declared tools stopped contributing: %.3f", withTools)
+	}
+	// Identical on every axis that carries signal must reach the top.
+	if perfect := similarityScore(1, 1, 0, true); perfect < 0.999 {
+		t.Fatalf("two identical tool-less Skills top out at %.3f, so the upper bands are unreachable", perfect)
 	}
 }

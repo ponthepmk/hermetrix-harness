@@ -56,13 +56,14 @@ func (s *Service) AnalyzeRelations(ctx context.Context) ([]Relation, error) {
 			textScore := jaccard(left.terms, right.terms)
 			triggerScore := jaccard(left.triggers, right.triggers)
 			toolScore := jaccard(left.tools, right.tools)
-			score := 0.60*textScore + 0.25*triggerScore + 0.15*toolScore
+			score := similarityScore(textScore, triggerScore, toolScore,
+				len(left.tools) == 0 && len(right.tools) == 0)
 			kind := "unrelated"
 			if left.version.ContentHash == right.version.ContentHash {
 				kind, score = "duplicate", 1
-			} else if score >= 0.82 {
+			} else if score >= possibleDuplicateThreshold {
 				kind = "possible_duplicate"
-			} else if score >= 0.48 {
+			} else if score >= overlapThreshold {
 				kind = "overlap"
 			}
 			if kind == "unrelated" {
@@ -230,4 +231,44 @@ func containsNonASCII(value string) bool {
 		}
 	}
 	return false
+}
+
+// This analyzer is a retrieval stage, not a judge. Its findings are report-only
+// and go to a human before anything is consolidated, so it should err towards
+// surfacing a pair rather than missing one -- recall matters, precision is the
+// reviewer's job.
+//
+// It was not behaving that way. Measured on four Skills, one pair a deliberate
+// paraphrase of another:
+//
+//	paraphrase pair   0.306
+//	every other pair  0.015 - 0.064
+//	overlap threshold 0.48
+//
+// The signal separates cleanly by about five times. The threshold simply sat
+// above everything real, so nothing was ever retrieved and the semantic stage
+// behind it never received a candidate.
+//
+// Two causes. Jaccard returns zero for two empty sets, so a pair that both
+// declare no tools lost the whole 0.15 tool weight -- absent evidence counted
+// as evidence of difference. And term overlap between two procedures written in
+// different words runs around a third, nowhere near a threshold set for
+// near-verbatim text.
+//
+// THRESHOLDS ARE CALIBRATED ON ONE MEASURED EXAMPLE. They separate that example
+// from its neighbours with room to spare, and they should be revisited against
+// a real corpus (P8-A) rather than trusted as tuned.
+const (
+	overlapThreshold           = 0.25
+	possibleDuplicateThreshold = 0.55
+)
+
+// similarityScore weights the components that carry signal. When neither Skill
+// declares a tool there is nothing to compare, so that weight is redistributed
+// across text and trigger instead of scoring as dissimilarity.
+func similarityScore(textScore, triggerScore, toolScore float64, toolsAbsent bool) float64 {
+	if toolsAbsent {
+		return round(0.70*textScore + 0.30*triggerScore)
+	}
+	return round(0.60*textScore + 0.25*triggerScore + 0.15*toolScore)
 }
