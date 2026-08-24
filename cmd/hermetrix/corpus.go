@@ -208,7 +208,18 @@ func corpusScore(args []string) error {
 		}
 		fmt.Printf("  %-22s %d%s\n", family, coverage[family], note)
 	}
-	results, err := learning.ScoreCorpus(ctx, reviewer, cases)
+	started := time.Now()
+	results, err := learning.ScoreCorpusWithProgress(ctx, reviewer, cases,
+		func(done, total int, caseID string) {
+			elapsed := time.Since(started)
+			remaining := time.Duration(0)
+			if done > 0 {
+				remaining = time.Duration(float64(elapsed) / float64(done) * float64(total-done))
+			}
+			fmt.Fprintf(os.Stderr, "\r  reviewed %d/%d  elapsed %s  eta %s  %-24s",
+				done, total, elapsed.Round(time.Second), remaining.Round(time.Second), caseID[:min(24, len(caseID))])
+		})
+	fmt.Fprintln(os.Stderr)
 	if err != nil {
 		return err
 	}

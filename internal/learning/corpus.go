@@ -133,9 +133,38 @@ func FamilyCoverage(cases []CorpusCase) map[string]int {
 	return coverage
 }
 
+// Progress reports a case as it is reviewed. Scoring a hundred cases spends a
+// model call each and took thirty-five minutes against a real gateway; a
+// command that long with no output is indistinguishable from one that hung.
+type Progress func(done, total int, caseID string)
+
 // ScoreCorpus runs the reviewer over every case and computes the gate, split by
 // provenance and again over everything.
 func ScoreCorpus(ctx context.Context, reviewer Reviewer, cases []CorpusCase) ([]CorpusResult, error) {
+	return ScoreCorpusWithProgress(ctx, reviewer, cases, nil)
+}
+
+// ScoreCorpusWithProgress is ScoreCorpus with a callback per case. Results are
+// cached across the provenance splits so a case is reviewed once, not three
+// times: reviewing the same case for "driven" and again for "all" would triple
+// the cost and could disagree with itself.
+func ScoreCorpusWithProgress(ctx context.Context, reviewer Reviewer, cases []CorpusCase,
+	progress Progress) ([]CorpusResult, error) {
+	decisions := make(map[string]Decision, len(cases))
+	for index, item := range cases {
+		decision, err := reviewer.Review(ctx, item.Digest)
+		if err != nil {
+			return nil, fmt.Errorf("review %s: %w", item.ID, err)
+		}
+		decisions[item.ID] = decision
+		if progress != nil {
+			progress(index+1, len(cases), item.ID)
+		}
+	}
+	return scoreDecided(cases, decisions)
+}
+
+func scoreDecided(cases []CorpusCase, decisions map[string]Decision) ([]CorpusResult, error) {
 	byProvenance := map[string][]CorpusCase{}
 	for _, item := range cases {
 		byProvenance[item.Provenance] = append(byProvenance[item.Provenance], item)
@@ -149,22 +178,15 @@ func ScoreCorpus(ctx context.Context, reviewer Reviewer, cases []CorpusCase) ([]
 		if len(subset) == 0 {
 			continue
 		}
-		result, err := scoreSubset(ctx, reviewer, provenance, subset)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
+		results = append(results, scoreSubset(provenance, subset, decisions))
 	}
 	return results, nil
 }
 
-func scoreSubset(ctx context.Context, reviewer Reviewer, provenance string, cases []CorpusCase) (CorpusResult, error) {
+func scoreSubset(provenance string, cases []CorpusCase, decisions map[string]Decision) CorpusResult {
 	result := CorpusResult{Provenance: provenance, Cases: len(cases)}
 	for _, item := range cases {
-		decision, err := reviewer.Review(ctx, item.Digest)
-		if err != nil {
-			return CorpusResult{}, fmt.Errorf("review %s: %w", item.ID, err)
-		}
+		decision := decisions[item.ID]
 		proposed := decision.Kind == "create" && decision.SuggestedSkill != nil
 		if decision.Unusable {
 			result.ReviewerErrors++
@@ -212,7 +234,7 @@ func scoreSubset(ctx context.Context, reviewer Reviewer, provenance string, case
 	case result.FalseProposalRate > CorpusFalseProposalCeiling:
 		result.Verdict = "failed"
 	}
-	return result, nil
+	return result
 }
 
 // inventedEvidence reports identifiers a proposal cites that its digest never

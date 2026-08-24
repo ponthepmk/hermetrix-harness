@@ -354,3 +354,57 @@ func TestAWorkingReviewerReportsNoErrors(t *testing.T) {
 		t.Fatalf("reviewer_errors = %d on a reviewer that answered every case", errors)
 	}
 }
+
+// TestEachCaseIsReviewedOnce covers the cost and the consistency. Scoring
+// reports driven, synthetic and combined; reviewing per split would spend three
+// model calls per case and let the same evidence get different answers in the
+// same report.
+func TestEachCaseIsReviewedOnce(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 4; i++ {
+		writeCase(t, dir, CorpusCase{ID: "driven-" + string(rune('a'+i)), TriggerKind: "explicit_learn",
+			Provenance: "driven", Digest: Digest{GoalAndConstraints: "driven-" + string(rune('a'+i))},
+			Label: labelled(true)})
+		writeCase(t, dir, CorpusCase{ID: "synthetic-" + string(rune('a'+i)), TriggerKind: "skill_failure",
+			Provenance: "synthetic", Digest: Digest{GoalAndConstraints: "synthetic-" + string(rune('a'+i))},
+			Label: labelled(false)})
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counting := &countingReviewer{proposeFor: map[string]bool{}}
+	var progressed []int
+	if _, err := ScoreCorpusWithProgress(context.Background(), counting, cases,
+		func(done, total int, _ string) {
+			progressed = append(progressed, done)
+			if total != len(cases) {
+				t.Errorf("progress reported total %d, want %d", total, len(cases))
+			}
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if counting.calls != len(cases) {
+		t.Fatalf("reviewer called %d times for %d cases", counting.calls, len(cases))
+	}
+	if len(progressed) != len(cases) || progressed[0] != 1 || progressed[len(progressed)-1] != len(cases) {
+		t.Fatalf("progress went %v, want 1..%d", progressed, len(cases))
+	}
+}
+
+type countingReviewer struct {
+	proposeFor map[string]bool
+	calls      int
+}
+
+func (r *countingReviewer) Revision() string { return "counting-reviewer-test" }
+
+func (r *countingReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	r.calls++
+	if !r.proposeFor[digest.GoalAndConstraints] {
+		return Decision{Kind: "no_change", Reason: "scripted decline"}, nil
+	}
+	return Decision{Kind: "create", Reason: "scripted",
+		SuggestedSkill: &SuggestedSkill{CanonicalName: "scripted",
+			Markdown: "---\nname: scripted\ndescription: \"d\"\n---\n\n1. Do it.\n"}}, nil
+}
