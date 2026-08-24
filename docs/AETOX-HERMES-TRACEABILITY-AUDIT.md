@@ -175,6 +175,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-22** | *(ถอน)* — ผมเรียก fidelity ผิด API เอง ไม่ใช่ข้อบกพร่อง | — | ถอน |
 | **O-23** | fidelity corpus ที่ seed มากับระบบล้มไม่ได้ | high | **แก้แล้ว** |
 | **O-24** | replay สีเขียวที่ทดสอบแค่ manifest ถูกรายงานเหมือนทดสอบ procedure | high | **แก้แล้ว (ส่วนรายงาน)** |
+| **O-25** | หน้า error HTML ของ gateway กลายเป็นบทสนทนาและถูกอัดเข้า checkpoint | high | **แก้แล้ว** |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -255,6 +256,44 @@ candidate `improve` ที่กลับด้านทุกขั้นตอ
 การตรวจนั้นคุ้มที่จะรัน แต่ไม่ใช่การตรวจเชิงพฤติกรรม และผลถูกรายงานเป็น `fixtures_total: 1`, `summary.passed: true`, `replay_passed: true` — แยกไม่ออกจาก test suite ที่ไม่พบ regression
 
 **implicit-only replay ควรบล็อก promotion ไหม เป็นคำถามเชิงนโยบาย ยังเปิดอยู่** ส่วนความซื่อสัตย์ไม่ใช่: run รายงาน `author_fixtures` และ `implicit_only` และ candidate พก finding ระดับ warning บอกว่า run ยืนยันแค่ manifest ไม่ได้ทดสอบ procedure — อยู่ตรงที่คนกดอนุมัติมองเห็น
+
+#### compaction ทำงานจริงแล้วเป็นครั้งแรก
+
+ตลอดการขับใช้งานทั้งสองรอบ compaction **ไม่เคยทำงานเลย** — เพราะ spill ดูดประวัติไปก่อนที่ active slice จะเต็ม และ O-18 ทำให้มองไม่เห็นว่าเกิดอะไรขึ้น
+
+ขับ 31 เทิร์นบน `compact-32k` ด้วยเนื้อหาสนทนาไทยที่ไม่ซ้ำกัน (spill แตะเฉพาะ tool result ไม่แตะบทสนทนา) จน active เกิน 13,824 token:
+
+| turn | original | selected | dropped | compacted | dedup | unaccounted |
+|---:|---:|---:|---:|---:|---:|---:|
+| 25 | 17,601 | 14,566 | 0 | **0** | 3,035 | 0 |
+| 26 | 18,889 | 14,410 | 2,124 | **678** | 3,033 | 0 |
+| 27 | 20,427 | 15,010 | 3,648 | **1,285** | 3,054 | 0 |
+| 31 | 26,140 | 14,925 | 9,311 | **1,207** | 3,111 | 0 |
+
+**original โตขึ้น 48% แต่ selected นิ่งอยู่ที่ ~14,900** — คือพฤติกรรมที่ compiler ควรมี
+
+สถานะสุดท้ายภายใต้แรงกดดัน 11 เทิร์นติด:
+
+```
+pinned_retained      : 1 / 1
+essential_retention  : 1
+causal_pairs         : 21 selected / 21 total, 0 omitted, 0 split
+active slice         : 15,838 ใช้จาก 15,872 (99.8%) ไม่ล้น
+ledger               : 27,488 = 3,105 dedup + 0 spill + 13,778 selected + 10,605 dropped
+unaccounted          : 0
+```
+
+checkpoint ที่ได้เป็น extractive จริง มี source ID กำกับทุกบรรทัด provenance `hermetrix:structured-compactor-v1:verified`
+
+และมันเปิดเผย **O-25** ทันที: หาง checkpoint มี HTML ของ Cloudflare error page อยู่
+
+#### O-25 — หน้า error ของ gateway กลายเป็นบทสนทนา *(แก้แล้ว)*
+
+gateway timeout คืนหน้า error 2 KiB adapter ใส่ body ทั้งก้อนลงใน error → agent เก็บเป็น event `turn_failed` → replay กลับไปหา model ในฐานะประวัติของ assistant → **ถูกอัดเข้า checkpoint ที่ถูกบีบแล้ว** พร้อม stylesheet fragment และ conditional comment
+
+ผิดสามชั้น: กินงบ summary ที่ควรเก็บสิ่งที่ session ตัดสินใจ · อ่านย้อนกลับเหมือนเป็นสิ่งที่ assistant พูด · และเป็น HTML ของ**ตัวกลาง** ไม่ใช่ของ provider ข้อความใดๆ ในนั้นจึงถูกนำเสนอเป็น output ของ assistant
+
+การ redact credential ทำถูกอยู่แล้วและไม่เปลี่ยน ตอนนี้ body ถูกจำกัดความยาว ยุบ whitespace และถอดเหลือข้อความอ่านได้เมื่อเป็นหน้าเว็บ — ตัดเนื้อใน `<script>`/`<style>` ก่อน เพราะข้อความนั้นอยู่*ระหว่าง*แท็กไม่ใช่*ใน*แท็ก และ stylesheet ไม่ใช่การวินิจฉัย · error แบบ structured สั้นๆ ของ provider ซึ่งเป็นกรณีที่มีประโยชน์ ผ่านไปครบถ้วน
 
 #### ยังไม่ wired: memory ไม่เคยเข้า context
 
