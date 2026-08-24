@@ -180,6 +180,9 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-27** | band วัดเทียบ *งบ* ไม่ใช่ *prompt* ทำให้ค่าผิดแปรตามขนาด context | high | **แก้แล้ว** |
 | **O-28** | calibration ลู่เข้า **รากที่สอง** ของค่าจริง ทิ้ง error ถาวร −10.6% | high | **แก้แล้ว** |
 | **O-29** | estimator คิด 1 token ต่ออักษรที่ไม่ใช่ ASCII — ผิดราวสองเท่า | **critical** | **แก้แล้ว** |
+| **O-30** | chat template ที่ห่อทุก message ถูกเรียกเก็บเงินและไม่เคยถูกนับ | medium | **แก้แล้ว** |
+| **O-31** | metric ตัดสินจากประวัติทั้งชีวิต รวมช่วงก่อน calibrate | high | **แก้แล้ว** |
+| **O-32** | compiler จองงบให้ tool arguments ที่ transport ส่งไม่ได้ | high | **แก้แล้ว** |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -360,6 +363,56 @@ refit 23 request สดโดยให้ script rate เป็นพารา�
 request ทั้ง 23 ถูกเก็บไว้ใน test แบบคำต่อคำ เพราะมันคือหลักฐานของการเปลี่ยนแปลงนี้
 
 **rate เรียนรู้ต่อ provider ไม่ใช่เขียนตายไว้** — 0.51 มาจาก model เดียวภาษาเดียว และค่าคงที่ที่ fit จากข้อสังเกตครั้งเดียวคือวิธีที่ analyzer กลายเป็นสิ่งที่ retrieve อะไรไม่ได้ provider ที่ยังไม่ calibrate ใช้ค่าเดิม ซึ่งเป็นค่าที่ conservative ที่สุด: **กันเกินดีกว่าล้น**
+
+#### O-30 — chat template ไม่เคยถูกนับ *(แก้แล้ว)*
+
+ทุก message ถูกห่อด้วย template ของ model และ request มี preamble อีกชั้น ทั้งคู่ถูกเรียกเก็บเงินและไม่ใช่ context — estimator ไม่นับทั้งสองอย่าง
+
+**วัดตรงๆ ไม่ได้ fit**: แยก content ก้อนเดิมออกเป็น 1, 3, 5, 9, 17, 33 message ได้ผลเพิ่มขึ้น **ครั้งละ 9 token พอดี** บนค่าคงที่ 45 — request เปล่า 52 token
+
+การ fit บน traffic จริงทำไม่ได้: ที่นั่นจำนวน message, ขนาด content และสัดส่วนภาษาโตไปด้วยกัน regression จึงคืนค่า **−260 token ต่อ message**
+
+ผลที่ซื่อสัตย์: **มันไม่ได้กู้แบนด์** บน 37 request คิดราคา template ได้ p95 7.42% ยุบเข้า rate ได้ 7.85% ผ่านทั้งคู่
+
+สิ่งที่มันแก้คือ **rate** — rate ที่ดูดค่าคงที่ต่อ message เข้าไปถูกต้องเฉพาะที่ความหนาแน่น message ที่มันเรียนมา content เท่าเดิมแต่หนาแน่นสามเท่า โมเดลที่ยุบเข้า rate หลุดแบนด์ ส่วนที่คิดแยกยังตรงเป๊ะ **ความล้มเหลวแบบนี้ไม่มีวันโผล่ใน corpus ที่ผลิต rate ตัวนั้น**
+
+provider ที่ยังไม่วัดถูกคิด **ศูนย์ ไม่ใช่ค่าเดา** — overhead ที่ผิดถูกหักจาก usable context ทุก request
+
+#### O-31 — metric ไม่เคยลืม cold start ของตัวเอง *(แก้แล้ว)*
+
+estimator calibrate ตัวเอง ประวัติทั้งชีวิตจึงมีช่วงก่อนที่มันจะรู้อะไรเลย วัดสดจากศูนย์: **7 request แรกพลาด 9–21% และอีก 31 ตัวถัดมาเข้าแบนด์ทุกตัว** — lifetime p95 19.9% แต่ 15 ตัวล่าสุด 6.5%
+
+ตัดสินจากทั้งชีวิต provider จะ `out_of_band` ตลอดกาลเพราะ request ที่มันยิงตอนยังไม่รู้อะไร — **ตอบคำถาม "เคยผิดไหม" ทั้งที่ gate ถาม "ตอนนี้แม่นไหม"**
+
+verdict มองย้อน 50 ตัวล่าสุด **แต่ overflow ไม่ถูก window** — request ที่ถูกเรียกเก็บเกิน ceiling ของ profile ตัวเองเป็นข้อเท็จจริงเรื่องความปลอดภัย ไม่ใช่สถานะ calibration และมันไม่เลิกเป็นจริง
+
+#### O-32 — จองงบให้ไบต์ที่ส่งไม่ได้ *(แก้แล้ว)*
+
+arguments ของ tool call ถูก replay ผ่าน `replayableArguments` ซึ่งแทนด้วย `{}` เมื่อ provider จะปฏิเสธ compiler นับของเดิม จึงจอง context ให้ไบต์ที่ transport โยนทิ้ง
+
+สด: reasoning model ปล่อย tool call สามครั้งที่ arguments เป็นวรรณยุกต์ไทยตัวเดียวซ้ำ **12,131 อักษร** ตัดกลางคัน compiler คิดราว 6,700 token · request ส่ง `{}` · provider เรียกเก็บ 11,744 เทียบกับที่ทำนาย 16,722 — **63% ของอักษรไทยทั้ง compile อยู่ใน tool call ที่ไม่เคยถูกส่ง**
+
+ครึ่งที่หนักกว่าไม่ใช่ตัวเลขที่ไม่ตรง: ballast ก้อนนั้นถูก replay เข้าทุก compile ถัดไป ยึด active budget ไว้จากบทสนทนาจริง และบังคับให้ compaction ทำงานเร็วขึ้น — **เพื่อส่งอะไรก็ไม่รู้ที่ไม่มีใครอ่าน**
+
+และมันอธิบาย discontinuity ที่ดูเหมือน provider เปลี่ยนใต้เท้าเรา: billed ร่วง 35% ที่ขนาด compile เท่าเดิม **ไม่ใช่ gateway** — probe ตรงยืนยัน tokenizer ไม่เปลี่ยน (ไทย 0.556 token/char, request เปล่า 52 token) สิ่งที่เปลี่ยนคือสัดส่วนของ compile ตัวเองที่ส่งไม่ได้
+
+#### ผลลัพธ์: gate ของ Phase 9 ผ่านแล้ว
+
+วัดสดบน gateway จริง จาก cold start ครบวงจร:
+
+```
+samples 50 (window) · lifetime 62
+median |error|  4.6%
+p95    |error|  6.0%     (gate: ≤10%)
+within band     100%
+overflows       0
+verdict         within_band
+```
+
+สูตรที่ใช้: `billed = request_overhead + message_overhead × messages + asciiTokens + rate × nonASCIIChars`
+โดย overhead **วัดด้วย probe** และ rate **เรียนรู้ต่อ provider**
+
+**ไม่ต้องมี tokenizer adapter เต็มรูปแบบเพื่อผ่าน gate นี้** — อย่างน้อยสำหรับ provider นี้ ซึ่งลดขอบเขต P9-C ลงมาก
 
 #### บทเรียนจากการวัด: สามครั้งที่ผมวัดผิดติดกัน
 

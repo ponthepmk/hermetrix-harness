@@ -757,7 +757,7 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 | 8 | behavioral eval | promotion API ปฏิเสธ candidate ที่ eval state เป็น `not_run` หรือ `inconclusive` และมี test ยืนยันการปฏิเสธ | — |
 | 9 | essential retention | retention ของ goal/constraint/decision = **100%** บน gold corpus · causal split = **0** | **P9-A** gold corpus ≥50 เคสต่อภาษา พร้อม ground truth ที่คนตรวจแล้ว |
 | 9 | task success delta | เทียบ full context กับ compiled: code-edit ถอยได้ไม่เกิน **3 percentage point** · document/summarisation และ research/multi-step ไม่เกิน **5 pp** · **false-success delta = 0** วัดจาก ≥**30 task ต่อ class** ใช้ seed เดียวกันเมื่อ provider รองรับ | **P9-B** task corpus ต่อ class |
-| 9 | token error band | predicted เทียบ usage ที่ provider รายงาน อยู่ใน **±10%** ที่ p95 และไม่มี overflow/silent truncation แม้แต่ครั้งเดียว | **P9-C** tokenizer adapter ตัวแรก |
+| 9 | token error band | predicted เทียบ usage ที่ provider รายงาน อยู่ใน **±10%** ที่ p95 และไม่มี overflow/silent truncation แม้แต่ครั้งเดียว | ~~P9-C~~ **ปิดแล้วสำหรับ provider แรก** — วัดสด p95 6.0%, within band 100%, overflow 0 (`GET /api/token-accuracy`) |
 | 10 | untrusted metadata | hostile fixture ที่ฝัง instruction ใน description, tool result, schema และ error ผ่าน **100%** — agent ไม่ทำตามสักเคส | **P10-A** hostile fixture ≥20 เคส |
 | 10 | authority ceiling | negative test ที่พยายามขยายสิทธิ์ผ่านทุก surface (plugin manifest, MCP annotation, Skill content, schema) ถูกปฏิเสธ **ทั้งหมด** | — |
 | 11 | accessibility / i18n | **WCAG 2.2 AA** สำหรับ chrome ของ shell เอง · ทุก action เข้าถึงด้วยคีย์บอร์ดได้ · string coverage ไทย+อังกฤษ **100%** · ผ่านบน macOS/Windows/Linux | **P11-A** เลือก a11y test harness |
@@ -937,6 +937,27 @@ Phase 8 และ 9 เริ่มได้ เพราะ state authority, co
 | **P8-A** digest corpus ≥100 เคส แยก trigger family | semantic reviewer |
 | **P9-A** gold corpus ≥50 เคสต่อภาษา พร้อม ground truth | essential retention |
 | **P9-B** task corpus ต่อ class | task success delta |
-| **P9-C** tokenizer adapter ตัวแรก | token error band |
+| ~~**P9-C** tokenizer adapter ตัวแรก~~ | ~~token error band~~ — **ไม่ต้องใช้** ดูด้านล่าง |
 
 งานสร้าง corpus เป็น decision effort เกือบทั้งหมด — ต้องตัดสินว่าอะไรคือ ground truth ซึ่งเป็นงานที่ย่อไม่ได้ ควรเริ่มจากตรงนี้ ไม่ใช่จากโค้ด
+
+### P9-C ปิดแล้ว และเล็กกว่าที่แผนคาดมาก
+
+แผนสมมติว่า token error band ต้องรอ **tokenizer adapter** หลักฐานบอกว่าไม่ต้อง
+
+การเรียกเก็บเงินของ provider เป็นฟังก์ชันเชิงเส้นที่วัดได้ตรงๆ:
+
+```
+billed = request_overhead + message_overhead × messages
+       + asciiTokens + nonascii_rate × nonASCIIChars
+```
+
+- `request_overhead` และ `message_overhead` **วัดด้วย probe สองครั้ง** (`POST /api/providers/{id}/measure-overhead`) — ส่ง message จำนวนต่างกันแล้วอ่านผลต่าง ไม่ต้อง fit
+- `nonascii_rate` **เรียนรู้ต่อ provider** จาก traffic จริง เพราะมันคือคุณสมบัติของ tokenizer กับภาษาที่ใช้
+- ส่วน ASCII ใช้กฎเดิมซึ่งแม่นอยู่แล้ว
+
+วัดสดบน gateway จริงจาก cold start: **p95 6.0% · within band 100% · overflow 0 · verdict `within_band`**
+
+สิ่งที่ต้องระวัง: ตัวเลขนี้มาจาก provider เดียวและภาษาหลักเดียว **ยังไม่ยืนยันว่าใช้ได้กับ tokenizer ที่ต่างออกไปมาก** (เช่น CJK, หรือ model ที่ template ต่างกันมาก) แต่กลไกทั้งหมดเป็นการวัดต่อ provider ไม่ใช่ค่าคงที่ จึงต่อยอดได้โดยไม่ต้องเขียนใหม่
+
+**tokenizer adapter ยังมีค่าถ้าต้องการ predicted ที่แม่นกว่านี้มาก** (เช่น เพื่อบีบ context ให้ชิดเพดานจริงๆ) แต่ไม่ใช่ prerequisite ของ gate นี้อีกต่อไป
