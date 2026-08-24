@@ -115,7 +115,7 @@ func (s *Service) EnsureByName(ctx context.Context, input SaveInput) (Profile, e
 
 func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,created_at,updated_at
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,created_at,updated_at
     FROM provider_profiles ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list provider profiles: %w", err)
@@ -150,7 +150,7 @@ func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,created_at,updated_at
+    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,created_at,updated_at
     FROM provider_profiles WHERE id=?`, id)
 	return scanProfile(row)
 }
@@ -199,7 +199,8 @@ func scanProfile(row scanner) (Profile, error) {
 	var created, updated string
 	if err := row.Scan(&item.ID, &item.Name, &item.AdapterKind, &item.BaseURL, &item.Model, &item.APIKeyEnv,
 		&item.ContextWindow, &item.ContextEvidence, &item.MaxOutputTokens, &enabled,
-		&item.ReasoningRatio, &item.ReasoningSample, &created, &updated); err != nil {
+		&item.ReasoningRatio, &item.ReasoningSample, &item.TokenMultiplier, &item.TokenSample,
+		&created, &updated); err != nil {
 		return Profile{}, err
 	}
 	item.Enabled = enabled != 0
@@ -291,5 +292,34 @@ func (s *Service) ObserveReasoning(ctx context.Context, providerID string, reaso
 		SET reasoning_ratio = ((reasoning_ratio * reasoning_sample) + ?) / (reasoning_sample + 1),
 		    reasoning_sample = reasoning_sample + 1
 		WHERE id=?`, share, providerID)
+	return err
+}
+
+// tokenScaleFloor and tokenScaleCeiling bound one observation's influence. A
+// single malformed usage report should move the calibration, not replace it.
+const (
+	tokenScaleFloor   = 0.50
+	tokenScaleCeiling = 3.00
+)
+
+// ObserveTokenScale folds one prediction/usage pair into this profile's running
+// mean, the same way ObserveReasoning does. A running mean rather than a decaying
+// one because a tokenizer's ratio for a given model and language mix is close to
+// constant: the noise is in the sample, not in the truth.
+func (s *Service) ObserveTokenScale(ctx context.Context, providerID string, predicted, actual int) error {
+	if predicted <= 0 || actual <= 0 || strings.TrimSpace(providerID) == "" {
+		return nil
+	}
+	ratio := float64(actual) / float64(predicted)
+	if ratio < tokenScaleFloor {
+		ratio = tokenScaleFloor
+	}
+	if ratio > tokenScaleCeiling {
+		ratio = tokenScaleCeiling
+	}
+	_, err := s.store.DB.ExecContext(ctx, `UPDATE provider_profiles
+		SET token_multiplier = ((token_multiplier * token_sample) + ?) / (token_sample + 1),
+		    token_sample = token_sample + 1
+		WHERE id=?`, ratio, providerID)
 	return err
 }

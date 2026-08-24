@@ -19,8 +19,13 @@ type Profile struct {
 	// thinking, measured from its own responses. Reasoning bills as completion,
 	// so a model at 0.8 leaves a fifth of the output budget for the answer --
 	// and at a small profile that can round down to nothing. Zero means unknown.
-	ReasoningRatio  float64   `json:"reasoning_ratio"`
-	ReasoningSample int       `json:"reasoning_sample"`
+	ReasoningRatio  float64 `json:"reasoning_ratio"`
+	ReasoningSample int     `json:"reasoning_sample"`
+	// TokenMultiplier scales the heuristic token estimate for this model's
+	// tokenizer. It is per profile because the quantity is a tokenizer: one
+	// number shared across models describes none of them.
+	TokenMultiplier float64   `json:"token_multiplier"`
+	TokenSample     int       `json:"token_sample"`
 	Enabled         bool      `json:"enabled"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`

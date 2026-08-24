@@ -28,6 +28,18 @@ type Compiler struct {
 	compactor Compactor
 }
 
+// WithEstimator returns a compiler that measures with the given estimator and
+// is otherwise identical. The receiver is not modified, so concurrent turns on
+// different models never share a calibration.
+func (c *Compiler) WithEstimator(estimator Estimator) *Compiler {
+	if estimator == nil {
+		return c
+	}
+	clone := *c
+	clone.estimator = estimator
+	return &clone
+}
+
 func NewCompiler(estimator Estimator, spiller Spiller, compactor Compactor) *Compiler {
 	return &Compiler{estimator: estimator, spiller: spiller, compactor: compactor}
 }

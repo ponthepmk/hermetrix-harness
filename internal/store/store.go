@@ -159,6 +159,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v18: %w", err)
 		}
 	}
+	if version < 19 {
+		if _, err := tx.ExecContext(ctx, schemaV19); err != nil {
+			return fmt.Errorf("apply schema v19: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -171,7 +176,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 18
+const CurrentSchemaVersion = 19
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -985,4 +990,19 @@ CREATE TABLE IF NOT EXISTS token_observations (
   UNIQUE(session_id, turn_id, step_number)
 );
 CREATE INDEX IF NOT EXISTS idx_token_observations_model ON token_observations(provider_id, model, created_at);
+`
+
+// schemaV19 keeps the token-scale calibration where it belongs: on the provider
+// profile, beside the reasoning ratio that was already learned this way.
+//
+// It lived in a single in-memory float on one shared AdaptiveEstimator. Two
+// things followed. It reset to 1.0 on every restart, so a server that had
+// learned its model over-counts Thai by a quarter went back to over-counting
+// on the next boot -- measured at 0.766 after eighteen turns, discarded. And it
+// was one number for every provider and model at once, so concurrent sessions
+// on different tokenizers pulled it in opposite directions and each corrupted
+// the other's predictions.
+const schemaV19 = `
+ALTER TABLE provider_profiles ADD COLUMN token_multiplier REAL NOT NULL DEFAULT 1;
+ALTER TABLE provider_profiles ADD COLUMN token_sample INTEGER NOT NULL DEFAULT 0;
 `

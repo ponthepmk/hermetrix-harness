@@ -468,6 +468,10 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 	if err != nil {
 		return TurnResult{}, err
 	}
+	// Read once, at the start of the turn, so every step of this turn measures
+	// with the same ruler. The shared adaptive estimator moved between steps and
+	// made a larger context score smaller than the one before it.
+	scale := ctxcompiler.ScaledEstimator(provider.TokenMultiplier)
 	maxTokens := provider.MaxOutputTokens
 	if maxTokens > profile.OutputReserve {
 		maxTokens = profile.OutputReserve
@@ -487,7 +491,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		if err != nil {
 			return TurnResult{}, err
 		}
-		compiled, selected, err := s.compileTurn(ctx, profile, events, turnID, session.Contract)
+		compiled, selected, err := s.compileTurn(ctx, profile, events, turnID, session.Contract, scale)
 		if err != nil {
 			return TurnResult{}, err
 		}
@@ -533,6 +537,14 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			return TurnResult{}, fmt.Errorf("agent exhausted its %d cumulative-token budget", budget.MaxCumulativeTokens)
 		}
 		if completion.Usage.PromptTokens > 0 {
+			// The calibration belongs to this provider and is persisted there, so
+			// it survives a restart and never mixes two tokenizers. The in-memory
+			// adaptive estimator is still fed because the qualification lab and
+			// the profiles endpoint report it.
+			if err := s.providers.ObserveTokenScale(ctx, provider.ID,
+				compiled.Report.PredictedInput, completion.Usage.PromptTokens); err != nil {
+				return TurnResult{}, err
+			}
 			s.estimator.Observe(compiled.Report.PredictedInput, completion.Usage.PromptTokens)
 			// Keep the pair, not just its effect on the average. The Phase 9 gate
 			// asks whether prediction sits within ±10% of reported usage at p95,
@@ -552,7 +564,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		// this was measured against. The compiler cannot size around a value it
 		// never sees, so at minimum a turn that was cut off must say so rather
 		// than return a truncated answer as though it were complete.
-		if reasoning := s.estimator.Count(completion.Reasoning); reasoning > 0 {
+		if reasoning := scale.Count(completion.Reasoning); reasoning > 0 {
 			reasoningTokens += reasoning
 			// Calibration is global and keeps moving; this session already froze
 			// its own copy, so observing here cannot shift the budget underneath
@@ -1232,7 +1244,7 @@ type selectedSkill struct {
 }
 
 func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, events []Event, currentTurnID string,
-	contract SessionContract) (ctxcompiler.Compiled, []selectedSkill, error) {
+	contract SessionContract, scale ctxcompiler.ScaledEstimator) (ctxcompiler.Compiled, []selectedSkill, error) {
 	now := time.Now().UTC()
 	fragments := []ctxcompiler.Fragment{
 		{ID: "identity:hermetrix", Kind: ctxcompiler.KindIdentity, Scope: "runtime", Provenance: "hermetrix",
@@ -1319,7 +1331,7 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 		request.DirectTools = contextSpecsFor(contract.ToolBindings)
 		request.WorstCaseToolBurst = 2048
 	}
-	compiled, err := s.compiler.Compile(ctx, request)
+	compiled, err := s.compiler.WithEstimator(scale).Compile(ctx, request)
 	if err != nil {
 		return ctxcompiler.Compiled{}, nil, err
 	}

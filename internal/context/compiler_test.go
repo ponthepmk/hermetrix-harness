@@ -376,3 +376,72 @@ func TestLedgerRejectsABalancedTotalWithNoWitness(t *testing.T) {
 		})
 	}
 }
+
+// TestScaledEstimatorDoesNotMoveWhileACompileRuns is the property the shared
+// adaptive estimator could not offer. Observe writes to one mutable float used
+// by every session, so a compile could be measured with a different ruler than
+// the one before it in the same turn.
+func TestScaledEstimatorDoesNotMoveWhileACompileRuns(t *testing.T) {
+	text := "บันทึกการสนทนาที่ยาวพอจะวัดได้"
+	base := ScaledEstimator(1).Count(text)
+	if base <= 0 {
+		t.Fatal("baseline count is zero")
+	}
+	if doubled := ScaledEstimator(2).Count(text); doubled < base*2-1 || doubled > base*2+1 {
+		t.Fatalf("multiplier 2 gave %d for a base of %d", doubled, base)
+	}
+	adaptive := NewAdaptiveEstimator()
+	before := adaptive.Count(text)
+	adaptive.Observe(1000, 2000)
+	if adaptive.Count(text) == before {
+		t.Fatal("precondition: the adaptive estimator is supposed to move when observed")
+	}
+	fixed := ScaledEstimator(1)
+	stable := fixed.Count(text)
+	adaptive.Observe(1000, 500)
+	if fixed.Count(text) != stable {
+		t.Fatal("a fixed-scale estimator changed after an unrelated observation")
+	}
+}
+
+// TestZeroScaleFallsBackToUnscaled keeps a provider that has never been
+// calibrated from measuring everything as nothing.
+func TestZeroScaleFallsBackToUnscaled(t *testing.T) {
+	text := "unmeasured provider"
+	if got, want := ScaledEstimator(0).Count(text), ScaledEstimator(1).Count(text); got != want {
+		t.Fatalf("zero scale counted %d, want the unscaled %d", got, want)
+	}
+}
+
+// TestWithEstimatorLeavesTheOriginalAlone matters because concurrent turns on
+// different models share one compiler.
+func TestWithEstimatorLeavesTheOriginalAlone(t *testing.T) {
+	compiler := testCompiler(t)
+	now := time.Unix(600, 0).UTC()
+	fragments := []Fragment{{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100,
+		Content: strings.Repeat("เนื้อหาที่ใช้วัด ", 30), CreatedAt: now}}
+	request := Request{Profile: Compact32K(), Fragments: fragments}
+	first, err := compiler.Compile(stdcontext.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scaled := compiler.WithEstimator(ScaledEstimator(2))
+	doubled, err := scaled.Compile(stdcontext.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doubled.Report.SelectedTokens <= first.Report.SelectedTokens {
+		t.Fatalf("scaled compile measured %d, unscaled %d", doubled.Report.SelectedTokens, first.Report.SelectedTokens)
+	}
+	again, err := compiler.Compile(stdcontext.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Report.SelectedTokens != first.Report.SelectedTokens {
+		t.Fatalf("the original compiler was mutated: %d then %d",
+			first.Report.SelectedTokens, again.Report.SelectedTokens)
+	}
+	if compiler.WithEstimator(nil) != compiler {
+		t.Fatal("WithEstimator(nil) should keep the existing estimator")
+	}
+}

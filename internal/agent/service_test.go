@@ -2171,10 +2171,13 @@ func TestEachModelStepRecordsItsOwnPredictionAndUsage(t *testing.T) {
 			t.Fatalf("step %d recorded no prediction: %+v", item.step, observed)
 		}
 	}
-	// Each step must be pinned to its own compile. Note that the predictions do
-	// not simply grow with history: Observe recalibrates the shared estimator
-	// between steps, so a later, larger context can score lower than an earlier
-	// one. That is why the snapshot identity, not the size, is the check.
+	// Each step must be pinned to its own compile, and every step of one turn
+	// must measure with the same ruler. Before the calibration was frozen for
+	// the turn, Observe moved the shared estimator between steps and step two
+	// scored 3,632 tokens for strictly more context than step one's 3,677.
+	if observed[1].predicted <= observed[0].predicted {
+		t.Fatalf("a later step with more history predicted less: %+v", observed)
+	}
 	var snapshots []string
 	snapshotRows, err := service.store.DB.QueryContext(ctx,
 		`SELECT context_snapshot_id FROM token_observations WHERE session_id=? ORDER BY step_number`, session.ID)
@@ -2201,5 +2204,61 @@ func TestEachModelStepRecordsItsOwnPredictionAndUsage(t *testing.T) {
 	}
 	if stats[0].Verdict != "insufficient_evidence" {
 		t.Fatalf("verdict = %q on two samples, want insufficient_evidence", stats[0].Verdict)
+	}
+}
+
+// TestACalibratedProviderCompilesADifferentBudget proves the persisted
+// calibration reaches the compile. Without this the multiplier could be learned
+// and stored correctly and still change nothing about what fits in a context.
+func TestACalibratedProviderCompilesADifferentBudget(t *testing.T) {
+	newServer := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.Copy(io.Discard, r.Body)
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"+
+				"\"usage\":{\"prompt_tokens\":900,\"completion_tokens\":2,\"total_tokens\":902}}\n\ndata: [DONE]\n\n")
+		}))
+	}
+	server := newServer()
+	service, profile, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	goal := strings.Repeat("บันทึกงานบัญชีภาษีที่ต้องใช้บริบทยาวพอสมควร ", 20)
+
+	runOnce := func(title string) int {
+		session, err := service.CreateSession(ctx, CreateSessionInput{Title: title, ProviderID: profile.ID,
+			ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: goal}, nil); err != nil {
+			t.Fatal(err)
+		}
+		var predicted int
+		if err := service.store.DB.QueryRowContext(ctx,
+			`SELECT predicted_input FROM token_observations WHERE session_id=? ORDER BY step_number LIMIT 1`,
+			session.ID).Scan(&predicted); err != nil {
+			t.Fatal(err)
+		}
+		return predicted
+	}
+
+	uncalibrated := runOnce("uncalibrated")
+	// Teach this provider that its tokenizer packs the text far tighter than the
+	// heuristic assumes, which is the direction the live gateway actually moved.
+	for i := 0; i < 40; i++ {
+		if err := service.providers.ObserveTokenScale(ctx, profile.ID, 1000, 550); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calibrated := runOnce("calibrated")
+	if calibrated >= uncalibrated {
+		t.Fatalf("calibration did not reach the compile: %d predicted before, %d after", uncalibrated, calibrated)
+	}
+	// The floor of the ruler is 0.50, and the prediction also carries the
+	// worst-case tool burst, which no multiplier scales. Requiring a visible
+	// drop rather than an exact ratio keeps this from testing the arithmetic.
+	if float64(calibrated) > 0.9*float64(uncalibrated) {
+		t.Fatalf("calibration barely moved the budget: %d then %d", uncalibrated, calibrated)
 	}
 }
