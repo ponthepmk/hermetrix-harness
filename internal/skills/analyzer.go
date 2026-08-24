@@ -4,18 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"math"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"hermetrix-harness/internal/identity"
+	"hermetrix-harness/internal/textmatch"
 )
 
 const deterministicAnalyzerVersion = "deterministic-v1"
-
-var wordPattern = regexp.MustCompile(`[a-z0-9][a-z0-9_-]*`)
 
 type analysisItem struct {
 	skill    Skill
@@ -150,34 +147,11 @@ func stripFrontmatter(markdown string) string {
 	return markdown
 }
 
-func termSet(text string) map[string]bool {
-	text = strings.ToLower(text)
-	var normalized strings.Builder
-	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
-			normalized.WriteRune(r)
-		} else {
-			normalized.WriteByte(' ')
-		}
-	}
-	out := map[string]bool{}
-	for _, ascii := range wordPattern.FindAllString(normalized.String(), -1) {
-		if len(ascii) > 2 {
-			out[ascii] = true
-		}
-	}
-	// Thai and other scripts may not be space-tokenized. Character trigrams
-	// provide deterministic retrieval without pretending to be a tokenizer.
-	for _, field := range strings.Fields(normalized.String()) {
-		runes := []rune(field)
-		if len(runes) >= 3 && containsNonASCII(field) {
-			for i := 0; i+3 <= len(runes); i++ {
-				out["tri:"+string(runes[i:i+3])] = true
-			}
-		}
-	}
-	return out
-}
+// termSet delegates to the shared tokenizer. This file used to carry its own
+// copy; the agent carried a different one that was blind to unspaced scripts,
+// and the two drifting apart is what made Thai retrieval fail on the path
+// users actually touch. One implementation now, used by both.
+func termSet(text string) map[string]bool { return textmatch.Union(text) }
 
 func stringSet(values []string) map[string]bool {
 	out := map[string]bool{}
@@ -223,15 +197,6 @@ func shared(left, right map[string]bool, limit int) []string {
 }
 
 func round(value float64) float64 { return math.Round(value*1000) / 1000 }
-
-func containsNonASCII(value string) bool {
-	for _, r := range value {
-		if r > 127 {
-			return true
-		}
-	}
-	return false
-}
 
 // This analyzer is a retrieval stage, not a judge. Its findings are report-only
 // and go to a human before anything is consolidated, so it should err towards

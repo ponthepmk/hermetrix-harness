@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
+	"hermetrix-harness/internal/textmatch"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -395,13 +397,23 @@ func (s *Service) initializeSessionSkills(ctx context.Context, session Session, 
 	return session, nil
 }
 
+// gramWeight is the most a trigram overlap can contribute, matched to the bonus
+// an exact name hit earns.
+//
+// Trigrams are scored as a proportion of the shorter side rather than as a raw
+// count. Measured on a long Thai goal about rounding satang, a terse Skill
+// summary saying exactly that shared 7 trigrams while a long unrelated summary
+// about sales-tax reports shared 17 -- so a raw count buries the right Skill
+// under a wordy wrong one. Against the shorter side those become 40 and 14.
+const gramWeight = 40
+
 func selectSkillBindings(goal string, catalog []SessionSkillBinding) []SessionSkillBinding {
 	type scored struct {
 		binding SessionSkillBinding
 		score   int
 	}
 	query := strings.ToLower(strings.TrimSpace(goal))
-	queryTerms := termSet(query)
+	queryWords, queryGrams := textmatch.Terms(query)
 	var candidates []scored
 	for _, binding := range catalog {
 		score := 0
@@ -412,10 +424,23 @@ func selectSkillBindings(goal string, catalog []SessionSkillBinding) []SessionSk
 		if query != "" && (strings.Contains(query, name) || strings.Contains(name, query)) {
 			score += 40
 		}
-		for term := range termSet(name + " " + strings.ToLower(binding.Summary)) {
-			if queryTerms[term] {
+		candidateWords, candidateGrams := textmatch.Terms(name + " " + strings.ToLower(binding.Summary))
+		for term := range candidateWords {
+			if queryWords[term] {
 				score += 4
 			}
+		}
+		// Thai and other unspaced scripts reach the scorer only through this
+		// branch. Without it a Thai query matched nothing short of the summary
+		// repeated verbatim.
+		if shared := textmatch.Overlap(queryGrams, candidateGrams); shared > 0 {
+			// The shorter side is whichever of goal and summary is more specific,
+			// so this reads as "how much of the specific one is covered".
+			smaller := len(queryGrams)
+			if len(candidateGrams) < smaller {
+				smaller = len(candidateGrams)
+			}
+			score += int(math.Round(gramWeight * float64(shared) / float64(smaller)))
 		}
 		if score > 0 {
 			candidates = append(candidates, scored{binding: binding, score: score})
@@ -1334,19 +1359,6 @@ func (s *Service) recordSkillActivations(ctx context.Context, sessionID, turnID 
 		}
 	}
 	return nil
-}
-
-func termSet(value string) map[string]bool {
-	terms := map[string]bool{}
-	for _, term := range strings.FieldsFunc(value, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r < 0x0E00
-	}) {
-		term = strings.TrimSpace(term)
-		if len([]rune(term)) >= 3 {
-			terms[term] = true
-		}
-	}
-	return terms
 }
 
 func (s *Service) freezeStep(ctx context.Context, session Session, provider providers.Profile, turnID string, stepNumber int, compiled ctxcompiler.Compiled) (StepBinding, error) {

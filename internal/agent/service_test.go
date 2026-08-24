@@ -1939,3 +1939,70 @@ func TestReasoningRatioIsMeasuredFromCompletions(t *testing.T) {
 		t.Fatalf("ratio %v, want the mean of 0.5 and 1.0", after.ReasoningRatio)
 	}
 }
+
+// TestThaiGoalFindsAThaiSkill covers the retrieval path a Thai-speaking user
+// actually takes. Before the shared tokenizer, a Thai query matched only a
+// summary repeated verbatim: "ปัดเศษสตางค์" and "การปัดเศษเงิน" both returned
+// nothing against a Skill whose summary was about exactly that.
+//
+// This matters past search. The same scorer preselects Skills into the session
+// contract and forms the denominator of the skill-retrieval metric, so a Thai
+// turn was counted as having no relevant Skill and the metric reported no
+// missed opportunity for the language.
+func TestThaiGoalFindsAThaiSkill(t *testing.T) {
+	catalog := []SessionSkillBinding{
+		{SkillID: "s1", VersionID: "v1", CanonicalName: "satang-rounding",
+			Summary: "ปัดเศษเงินไทยเป็นสตางค์แบบครึ่งขึ้น"},
+		{SkillID: "s2", VersionID: "v2", CanonicalName: "bank-reconciliation",
+			Summary: "จัดทำงบกระทบยอดเงินฝากธนาคารสิ้นเดือน"},
+	}
+	for _, goal := range []string{"ปัดเศษสตางค์", "การปัดเศษเงิน", "ปัดเศษเงินไทย"} {
+		selected := selectSkillBindings(goal, catalog)
+		if len(selected) == 0 {
+			t.Fatalf("goal %q retrieved nothing", goal)
+		}
+		if selected[0].SkillID != "s1" {
+			t.Fatalf("goal %q ranked %s first, want the rounding Skill", goal, selected[0].SkillID)
+		}
+	}
+	// Precision: a Thai goal about something else must not drag the rounding
+	// Skill to the top just because Thai shares common syllables.
+	selected := selectSkillBindings("กระทบยอดเงินฝากธนาคาร", catalog)
+	if len(selected) == 0 || selected[0].SkillID != "s2" {
+		t.Fatalf("bank goal ranked %+v, want the reconciliation Skill first", selected)
+	}
+}
+
+// TestCompoundSkillNameIsFoundByEitherHalf keeps hyphenated canonical names
+// reachable by one of their words, which is how a user refers to them.
+func TestCompoundSkillNameIsFoundByEitherHalf(t *testing.T) {
+	catalog := []SessionSkillBinding{
+		{SkillID: "s1", VersionID: "v1", CanonicalName: "satang-rounding", Summary: "Round money"},
+	}
+	for _, goal := range []string{"rounding", "satang", "satang-rounding"} {
+		if len(selectSkillBindings(goal, catalog)) == 0 {
+			t.Fatalf("goal %q retrieved nothing", goal)
+		}
+	}
+}
+
+// TestATerseSkillOutranksAWordyOneOnALongGoal is why trigram overlap is scored
+// as a proportion. On a long Thai goal about rounding satang, a terse Skill
+// summary saying exactly that shares 7 trigrams while a wordy unrelated summary
+// about sales-tax reporting shares 17 purely by being long. Counting raw
+// overlap ranks the wrong Skill first.
+func TestATerseSkillOutranksAWordyOneOnALongGoal(t *testing.T) {
+	goal := "ช่วยอธิบายวิธีปัดเศษสตางค์ในใบกำกับภาษีที่มีทศนิยมสามตำแหน่งและต้องกระทบยอดกับรายงานภาษีขายด้วย"
+	catalog := []SessionSkillBinding{
+		{SkillID: "wordy", VersionID: "v1", CanonicalName: "sales-tax-report",
+			Summary: "จัดทำรายงานภาษีขายประจำเดือนพร้อมกระทบยอดกับบัญชีแยกประเภทและตรวจสอบเอกสารประกอบให้ครบถ้วนทุกรายการ"},
+		{SkillID: "terse", VersionID: "v2", CanonicalName: "satang-rounding", Summary: "ปัดเศษสตางค์"},
+	}
+	selected := selectSkillBindings(goal, catalog)
+	if len(selected) == 0 {
+		t.Fatal("goal retrieved nothing")
+	}
+	if selected[0].SkillID != "terse" {
+		t.Fatalf("ranked %s first; a wordy summary won on length", selected[0].SkillID)
+	}
+}
