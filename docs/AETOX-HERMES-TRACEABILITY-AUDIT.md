@@ -140,9 +140,9 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 
 | ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
-| **R-14** | metric `no_skill_requested_rate` มีแล้ว แต่ยังไม่เคยรันกับ local model จริง | low | วัดได้แล้วผ่าน `GET /api/skill-retrieval`; เหลือแค่เก็บข้อมูลจากการใช้งานจริง ไม่ใช่งาน implementation |
+| **R-14** | เกณฑ์ถอยของ ADR-7 ยังวัดไม่ได้ในสนามจริง | **medium** | รันกับ gateway จริงแล้ว **254 turn**: `turns_with_relevant_skill` = 12 (ต้องการ ≥20) `turns_model_requested` = 0 `rate` = 1.0 verdict `insufficient_evidence`<br>**ตัวหารเล็กเพราะ goal เป็นไทยแต่ catalog เป็นอังกฤษ** — lexical ข้ามภาษาไม่ได้ตามที่ O-20 ระบุ model เรียก `skill_search`/`skill_view` ไป **165 ครั้ง** แต่ไม่ตรงกับ 12 turn ที่ scorer บอกว่ามี Skill ตรงเลยสักครั้ง<br>วัดจริงไม่ได้จนกว่า catalog จะเป็นไทย หรือ retrieval จะข้ามภาษาได้ |
 | **O-7** | documentation drift | medium | มี `scripts/doc-truth.sh` สองชั้นแล้ว (facts + claim registry) claim registry จับ anchor ที่หายได้จริงตั้งแต่รันครั้งแรก; ข้อความเชิงความหมายยังต้องให้คนไล่ |
-| **P-3** | exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้ | medium | ยังไม่ทำ gate audit |
+| ~~**P-3**~~ | ~~exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้~~ | — | **ปิดแล้ว** — gate audit ครบใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) ทุก gate เป็น predicate; ที่ขาด artifact กลายเป็น prerequisite ที่มีชื่อ (P8-A…P14-A) แถวนี้ค้างมาจากรอบก่อน |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |
 
 ### 4.2b Findings จากการขับใช้งานจริง (2026-08-23)

@@ -77,6 +77,29 @@ empty-answer-fails|returned no answer|internal/agent/service.go
 read-window-keeps-whole-hash|metadata\["total_lines"\]|internal/tools/registry.go
 reviewer-fails-closed|func parseReviewerDecision|internal/learning/model_reviewer.go
 adr7-exit-threshold|NoSkillRequestedRate > 0.5|internal/agent/service.go
+token-ledger-balances|func \(r \*Report\) reconcile|internal/context/compiler.go
+token-ledger-has-witnesses|attributed to deduplication but no fragment was removed|internal/context/compiler.go
+prompt-not-budget|PredictedPrompt|internal/context/compiler.go
+transport-priced|func transportCost|internal/context/compiler.go
+overhead-measured-not-fitted|func \(s \*Service\) MeasureTokenOverhead|internal/providers/service.go
+overhead-refuses-nonsense|is not a chat template|internal/providers/service.go
+script-rate-learned|func \(s \*Service\) ObserveNonASCIIRate|internal/providers/service.go
+script-rate-applied|type ScriptEstimator|internal/context/estimator.go
+calibration-divides-out-applied|ratio := applied \* float64\(actual\)|internal/providers/service.go
+calibration-persisted|token_multiplier = \(\(token_multiplier \* token_sample\)|internal/providers/service.go
+token-accuracy-windowed|TokenAccuracyWindow|internal/agent/models.go
+token-observation-per-step|func \(s \*Service\) recordTokenObservation|internal/agent/service.go
+unsendable-args-not-budgeted|content = replayableArguments\(content\)|internal/agent/service.go
+thai-retrieval-shared-tokenizer|textmatch.Terms|internal/agent/service.go
+health-reports-real-schema|func \(s \*Store\) SchemaVersion|internal/store/store.go
+import-reports-what-it-dropped|func tablesNotRestored|internal/product/backup.go
+replay-implicit-only|replay_implicit_only|internal/skills/replay.go
+fidelity-pressure-case|func pressureCase|internal/fidelity/service.go
+error-page-not-conversation|func summariseErrorBody|internal/providers/openai.go
+corpus-label-required|case is unlabelled|internal/learning/corpus.go
+corpus-invented-evidence|func inventedEvidence|internal/learning/corpus.go
+corpus-splits-provenance|driven", "synthetic", "all|internal/learning/corpus.go
+reviewer-error-not-judgement|Unusable bool|internal/learning/models.go
 CLAIMS
 )
 
