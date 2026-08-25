@@ -140,7 +140,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 
 | ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
-| **R-14** | เกณฑ์ถอยของ ADR-7 ยังวัดไม่ได้ในสนามจริง | **medium** | รันกับ gateway จริงแล้ว **254 turn**: `turns_with_relevant_skill` = 12 (ต้องการ ≥20) `turns_model_requested` = 0 `rate` = 1.0 verdict `insufficient_evidence`<br>**ตัวหารเล็กเพราะ goal เป็นไทยแต่ catalog เป็นอังกฤษ** — lexical ข้ามภาษาไม่ได้ตามที่ O-20 ระบุ model เรียก `skill_search`/`skill_view` ไป **165 ครั้ง** แต่ไม่ตรงกับ 12 turn ที่ scorer บอกว่ามี Skill ตรงเลยสักครั้ง<br>วัดจริงไม่ได้จนกว่า catalog จะเป็นไทย หรือ retrieval จะข้ามภาษาได้ |
+| **R-14** | เกณฑ์ถอยของ ADR-7 ยังวัดไม่ได้ในสนามจริง | **medium** | **วัดได้แล้วว่าตาบอด** — verdict `retrieval_blind` แยก "ยังไม่มีหลักฐานพอ" ออกจาก "scorer อ่านไม่ออก" · ทางแก้จริงยังต้องตัดสินใจ<br> รันกับ gateway จริงแล้ว **254 turn**: `turns_with_relevant_skill` = 12 (ต้องการ ≥20) `turns_model_requested` = 0 `rate` = 1.0 verdict `insufficient_evidence`<br>**ตัวหารเล็กเพราะ goal เป็นไทยแต่ catalog เป็นอังกฤษ** — lexical ข้ามภาษาไม่ได้ตามที่ O-20 ระบุ model เรียก `skill_search`/`skill_view` ไป **165 ครั้ง** แต่ไม่ตรงกับ 12 turn ที่ scorer บอกว่ามี Skill ตรงเลยสักครั้ง<br>วัดจริงไม่ได้จนกว่า catalog จะเป็นไทย หรือ retrieval จะข้ามภาษาได้ |
 | **O-7** | documentation drift | medium | มี `scripts/doc-truth.sh` สองชั้นแล้ว (facts + claim registry) claim registry จับ anchor ที่หายได้จริงตั้งแต่รันครั้งแรก; ข้อความเชิงความหมายยังต้องให้คนไล่ |
 | ~~**P-3**~~ | ~~exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้~~ | — | **ปิดแล้ว** — gate audit ครบใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) ทุก gate เป็น predicate; ที่ขาด artifact กลายเป็น prerequisite ที่มีชื่อ (P8-A…P14-A) แถวนี้ค้างมาจากรอบก่อน |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |
@@ -562,6 +562,26 @@ gate Phase 9 เขียนว่า "retention ของ goal/constraint/decis
 คำขอที่ถูกตอบแล้ว**เลิก**เป็น open task — ไม่งั้น model จะถูกบอกว่าเรื่องที่จบไปแล้วยังค้างอยู่ · และทั้งสอง kind **ไม่ pin** โดยตั้งใจ retention ที่ล้มไม่ได้คือ retention ที่วัดไม่ได้ ซึ่งคือบทเรียนของ P-7 ทั้งดุ้น
 
 mutation: ลบสอง case ออกได้ `decisions = 0, want 1` · ลบการข้าม `decided[approvalID]` ได้ `open tasks = 2, want 1`
+
+#### R-14 — ตัวหารถูกผลิตโดย matcher ตัวที่กำลังถูกตั้งคำถาม
+
+`SkillRetrievalMetrics` อ่าน `no_skill_requested_rate` จาก turn ที่ "มี Skill ที่เกี่ยวข้อง" ซึ่งนิยามโดย `selectSkillBindings` — **scorer ตัวเดียวกับที่กำลังถามว่าดีพอไหม** ผลคือ retrieval ที่ล้มสนิทกับ catalog ที่ว่างเปล่าให้ตัวเลขเหมือนกันเป๊ะ แล้ว verdict ค้างที่ `insufficient_evidence` รอ sample ที่ไม่มีวันมา
+
+วัดกับ catalog จริงจาก corpus ที่ขับไปแล้ว (คำอธิบาย Skill เป็นอังกฤษทั้งสามตัว):
+
+```
+ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์      -> []
+แก้การปัดเศษสตางค์ให้ปัดครึ่งขึ้น        -> []
+ออกเลขที่ใบกำกับภาษีให้ถูกรูปแบบ       -> []
+round satang half up                  -> [money-rounding-thai satang-rounding]
+fix invoice numbering                 -> [invoice-numbering]
+```
+
+บรรทัดแรกแปลตรงตัวว่า "round baht money into integer satang" เทียบกับ Skill ที่สรุปว่า `Round Thai monetary values half up using satang integers` — ได้ศูนย์ ส่วนคำแปลอังกฤษของ goal เดียวกันดึง Skill ตัวนั้นมาเป็นอันดับหนึ่ง
+
+ยังไม่แก้ retrieval — นั่นเป็นการตัดสินใจ (catalog เป็นไทย หรือ retrieval ข้ามภาษา) แต่ **หยุดรายงานความบอดว่าเป็นความเงียบ** ได้เลย: นับ `turns_goal_script_unmatched` (goal ไม่ใช่ ASCII · catalog เป็น ASCII ล้วน · scorer ได้ศูนย์) แล้วถ้า turn แบบนี้มากกว่า turn ที่ไม่ตรงด้วยเหตุผลอื่น verdict เป็น `retrieval_blind` ไม่ใช่ `insufficient_evidence`
+
+ต่างกันตรงที่ `insufficient_evidence` บอก operator ว่า *"รออีกหน่อย"* ส่วน `retrieval_blind` บอกว่า *"รอไปก็ไม่มา"* — mutation: ถอดเงื่อนไขออกแล้วได้ `verdict = "insufficient_evidence", want retrieval_blind`
 
 **ยังเหลือ `acceptance_criteria`** — ตัวนี้ไม่มีแหล่งที่ deterministic และมีอันตรายเฉพาะตัว: `sliceFor` ส่งมันเข้า slice `pinned` ซึ่ง**ทิ้งไม่ได้และ fail-closed** ถ้าเกิน `PinnedBudget` (2,048 บน compact-32k) `Compile` คืน `ErrPinnedOverflow` แล้ว **ทั้ง turn ล้ม** ไม่ใช่แค่ตัดของทิ้ง ผู้ผลิตอะไรก็ตามที่ต่อเข้ากับ kind นี้ต้องมีเพดานของตัวเอง เป็นเรื่องที่ต้องตัดสินใจ ไม่ใช่เลือกเอง
 

@@ -210,8 +210,22 @@ type SkillRetrievalStats struct {
 	// 0.5 for a supported model tier as pull having failed for that tier, which
 	// calls for widening the floor rather than pushing harder in the prompt.
 	NoSkillRequestedRate float64 `json:"no_skill_requested_rate"`
+	// TurnsGoalScriptUnmatched counts turns the scorer had no way to answer:
+	// the goal is written in a non-ASCII script, every catalog entry is
+	// ASCII-only, and the scorer returned nothing. Those turns land in
+	// TurnsWithRelevantSkill's complement, where a retrieval failure is
+	// indistinguishable from an empty catalog -- the denominator is produced by
+	// the very matcher whose adequacy is in question.
+	//
+	// Measured on the driven corpus: "ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์" scores 0
+	// against a Skill summarised "Round Thai monetary values half up using
+	// satang integers", while its English translation retrieves that Skill
+	// first. R-14.
+	TurnsGoalScriptUnmatched int `json:"turns_goal_script_unmatched"`
 	// Verdict is "insufficient_evidence" under the minimum sample, otherwise
-	// "pull_working" or "pull_failing".
+	// "pull_working" or "pull_failing" -- or "retrieval_blind" when most turns
+	// with no matched Skill were ones the scorer could not read, which is a
+	// statement about retrieval, not about the model's willingness to search.
 	Verdict string `json:"verdict"`
 }
 

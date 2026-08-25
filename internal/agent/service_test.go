@@ -1546,7 +1546,7 @@ func TestSkillRetrievalVerdictFollowsTheAdrThreshold(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			stats := summariseSkillRetrieval("model", testCase.relevant, testCase.relevant, testCase.request, 0)
+			stats := summariseSkillRetrieval("model", testCase.relevant, testCase.relevant, testCase.request, 0, 0)
 			if stats.NoSkillRequestedRate != testCase.wantRate {
 				t.Fatalf("rate %v, want %v", stats.NoSkillRequestedRate, testCase.wantRate)
 			}
@@ -2816,5 +2816,64 @@ func TestDerivedDecisionsAreNotRenderedAsUserSpeech(t *testing.T) {
 	}
 	if !strings.Contains(joined, "rodmay approved") {
 		t.Fatal("the decision never reached the request at all")
+	}
+}
+
+// TestThaiGoalsAgainstAnEnglishCatalogAreReportedAsBlindNotAbsent covers R-14.
+//
+// ADR-7's exit criterion reads no_skill_requested_rate over the turns where a
+// relevant Skill existed. That denominator is produced by selectSkillBindings
+// -- the same scorer whose adequacy is in question -- so a total retrieval
+// failure and an empty catalog produce identical numbers, and the verdict sits
+// at "insufficient_evidence" waiting for a sample that cannot arrive.
+//
+// The driven corpus is exactly that shape: Thai goals, English Skill
+// summaries. "ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์" is a literal statement of what
+// money-rounding-thai does and scores zero against it, while the English
+// translation of the same goal retrieves it first.
+func TestThaiGoalsAgainstAnEnglishCatalogAreReportedAsBlindNotAbsent(t *testing.T) {
+	catalog := []SessionSkillBinding{
+		{SkillID: "s1", CanonicalName: "satang-rounding", Summary: "Round Thai money amounts half up in satang"},
+		{SkillID: "s2", CanonicalName: "money-rounding-thai", Summary: "Round Thai monetary values half up using satang integers"},
+		{SkillID: "s3", CanonicalName: "invoice-numbering", Summary: "Format Thai invoice numbers as INV plus five digits"},
+	}
+	// The premise: the catalog is reachable, in English.
+	if got := selectSkillBindings("round satang half up", catalog); len(got) == 0 {
+		t.Fatal("premise broken: the English goal should retrieve a Skill")
+	}
+	// The finding: the same goal in the user's language reaches nothing.
+	for _, goal := range []string{
+		"ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์",
+		"แก้การปัดเศษสตางค์ให้ปัดครึ่งขึ้น",
+		"ออกเลขที่ใบกำกับภาษีให้ถูกรูปแบบ",
+	} {
+		if got := selectSkillBindings(goal, catalog); len(got) != 0 {
+			t.Fatalf("retrieval improved for %q -- update this test and R-14", goal)
+		}
+	}
+	if !catalogIsASCIIOnly(catalog) {
+		t.Fatal("the catalog should be detected as ASCII-only")
+	}
+	if !hasNonASCIILetter("ปัดเศษเงินบาท") || hasNonASCIILetter("round satang") {
+		t.Fatal("script detection is wrong")
+	}
+	// A metric that reports this as "insufficient evidence" is telling the
+	// operator to wait. It should be telling them retrieval cannot see.
+	blind := summariseSkillRetrieval("qwen", 60, 0, 0, 0, 55)
+	if blind.Verdict != "retrieval_blind" {
+		t.Fatalf("verdict = %q, want retrieval_blind", blind.Verdict)
+	}
+	if blind.TurnsGoalScriptUnmatched != 55 {
+		t.Fatalf("unmatched = %d", blind.TurnsGoalScriptUnmatched)
+	}
+	// It must not fire when the turns simply had nothing to match.
+	quiet := summariseSkillRetrieval("qwen", 60, 0, 0, 0, 2)
+	if quiet.Verdict != "insufficient_evidence" {
+		t.Fatalf("verdict = %q, want insufficient_evidence", quiet.Verdict)
+	}
+	// Nor when retrieval is working and the question really is about the model.
+	working := summariseSkillRetrieval("qwen", 60, 40, 30, 0, 0)
+	if working.Verdict != "pull_working" {
+		t.Fatalf("verdict = %q, want pull_working", working.Verdict)
 	}
 }

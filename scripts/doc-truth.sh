@@ -118,6 +118,8 @@ open-approvals-are-open-tasks|Kind: ctxcompiler.KindOpenTask|internal/agent/serv
 decided-approvals-close|it stopped being open|internal/agent/service.go
 derived-not-user-speech|func isTranscriptKind|internal/agent/service.go
 corpus-carries-real-shapes|func approvalCase|internal/fidelity/service.go
+retrieval-blindness-named|retrieval_blind|internal/agent/service.go
+retrieval-blindness-counted|TurnsGoalScriptUnmatched|internal/agent/models.go
 CLAIMS
 )
 

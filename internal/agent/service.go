@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	ctxcompiler "hermetrix-harness/internal/context"
@@ -2022,7 +2023,7 @@ func (s *Service) SkillRetrievalMetrics(ctx context.Context) ([]SkillRetrievalSt
 		return nil, err
 	}
 	type counter struct {
-		turns, relevant, requested, preloaded int
+		turns, relevant, requested, preloaded, unmatchedScript int
 	}
 	byModel := map[string]*counter{}
 	overall := &counter{}
@@ -2055,10 +2056,17 @@ func (s *Service) SkillRetrievalMetrics(ctx context.Context) ([]SkillRetrievalSt
 			byModel[model] = &counter{}
 		}
 		preloaded := len(session.Contract.SelectedSkills) > 0
+		asciiCatalog := catalogIsASCIIOnly(session.Contract.SkillCatalog)
 		for _, turnID := range order {
 			for _, target := range []*counter{byModel[model], overall} {
 				target.turns++
 				if len(selectSkillBindings(goals[turnID], session.Contract.SkillCatalog)) == 0 {
+					// R-14: a turn the scorer could not read is not the same as a
+					// turn with nothing to find, but both land here. Count the
+					// unreadable ones so the difference is visible.
+					if asciiCatalog && hasNonASCIILetter(goals[turnID]) {
+						target.unmatchedScript++
+					}
 					continue
 				}
 				target.relevant++
@@ -2079,18 +2087,27 @@ func (s *Service) SkillRetrievalMetrics(ctx context.Context) ([]SkillRetrievalSt
 	stats := make([]SkillRetrievalStats, 0, len(models)+1)
 	for _, model := range models {
 		stats = append(stats, summariseSkillRetrieval(model, byModel[model].turns, byModel[model].relevant,
-			byModel[model].requested, byModel[model].preloaded))
+			byModel[model].requested, byModel[model].preloaded, byModel[model].unmatchedScript))
 	}
 	if len(models) > 1 {
 		stats = append(stats, summariseSkillRetrieval("(all models)", overall.turns, overall.relevant,
-			overall.requested, overall.preloaded))
+			overall.requested, overall.preloaded, overall.unmatchedScript))
 	}
 	return stats, nil
 }
 
-func summariseSkillRetrieval(model string, turns, relevant, requested, preloaded int) SkillRetrievalStats {
+func summariseSkillRetrieval(model string, turns, relevant, requested, preloaded, unmatchedScript int) SkillRetrievalStats {
 	stats := SkillRetrievalStats{Model: model, Turns: turns, TurnsWithRelevantSkill: relevant,
-		TurnsModelRequested: requested, TurnsPreloaded: preloaded, Verdict: "insufficient_evidence"}
+		TurnsModelRequested: requested, TurnsPreloaded: preloaded,
+		TurnsGoalScriptUnmatched: unmatchedScript, Verdict: "insufficient_evidence"}
+	// R-14: "insufficient evidence" reads as "we have not seen enough yet",
+	// which is the wrong story when most turns produced no evidence because the
+	// scorer could not read them. That is a finding about retrieval, and it
+	// should not wait quietly for a sample that will never arrive.
+	if relevant < SkillRetrievalMinimumTurns && unmatchedScript > turns-relevant-unmatchedScript &&
+		unmatchedScript >= SkillRetrievalMinimumTurns {
+		stats.Verdict = "retrieval_blind"
+	}
 	if relevant == 0 {
 		return stats
 	}
@@ -2102,6 +2119,27 @@ func summariseSkillRetrieval(model string, turns, relevant, requested, preloaded
 		}
 	}
 	return stats
+}
+
+// catalogIsASCIIOnly reports whether every entry in the frozen catalog is
+// written in ASCII. Paired with a non-ASCII goal it means the lexical scorer
+// has no trigram it could possibly share -- see selectSkillBindings.
+func catalogIsASCIIOnly(catalog []SessionSkillBinding) bool {
+	for _, binding := range catalog {
+		if hasNonASCIILetter(binding.CanonicalName) || hasNonASCIILetter(binding.Summary) {
+			return false
+		}
+	}
+	return len(catalog) > 0
+}
+
+func hasNonASCIILetter(text string) bool {
+	for _, symbol := range text {
+		if symbol > unicode.MaxASCII && unicode.IsLetter(symbol) {
+			return true
+		}
+	}
+	return false
 }
 
 // replayableArguments keeps a malformed tool call from killing the next
