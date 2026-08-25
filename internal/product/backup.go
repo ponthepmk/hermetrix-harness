@@ -30,7 +30,6 @@ var (
 		"model_qualification_runs", "projects", "artifacts", "background_jobs", "settings", "memories", "backup_runs",
 		"curator_findings", "maintenance_schedules", "gc_runs",
 		"learning_trigger_outbox", "skill_authority_policy", "skill_authority_actions",
-		"terminal_sessions", "browser_tabs", "agent_teams", "agent_team_members", "agent_team_runs", "agent_team_tasks",
 	}
 	sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )

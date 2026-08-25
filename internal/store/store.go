@@ -764,6 +764,20 @@ CREATE TABLE IF NOT EXISTS maintenance_schedules (
   updated_at TEXT NOT NULL
 );
 
+-- Removed: terminal_sessions, browser_tabs, agent_teams, agent_team_members,
+-- agent_team_runs, agent_team_tasks.
+--
+-- They were created here, listed in the backup manifest, and referenced nowhere
+-- else: no reader, no writer, no route. A restore reported them as restored,
+-- which reads as coverage of a terminal, a managed browser and an agent team
+-- that do not exist. Schema is a claim the product makes on its own behalf and
+-- these were not true. Recorded as O-42.
+--
+-- The features are planned -- workbench and PTY in Phase 11, parent-child task
+-- graphs in Phase 12 -- and their tables belong in the commit that builds them,
+-- with the columns those implementations need rather than the ones guessed
+-- here. scripts/doc-truth.sh reports any table that drifts back into this state.
+
 CREATE TABLE IF NOT EXISTS gc_runs (
   id TEXT PRIMARY KEY,
   state TEXT NOT NULL,
@@ -899,95 +913,12 @@ ALTER TABLE skill_authority_actions ADD COLUMN archive_id TEXT NOT NULL DEFAULT 
 `
 
 const schemaV16 = `
-CREATE TABLE IF NOT EXISTS terminal_sessions (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
-  shell TEXT NOT NULL,
-  working_dir TEXT NOT NULL DEFAULT '',
-  state TEXT NOT NULL,
-  output_tail TEXT NOT NULL DEFAULT '',
-  cursor INTEGER NOT NULL DEFAULT 0,
-  exit_code INTEGER,
-  error TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  completed_at TEXT,
-  FOREIGN KEY(project_id) REFERENCES projects(id)
-);
 
-CREATE TABLE IF NOT EXISTS browser_tabs (
-  id TEXT PRIMARY KEY,
-  project_id TEXT,
-  url TEXT NOT NULL,
-  title TEXT NOT NULL DEFAULT '',
-  state TEXT NOT NULL,
-  allow_private INTEGER NOT NULL DEFAULT 0,
-  text_snapshot TEXT NOT NULL DEFAULT '',
-  links_json TEXT NOT NULL DEFAULT '[]',
-  screenshot_artifact_id TEXT NOT NULL DEFAULT '',
-  error TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  FOREIGN KEY(project_id) REFERENCES projects(id)
-);
 
-CREATE TABLE IF NOT EXISTS agent_teams (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  provider_id TEXT NOT NULL,
-  project_id TEXT NOT NULL DEFAULT '',
-  context_profile TEXT NOT NULL,
-  max_parallel INTEGER NOT NULL DEFAULT 2,
-  state TEXT NOT NULL DEFAULT 'active',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS agent_team_members (
-  id TEXT PRIMARY KEY,
-  team_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  role TEXT NOT NULL,
-  instructions TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  FOREIGN KEY(team_id) REFERENCES agent_teams(id) ON DELETE CASCADE
-);
 
-CREATE TABLE IF NOT EXISTS agent_team_runs (
-  id TEXT PRIMARY KEY,
-  team_id TEXT NOT NULL,
-  goal TEXT NOT NULL,
-  state TEXT NOT NULL,
-  error TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  completed_at TEXT,
-  FOREIGN KEY(team_id) REFERENCES agent_teams(id)
-);
 
-CREATE TABLE IF NOT EXISTS agent_team_tasks (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL,
-  task_key TEXT NOT NULL,
-  member_id TEXT NOT NULL,
-  prompt TEXT NOT NULL,
-  depends_on_json TEXT NOT NULL DEFAULT '[]',
-  state TEXT NOT NULL,
-  session_id TEXT NOT NULL DEFAULT '',
-  output TEXT NOT NULL DEFAULT '',
-  error TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  started_at TEXT,
-  completed_at TEXT,
-  UNIQUE(run_id, task_key),
-  FOREIGN KEY(run_id) REFERENCES agent_team_runs(id),
-  FOREIGN KEY(member_id) REFERENCES agent_team_members(id)
-);
 
-CREATE INDEX IF NOT EXISTS idx_terminal_sessions_project ON terminal_sessions(project_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_browser_tabs_updated ON browser_tabs(updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_team_runs_team ON agent_team_runs(team_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_run ON agent_team_tasks(run_id, state);
 `
 
 // schemaV17 records how much of its output a model spends reasoning. Reasoning
