@@ -176,6 +176,8 @@ func corpusScore(args []string) error {
 	dataRoot := flags.String("data", ".hermetrix", "local data directory")
 	dir := flags.String("dir", "corpus/digests", "directory of labelled case files")
 	providerName := flags.String("provider", "", "provider profile to review with; defaults to the first enabled")
+	repeats := flags.Int("repeats", 1,
+		"read the corpus this many times and judge on the worst reading; the reviewer is not deterministic and one reading cannot settle a threshold its own variance straddles")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -209,7 +211,7 @@ func corpusScore(args []string) error {
 		fmt.Printf("  %-22s %d%s\n", family, coverage[family], note)
 	}
 	started := time.Now()
-	results, err := learning.ScoreCorpusWithProgress(ctx, reviewer, cases,
+	results, err := learning.ScoreCorpusRepeated(ctx, reviewer, cases, *repeats,
 		func(done, total int, caseID string) {
 			elapsed := time.Since(started)
 			remaining := time.Duration(0)
@@ -230,6 +232,10 @@ func corpusScore(args []string) error {
 			result.Provenance, result.Cases, result.ShouldPropose, result.Proposed, result.ProposalRate,
 			result.FalseProposals, result.FalseProposalRate, result.InventedEvidence,
 			result.ReviewerErrors, result.Verdict)
+		if result.Repeats > 1 {
+			fmt.Printf("%-10s   worst of %d readings; recall ranged %.2f to %.2f; %d case(s) did not answer the same way twice\n",
+				"", result.Repeats, result.ProposalRateRange[0], result.ProposalRateRange[1], result.UnstableCases)
+		}
 		if result.Verdict == "failed" {
 			failed = true
 		}

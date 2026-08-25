@@ -408,3 +408,195 @@ func (r *countingReviewer) Review(_ context.Context, digest Digest) (Decision, e
 		SuggestedSkill: &SuggestedSkill{CanonicalName: "scripted",
 			Markdown: "---\nname: scripted\ndescription: \"d\"\n---\n\n1. Do it.\n"}}, nil
 }
+
+// flakyReviewer answers differently on successive readings of the same case,
+// which is what the real one does. Measured directly, three of twelve cases
+// changed answer across five readings and every one was a positive.
+type flakyReviewer struct {
+	// answers maps a goal to the sequence of answers it gives, cycling.
+	answers map[string][]bool
+	seen    map[string]int
+}
+
+func (r *flakyReviewer) Revision() string { return "flaky-reviewer-test" }
+
+func (r *flakyReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	if r.seen == nil {
+		r.seen = map[string]int{}
+	}
+	sequence := r.answers[digest.GoalAndConstraints]
+	index := r.seen[digest.GoalAndConstraints]
+	r.seen[digest.GoalAndConstraints]++
+	propose := len(sequence) > 0 && sequence[index%len(sequence)]
+	if !propose {
+		return Decision{Kind: "no_change", Reason: "scripted decline"}, nil
+	}
+	return Decision{Kind: "create", Reason: "scripted",
+		SuggestedSkill: &SuggestedSkill{CanonicalName: "scripted",
+			Markdown: "---\nname: scripted\ndescription: \"d\"\n---\n\n1. Do it.\n"}}, nil
+}
+
+// TestTheGateJudgesTheWorstReadingNotALuckyOne is why repeats exist. A reviewer
+// that clears the floor on one reading and misses on another would pass or fail
+// on which day the gate ran.
+func TestTheGateJudgesTheWorstReadingNotALuckyOne(t *testing.T) {
+	dir := t.TempDir()
+	answers := map[string][]bool{}
+	for i := 0; i < 10; i++ {
+		goal := "positive-" + string(rune('a'+i))
+		writeCase(t, dir, CorpusCase{ID: goal, TriggerKind: "explicit_learn", Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: goal}, Label: labelled(true)})
+		switch {
+		case i < 6:
+			answers[goal] = []bool{true} // always proposed
+		case i < 8:
+			answers[goal] = []bool{true, false} // alternates: the unstable pair
+		default:
+			answers[goal] = []bool{false} // never proposed
+		}
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One reading catches the alternating pair at their good answer: 8/10 = 0.80.
+	single, err := ScoreCorpusRepeated(context.Background(), &flakyReviewer{answers: answers}, cases, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if single[len(single)-1].ProposalRate != 0.8 || single[len(single)-1].Verdict != "passed" {
+		t.Fatalf("precondition: a single lucky reading should pass, got %+v", single[len(single)-1])
+	}
+	// Two readings see them at their bad answer too: the worst is 6/10 = 0.60.
+	repeated, err := ScoreCorpusRepeated(context.Background(), &flakyReviewer{answers: answers}, cases, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := repeated[len(repeated)-1]
+	if result.Repeats != 2 {
+		t.Fatalf("repeats = %d, want 2", result.Repeats)
+	}
+	if result.ProposalRate != 0.6 {
+		t.Fatalf("worst rate = %v, want the worse reading at 0.6", result.ProposalRate)
+	}
+	if result.ProposalRateRange != [2]float64{0.6, 0.8} {
+		t.Fatalf("range = %v, want [0.6 0.8]", result.ProposalRateRange)
+	}
+	if result.UnstableCases != 2 {
+		t.Fatalf("unstable = %d, want the 2 cases that changed answer", result.UnstableCases)
+	}
+}
+
+// TestAStableReviewerReportsNoInstability keeps the counter honest.
+func TestAStableReviewerReportsNoInstability(t *testing.T) {
+	dir := t.TempDir()
+	answers := map[string][]bool{}
+	for i := 0; i < 6; i++ {
+		goal := "case-" + string(rune('a'+i))
+		writeCase(t, dir, CorpusCase{ID: goal, TriggerKind: "repeated_correction", Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: goal}, Label: labelled(true)})
+		answers[goal] = []bool{true}
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := ScoreCorpusRepeated(context.Background(), &flakyReviewer{answers: answers}, cases, 3, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := results[len(results)-1]
+	if result.UnstableCases != 0 || len(result.UnstableIDs) != 0 {
+		t.Fatalf("a reviewer that never changed its answer was reported unstable: %+v", result.UnstableIDs)
+	}
+	if result.ProposalRateRange != [2]float64{1, 1} {
+		t.Fatalf("range = %v, want [1 1]", result.ProposalRateRange)
+	}
+}
+
+// TestAnInventedCitationOnAnyReadingIsKept covers the ordering. A reading that
+// invented evidence must be the one reported even when another reading had
+// better recall: a proposal citing a receipt that does not exist is a fact
+// about the reviewer, and picking the kinder reading would lose it.
+func TestAnInventedCitationOnAnyReadingIsKept(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 10; i++ {
+		writeCase(t, dir, CorpusCase{ID: "case-" + string(rune('a'+i)), TriggerKind: "explicit_learn",
+			Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: "case-" + string(rune('a'+i)),
+				ToolReceipts: []string{"event:event_real:workspace.write_file:succeeded"}},
+			Label: labelled(true)})
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First reading: perfect recall, but one proposal cites a receipt it never
+	// received. Second reading: lower recall, nothing invented.
+	reviewer := &inventingThenShyReviewer{}
+	results, err := ScoreCorpusRepeated(context.Background(), reviewer, cases, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := results[len(results)-1]
+	if result.InventedEvidence != 1 {
+		t.Fatalf("invented = %d; the reading that invented a citation was discarded", result.InventedEvidence)
+	}
+	if result.Verdict != "failed" {
+		t.Fatalf("verdict = %q, want failed", result.Verdict)
+	}
+	if result.ProposalRateRange[1] <= result.ProposalRateRange[0] {
+		t.Fatalf("precondition: the two readings should differ in recall, got %v", result.ProposalRateRange)
+	}
+}
+
+// inventingThenShyReviewer proposes everything on the first pass, citing an
+// identifier it was never given on one case, then proposes less on the second.
+type inventingThenShyReviewer struct{ seen map[string]int }
+
+func (r *inventingThenShyReviewer) Revision() string { return "inventing-reviewer-test" }
+
+func (r *inventingThenShyReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	if r.seen == nil {
+		r.seen = map[string]int{}
+	}
+	pass := r.seen[digest.GoalAndConstraints]
+	r.seen[digest.GoalAndConstraints]++
+	if pass > 0 && digest.GoalAndConstraints > "case-e" {
+		return Decision{Kind: "no_change", Reason: "shy on the second pass"}, nil
+	}
+	body := "---\nname: scripted\ndescription: \"d\"\n---\n\nSee event:event_real.\n"
+	if pass == 0 && digest.GoalAndConstraints == "case-a" {
+		body = "---\nname: scripted\ndescription: \"d\"\n---\n\nConfirmed by event:event_never_seen.\n"
+	}
+	return Decision{Kind: "create", Reason: "scripted",
+		SuggestedSkill: &SuggestedSkill{CanonicalName: "scripted", Markdown: body}}, nil
+}
+
+// TestACitationAtTheEndOfASentenceIsNotInvented covers the accusation this
+// check makes. Identifiers legitimately contain dots and colons -- a skill
+// reference is skill:<id>@<version>, a receipt is event:<id>:<tool>:<status> --
+// so the pattern admits them, and a citation ending a sentence then swallows
+// the full stop and stops matching what the digest carried.
+func TestACitationAtTheEndOfASentenceIsNotInvented(t *testing.T) {
+	digest := Digest{
+		ToolReceipts:     []string{"event:event_real:workspace.write_file:succeeded"},
+		SkillActivations: []string{"skill:skill_abc@ver_def"},
+	}
+	for _, body := range []string{
+		"Confirmed by event:event_real.",
+		"Confirmed by event:event_real, then written.",
+		"Applied skill:skill_abc@ver_def; the write succeeded.",
+		"See event:event_real:workspace.write_file:succeeded.",
+	} {
+		if invented := inventedEvidence(digest, SuggestedSkill{Markdown: body}); len(invented) > 0 {
+			t.Fatalf("%q reported as inventing %v", body, invented)
+		}
+	}
+	// Trimming punctuation must not turn a genuinely absent identifier into a
+	// present one.
+	invented := inventedEvidence(digest, SuggestedSkill{Markdown: "Confirmed by event:event_imagined."})
+	if len(invented) != 1 || invented[0] != "event:event_imagined" {
+		t.Fatalf("invented = %v, want the imagined event with its punctuation trimmed", invented)
+	}
+}

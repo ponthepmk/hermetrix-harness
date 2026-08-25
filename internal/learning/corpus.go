@@ -74,6 +74,26 @@ type CorpusResult struct {
 	ReviewerErrors int      `json:"reviewer_errors"`
 	Verdict        string   `json:"verdict"`
 	Failures       []string `json:"failures,omitempty"`
+	// Repeats is how many independent readings this result is drawn from, and
+	// the rates above are the worst of them.
+	//
+	// The reviewer is not deterministic. Temperature is already zero, so this is
+	// the model rather than a sampling setting: measured directly, three of
+	// twelve cases changed answer across five readings, every one of them a case
+	// the label says holds a procedure, while negatives never moved once. Three
+	// scorings of the same hundred cases returned 31, 34 and 30 proposals --
+	// recall from 0.55 to 0.62, straddling the 0.60 floor.
+	//
+	// A gate settled by one reading of that passes or fails on which day it ran.
+	// This one takes the worst reading, so passing means the corpus cleared the
+	// bar every time rather than once.
+	Repeats int `json:"repeats,omitempty"`
+	// UnstableCases counts cases whose answer was not unanimous. Reported rather
+	// than judged: it says how much of the rate is the reviewer's judgement and
+	// how much is its variance.
+	UnstableCases     int        `json:"unstable_cases,omitempty"`
+	UnstableIDs       []string   `json:"unstable_ids,omitempty"`
+	ProposalRateRange [2]float64 `json:"proposal_rate_range,omitempty"`
 }
 
 const (
@@ -150,18 +170,120 @@ func ScoreCorpus(ctx context.Context, reviewer Reviewer, cases []CorpusCase) ([]
 // the cost and could disagree with itself.
 func ScoreCorpusWithProgress(ctx context.Context, reviewer Reviewer, cases []CorpusCase,
 	progress Progress) ([]CorpusResult, error) {
-	decisions := make(map[string]Decision, len(cases))
-	for index, item := range cases {
-		decision, err := reviewer.Review(ctx, item.Digest)
-		if err != nil {
-			return nil, fmt.Errorf("review %s: %w", item.ID, err)
+	return ScoreCorpusRepeated(ctx, reviewer, cases, 1, progress)
+}
+
+// ScoreCorpusRepeated reads the corpus several times and judges on the worst
+// reading. One reading cannot settle a threshold the reviewer's own variance
+// straddles.
+func ScoreCorpusRepeated(ctx context.Context, reviewer Reviewer, cases []CorpusCase, repeats int,
+	progress Progress) ([]CorpusResult, error) {
+	if repeats < 1 {
+		repeats = 1
+	}
+	rounds := make([]map[string]Decision, 0, repeats)
+	total, done := len(cases)*repeats, 0
+	for round := 0; round < repeats; round++ {
+		decisions := make(map[string]Decision, len(cases))
+		for _, item := range cases {
+			decision, err := reviewer.Review(ctx, item.Digest)
+			if err != nil {
+				return nil, fmt.Errorf("review %s: %w", item.ID, err)
+			}
+			decisions[item.ID] = decision
+			done++
+			if progress != nil {
+				progress(done, total, item.ID)
+			}
 		}
-		decisions[item.ID] = decision
-		if progress != nil {
-			progress(index+1, len(cases), item.ID)
+		rounds = append(rounds, decisions)
+	}
+	return worstOf(cases, rounds)
+}
+
+// worstOf scores every reading and keeps the one that did least well, carrying
+// the range and the cases that did not answer the same way twice.
+func worstOf(cases []CorpusCase, rounds []map[string]Decision) ([]CorpusResult, error) {
+	perRound := make([][]CorpusResult, 0, len(rounds))
+	for _, decisions := range rounds {
+		results, err := scoreDecided(cases, decisions)
+		if err != nil {
+			return nil, err
+		}
+		perRound = append(perRound, results)
+	}
+	unstable := unstableCases(cases, rounds)
+	worst := make([]CorpusResult, len(perRound[0]))
+	for index := range worst {
+		chosen := perRound[0][index]
+		low, high := chosen.ProposalRate, chosen.ProposalRate
+		for _, results := range perRound[1:] {
+			candidate := results[index]
+			if candidate.ProposalRate < low {
+				low = candidate.ProposalRate
+			}
+			if candidate.ProposalRate > high {
+				high = candidate.ProposalRate
+			}
+			if worseThan(candidate, chosen) {
+				chosen = candidate
+			}
+		}
+		chosen.Repeats = len(rounds)
+		chosen.ProposalRateRange = [2]float64{low, high}
+		for _, id := range unstable {
+			if belongsTo(cases, id, chosen.Provenance) {
+				chosen.UnstableCases++
+				chosen.UnstableIDs = append(chosen.UnstableIDs, id)
+			}
+		}
+		worst[index] = chosen
+	}
+	return worst, nil
+}
+
+// worseThan orders two readings the way the gate does: inventing evidence is
+// worse than any rate, then lower recall, then more false proposals.
+func worseThan(candidate, current CorpusResult) bool {
+	if candidate.InventedEvidence != current.InventedEvidence {
+		return candidate.InventedEvidence > current.InventedEvidence
+	}
+	if candidate.ProposalRate != current.ProposalRate {
+		return candidate.ProposalRate < current.ProposalRate
+	}
+	return candidate.FalseProposalRate > current.FalseProposalRate
+}
+
+func unstableCases(cases []CorpusCase, rounds []map[string]Decision) []string {
+	if len(rounds) < 2 {
+		return nil
+	}
+	var unstable []string
+	for _, item := range cases {
+		first := proposedIn(rounds[0], item.ID)
+		for _, decisions := range rounds[1:] {
+			if proposedIn(decisions, item.ID) != first {
+				unstable = append(unstable, item.ID)
+				break
+			}
 		}
 	}
-	return scoreDecided(cases, decisions)
+	sort.Strings(unstable)
+	return unstable
+}
+
+func proposedIn(decisions map[string]Decision, id string) bool {
+	decision := decisions[id]
+	return decision.Kind == "create" && decision.SuggestedSkill != nil
+}
+
+func belongsTo(cases []CorpusCase, id, provenance string) bool {
+	for _, item := range cases {
+		if item.ID == id {
+			return provenance == "all" || item.Provenance == provenance
+		}
+	}
+	return false
 }
 
 func scoreDecided(cases []CorpusCase, decisions map[string]Decision) ([]CorpusResult, error) {
@@ -268,7 +390,8 @@ func inventedEvidence(digest Digest, suggested SuggestedSkill) []string {
 	}
 	seen := map[string]bool{}
 	var invented []string
-	for _, reference := range identifierPattern.FindAllString(suggested.Markdown+"\n"+suggested.Reason, -1) {
+	for _, match := range identifierPattern.FindAllString(suggested.Markdown+"\n"+suggested.Reason, -1) {
+		reference := trailingPunctuation.ReplaceAllString(match, "")
 		if given[reference] || seen[reference] {
 			continue
 		}
@@ -281,7 +404,16 @@ func inventedEvidence(digest Digest, suggested SuggestedSkill) []string {
 
 // identifierPattern matches the reference shapes a digest is made of. Prose
 // about a tool is not a citation; "event:event_a1b2" is.
+//
+// Dots and colons appear inside these identifiers -- a skill reference is
+// skill:<id>@<version>, a receipt is event:<id>:<tool>:<status> -- so the class
+// has to admit them, and a citation at the end of a sentence then swallows the
+// full stop. "event:event_real." is not in the digest and would be reported as
+// invented, which is the accusation this check exists to make carefully.
 var identifierPattern = regexp.MustCompile(`\b(?:event|skill|artifact|blob):[A-Za-z0-9_@.:-]+`)
+
+// trailingPunctuation is what a citation picks up from the prose around it.
+var trailingPunctuation = regexp.MustCompile(`[.:,;]+$`)
 
 func round3(value float64) float64 {
 	return float64(int(value*1000+0.5)) / 1000
