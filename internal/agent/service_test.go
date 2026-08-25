@@ -2788,3 +2788,33 @@ func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
 		}
 	}
 }
+
+// A decision fragment is a derived statement about what an operator did. It is
+// not something the operator typed. renderMessages routes by metadata["role"],
+// and an approval_decision event has Role "user", so carrying that role
+// through would put "rodmay approved workspace.write_file" into the transcript
+// as a user turn -- a sentence the user never wrote, indistinguishable to the
+// model from one they did.
+func TestDerivedDecisionsAreNotRenderedAsUserSpeech(t *testing.T) {
+	now := time.Now().UTC()
+	fragments := []ctxcompiler.Fragment{
+		{ID: "event:goal", Kind: ctxcompiler.KindUserGoal, Content: "แก้ไฟล์ให้หน่อย", CreatedAt: now,
+			Metadata: map[string]string{"role": "user"}},
+		{ID: "event:dec", Kind: ctxcompiler.KindDecision, Content: "rodmay approved workspace.write_file",
+			CreatedAt: now.Add(time.Second), Metadata: map[string]string{"role": "user", "decision": "approve"}},
+	}
+	for _, message := range renderMessages(fragments) {
+		if message.Role == "user" && strings.Contains(message.Content, "rodmay approved") {
+			t.Fatal("a derived decision was rendered as something the user said")
+		}
+	}
+	// and it has to reach the model somewhere -- silently dropping it is the
+	// bug this whole finding is about
+	joined := ""
+	for _, message := range renderMessages(fragments) {
+		joined += message.Content
+	}
+	if !strings.Contains(joined, "rodmay approved") {
+		t.Fatal("the decision never reached the request at all")
+	}
+}

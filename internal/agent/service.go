@@ -1747,12 +1747,32 @@ func (s *Service) appendEvent(ctx context.Context, event Event) (Event, error) {
 	return event, nil
 }
 
+// isTranscriptKind reports whether a fragment is something that was actually
+// said or done in the conversation, as opposed to something the harness
+// derived about it. Anything derived belongs in the system block, labelled.
+func isTranscriptKind(kind ctxcompiler.Kind) bool {
+	switch kind {
+	case ctxcompiler.KindConversation, ctxcompiler.KindUserGoal, ctxcompiler.KindToolCall,
+		ctxcompiler.KindToolResult, ctxcompiler.KindArtifactReceipt:
+		return true
+	}
+	return false
+}
+
 func renderMessages(fragments []ctxcompiler.Fragment) []providers.Message {
 	var systemParts []string
 	var active []ctxcompiler.Fragment
 	for _, fragment := range fragments {
 		role := fragment.Metadata["role"]
-		if role == "user" || role == "assistant" || role == "tool" {
+		// Role alone is not enough to decide what belongs in the transcript. A
+		// decision derived from an approval carries the approver's role, "user",
+		// but the user never typed "rodmay approved workspace.write_file" -- it
+		// is a statement *about* what they did. Rendered as a user turn it would
+		// be indistinguishable from something they actually said.
+		//
+		// So the transcript is decided by kind, and derived kinds go to the
+		// system block where their provenance is visible as [decision:id].
+		if isTranscriptKind(fragment.Kind) && (role == "user" || role == "assistant" || role == "tool") {
 			active = append(active, fragment)
 			continue
 		}
