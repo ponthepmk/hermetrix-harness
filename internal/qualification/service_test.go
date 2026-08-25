@@ -252,34 +252,30 @@ func TestEveryProbeUsesTheSharedOutputBudget(t *testing.T) {
 	}
 }
 
-// TestRemoteProviderCannotReachQualifiedMode records a consequence of the
-// runtime-probe requirement that nothing had written down.
+// TestRemoteProviderCannotReachQualifiedMode records a limit of the
+// runtime-probe requirement.
 //
-// The guard itself is right: TestUnverifiedRuntimeNeverSilentlyCertifiesDeclared
-// Context exists because a declared context window is a vendor claim, not
-// evidence. But the probe is loopback-only by design -- validateEndpoint
-// refuses anything else with "remote model endpoints are disabled in the local
-// probe" -- so a provider behind a gateway cannot supply one. Not "has not
-// yet": cannot.
+// What this is NOT: a hole in the context ceiling. CreateSession already
+// refuses outright when profile.Total > provider.ContextWindow, so the number
+// the operator configures binds regardless of qualification, and no session can
+// be opened larger than the provider was declared to hold.
 //
-// Run live against the gateway, every behavioural check passed and the grade
-// was A, and the run still came back ineligible:
+// What it is: qualification offers evidence *beyond* that configured number --
+// whether the model still recovers the middle of the window at the depth being
+// asked for. That evidence comes from a local runtime probe, and
+// validateEndpoint is loopback-only by design ("remote model endpoints are
+// disabled in the local probe"), so a provider behind a gateway cannot produce
+// it. Not "has not yet": cannot.
 //
-//	capability_grade  A
-//	native_tool_call  true    sequential_tool_calls true
-//	long_context_recall true  (5 of 5 positions recovered)
-//	cancellation      true    foreground_preemption true
-//	allocated_context 0    -> context_tier "limited" -> eligible false
+// Run live against the gateway, every behavioural check passed at grade A with
+// recall recovered at all five positions, and the run still came back
+// ineligible because allocated_context stayed 0. So a gateway operator gets the
+// declared ceiling, enforced, and no depth verification on top of it. Whether
+// that is worth changing -- for instance by certifying from measured recall at
+// the requested size, since the gateway's own /v1/models advertises no context
+// length at all -- is a decision, not a defect.
 //
-// So of the three qualification modes, a gateway user can reach two:
-// "compatibility", which only exists for compact-32k, and "explicit_override",
-// which expires after 24 hours. Across the driven corpus that is exactly what
-// happened -- 103 sessions compatibility, 2 explicit_override, 0 qualified. An
-// override nobody can avoid stops being a review and becomes a daily
-// formality.
-//
-// This test does not assert the behaviour is wrong. It asserts it is real, so
-// that changing it is a decision someone takes rather than a side effect.
+// This test asserts the situation is real, so that changing it is deliberate.
 func TestRemoteProviderCannotReachQualifiedMode(t *testing.T) {
 	runtimeServer := qualificationRuntime(t)
 	defer runtimeServer.Close()

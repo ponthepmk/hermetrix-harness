@@ -193,7 +193,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **P-7** | P9-A วางไว้วัด essential retention ที่วัดไม่ได้ — pinned retention เป็น 1 หรือ compile error ไม่มีค่ากลาง | high | **เปลี่ยนรูปแล้ว** |
 | **O-40** | `decision` / `open_task` / `acceptance_criteria` ไม่มีผู้ผลิตนอก fixture — สอง ใน สาม ประธานของ gate Phase 9 ไม่มีอยู่จริง | **critical** | **แก้แล้วหนึ่งในสาม** — `approval_decision` กลายเป็น `decision` ยืนยันในสนามจริง<br>`open_task` ดู V-7 · `acceptance_criteria` รอการตัดสินใจ |
 | **V-7** | `open_task` ไม่มีผู้ผลิตที่**เรียกถึงได้** — approval ที่ค้างบล็อก session ไม่มี compile เกิดขึ้นระหว่างนั้น | high | **วัดแล้ว ไม่ปิดบัง** — ถอด producer ที่ยิงไม่ออกทิ้ง |
-| **O-41** | qualification โหมด `qualified` เรียกไม่ถึงสำหรับ provider ระยะไกล — ผ่านทุก check เกรด A แต่ `eligible=false` | high | **บันทึกแล้ว รอตัดสินใจ** |
+| **O-41** | qualification โหมด `qualified` เรียกไม่ถึงสำหรับ provider ระยะไกล — ผ่านทุก check เกรด A แต่ `eligible=false` | **low** (ลดจาก high) | **ไม่ใช่ช่องโหว่** — เพดานที่ตั้งค่าไว้บังคับอยู่แล้วที่ `service.go:73` · ที่ขาดคือหลักฐานความลึกเพิ่มเติม ไม่ใช่ความปลอดภัย |
 | **O-42** | 6 ตารางมีแต่ schema ไม่มีคนอ่านคนเขียน แต่อยู่ในรายการ backup | medium | **ตรวจจับอัตโนมัติแล้ว** ใน `doc-truth.sh` |
 | **V-8** | MCP: เทสต์ทุกตัวตั้ง `TrustAnnotations: true` — สาขา default ที่ป้องกัน operator ไม่เคยรัน | high | **ปิดแล้ว** hostile fixture + mutation |
 
