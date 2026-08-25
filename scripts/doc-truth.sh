@@ -169,6 +169,9 @@ search-recovers-compacted-fact|func TestContextSearchRecoversWhatCompactionDestr
 checkpoint-declares-its-loss|omits the middle|internal/context/compactor.go
 checkpoint-names-the-recovery-tool|context_search with a keyword|internal/context/compactor.go
 checkpoint-exemption-is-narrow|func isCheckpointPreamble|internal/context/compactor.go
+compaction-ranks-by-relevance|func relevanceOf|internal/context/compactor.go
+compaction-keeps-the-focused-span|func focusedExcerpt|internal/context/compactor.go
+compactor-receives-the-goal|Focus: focusOf\(request.Fragments\)|internal/context/compiler.go
 CLAIMS
 )
 

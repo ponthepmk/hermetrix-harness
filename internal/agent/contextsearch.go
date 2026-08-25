@@ -96,46 +96,6 @@ func (s *Service) executeContextSearch(ctx context.Context, session Session, cal
 	return finish()
 }
 
-// excerptAround returns a bounded window centred on the match.
-//
-// The first version used the same head-and-tail trim the compactor uses, and a
-// test caught what that means: searching a 10,000-rune message for a fact in
-// its middle returned a hit whose matching text had been cut out. A search
-// result that omits what was searched for is worse than no result -- it looks
-// like an answer.
-//
-// With no match to centre on -- the hit came from term or trigram overlap
-// rather than a substring -- the head is the right window, because that is
-// where a message states what it is about.
-func excerptAround(content, query string, max int) string {
-	runes := []rune(content)
-	if len(runes) <= max {
-		return content
-	}
-	index := strings.Index(strings.ToLower(content), strings.ToLower(strings.TrimSpace(query)))
-	if index < 0 {
-		return boundedText(content, max)
-	}
-	// Convert the byte offset to a rune offset before windowing: Thai is three
-	// bytes per character, so slicing runes by a byte index lands mid-word.
-	start := len([]rune(content[:index])) - max/2
-	if start < 0 {
-		start = 0
-	}
-	end := start + max
-	if end > len(runes) {
-		end, start = len(runes), len(runes)-max
-	}
-	excerpt := string(runes[start:end])
-	if start > 0 {
-		excerpt = "… " + excerpt
-	}
-	if end < len(runes) {
-		excerpt += " …"
-	}
-	return excerpt
-}
-
 // searchEvents ranks the session's own record against a query.
 func searchEvents(events []Event, query string, limit int) []contextSearchResult {
 	queryWords, queryGrams := textmatch.Terms(strings.ToLower(strings.TrimSpace(query)))
@@ -188,7 +148,7 @@ func searchEvents(events []Event, query string, limit int) []contextSearchResult
 		}
 		candidates = append(candidates, scored{score: score, result: contextSearchResult{
 			EventID: event.ID, TurnID: event.TurnID, Role: event.Role, Kind: event.EventKind,
-			Content: excerptAround(content, query, contextSearchMaxContent), Score: score,
+			Content: textmatch.Excerpt(content, query, contextSearchMaxContent), Score: score,
 			CreatedAt: event.CreatedAt}})
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {

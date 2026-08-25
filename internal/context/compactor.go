@@ -6,10 +6,30 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"hermetrix-harness/internal/textmatch"
 )
 
+// CompactRequest is what a compactor needs to decide what to keep.
+//
+// Focus is the load-bearing addition. Without it a compactor can only rank by
+// position and recency, which is how the extractive one came to keep 360 runes
+// from each end of a fragment and drop the middle -- a rule with no relation to
+// whether the dropped part mattered. Measured across 5,649 real conversation
+// fragments, a fact at a uniformly random position fell in that gap 34.5% of
+// the time.
+type CompactRequest struct {
+	Fragments    []Fragment
+	TargetTokens int
+	Estimator    Estimator
+	// Focus is what the session is working on right now, normally the current
+	// user goal. Empty focus is allowed and falls back to the old behaviour,
+	// so a caller with nothing to say about relevance is no worse off.
+	Focus string
+}
+
 type Compactor interface {
-	Compact(ctx stdcontext.Context, fragments []Fragment, targetTokens int, estimator Estimator) (Fragment, error)
+	Compact(ctx stdcontext.Context, request CompactRequest) (Fragment, error)
 }
 
 // StructuredCompactor is extractive and deterministic. It cannot hallucinate:
@@ -17,14 +37,17 @@ type Compactor interface {
 // plugged in later, but must satisfy the same retention tests.
 type StructuredCompactor struct{}
 
-func (StructuredCompactor) Compact(_ stdcontext.Context, fragments []Fragment, targetTokens int, estimator Estimator) (Fragment, error) {
+func (StructuredCompactor) Compact(_ stdcontext.Context, request CompactRequest) (Fragment, error) {
+	fragments, targetTokens, estimator := request.Fragments, request.TargetTokens, request.Estimator
 	if targetTokens <= 0 || len(fragments) == 0 {
 		return Fragment{}, nil
 	}
+	focusWords, focusGrams := textmatch.Terms(strings.ToLower(request.Focus))
 	type unit struct {
-		priority int
-		created  time.Time
-		text     string
+		priority  int
+		relevance int
+		created   time.Time
+		text      string
 	}
 	byKey := map[string][]Fragment{}
 	var keys []string
@@ -52,7 +75,12 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, fragments []Fragment, t
 			if fragment.Kind == KindDecision || fragment.Kind == KindOpenTask || fragment.Kind == KindToolResult {
 				maxRunes = 520
 			}
-			content = headTail(content, maxRunes)
+			// Keep the part that bears on the work, not the two ends. When
+			// nothing is in focus this degrades to the old head-and-tail trim,
+			// which is the right fallback: with no focus there is no reason to
+			// prefer any span over another.
+			content = focusedExcerpt(content, request.Focus, maxRunes)
+			current.relevance += relevanceOf(content, focusWords, focusGrams)
 			lines = append(lines, fmt.Sprintf("- [%s:%s] %s", fragment.Kind, fragment.ID, content))
 			if fragment.Priority > current.priority {
 				current.priority = fragment.Priority
@@ -69,9 +97,16 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, fragments []Fragment, t
 			units = append(units, current)
 		}
 	}
+	// Priority first -- it is the author's declared importance and outranks a
+	// guess. Then relevance to the work in hand, then recency. Ranking by
+	// recency alone is what made the checkpoint keep whatever happened last
+	// rather than whatever the session still needs.
 	sort.SliceStable(units, func(i, j int) bool {
 		if units[i].priority != units[j].priority {
 			return units[i].priority > units[j].priority
+		}
+		if units[i].relevance != units[j].relevance {
+			return units[i].relevance > units[j].relevance
 		}
 		return units[i].created.After(units[j].created)
 	})
@@ -136,6 +171,74 @@ func isCheckpointPreamble(line string) bool {
 	return strings.HasPrefix(line, "#") ||
 		strings.HasPrefix(line, "Extractive checkpoint;") ||
 		strings.HasPrefix(line, checkpointNoticePrefix)
+}
+
+// focusedExcerpt keeps the span around what the session is working on.
+//
+// It centres on the focus's most distinctive *term*, not on the focus string
+// as a whole. The first version passed the whole goal to textmatch.Excerpt,
+// which looks for it as a substring: a goal reads "answer only from the notes
+// above" and never appears verbatim inside an exchange, so every excerpt fell
+// through to the no-match branch. Measured on the task corpus that took
+// reachability from 63% to 34% -- worse than the positional rule it replaced,
+// because the fallback kept only the head where headTail had kept both ends.
+//
+// So: match on terms, and when no term of the focus appears, keep both ends.
+// With nothing to centre on there is no reason to prefer one span, and the
+// wider net is the safer one.
+func focusedExcerpt(content, focus string, maxRunes int) string {
+	if len([]rune(content)) <= maxRunes {
+		return content
+	}
+	if term := bestFocusTerm(content, focus); term != "" {
+		return textmatch.Excerpt(content, term, maxRunes)
+	}
+	return headTail(content, maxRunes)
+}
+
+// bestFocusTerm picks the longest term of the focus that appears in content.
+// Longest wins because a longer match is a more specific one: "order_total"
+// locates a passage, "the" does not.
+func bestFocusTerm(content, focus string) string {
+	words, _ := textmatch.Terms(strings.ToLower(focus))
+	lowered := strings.ToLower(content)
+	best := ""
+	for term := range words {
+		if strings.HasPrefix(term, "tri:") || len([]rune(term)) < 3 {
+			continue
+		}
+		if len(term) > len(best) && strings.Contains(lowered, term) {
+			best = term
+		}
+	}
+	return best
+}
+
+// relevanceOf scores an extract against the focus with the same Thai-aware
+// matcher the Skill catalog and context_search use. Lexical, deterministic, no
+// model call -- and wrong sometimes, which is survivable now that a wrongly
+// dropped fact can be searched back rather than lost.
+func relevanceOf(content string, focusWords, focusGrams map[string]bool) int {
+	if len(focusWords) == 0 && len(focusGrams) == 0 {
+		return 0
+	}
+	words, grams := textmatch.Terms(strings.ToLower(content))
+	score := 0
+	for term := range focusWords {
+		if words[term] {
+			score += 4
+		}
+	}
+	if shared := textmatch.Overlap(focusGrams, grams); shared > 0 {
+		smaller := len(focusGrams)
+		if len(grams) < smaller {
+			smaller = len(grams)
+		}
+		if smaller > 0 {
+			score += 20 * shared / smaller
+		}
+	}
+	return score
 }
 
 func compactWhitespace(value string) string { return strings.Join(strings.Fields(value), " ") }

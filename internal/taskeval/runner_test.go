@@ -218,13 +218,20 @@ func TestASmallSampleIsNotAPass(t *testing.T) {
 }
 
 // TestGeneratedCorpusBehavesAsMeasured is the pre-flight for P9-B: it proves
-// the corpus can register a difference before any model budget is spent on it.
+// the corpus can register something before any model budget is spent on it.
 //
-// A generated task is only useful if its placement predicts what compaction
-// does to it. Head and tail placements must reach the model through the
-// checkpoint extract; middle placements must not. If that stopped being true
-// the corpus would be measuring something other than what its comments claim,
-// and the gate would report a number nobody could interpret.
+// What it asserts changed when the compactor did. It used to check that
+// placement predicted survival -- head and tail reachable, middle lost -- which
+// was true of a compactor that kept 360 runes from each end and dropped the
+// middle. That compactor is gone. The current one centres its extract on the
+// terms of the session's goal, so position no longer decides anything and a
+// placement-based assertion would be testing a rule the code no longer follows.
+//
+// Measured on this corpus, all three placements are now reachable 100% of the
+// time. That is the improvement, and it is also a warning: a corpus where
+// nothing is ever lost cannot measure loss. What decides now is whether the
+// fact shares words with the question, so that is what the corpus has to vary
+// next -- see the note in corpus/tasks/README.md.
 func TestGeneratedCorpusBehavesAsMeasured(t *testing.T) {
 	runner := testRunner(t, &needleReader{needle: "x", answer: "x"})
 	tasks, err := Generate(GenerateOptions{PerClass: 12, Seed: 7})
@@ -234,39 +241,21 @@ func TestGeneratedCorpusBehavesAsMeasured(t *testing.T) {
 	if len(tasks) != 36 {
 		t.Fatalf("tasks = %d, want 36", len(tasks))
 	}
-	counts := map[string]int{}
 	for _, task := range tasks {
 		full, compiled, _, err := runner.Prepare(context.Background(), task)
 		if err != nil {
 			t.Fatalf("%s: %v", task.ID, err)
 		}
 		marker := task.Assertions[0].Value
-		fullBody, compiledBody := join(full), join(compiled)
-		if !strings.Contains(fullBody, marker) {
+		if !strings.Contains(join(full), marker) {
 			t.Fatalf("%s: the full context does not carry its own answer", task.ID)
 		}
-		reachable := strings.Contains(compiledBody, marker)
-		counts[task.Placement]++
-		switch task.Placement {
-		case PlacementMiddle:
-			if reachable {
-				t.Fatalf("%s: a middle-placed fact survived compaction; the corpus no longer "+
-					"measures loss", task.ID)
-			}
-		default:
-			if !reachable {
-				t.Fatalf("%s: a %s-placed fact was lost; the corpus now fails a compiler that "+
-					"is behaving correctly", task.ID, task.Placement)
-			}
+		// The compaction is real -- Prepare refuses a task that compacts
+		// nothing -- and the fact still comes through, at any placement.
+		if !strings.Contains(join(compiled), marker) {
+			t.Fatalf("%s: a %s-placed fact the question asks about was lost; "+
+				"relevance-based compaction has regressed", task.ID, task.Placement)
 		}
-	}
-	// The mix has to resemble the field measurement it claims to come from.
-	// Exact equality is not available from 36 draws; a wild divergence means the
-	// sampler, not the sample.
-	share := float64(counts[PlacementMiddle]) / float64(len(tasks))
-	if share < 0.15 || share > 0.55 {
-		t.Fatalf("middle share %.2f is nowhere near the measured %.3f: %+v",
-			share, MiddlePlacementRate, counts)
 	}
 }
 

@@ -8,14 +8,16 @@ import (
 
 type hallucinatingCompactor struct{}
 
-func (hallucinatingCompactor) Compact(_ stdcontext.Context, _ []Fragment, _ int, _ Estimator) (Fragment, error) {
+func (hallucinatingCompactor) Compact(_ stdcontext.Context, _ CompactRequest) (Fragment, error) {
 	return Fragment{ID: "bad", Kind: KindCheckpoint, Content: "The task succeeded without evidence.", Provenance: "model"}, nil
 }
 
 func TestVerifiedCompactorRejectsUnsupportedSummaryAndFallsBack(t *testing.T) {
 	compactor := NewVerifiedCompactor(hallucinatingCompactor{})
-	result, err := compactor.Compact(stdcontext.Background(), []Fragment{{ID: "decision-1", Kind: KindDecision,
-		Content: "Use atomic writes", Priority: 80}}, 200, NewAdaptiveEstimator())
+	result, err := compactor.Compact(stdcontext.Background(), CompactRequest{
+		Fragments: []Fragment{{ID: "decision-1", Kind: KindDecision,
+			Content: "Use atomic writes", Priority: 80}},
+		TargetTokens: 200, Estimator: NewAdaptiveEstimator()})
 	if err != nil {
 		t.Fatal(err)
 	}

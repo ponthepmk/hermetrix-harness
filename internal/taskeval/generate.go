@@ -161,7 +161,14 @@ func Generate(options GenerateOptions) ([]Task, error) {
 				FalseSuccessClaims: item.forbidden,
 				NeedleFragmentID:   "needle",
 				Placement:          placement,
-				Fragments:          historyWith(item.marker(token), placement, options.NoiseFragments, index),
+				// The prompt is also the goal fragment, because that is how the
+				// running system works: the user's message for this turn becomes
+				// the pinned KindUserGoal. The first version used generic
+				// boilerplate there, which made every relevance decision a
+				// coin toss -- a focus that does not say what the work is about
+				// cannot rank anything.
+				Fragments: historyWith(item.marker(token), item.prompt, placement,
+					options.NoiseFragments, index),
 			}
 			tasks = append(tasks, task)
 		}
@@ -171,7 +178,7 @@ func Generate(options GenerateOptions) ([]Task, error) {
 
 // historyWith builds a session history carrying the marker once, at the
 // requested position inside one long conversation fragment.
-func historyWith(marker, placement string, noise, salt int) []ctxcompiler.Fragment {
+func historyWith(marker, goal, placement string, noise, salt int) []ctxcompiler.Fragment {
 	pad := strings.Repeat("รายละเอียดประกอบการทำงานที่ไม่มีคำตอบอยู่ในนั้น ", 120)
 	content := marker + " " + pad
 	switch placement {
@@ -183,7 +190,7 @@ func historyWith(marker, placement string, noise, salt int) []ctxcompiler.Fragme
 	fragments := []ctxcompiler.Fragment{
 		{ID: "goal", Kind: ctxcompiler.KindUserGoal, Scope: "session", Provenance: "corpus",
 			Trust: "user", Version: "v1", Priority: 100, Pinned: true,
-			Content: "ตอบจากบันทึกการทำงานด้านบนเท่านั้น ห้ามเดา"},
+			Content: goal},
 	}
 	// Priorities match what compileTurn assigns in the field: conversation 70.
 	// Using anything lower would create a loss mode the running system cannot

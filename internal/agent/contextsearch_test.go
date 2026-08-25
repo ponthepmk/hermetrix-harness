@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"hermetrix-harness/internal/textmatch"
 	"time"
 
 	ctxcompiler "hermetrix-harness/internal/context"
@@ -132,7 +134,7 @@ func TestAnExactMatchOutranksALexicalNeighbour(t *testing.T) {
 func TestASearchResultContainsWhatWasSearchedFor(t *testing.T) {
 	const marker = "DEPLOY-7731"
 	pad := strings.Repeat("ข้อความประกอบที่ยาวมาก ", 400)
-	excerpt := excerptAround(pad+" "+marker+" "+pad, marker, contextSearchMaxContent)
+	excerpt := textmatch.Excerpt(pad+" "+marker+" "+pad, marker, contextSearchMaxContent)
 	if !strings.Contains(excerpt, marker) {
 		t.Fatalf("the excerpt cut out the match: %q", excerpt[:120])
 	}
@@ -141,7 +143,7 @@ func TestASearchResultContainsWhatWasSearchedFor(t *testing.T) {
 	}
 	// A hit that came from term overlap rather than a substring has nothing to
 	// centre on, and the head is where a message says what it is about.
-	head := excerptAround(pad, "ไม่มีคำนี้อยู่จริง", contextSearchMaxContent)
+	head := textmatch.Excerpt(pad, "ไม่มีคำนี้อยู่จริง", contextSearchMaxContent)
 	if !strings.HasPrefix(head, "ข้อความประกอบ") {
 		t.Fatalf("a non-substring hit did not fall back to the head: %q", head[:60])
 	}

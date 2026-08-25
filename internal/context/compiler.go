@@ -101,7 +101,12 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 	selectedActive, droppedActive, activeUsed := c.selectActive(groups["active"], activeBudget, profile.SummaryTarget)
 	var checkpoint Fragment
 	if len(droppedActive) > 0 && c.compactor != nil {
-		checkpoint, err = c.compactor.Compact(ctx, droppedActive, profile.SummaryTarget, c.estimator)
+		// The focus is the session's current goal, which is what the pinned
+		// slice holds. Handing it to the compactor is what lets the checkpoint
+		// keep the part of an exchange that bears on the work rather than the
+		// part that happens to sit at its ends.
+		checkpoint, err = c.compactor.Compact(ctx, CompactRequest{Fragments: droppedActive,
+			TargetTokens: profile.SummaryTarget, Estimator: c.estimator, Focus: focusOf(request.Fragments)})
 		if err != nil {
 			return Compiled{}, fmt.Errorf("compact context: %w", err)
 		}
@@ -447,6 +452,19 @@ func (r *Report) reconcile() error {
 // transportCost prices the chat template for a selection. Unmeasured providers
 // are charged nothing: a guessed overhead is subtracted from usable context on
 // every request, and being wrong there is worse than being incomplete.
+// focusOf reads the session's current goal out of the fragments. It uses the
+// user goal rather than the whole pinned slice: policy and identity are
+// constant across every turn, so including them would dilute the focus to the
+// point where everything scores the same.
+func focusOf(fragments []Fragment) string {
+	for _, fragment := range fragments {
+		if fragment.Kind == KindUserGoal {
+			return fragment.Content
+		}
+	}
+	return ""
+}
+
 func transportCost(request Request, selected []Fragment) int {
 	// An unmeasured provider carries zeros and is therefore charged nothing by
 	// the arithmetic below. That is deliberate: a guessed overhead is subtracted

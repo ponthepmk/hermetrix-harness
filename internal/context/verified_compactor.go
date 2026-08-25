@@ -22,17 +22,17 @@ func NewVerifiedCompactor(primary Compactor) VerifiedCompactor {
 	return VerifiedCompactor{primary: primary, fallback: StructuredCompactor{}}
 }
 
-func (c VerifiedCompactor) Compact(ctx stdcontext.Context, fragments []Fragment, targetTokens int, estimator Estimator) (Fragment, error) {
-	checkpoint, err := c.primary.Compact(ctx, fragments, targetTokens, estimator)
-	if err == nil && verifyCheckpointEvidence(checkpoint, fragments) == nil {
+func (c VerifiedCompactor) Compact(ctx stdcontext.Context, request CompactRequest) (Fragment, error) {
+	checkpoint, err := c.primary.Compact(ctx, request)
+	if err == nil && verifyCheckpointEvidence(checkpoint, request.Fragments) == nil {
 		checkpoint.Provenance += ":verified"
 		return checkpoint, nil
 	}
-	fallback, fallbackErr := c.fallback.Compact(ctx, fragments, targetTokens, estimator)
+	fallback, fallbackErr := c.fallback.Compact(ctx, request)
 	if fallbackErr != nil {
 		return Fragment{}, fmt.Errorf("primary compaction invalid (%v); fallback failed: %w", err, fallbackErr)
 	}
-	if verifyErr := verifyCheckpointEvidence(fallback, fragments); verifyErr != nil {
+	if verifyErr := verifyCheckpointEvidence(fallback, request.Fragments); verifyErr != nil {
 		return Fragment{}, fmt.Errorf("deterministic fallback violated evidence contract: %w", verifyErr)
 	}
 	fallback.Provenance += ":verified-fallback"
