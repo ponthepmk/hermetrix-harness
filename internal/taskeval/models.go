@@ -103,10 +103,17 @@ type Outcome struct {
 	// It replaced a check on whether the carrier fragment survived verbatim.
 	// That check read false on every compiled run in the first real scoring --
 	// compaction never keeps a fragment verbatim -- so it distinguished nothing.
-	FactReachable bool   `json:"fact_reachable"`
-	PromptTokens  int    `json:"prompt_tokens"`
-	Answer        string `json:"answer,omitempty"`
-	Error         string `json:"error,omitempty"`
+	FactReachable bool `json:"fact_reachable"`
+	PromptTokens  int  `json:"prompt_tokens"`
+	// EmptyAnswer records that the provider returned no content at all. It is
+	// not a wrong answer and should not be read as one: six full-context runs
+	// came back empty in the first real scoring, and every non-empty answer in
+	// that run was correct whenever the fact was present. A reasoning model
+	// spends part of its output budget before it writes anything, which the
+	// agent already accounts for in answerBudget and this runner did not.
+	EmptyAnswer bool   `json:"empty_answer,omitempty"`
+	Answer      string `json:"answer,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // ClassResult is the gate's unit of judgement.
@@ -124,10 +131,15 @@ type ClassResult struct {
 	// for was still somewhere in the context. A class where every fact stays
 	// reachable is not evidence that compaction is safe -- it is evidence the
 	// tasks were too easy.
-	FactsReachable int    `json:"facts_reachable"`
-	Errors         int    `json:"errors"`
-	Verdict        string `json:"verdict"`
-	Note           string `json:"note,omitempty"`
+	FactsReachable int `json:"facts_reachable"`
+	// EmptyAnswers counts provider responses with no content. Reported beside
+	// the score rather than folded into it: an empty answer says something
+	// about the output budget, not about whether compaction kept what the task
+	// needed.
+	EmptyAnswers int    `json:"empty_answers"`
+	Errors       int    `json:"errors"`
+	Verdict      string `json:"verdict"`
+	Note         string `json:"note,omitempty"`
 }
 
 // Report is one whole run.

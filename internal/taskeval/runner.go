@@ -290,6 +290,7 @@ func (r *Runner) score(ctx context.Context, item job) Outcome {
 		return outcome
 	}
 	outcome.Answer, outcome.PromptTokens = completion.Content, completion.Usage.PromptTokens
+	outcome.EmptyAnswer = strings.TrimSpace(completion.Content) == ""
 	outcome.Passed = true
 	answer := strings.ToLower(completion.Content)
 	for _, assertion := range item.task.Assertions {
@@ -317,10 +318,10 @@ func (r *Runner) score(ctx context.Context, item job) Outcome {
 
 func summarise(outcomes []Outcome) []ClassResult {
 	type counter struct {
-		tasks                          int
-		passFull, passCompiled         int
-		falseFull, falseCompiled       int
-		reachable, errors, compiledRun int
+		tasks                                 int
+		passFull, passCompiled                int
+		falseFull, falseCompiled              int
+		reachable, errors, empty, compiledRun int
 	}
 	byClass := map[string]*counter{}
 	for _, outcome := range outcomes {
@@ -331,6 +332,9 @@ func summarise(outcomes []Outcome) []ClassResult {
 		if outcome.Error != "" {
 			item.errors++
 			continue
+		}
+		if outcome.EmptyAnswer {
+			item.empty++
 		}
 		switch outcome.Condition {
 		case ConditionFull:
@@ -364,7 +368,7 @@ func summarise(outcomes []Outcome) []ClassResult {
 		item := byClass[class]
 		result := ClassResult{Class: class, Tasks: item.tasks, Tolerance: ClassTolerance[class],
 			FalseSuccessFull: item.falseFull, FalseSuccessCompiled: item.falseCompiled,
-			FactsReachable: item.reachable, Errors: item.errors}
+			FactsReachable: item.reachable, EmptyAnswers: item.empty, Errors: item.errors}
 		result.FalseSuccessDelta = item.falseCompiled - item.falseFull
 		if item.tasks > 0 {
 			result.SuccessFull = float64(item.passFull) / float64(item.tasks)
