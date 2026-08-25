@@ -39,6 +39,12 @@ const (
 // pass. It is a defect in the task, not in the harness.
 var ErrNoPressure = errors.New("task applies no compaction pressure")
 
+// ErrFullContextTooLarge means a task's uncompiled history does not fit the
+// provider. The gate compares full context against compiled context, and a
+// "full" condition the provider rejects is not a comparison -- it is an error
+// scored against an answer.
+var ErrFullContextTooLarge = errors.New("full context exceeds the provider window")
+
 // DefaultConcurrency mirrors the learning corpus scorer: independent requests,
 // latency dominated by queueing.
 const DefaultConcurrency = 4
@@ -102,6 +108,13 @@ type Runner struct {
 	answerer Answerer
 	// Concurrency bounds in-flight requests. Zero means DefaultConcurrency.
 	Concurrency int
+	// FullContextCeiling is the largest prompt the provider will accept, in
+	// tokens. Zero disables the check, which is only appropriate for a test
+	// double. Callers should pass the provider window less its output reserve.
+	FullContextCeiling int
+	// Estimator sizes the full condition for that check. Zero uses the
+	// compiler's own estimator via a default.
+	Estimator ctxcompiler.Estimator
 	// Progress is called once per completed request, serialised under the
 	// runner's own lock so a caller may write to a terminal without interleaving.
 	Progress func(done, total int, outcome Outcome)
@@ -128,7 +141,22 @@ func (r *Runner) Prepare(ctx context.Context, task Task) (full, compiled []provi
 			retained = true
 		}
 	}
-	return messagesFor(task.Fragments, task.Prompt), messagesFor(result.Fragments, task.Prompt), retained, nil
+	fullMessages := messagesFor(task.Fragments, task.Prompt)
+	if r.FullContextCeiling > 0 {
+		estimator := r.Estimator
+		if estimator == nil {
+			estimator = ctxcompiler.NewAdaptiveEstimator()
+		}
+		size := 0
+		for _, message := range fullMessages {
+			size += estimator.Count(message.Content)
+		}
+		if size > r.FullContextCeiling {
+			return nil, nil, false, fmt.Errorf("%w: %d tokens against a ceiling of %d",
+				ErrFullContextTooLarge, size, r.FullContextCeiling)
+		}
+	}
+	return fullMessages, messagesFor(result.Fragments, task.Prompt), retained, nil
 }
 
 func messagesFor(fragments []ctxcompiler.Fragment, prompt string) []providers.Message {

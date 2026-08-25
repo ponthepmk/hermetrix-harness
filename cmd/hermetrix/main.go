@@ -38,6 +38,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		runServe(os.Args[2:])
+	case "taskeval":
+		runTaskEval(os.Args[2:])
 	case "corpus":
 		if err := runCorpus(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "corpus:", err)
@@ -53,6 +55,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT]")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus export --data PATH --out DIR")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus score  --data PATH --dir DIR [--provider NAME]")
+	fmt.Fprintln(os.Stderr, "  hermetrix taskeval generate --dir DIR [--per-class N] [--seed N]")
+	fmt.Fprintln(os.Stderr, "  hermetrix taskeval score  --data PATH --dir DIR [--provider NAME] [--profile NAME]")
 	os.Exit(2)
 }
 

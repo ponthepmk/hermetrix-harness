@@ -155,6 +155,9 @@ taskeval-refuses-uncompacted|ErrNoPressure|internal/taskeval/runner.go
 taskeval-no-judge-model|func (r \*Runner) score|internal/taskeval/runner.go
 taskeval-instrument-registers|func TestTheInstrumentRegistersALostNeedle|internal/taskeval/runner_test.go
 taskeval-sample-floor|MinimumTasksPerClass|internal/taskeval/models.go
+taskeval-placement-is-measured|MiddlePlacementRate = 0.345|internal/taskeval/generate.go
+taskeval-full-must-be-sendable|ErrFullContextTooLarge|internal/taskeval/runner.go
+taskeval-corpus-is-generated|/corpus/tasks/\*.json|.gitignore
 CLAIMS
 )
 

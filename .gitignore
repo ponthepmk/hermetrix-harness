@@ -6,3 +6,14 @@ tmp-*-data/
 /hermetrix
 coverage.out
 .DS_Store
+
+# The task corpus is generated, not authored. Unlike corpus/digests, whose cases
+# were labelled by hand and whose provenance is the point, every task here is
+# produced deterministically from a seed:
+#
+#   hermetrix taskeval generate --dir corpus/tasks --per-class 30 --seed 1
+#
+# 24 MB of repeated filler in Git would be a copy of a function, not evidence.
+# The generator and its measured placement rate are the corpus; see
+# corpus/tasks/README.md.
+/corpus/tasks/*.json

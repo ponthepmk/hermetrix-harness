@@ -79,6 +79,12 @@ type Task struct {
 	// runner can report whether that fragment survived compilation. It is
 	// diagnostic, not part of the score.
 	NeedleFragmentID string `json:"needle_fragment_id,omitempty"`
+	// Placement records where inside that fragment the fact sits: head, middle
+	// or tail. Recorded rather than inferred, because inferring it from the text
+	// would be a heuristic that quietly disagrees with the generator. It exists
+	// so a report can separate "compaction dropped the fact" from "the model had
+	// it and still got the answer wrong".
+	Placement string `json:"placement,omitempty"`
 }
 
 // Outcome is one task under one condition.

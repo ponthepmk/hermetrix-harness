@@ -215,3 +215,89 @@ func TestASmallSampleIsNotAPass(t *testing.T) {
 		t.Fatal("a three-task run reported passed")
 	}
 }
+
+// TestGeneratedCorpusBehavesAsMeasured is the pre-flight for P9-B: it proves
+// the corpus can register a difference before any model budget is spent on it.
+//
+// A generated task is only useful if its placement predicts what compaction
+// does to it. Head and tail placements must reach the model through the
+// checkpoint extract; middle placements must not. If that stopped being true
+// the corpus would be measuring something other than what its comments claim,
+// and the gate would report a number nobody could interpret.
+func TestGeneratedCorpusBehavesAsMeasured(t *testing.T) {
+	runner := testRunner(t, &needleReader{needle: "x", answer: "x"})
+	tasks, err := Generate(GenerateOptions{PerClass: 12, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 36 {
+		t.Fatalf("tasks = %d, want 36", len(tasks))
+	}
+	counts := map[string]int{}
+	for _, task := range tasks {
+		full, compiled, _, err := runner.Prepare(context.Background(), task)
+		if err != nil {
+			t.Fatalf("%s: %v", task.ID, err)
+		}
+		marker := task.Assertions[0].Value
+		fullBody, compiledBody := join(full), join(compiled)
+		if !strings.Contains(fullBody, marker) {
+			t.Fatalf("%s: the full context does not carry its own answer", task.ID)
+		}
+		reachable := strings.Contains(compiledBody, marker)
+		counts[task.Placement]++
+		switch task.Placement {
+		case PlacementMiddle:
+			if reachable {
+				t.Fatalf("%s: a middle-placed fact survived compaction; the corpus no longer "+
+					"measures loss", task.ID)
+			}
+		default:
+			if !reachable {
+				t.Fatalf("%s: a %s-placed fact was lost; the corpus now fails a compiler that "+
+					"is behaving correctly", task.ID, task.Placement)
+			}
+		}
+	}
+	// The mix has to resemble the field measurement it claims to come from.
+	// Exact equality is not available from 36 draws; a wild divergence means the
+	// sampler, not the sample.
+	share := float64(counts[PlacementMiddle]) / float64(len(tasks))
+	if share < 0.15 || share > 0.55 {
+		t.Fatalf("middle share %.2f is nowhere near the measured %.3f: %+v",
+			share, MiddlePlacementRate, counts)
+	}
+}
+
+func join(messages []providers.Message) string {
+	body := ""
+	for _, message := range messages {
+		body += message.Content
+	}
+	return body
+}
+
+// A "full context" the provider would reject is not a baseline. Comparing a
+// compiled answer against a provider error would report the compiler as an
+// improvement, which is the wrong sign entirely.
+func TestAFullContextThatDoesNotFitStopsTheRun(t *testing.T) {
+	runner := testRunner(t, &needleReader{needle: "x", answer: "x"})
+	runner.FullContextCeiling = 20000
+	tasks, err := Generate(GenerateOptions{PerClass: 1, Seed: 1, NoiseFragments: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), tasks); !errors.Is(err, ErrFullContextTooLarge) {
+		t.Fatalf("an unsendable full context was accepted: %v", err)
+	}
+	// And the default corpus size must sit under a real provider window, or
+	// every run would stop here.
+	fitting, err := Generate(GenerateOptions{PerClass: 1, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.FullContextCeiling = 96000 - 4096
+	if _, _, _, err := runner.Prepare(context.Background(), fitting[0]); err != nil {
+		t.Fatalf("the default corpus does not fit a 96k provider: %v", err)
+	}
+}
