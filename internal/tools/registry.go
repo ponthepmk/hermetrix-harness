@@ -127,6 +127,15 @@ func NewRegistry(root string) (*Registry, error) {
 				"query": map[string]any{"type": "string", "description": "Task or topic to find a procedure for"},
 				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum results; defaults to 5"},
 			}, []string{"query"})},
+		{Name: "context_search", Revision: "v1", Effect: "read",
+			Description: "Search this session's own earlier turns for something that is no longer in front of you. " +
+				"Context is compacted as a session grows, so an exchange you remember having may have been summarised " +
+				"or set aside; this returns the original text. Call it whenever the answer depends on a detail you " +
+				"cannot see, rather than guessing or asking the user to repeat themselves.",
+			Parameters: objectSchema(map[string]any{
+				"query": map[string]any{"type": "string", "description": "Words or an identifier from what you are looking for"},
+				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum results; defaults to 5"},
+			}, []string{"query"})},
 		{Name: "skill_view", Revision: "v1", Effect: "read",
 			Description: "Load the body of one Skill version returned by skill_search. Only versions frozen into this session are available; a version promoted after the session opened is not.",
 			Parameters: objectSchema(map[string]any{

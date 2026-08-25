@@ -770,11 +770,16 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 		}
 		toolCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		var receipt toolruntime.Receipt
-		if call.Name == "skill_search" || call.Name == "skill_view" {
+		switch {
+		case call.Name == "skill_search" || call.Name == "skill_view":
 			// Session-scoped: the frozen contract decides what is visible, so
 			// the registry cannot answer these on its own.
 			receipt = s.executeSkillTool(toolCtx, session, turnID, call, definition)
-		} else {
+		case call.Name == "context_search":
+			// Also session-scoped, and for the same reason: the answer is this
+			// session's own event log, which the registry has no handle on.
+			receipt = s.executeContextSearch(toolCtx, session, call, definition)
+		default:
 			receipt = s.tools.Execute(toolCtx, call)
 		}
 		cancel()

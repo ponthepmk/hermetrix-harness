@@ -163,6 +163,9 @@ promotion-needs-behavioral-eval|func \(s \*Service\) requireCurrentBehavioralEva
 eval-verdict-is-derived|func behavioralVerdict|internal/skills/behavioral.go
 eval-binds-exact-candidate|eval.CandidateHash != candidate.CandidateHash|internal/skills/behavioral.go
 eval-refusal-is-tested|func TestPromotionRefusesACandidateThatWasNeverEvaluated|internal/skills/behavioral_test.go
+history-is-retrievable|context_search|internal/tools/registry.go
+search-excerpt-centres-on-match|func excerptAround|internal/agent/contextsearch.go
+search-recovers-compacted-fact|func TestContextSearchRecoversWhatCompactionDestroyed|internal/agent/contextsearch_test.go
 CLAIMS
 )
 

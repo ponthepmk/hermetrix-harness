@@ -71,6 +71,7 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 	// deliberate change and says nothing about what leaked in; the set fails
 	// only when the waist actually changes, and names the offender.
 	want := []string{
+		"context_search",             // session-scoped history retrieval
 		"skill_search", "skill_view", // session-scoped Skill retrieval
 		"tool_call", "tool_describe", "tool_search", // deferred capability catalog
 		"workspace.list_files", "workspace.read_file", "workspace.search_files", "workspace.write_file",

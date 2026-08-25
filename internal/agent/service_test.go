@@ -337,8 +337,12 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 			}
 			for _, tool := range request.Tools {
 				name := tool.Function.Name
+				// Each prefix is a store the model can read: the workspace, the
+				// deferred capability catalog, the Skill catalog, and -- since
+				// compaction started setting things aside -- the session's own
+				// history. Anything outside them is the catalog leaking in.
 				if !strings.HasPrefix(name, "workspace.") && !strings.HasPrefix(name, "tool_") &&
-					!strings.HasPrefix(name, "skill_") {
+					!strings.HasPrefix(name, "skill_") && name != "context_search" {
 					t.Errorf("unexpected tool in the direct waist: %s", name)
 				}
 			}
