@@ -3,10 +3,12 @@ package learning
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixedReviewer answers from a script so the scorer can be tested without a
@@ -599,4 +601,95 @@ func TestACitationAtTheEndOfASentenceIsNotInvented(t *testing.T) {
 	if len(invented) != 1 || invented[0] != "event:event_imagined" {
 		t.Fatalf("invented = %v, want the imagined event with its punctuation trimmed", invented)
 	}
+}
+
+// failingReviewer fails a set number of times before answering, the way a
+// gateway does when it returns a 502 and then recovers.
+type failingReviewer struct {
+	failures int
+	calls    int
+}
+
+func (r *failingReviewer) Revision() string { return "failing-reviewer-test" }
+
+func (r *failingReviewer) Review(_ context.Context, _ Digest) (Decision, error) {
+	r.calls++
+	if r.calls <= r.failures {
+		return Decision{}, errors.New("provider returned HTTP 502")
+	}
+	return Decision{Kind: "no_change", Reason: "answered after the fault"}, nil
+}
+
+// TestATransientProviderFaultDoesNotThrowAwayTheRun covers what cost an hour. A
+// scoring run of two hundred reviews spent fifty-five minutes and was discarded
+// by a single 502 near the end.
+func TestATransientProviderFaultDoesNotThrowAwayTheRun(t *testing.T) {
+	shortenRetryDelay(t)
+	dir := t.TempDir()
+	writeCase(t, dir, CorpusCase{ID: "case-a", TriggerKind: "explicit_learn", Provenance: "driven",
+		Digest: Digest{GoalAndConstraints: "a"}, Label: labelled(false)})
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := &failingReviewer{failures: 2}
+	if _, err := ScoreCorpusRepeated(context.Background(), reviewer, cases, 1, nil); err != nil {
+		t.Fatalf("two faults ended the run: %v", err)
+	}
+	if reviewer.calls != 3 {
+		t.Fatalf("reviewer called %d times, want two faults then an answer", reviewer.calls)
+	}
+}
+
+// TestAProviderThatNeverRecoversStopsTheRun keeps the retry bounded. Repeating
+// forever would turn an outage into a hang.
+func TestAProviderThatNeverRecoversStopsTheRun(t *testing.T) {
+	shortenRetryDelay(t)
+	dir := t.TempDir()
+	writeCase(t, dir, CorpusCase{ID: "case-a", TriggerKind: "explicit_learn", Provenance: "driven",
+		Digest: Digest{GoalAndConstraints: "a"}, Label: labelled(false)})
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := &failingReviewer{failures: 1000}
+	_, err = ScoreCorpusRepeated(context.Background(), reviewer, cases, 1, nil)
+	if err == nil {
+		t.Fatal("a provider that never answered was treated as success")
+	}
+	if !strings.Contains(err.Error(), "attempts") {
+		t.Fatalf("error does not say it gave up after retrying: %v", err)
+	}
+	if reviewer.calls != reviewRetries+1 {
+		t.Fatalf("reviewer called %d times, want %d", reviewer.calls, reviewRetries+1)
+	}
+}
+
+// TestAnUnusableAnswerIsNotRetried draws the line. The reviewer failing to
+// phrase a decision is an answer; only a fault on the way to it is retried.
+func TestAnUnusableAnswerIsNotRetried(t *testing.T) {
+	dir := t.TempDir()
+	writeCase(t, dir, CorpusCase{ID: "case-a", TriggerKind: "explicit_learn", Provenance: "driven",
+		Digest: Digest{GoalAndConstraints: "a"}, Label: labelled(true)})
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := &brokenReviewer{failFor: map[string]bool{"a": true}}
+	results, err := ScoreCorpusRepeated(context.Background(), reviewer, cases, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[len(results)-1].ReviewerErrors != 1 {
+		t.Fatalf("an unusable answer was not recorded: %+v", results[len(results)-1])
+	}
+}
+
+// shortenRetryDelay keeps the retry tests about attempts rather than about
+// waiting. They asserted the same arithmetic in thirty-six seconds before.
+func shortenRetryDelay(t *testing.T) {
+	t.Helper()
+	previous := reviewRetryDelay
+	reviewRetryDelay = time.Millisecond
+	t.Cleanup(func() { reviewRetryDelay = previous })
 }

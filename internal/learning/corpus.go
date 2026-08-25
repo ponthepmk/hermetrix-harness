@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // A CorpusCase is one unit of completed work plus a human judgement about what
@@ -186,7 +187,7 @@ func ScoreCorpusRepeated(ctx context.Context, reviewer Reviewer, cases []CorpusC
 	for round := 0; round < repeats; round++ {
 		decisions := make(map[string]Decision, len(cases))
 		for _, item := range cases {
-			decision, err := reviewer.Review(ctx, item.Digest)
+			decision, err := reviewWithRetry(ctx, reviewer, item)
 			if err != nil {
 				return nil, fmt.Errorf("review %s: %w", item.ID, err)
 			}
@@ -417,4 +418,49 @@ var trailingPunctuation = regexp.MustCompile(`[.:,;]+$`)
 
 func round3(value float64) float64 {
 	return float64(int(value*1000+0.5)) / 1000
+}
+
+// reviewRetries and reviewRetryDelay bound how long a transient provider fault
+// can hold up a scoring run.
+const reviewRetries = 3
+
+// reviewRetryDelay is a variable so tests can shrink it. Sleeping for real in a
+// unit test buys nothing and costs every later run: the three retry tests took
+// thirty-six seconds of wall clock to assert arithmetic about attempts.
+var reviewRetryDelay = 4 * time.Second
+
+// reviewWithRetry retries a review that failed on the way to the provider.
+//
+// The harness does not retry tool calls -- an MCP result carries
+// automatic_retry:false, because repeating a call that may have already changed
+// something is not a safe thing to do on the caller's behalf. A review is the
+// opposite: it reads a digest and returns a judgement, it changes nothing, and
+// the same digest asked twice is the same question.
+//
+// The reason to bother is measured. A scoring run of two hundred reviews spent
+// fifty-five minutes and was thrown away by one 502 from the gateway near the
+// end. An hour of model calls is not something to lose to a transient fault.
+//
+// A decision the reviewer actually made is never retried, including one it
+// failed to phrase -- that is an answer, and Unusable already records it.
+func reviewWithRetry(ctx context.Context, reviewer Reviewer, item CorpusCase) (Decision, error) {
+	var err error
+	for attempt := 0; attempt <= reviewRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return Decision{}, ctx.Err()
+			case <-time.After(reviewRetryDelay * time.Duration(attempt)):
+			}
+		}
+		var decision Decision
+		decision, err = reviewer.Review(ctx, item.Digest)
+		if err == nil {
+			return decision, nil
+		}
+		if ctx.Err() != nil {
+			return Decision{}, ctx.Err()
+		}
+	}
+	return Decision{}, fmt.Errorf("after %d attempts: %w", reviewRetries+1, err)
 }
