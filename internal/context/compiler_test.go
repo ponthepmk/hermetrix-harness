@@ -3,6 +3,7 @@ package context
 import (
 	stdcontext "context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -572,4 +573,75 @@ func TestTransportCostPricesTheChatTemplate(t *testing.T) {
 		t.Fatalf("transport changed the selected content total: %d then %d",
 			unmeasured.Report.SelectedTokens, measured.Report.SelectedTokens)
 	}
+}
+
+// Causal-pair integrity is the one half of the Phase 9 gate with a real
+// subject in the field: 5,933 pairs across 660 compiled snapshots from the
+// driven session, zero splits. That could have been luck -- pairs that always
+// happened to fit. It is not.
+//
+// Within a slice, makeUnits keys a pair as one unit, so selection drops or
+// keeps both halves together. Across slices there is no such key, and that gap
+// is closed by a different mechanism: evaluateIntegrity refuses the compile
+// outright rather than returning a context whose tool call has lost its result.
+func TestCausalPairsSurviveTogetherOrTheCompileRefuses(t *testing.T) {
+	profile, _ := ProfileByName("compact-32k")
+	compiler := NewCompiler(NewAdaptiveEstimator(), nil, NewVerifiedCompactor(StructuredCompactor{}))
+
+	t.Run("same slice, dropped together under pressure", func(t *testing.T) {
+		fragments := []Fragment{
+			// The call carries the weight; only tool results are spilled, so
+			// the unit stays big enough to be squeezed out as a whole.
+			{ID: "call", Kind: KindToolCall, PairID: "pair", Scope: "session", Provenance: "f",
+				Trust: "tool", Version: "v1", Priority: 20, Content: strings.Repeat("เรียกเครื่องมือ ", 1500)},
+			{ID: "result", Kind: KindToolResult, PairID: "pair", Scope: "session", Provenance: "f",
+				Trust: "tool", Version: "v1", Priority: 20, Content: "ผลลัพธ์สั้น"},
+		}
+		for index := 0; index < 40; index++ {
+			fragments = append(fragments, Fragment{ID: fmt.Sprintf("noise-%02d", index),
+				Kind: KindConversation, Scope: "session", Provenance: "f", Trust: "assistant",
+				Version: "v1", Priority: 90, Content: fmt.Sprintf("ลำดับ %d ", index) +
+					strings.Repeat("บทสนทนาที่สำคัญกว่า ", 300)})
+		}
+		compiled, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile, Fragments: fragments})
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		kept := 0
+		for _, fragment := range compiled.Fragments {
+			if fragment.PairID == "pair" {
+				kept++
+			}
+		}
+		if kept == 1 {
+			t.Fatalf("one half of the pair survived alone")
+		}
+		if kept == 2 {
+			t.Fatalf("the pair was never at risk; the premise is broken, not the guarantee")
+		}
+		if compiled.Report.CompressionRatio >= 1 {
+			t.Fatalf("nothing was under pressure: compression ratio %.3f", compiled.Report.CompressionRatio)
+		}
+	})
+
+	t.Run("across slices, the compile refuses", func(t *testing.T) {
+		// A pair whose halves land in different slices has no shared unit key.
+		// half-a cannot fit in SkillProjectBudget beside a higher-priority
+		// instruction; half-b is small and the active slice has room.
+		fragments := []Fragment{
+			{ID: "half-a", Kind: KindProjectInstruction, PairID: "p", Scope: "session", Provenance: "f",
+				Trust: "user", Version: "v1", Priority: 50, Content: strings.Repeat("ครึ่งแรกของคู่ ", 700)},
+			{ID: "half-b", Kind: KindToolResult, PairID: "p", Scope: "session", Provenance: "f",
+				Trust: "tool", Version: "v1", Priority: 50, Content: "ผลลัพธ์ครึ่งหลังของคู่"},
+			{ID: "hog", Kind: KindProjectInstruction, Scope: "session", Provenance: "f",
+				Trust: "user", Version: "v1", Priority: 90, Content: strings.Repeat("คำสั่งสำคัญกว่า ", 800)},
+		}
+		_, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile, Fragments: fragments})
+		if err == nil {
+			t.Fatal("a split pair compiled successfully")
+		}
+		if !strings.Contains(err.Error(), "causal pair p was split") {
+			t.Fatalf("wrong failure: %v", err)
+		}
+	})
 }

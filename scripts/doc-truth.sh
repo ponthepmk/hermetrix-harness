@@ -110,6 +110,9 @@ ci-builds-the-program|the program exists and runs|.github/workflows/ci.yml
 verdict-reads-decision-recall|metrics.DecisionRecall == 1|internal/fidelity/service.go
 pinned-retention-is-binary|func TestPinnedEssentialsAreRetainedExactlyOrTheCompileFails|internal/fidelity/service_test.go
 unpinned-retention-can-fail|func TestVerdictFailsWhenDeclaredDecisionsAreDropped|internal/fidelity/service_test.go
+causal-pairs-held-or-refused|func TestCausalPairsSurviveTogetherOrTheCompileRefuses|internal/context/compiler_test.go
+pair-split-refuses-compile|causal pair %s was split|internal/context/compiler.go
+field-census-exists|NEVER PRODUCED|scripts/fragment-census.py
 CLAIMS
 )
 

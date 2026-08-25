@@ -191,6 +191,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-38** | 502 ครั้งเดียวทิ้งงาน scoring หนึ่งชั่วโมง | medium | **แก้แล้ว** |
 | **O-39** | verdict ของ fidelity ไม่อ่าน decision/open-task/file-state recall — run ที่ทิ้ง decision 97% รายงาน `passed` | high | **แก้แล้ว** |
 | **P-7** | P9-A วางไว้วัด essential retention ที่วัดไม่ได้ — pinned retention เป็น 1 หรือ compile error ไม่มีค่ากลาง | high | **เปลี่ยนรูปแล้ว** |
+| **O-40** | `decision` / `open_task` / `acceptance_criteria` ไม่มีผู้ผลิตนอก fixture — สอง ใน สาม ประธานของ gate Phase 9 ไม่มีอยู่จริง | **critical** | **เปิด — ต้องสร้าง producer** |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -500,6 +501,50 @@ decisions ที่ประกาศว่า essential:  5 -> recall 1.000
 ตอนนี้ verdict อ่านครบสี่ตัว mutation: ลบ `metrics.DecisionRecall == 1 &&` ออก แล้ว `TestVerdictFailsWhenDeclaredDecisionsAreDropped` กลับมาเขียว ทั้งที่ decision ยังหายไป 97% เท่าเดิม
 
 หมายเหตุที่ตรวจแล้วว่า**ไม่ใช่** defect: `represented()` รับการปรากฏใน checkpoint เป็นการคงอยู่ ซึ่งดูหลวมจนกระทั่งอ่าน compactor — checkpoint เป็น extractive จริง แต่ละบรรทัดเป็น `- [decision:id] <เนื้อหา>` ตัดที่ 520 rune สำหรับ decision/open_task/tool_result ไม่ใช่การอ้าง ID ลอย ๆ
+
+#### O-40 — ประธานของ gate ไม่มีอยู่จริง
+
+พอรู้ว่า instrument วัดอะไรได้บ้าง คำถามถัดไปคือของจริงมีหน้าตายังไง นับ fragment ทุก kind จาก snapshot จริง 772 ครั้งของ session ที่ขับไปแล้ว อ่านทั้ง `compiled_json` (ที่รอด) และ `report_json` (ที่ถูกทิ้ง) เพื่อไม่ให้พลาด kind ที่ออกมาแล้วโดนตัด — `scripts/fragment-census.py`:
+
+```
+snapshots: 772
+kinds produced: {'tool_call': 5933, 'conversation': 5649, 'tool_result': 5440,
+                 'policy': 1496, 'identity': 772, 'user_goal': 772,
+                 'artifact_receipt': 493, 'selected_skill': 320, 'checkpoint': 162}
+causal pairs: 5933 seen, 0 split
+
+  user_goal              median=  1 p90=  1 p99=  1 max=  1
+  acceptance_criteria    median=  0 p90=  0 p99=  0 max=  0
+  decision               median=  0 p90=  0 p99=  0 max=  0
+  open_task              median=  0 p90=  0 p99=  0 max=  0
+  artifact_receipt       median=  0 p90=  3 p99= 10 max= 13
+
+NEVER PRODUCED: acceptance_criteria, decision, open_task
+```
+
+ยืนยันจากฝั่ง source: `grep KindDecision|KindOpenTask|KindAcceptanceCriteria` ในโค้ดที่ไม่ใช่เทสต์ทั้งหมดได้ผู้ผลิตศูนย์ราย — ที่เจอคือ `types.go` ที่นิยามมัน, `compiler.go`/`compactor.go` ที่**บริโภค**มัน (acceptance_criteria เข้า slice pinned, decision/open_task ได้โควตา 520 rune ใน checkpoint) และ fixture ของ fidelity เอง ไม่มีเส้นทางไหนใน agent สร้าง fragment สาม kind นี้เลย `acceptance_criteria` ไม่มีแม้แต่ fixture
+
+gate Phase 9 เขียนว่า "retention ของ goal/constraint/decision = 100%" ตอนนี้อ่านตามตัวอักษร:
+
+| ประธาน | สถานะจริง |
+|---|---|
+| goal | มี 1 ต่อ turn เป๊ะ ๆ · retention 100% แต่เป็น tautology (pinned slice ทิ้งไม่ได้) |
+| constraint (`acceptance_criteria`) | **ไม่มีผู้ผลิตที่ไหนเลย** |
+| decision | **ไม่มีผู้ผลิตนอก fixture** |
+| causal split = 0 | **ผ่านจริง มีประธานจริง** — 5,933 คู่ ใน 660 snapshot แตกศูนย์ |
+
+นี่ไม่ใช่ instrument ที่วัดไม่ได้แบบสามครั้งก่อน มันหนักกว่า — **สิ่งที่จะวัดยังไม่ถูกสร้าง** สร้าง gold corpus กี่เคสก็ปิด gate นี้ไม่ได้ เพราะ corpus จะเป็นที่เดียวในระบบที่ decision มีอยู่
+
+#### causal pair — ครึ่งเดียวของ gate ที่ผ่านจริง และผ่านเพราะอะไร
+
+5,933 คู่ แตกศูนย์ อาจเป็นเพราะโชค — คู่ที่บังเอิญพอดีงบทุกครั้ง ตรวจแล้วไม่ใช่ มีการรับประกันสองชั้นที่เป็นอิสระต่อกัน:
+
+1. **ใน slice เดียวกัน** `makeUnits` ใช้ `pair:<PairID>` เป็นคีย์ คู่จึงเป็นหน่วยเดียว เลือกหรือทิ้งไปด้วยกันเสมอ
+2. **ข้าม slice** ไม่มีคีย์ร่วม ช่องว่างนี้ปิดด้วยกลไกคนละตัว — `evaluateIntegrity` **ปฏิเสธการ compile ทั้งก้อน** แทนที่จะคืน context ที่ tool call หลุดจากผลลัพธ์ของมัน
+
+ทั้งสองชั้นมี mutation ใน `TestCausalPairsSurviveTogetherOrTheCompileRefuses`: ถอดคีย์ `pair:` ออกจาก `makeUnits` แล้ว subtest แรกล้ม (ชั้นที่สองจับได้เอง ซึ่งเป็นการสาธิตว่าสองชั้นแยกกันจริง) · ทำให้ `default:` ใน `evaluateIntegrity` ไม่คืน error แล้ว subtest ที่สองล้มด้วย `a split pair compiled successfully`
+
+เทสต์ยังกันการวัดหลอกตัวเองไว้ด้วย — ถ้าคู่ที่ควรถูกทิ้งกลับรอดทั้งคู่ มันฟ้องว่า `the pair was never at risk; the premise is broken, not the guarantee`
 
 #### P8-A ปิดแล้ว — gate ของ semantic reviewer ผ่าน
 
