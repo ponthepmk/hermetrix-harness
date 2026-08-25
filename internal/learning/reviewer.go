@@ -5,6 +5,13 @@ import (
 	"strings"
 )
 
+// Reviewer decides whether one unit of completed work holds knowledge worth
+// keeping.
+//
+// Review must be safe to call from several goroutines at once. Corpus scoring
+// runs reviews concurrently because they are independent and change nothing,
+// and a reviewer holding unsynchronised state would corrupt itself rather than
+// merely answer slowly.
 type Reviewer interface {
 	Revision() string
 	Review(ctx context.Context, digest Digest) (Decision, error)

@@ -176,6 +176,8 @@ func corpusScore(args []string) error {
 	dataRoot := flags.String("data", ".hermetrix", "local data directory")
 	dir := flags.String("dir", "corpus/digests", "directory of labelled case files")
 	providerName := flags.String("provider", "", "provider profile to review with; defaults to the first enabled")
+	concurrency := flags.Int("concurrency", learning.DefaultReviewConcurrency,
+		"how many reviews to keep in flight; the time is queueing, not compute")
 	repeats := flags.Int("repeats", 1,
 		"read the corpus this many times and judge on the worst reading; the reviewer is not deterministic and one reading cannot settle a threshold its own variance straddles")
 	if err := flags.Parse(args); err != nil {
@@ -211,7 +213,7 @@ func corpusScore(args []string) error {
 		fmt.Printf("  %-22s %d%s\n", family, coverage[family], note)
 	}
 	started := time.Now()
-	results, err := learning.ScoreCorpusRepeated(ctx, reviewer, cases, *repeats,
+	results, err := learning.ScoreCorpusConcurrent(ctx, reviewer, cases, *repeats, *concurrency,
 		func(done, total int, caseID string) {
 			elapsed := time.Since(started)
 			remaining := time.Duration(0)

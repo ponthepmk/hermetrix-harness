@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -396,13 +397,16 @@ func TestEachCaseIsReviewedOnce(t *testing.T) {
 
 type countingReviewer struct {
 	proposeFor map[string]bool
+	mutex      sync.Mutex
 	calls      int
 }
 
 func (r *countingReviewer) Revision() string { return "counting-reviewer-test" }
 
 func (r *countingReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	r.mutex.Lock()
 	r.calls++
+	r.mutex.Unlock()
 	if !r.proposeFor[digest.GoalAndConstraints] {
 		return Decision{Kind: "no_change", Reason: "scripted decline"}, nil
 	}
@@ -417,18 +421,21 @@ func (r *countingReviewer) Review(_ context.Context, digest Digest) (Decision, e
 type flakyReviewer struct {
 	// answers maps a goal to the sequence of answers it gives, cycling.
 	answers map[string][]bool
+	mutex   sync.Mutex
 	seen    map[string]int
 }
 
 func (r *flakyReviewer) Revision() string { return "flaky-reviewer-test" }
 
 func (r *flakyReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	r.mutex.Lock()
 	if r.seen == nil {
 		r.seen = map[string]int{}
 	}
 	sequence := r.answers[digest.GoalAndConstraints]
 	index := r.seen[digest.GoalAndConstraints]
 	r.seen[digest.GoalAndConstraints]++
+	r.mutex.Unlock()
 	propose := len(sequence) > 0 && sequence[index%len(sequence)]
 	if !propose {
 		return Decision{Kind: "no_change", Reason: "scripted decline"}, nil
@@ -554,16 +561,21 @@ func TestAnInventedCitationOnAnyReadingIsKept(t *testing.T) {
 
 // inventingThenShyReviewer proposes everything on the first pass, citing an
 // identifier it was never given on one case, then proposes less on the second.
-type inventingThenShyReviewer struct{ seen map[string]int }
+type inventingThenShyReviewer struct {
+	mutex sync.Mutex
+	seen  map[string]int
+}
 
 func (r *inventingThenShyReviewer) Revision() string { return "inventing-reviewer-test" }
 
 func (r *inventingThenShyReviewer) Review(_ context.Context, digest Digest) (Decision, error) {
+	r.mutex.Lock()
 	if r.seen == nil {
 		r.seen = map[string]int{}
 	}
 	pass := r.seen[digest.GoalAndConstraints]
 	r.seen[digest.GoalAndConstraints]++
+	r.mutex.Unlock()
 	if pass > 0 && digest.GoalAndConstraints > "case-e" {
 		return Decision{Kind: "no_change", Reason: "shy on the second pass"}, nil
 	}
@@ -607,14 +619,18 @@ func TestACitationAtTheEndOfASentenceIsNotInvented(t *testing.T) {
 // gateway does when it returns a 502 and then recovers.
 type failingReviewer struct {
 	failures int
+	mutex    sync.Mutex
 	calls    int
 }
 
 func (r *failingReviewer) Revision() string { return "failing-reviewer-test" }
 
 func (r *failingReviewer) Review(_ context.Context, _ Digest) (Decision, error) {
+	r.mutex.Lock()
 	r.calls++
-	if r.calls <= r.failures {
+	calls := r.calls
+	r.mutex.Unlock()
+	if calls <= r.failures {
 		return Decision{}, errors.New("provider returned HTTP 502")
 	}
 	return Decision{Kind: "no_change", Reason: "answered after the fault"}, nil
@@ -692,4 +708,73 @@ func shortenRetryDelay(t *testing.T) {
 	previous := reviewRetryDelay
 	reviewRetryDelay = time.Millisecond
 	t.Cleanup(func() { reviewRetryDelay = previous })
+}
+
+// TestConcurrentScoringGivesTheSameAnswers is the property concurrency must not
+// break. Results are keyed by case, so running several reviews at once changes
+// when answers arrive and nothing about what they are.
+func TestConcurrentScoringGivesTheSameAnswers(t *testing.T) {
+	dir := t.TempDir()
+	answers := map[string][]bool{}
+	for i := 0; i < 20; i++ {
+		goal := "case-" + string(rune('a'+i))
+		writeCase(t, dir, CorpusCase{ID: goal, TriggerKind: "explicit_learn", Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: goal}, Label: labelled(i%2 == 0)})
+		answers[goal] = []bool{i%3 == 0}
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequential, err := ScoreCorpusConcurrent(context.Background(),
+		&flakyReviewer{answers: answers}, cases, 1, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrent, err := ScoreCorpusConcurrent(context.Background(),
+		&flakyReviewer{answers: answers}, cases, 1, 8, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := sequential[len(sequential)-1], concurrent[len(concurrent)-1]
+	if a.Proposed != b.Proposed || a.ProposalRate != b.ProposalRate ||
+		a.FalseProposals != b.FalseProposals || a.Verdict != b.Verdict {
+		t.Fatalf("concurrency changed the answer:\n one at a time %+v\n eight at once %+v", a, b)
+	}
+}
+
+// TestConcurrentScoringCountsEveryCaseOnce guards the shared counter behind the
+// progress callback: a race there would report a total that never reaches the
+// number of cases, or reaches it twice.
+func TestConcurrentScoringCountsEveryCaseOnce(t *testing.T) {
+	dir := t.TempDir()
+	answers := map[string][]bool{}
+	for i := 0; i < 30; i++ {
+		goal := "case-" + string(rune('a'+i))
+		writeCase(t, dir, CorpusCase{ID: goal, TriggerKind: "skill_failure", Provenance: "driven",
+			Digest: Digest{GoalAndConstraints: goal}, Label: labelled(false)})
+		answers[goal] = []bool{false}
+	}
+	cases, err := LoadCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mutex sync.Mutex
+	seen := map[int]int{}
+	if _, err := ScoreCorpusConcurrent(context.Background(), &flakyReviewer{answers: answers},
+		cases, 2, 8, func(done, total int, _ string) {
+			mutex.Lock()
+			defer mutex.Unlock()
+			seen[done]++
+			if total != len(cases)*2 {
+				t.Errorf("total = %d, want %d", total, len(cases)*2)
+			}
+		}); err != nil {
+		t.Fatal(err)
+	}
+	for step := 1; step <= len(cases)*2; step++ {
+		if seen[step] != 1 {
+			t.Fatalf("progress reported step %d %d times, want once", step, seen[step])
+		}
+	}
 }

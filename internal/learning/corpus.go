@@ -9,7 +9,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // A CorpusCase is one unit of completed work plus a human judgement about what
@@ -157,6 +160,9 @@ func FamilyCoverage(cases []CorpusCase) map[string]int {
 // Progress reports a case as it is reviewed. Scoring a hundred cases spends a
 // model call each and took thirty-five minutes against a real gateway; a
 // command that long with no output is indistinguishable from one that hung.
+//
+// It is called serially even though reviews run concurrently, so an
+// implementation may write to a terminal without locking.
 type Progress func(done, total int, caseID string)
 
 // ScoreCorpus runs the reviewer over every case and computes the gate, split by
@@ -179,23 +185,65 @@ func ScoreCorpusWithProgress(ctx context.Context, reviewer Reviewer, cases []Cor
 // straddles.
 func ScoreCorpusRepeated(ctx context.Context, reviewer Reviewer, cases []CorpusCase, repeats int,
 	progress Progress) ([]CorpusResult, error) {
+	return ScoreCorpusConcurrent(ctx, reviewer, cases, repeats, DefaultReviewConcurrency, progress)
+}
+
+// DefaultReviewConcurrency is how many reviews are in flight at once.
+//
+// Reviews are independent and change nothing, so nothing about the corpus
+// requires them to be sequential -- and sequential is what made a two-hundred
+// review run take an hour and a half. Measured against the gateway during that
+// run, eight identical one-token requests came back in 0.38s, 20.2s, 24.0s,
+// 8.3s, 1.6s, 5.0s, 4.1s and 19.4s: the time is queueing, and most of the queue
+// was the run's own requests waiting behind each other.
+//
+// Four rather than more because the point is to stop waiting on our own queue,
+// not to push a shared gateway harder than a person would.
+const DefaultReviewConcurrency = 4
+
+// ScoreCorpusConcurrent reads the corpus with several reviews in flight.
+// Results are keyed by case, so concurrency changes when answers arrive and
+// nothing about what they are.
+func ScoreCorpusConcurrent(ctx context.Context, reviewer Reviewer, cases []CorpusCase, repeats,
+	concurrency int, progress Progress) ([]CorpusResult, error) {
 	if repeats < 1 {
 		repeats = 1
 	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
 	rounds := make([]map[string]Decision, 0, repeats)
 	total, done := len(cases)*repeats, 0
+	var mutex sync.Mutex
 	for round := 0; round < repeats; round++ {
 		decisions := make(map[string]Decision, len(cases))
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.SetLimit(concurrency)
 		for _, item := range cases {
-			decision, err := reviewWithRetry(ctx, reviewer, item)
-			if err != nil {
-				return nil, fmt.Errorf("review %s: %w", item.ID, err)
-			}
-			decisions[item.ID] = decision
-			done++
-			if progress != nil {
-				progress(done, total, item.ID)
-			}
+			item := item
+			group.Go(func() error {
+				decision, err := reviewWithRetry(groupCtx, reviewer, item)
+				if err != nil {
+					return fmt.Errorf("review %s: %w", item.ID, err)
+				}
+				// Progress is called under the same lock that records the
+				// decision. Reviews run concurrently, so a callback invoked
+				// outside it would be entered from several goroutines at once --
+				// and the one this command ships writes a status line to stderr,
+				// which would interleave into nonsense. Holding the lock across a
+				// progress line costs nothing next to a model call.
+				mutex.Lock()
+				decisions[item.ID] = decision
+				done++
+				if progress != nil {
+					progress(done, total, item.ID)
+				}
+				mutex.Unlock()
+				return nil
+			})
+		}
+		if err := group.Wait(); err != nil {
+			return nil, err
 		}
 		rounds = append(rounds, decisions)
 	}
