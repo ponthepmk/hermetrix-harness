@@ -196,6 +196,8 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-41** | qualification โหมด `qualified` เรียกไม่ถึงสำหรับ provider ระยะไกล — ผ่านทุก check เกรด A แต่ `eligible=false` | **low** (ลดจาก high) | **ไม่ใช่ช่องโหว่** — เพดานที่ตั้งค่าไว้บังคับอยู่แล้วที่ `service.go:73` · ที่ขาดคือหลักฐานความลึกเพิ่มเติม ไม่ใช่ความปลอดภัย |
 | **O-42** | 6 ตารางมีแต่ schema ไม่มีคนอ่านคนเขียน แต่อยู่ในรายการ backup | medium | **ตรวจจับอัตโนมัติแล้ว** ใน `doc-truth.sh` |
 | **V-8** | MCP: เทสต์ทุกตัวตั้ง `TrustAnnotations: true` — สาขา default ที่ป้องกัน operator ไม่เคยรัน | high | **ปิดแล้ว** hostile fixture + mutation |
+| **O-43** | compaction ตัดสินด้วยตำแหน่ง ไม่ใช่ความเกี่ยวข้อง — fact ที่ตำแหน่งสุ่มหาย 34.5% | high | **แก้แล้ว** — compact ตามความเกี่ยวข้อง + `context_search` + checkpoint ประกาศความสูญเสีย |
+| **V-9** | corpus P9-B วัดความสูญเสียไม่ได้อีกแล้วหลังแก้ compactor — ทุก fact เข้าถึงได้ 100% | medium | **เปิด** — ต้องเปลี่ยนมิติเป็นระยะห่างของถ้อยคำ |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
