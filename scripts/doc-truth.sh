@@ -151,6 +151,10 @@ local-probe-refuses-remote|remote model endpoints are disabled in the local prob
 stored-content-cannot-execute|func TestStoredArtifactContentCannotRunAsAPage|internal/web/server_test.go
 untrusted-annotations-cannot-waive|func TestUntrustedServerAnnotationsCannotWaiveApproval|internal/mcp/service_test.go
 catalogue-is-never-a-primitive|func TestCatalogueMetadataNeverBecomesAProviderFunction|internal/tools/registry_test.go
+taskeval-refuses-uncompacted|ErrNoPressure|internal/taskeval/runner.go
+taskeval-no-judge-model|func (r \*Runner) score|internal/taskeval/runner.go
+taskeval-instrument-registers|func TestTheInstrumentRegistersALostNeedle|internal/taskeval/runner_test.go
+taskeval-sample-floor|MinimumTasksPerClass|internal/taskeval/models.go
 CLAIMS
 )
 
