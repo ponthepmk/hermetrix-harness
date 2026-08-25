@@ -107,6 +107,9 @@ corpus-citation-punctuation|trailingPunctuation|internal/learning/corpus.go
 corpus-shape-sampling|func digestShape|cmd/hermetrix/corpus.go
 program-is-versioned|/hermetrix|.gitignore
 ci-builds-the-program|the program exists and runs|.github/workflows/ci.yml
+verdict-reads-decision-recall|metrics.DecisionRecall == 1|internal/fidelity/service.go
+pinned-retention-is-binary|func TestPinnedEssentialsAreRetainedExactlyOrTheCompileFails|internal/fidelity/service_test.go
+unpinned-retention-can-fail|func TestVerdictFailsWhenDeclaredDecisionsAreDropped|internal/fidelity/service_test.go
 CLAIMS
 )
 

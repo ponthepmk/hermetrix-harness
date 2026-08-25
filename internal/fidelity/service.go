@@ -300,7 +300,15 @@ func verify(item Case, compiled ctxcompiler.Compiled) Metrics {
 			metrics.FallbackUsed = true
 		}
 	}
-	metrics.Passed = metrics.EssentialExactRetention == 1 && metrics.CausalPairSplits == 0 &&
+	// The Phase 9 gate reads "retention of goal/constraint/decision = 100%".
+	// Three of those four recalls used to be computed, stored, rendered -- and
+	// left out of the verdict. A run that dropped 97% of the decisions a case
+	// had declared essential reported Passed=true. The metric existed; the gate
+	// did not. Decisions, open tasks and file state are not pinned, so unlike
+	// EssentialExactRetention these can genuinely land between 0 and 1, which
+	// is exactly why the verdict has to read them.
+	metrics.Passed = metrics.EssentialExactRetention == 1 && metrics.DecisionRecall == 1 &&
+		metrics.OpenTaskRecall == 1 && metrics.FileStateRecall == 1 && metrics.CausalPairSplits == 0 &&
 		metrics.TaskSuccessDelta <= item.Expectations.MaxTaskDelta &&
 		metrics.PatchCorrectnessDelta <= item.Expectations.MaxPatchDelta && metrics.HallucinationCount == 0 &&
 		metrics.FalseSuccessCount == 0 && metrics.SilentTruncations == 0

@@ -189,6 +189,8 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-36** | corpus scoring รีวิวซ้ำต่อ split — หลักฐานเดียวกันได้คำตอบต่างกันในรายงานฉบับเดียว | high | **แก้แล้ว** |
 | **O-37** | citation ท้ายประโยคถูกตราว่าประดิษฐ์ | medium | **แก้แล้ว** |
 | **O-38** | 502 ครั้งเดียวทิ้งงาน scoring หนึ่งชั่วโมง | medium | **แก้แล้ว** |
+| **O-39** | verdict ของ fidelity ไม่อ่าน decision/open-task/file-state recall — run ที่ทิ้ง decision 97% รายงาน `passed` | high | **แก้แล้ว** |
+| **P-7** | P9-A วางไว้วัด essential retention ที่วัดไม่ได้ — pinned retention เป็น 1 หรือ compile error ไม่มีค่ากลาง | high | **เปลี่ยนรูปแล้ว** |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -468,6 +470,36 @@ gate ตัดสินที่ **worst of N** (`--repeats`) ผ่าน = ผ
 **O-37** identifier มีจุดและ colon อยู่จริง (`skill:<id>@<ver>`, `event:<id>:<tool>:<status>`) pattern จึงกลืน full stop ท้ายประโยค `event:event_real.` จะถูกกล่าวหาว่าแต่งขึ้นทั้งที่มีในหลักฐาน — **เป็นข้อกล่าวหาที่ gate ให้ tolerance = 0 จึงต้องแม่น**
 
 **O-38** run 200 รีวิว 55 นาที ถูกทิ้งด้วย 502 ครั้งเดียว ตอนนี้ retry แบบมีขอบเขต — ต่างจาก tool call ที่ harness ตั้งใจไม่ retry (`automatic_retry:false`) เพราะ review อ่านอย่างเดียว ไม่เปลี่ยนอะไร ถามซ้ำคือคำถามเดิม
+
+#### O-39 และ P-7 — เครื่องมือตัวที่สี่ที่ตั้งไว้จนวัดอะไรไม่ได้
+
+ก่อนสร้าง gold corpus ของ P9-A ผมวัดก่อนว่า instrument ที่มีอยู่ตอบคำถามอะไรได้บ้าง กวาด pressure จาก 82 token ถึง 1,870,882 token บน `compact-32k`:
+
+```
+fillers=   0  in=     82 essential=1.00 decision=1.00 open=1.00 file=1.00 passed=true
+fillers=  40  in=  62442 essential=1.00 decision=1.00 open=1.00 file=1.00 passed=true
+fillers= 200  in= 311882 essential=1.00 decision=1.00 open=1.00 file=1.00 passed=true
+fillers=1200  in=1870882 essential=1.00 decision=1.00 open=1.00 file=1.00 passed=true
+```
+
+ทุก metric เป็น 1.00 ตลอดช่วง 23,000 เท่า เหตุผลอยู่ใน `sliceFor` — อะไรที่ `Pinned` หรือเป็น `user_goal`/`acceptance_criteria` เข้า slice `pinned` และ slice นั้น**ไม่มีการ drop** มันลงได้หรือ `Compile` คืน `ErrPinnedOverflow` เท่านั้น
+
+**P-7** `essential_exact_retention` จึงมีได้แค่ 1 หรือไม่มี run เลย ไม่มีค่ากลาง gold corpus 50 เคสต่อภาษาจะได้ 1.00 ห้าสิบครั้ง แล้วพิสูจน์เรื่อง compiler ไม่ได้สักข้อ — มันพิสูจน์แค่ว่าคนเขียนเคสให้ priority สูงกับ fragment ที่ตัวเองบอกว่าสำคัญ **instrument เกรดตัว fixture ไม่ได้เกรด compiler** ยืนยันสองทางใน `TestPinnedEssentialsAreRetainedExactlyOrTheCompileFails` — ด้านหนึ่ง retention คงที่ 1.00 ใต้ filler 800 ตัว อีกด้าน pinned 50 ตัวได้ `pinned context exceeds profile budget: used=37100 budget=2048`
+
+คำถามที่วัดได้จริงอยู่ที่ kind ที่**ไม่**ถูก pin — decision, open task, file state พวกนี้ผ่าน `selectActive` และหล่นได้จริง เส้นโค้งมีอยู่:
+
+```
+decisions ที่ประกาศว่า essential:  5 -> recall 1.000
+                                  50 -> recall 0.360
+                                 200 -> recall 0.090
+                                 600 -> recall 0.030
+```
+
+**O-39** และทั้งสี่แถวรายงาน `passed=true` gate ของ Phase 9 เขียนว่า "retention ของ goal/constraint/decision = 100%" แต่ `verify()` อ่านแค่ตัวแรก อีกสามตัวถูกคำนวณ เก็บลง DB แสดงผลบนหน้าจอ แล้วไม่ถูกใช้ตัดสิน — run ที่ทิ้ง decision ไป 97% ผ่าน gate ที่ห้ามมันทิ้งเลย
+
+ตอนนี้ verdict อ่านครบสี่ตัว mutation: ลบ `metrics.DecisionRecall == 1 &&` ออก แล้ว `TestVerdictFailsWhenDeclaredDecisionsAreDropped` กลับมาเขียว ทั้งที่ decision ยังหายไป 97% เท่าเดิม
+
+หมายเหตุที่ตรวจแล้วว่า**ไม่ใช่** defect: `represented()` รับการปรากฏใน checkpoint เป็นการคงอยู่ ซึ่งดูหลวมจนกระทั่งอ่าน compactor — checkpoint เป็น extractive จริง แต่ละบรรทัดเป็น `- [decision:id] <เนื้อหา>` ตัดที่ 520 rune สำหรับ decision/open_task/tool_result ไม่ใช่การอ้าง ID ลอย ๆ
 
 #### P8-A ปิดแล้ว — gate ของ semantic reviewer ผ่าน
 
