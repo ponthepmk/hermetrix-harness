@@ -191,7 +191,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-38** | 502 ครั้งเดียวทิ้งงาน scoring หนึ่งชั่วโมง | medium | **แก้แล้ว** |
 | **O-39** | verdict ของ fidelity ไม่อ่าน decision/open-task/file-state recall — run ที่ทิ้ง decision 97% รายงาน `passed` | high | **แก้แล้ว** |
 | **P-7** | P9-A วางไว้วัด essential retention ที่วัดไม่ได้ — pinned retention เป็น 1 หรือ compile error ไม่มีค่ากลาง | high | **เปลี่ยนรูปแล้ว** |
-| **O-40** | `decision` / `open_task` / `acceptance_criteria` ไม่มีผู้ผลิตนอก fixture — สอง ใน สาม ประธานของ gate Phase 9 ไม่มีอยู่จริง | **critical** | **เปิด — ต้องสร้าง producer** |
+| **O-40** | `decision` / `open_task` / `acceptance_criteria` ไม่มีผู้ผลิตนอก fixture — สอง ใน สาม ประธานของ gate Phase 9 ไม่มีอยู่จริง | **critical** | **แก้แล้วสองใน สาม** — approval กลายเป็น decision/open_task · `acceptance_criteria` รอการตัดสินใจ |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -545,6 +545,25 @@ gate Phase 9 เขียนว่า "retention ของ goal/constraint/decis
 ทั้งสองชั้นมี mutation ใน `TestCausalPairsSurviveTogetherOrTheCompileRefuses`: ถอดคีย์ `pair:` ออกจาก `makeUnits` แล้ว subtest แรกล้ม (ชั้นที่สองจับได้เอง ซึ่งเป็นการสาธิตว่าสองชั้นแยกกันจริง) · ทำให้ `default:` ใน `evaluateIntegrity` ไม่คืน error แล้ว subtest ที่สองล้มด้วย `a split pair compiled successfully`
 
 เทสต์ยังกันการวัดหลอกตัวเองไว้ด้วย — ถ้าคู่ที่ควรถูกทิ้งกลับรอดทั้งคู่ มันฟ้องว่า `the pair was never at risk; the premise is broken, not the guarantee`
+
+#### O-40 (ต่อ) — ผู้ผลิตที่หายไปคือสิ่งที่ compile โยนทิ้งอยู่แล้ว
+
+ไม่ต้องสร้างของใหม่ event log มี `approval_required` กับ `approval_decision` มาตั้งแต่ต้น — ใน session ที่ขับไปแล้วมี 11 กับ 9 ตามลำดับ แต่ `switch` ใน `compileTurn` ไม่มี case ให้ทั้งคู่ **ทุก compile โยนทิ้งหมด**
+
+ผลที่เกิดขึ้นจริงกับ model ไม่ใช่แค่เรื่อง metric: model ที่ถูกบอกตอน step 3 ว่ามีคนอนุมัติการเขียนไฟล์นี้ด้วยเหตุผลอะไร ไม่รู้เรื่องนั้นเลยตอน step 40 · และการเขียนที่ค้างรอมนุษย์อยู่ **มองไม่เห็นจาก model ที่กำลังรอมันอยู่**
+
+การแปลงเป็นแบบ deterministic ไม่ใช้ model สกัด:
+
+| event | kind | priority | pinned |
+|---|---|---|---|
+| `approval_decision` | `decision` | 90 | ไม่ |
+| `approval_required` ที่ยังไม่มีคำตอบ | `open_task` | 86 | ไม่ |
+
+คำขอที่ถูกตอบแล้ว**เลิก**เป็น open task — ไม่งั้น model จะถูกบอกว่าเรื่องที่จบไปแล้วยังค้างอยู่ · และทั้งสอง kind **ไม่ pin** โดยตั้งใจ retention ที่ล้มไม่ได้คือ retention ที่วัดไม่ได้ ซึ่งคือบทเรียนของ P-7 ทั้งดุ้น
+
+mutation: ลบสอง case ออกได้ `decisions = 0, want 1` · ลบการข้าม `decided[approvalID]` ได้ `open tasks = 2, want 1`
+
+**ยังเหลือ `acceptance_criteria`** — ตัวนี้ไม่มีแหล่งที่ deterministic และมีอันตรายเฉพาะตัว: `sliceFor` ส่งมันเข้า slice `pinned` ซึ่ง**ทิ้งไม่ได้และ fail-closed** ถ้าเกิน `PinnedBudget` (2,048 บน compact-32k) `Compile` คืน `ErrPinnedOverflow` แล้ว **ทั้ง turn ล้ม** ไม่ใช่แค่ตัดของทิ้ง ผู้ผลิตอะไรก็ตามที่ต่อเข้ากับ kind นี้ต้องมีเพดานของตัวเอง เป็นเรื่องที่ต้องตัดสินใจ ไม่ใช่เลือกเอง
 
 #### P8-A ปิดแล้ว — gate ของ semantic reviewer ผ่าน
 
