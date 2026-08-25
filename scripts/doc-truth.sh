@@ -117,6 +117,7 @@ approvals-become-decisions|Kind: ctxcompiler.KindDecision|internal/agent/service
 open-approvals-are-open-tasks|Kind: ctxcompiler.KindOpenTask|internal/agent/service.go
 decided-approvals-close|it stopped being open|internal/agent/service.go
 derived-not-user-speech|func isTranscriptKind|internal/agent/service.go
+corpus-carries-real-shapes|func approvalCase|internal/fidelity/service.go
 CLAIMS
 )
 

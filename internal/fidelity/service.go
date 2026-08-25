@@ -93,6 +93,7 @@ func (s *Service) EnsureDefaultCorpus(ctx context.Context) error {
 			}, Expectations: Expectations{EssentialIDs: []string{"en-goal"}, CausalPairIDs: []string{"pair-1"},
 				TaskAssertions: []string{"never fabricate tool success", "hash changed"}, MaxTaskDelta: 0.05}},
 		pressureCase(),
+		approvalCase(),
 	}
 	for _, item := range defaults {
 		var exists int
@@ -475,6 +476,51 @@ func pressureCase() CaseInput {
 		Expectations: Expectations{EssentialIDs: []string{"pressure-goal"},
 			DecisionIDs: []string{"pressure-decision"}, CausalPairIDs: []string{"pressure-pair"},
 			TaskAssertions: []string{"candidate", "hash changed"}, MaxTaskDelta: 0.05}}
+}
+
+// approvalCase mirrors what the system now actually emits.
+//
+// Until O-40 the corpus was the only place in Hermetrix where a decision or an
+// open task existed: the compiler consumed both kinds, the compactor reserved
+// them a larger extract, and no producer outside these fixtures ever made one.
+// A census of 772 compiled snapshots found decision, open_task and
+// acceptance_criteria at max=0.
+//
+// Approvals closed two thirds of that. This case carries their real shape --
+// a human decision that must outlive the tool output it authorised, and a
+// request still waiting on a human -- under enough pressure that neither is
+// retained by having had room for everything.
+func approvalCase() CaseInput {
+	fragments := []ctxcompiler.Fragment{
+		{ID: "approval-goal", Kind: ctxcompiler.KindUserGoal, Scope: "session", Provenance: "fixture",
+			Trust: "user", Version: "v1", Priority: 100, Pinned: true,
+			Content: "แก้ order_total ให้คงเป็นจำนวนเต็มสตางค์"},
+		{ID: "approval-decision", Kind: ctxcompiler.KindDecision, Scope: "session", Provenance: "approval",
+			Trust: "user", Version: "v1", Priority: 90,
+			Content: "rodmay approved workspace.write_file (stated reason: corpus drive)"},
+		{ID: "approval-open", Kind: ctxcompiler.KindOpenTask, Scope: "session", Provenance: "approval",
+			Trust: "system", Version: "v1", Priority: 86,
+			Content: "waiting on a human decision: workspace.delete_file (delete) -- remove app/legacy.py"},
+		{ID: "approval-call", Kind: ctxcompiler.KindToolCall, PairID: "approval-pair", Scope: "session",
+			Provenance: "fixture", Trust: "tool", Version: "v1", Priority: 82,
+			Content: "workspace.write_file app/orders.py"},
+		{ID: "approval-result", Kind: ctxcompiler.KindToolResult, PairID: "approval-pair", Scope: "session",
+			Provenance: "fixture", Trust: "tool", Version: "v1", Priority: 82,
+			Content: "wrote app/orders.py (467 bytes)"},
+	}
+	for index := 0; index < pressureFillerFragments; index++ {
+		fragments = append(fragments, ctxcompiler.Fragment{
+			ID: fmt.Sprintf("approval-filler-%02d", index), Kind: ctxcompiler.KindConversation,
+			Scope: "session", Provenance: "fixture", Trust: "assistant", Version: "v1", Priority: 30,
+			Content: fmt.Sprintf("ลำดับ %d ", index) +
+				strings.Repeat("บันทึกการสนทนาที่ยาวพอจะกินงบ active slice ทั้งหมด ", pressureFillerRepeats)})
+	}
+	return CaseInput{Name: "approval-retention", Language: "th", BenchmarkClass: "instruction-retention",
+		Fragments: fragments,
+		Expectations: Expectations{EssentialIDs: []string{"approval-goal"},
+			DecisionIDs: []string{"approval-decision"}, OpenTaskIDs: []string{"approval-open"},
+			CausalPairIDs:  []string{"approval-pair"},
+			TaskAssertions: []string{"rodmay approved", "waiting on a human decision"}, MaxTaskDelta: 0.05}}
 }
 
 const (

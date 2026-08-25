@@ -42,7 +42,7 @@ func TestBilingualCorpusPersistsAndRunsWithExactIntegrityMetrics(t *testing.T) {
 	for _, item := range cases {
 		byName[item.Name] = item
 	}
-	for _, want := range []string{"thai-skill-lifecycle", "english-tool-causality", "context-pressure"} {
+	for _, want := range []string{"thai-skill-lifecycle", "english-tool-causality", "context-pressure", "approval-retention"} {
 		if _, ok := byName[want]; !ok {
 			t.Fatalf("default corpus is missing %q; it has %v", want, byName)
 		}
@@ -266,4 +266,30 @@ func TestPinnedEssentialsAreRetainedExactlyOrTheCompileFails(t *testing.T) {
 	if _, err := service.Run(ctx, item.ID, "compact-32k"); !errors.Is(err, ctxcompiler.ErrPinnedOverflow) {
 		t.Fatalf("oversized pinned slice should refuse to compile, got %v", err)
 	}
+}
+
+// The approval case has to be under real pressure, or it repeats the mistake
+// pressureCase was written to correct: a corpus that asks whether compaction
+// preserves what matters while never causing compaction.
+func TestApprovalCaseIsActuallyUnderPressure(t *testing.T) {
+	service := testFidelityService(t)
+	ctx := context.Background()
+	item, err := service.SaveCase(ctx, approvalCase())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.Run(ctx, item.ID, "compact-32k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Metrics.CompressionRatio >= 1 || run.Metrics.TokensSaved <= 0 {
+		t.Fatalf("nothing was compacted: ratio=%.4f saved=%d",
+			run.Metrics.CompressionRatio, run.Metrics.TokensSaved)
+	}
+	if !run.Metrics.Passed {
+		t.Fatalf("run=%+v", run.Metrics)
+	}
+	t.Logf("in=%d out=%d ratio=%.4f decision=%.2f open=%.2f splits=%d",
+		run.Metrics.OriginalTokens, run.Metrics.CompiledTokens, run.Metrics.CompressionRatio,
+		run.Metrics.DecisionRecall, run.Metrics.OpenTaskRecall, run.Metrics.CausalPairSplits)
 }
