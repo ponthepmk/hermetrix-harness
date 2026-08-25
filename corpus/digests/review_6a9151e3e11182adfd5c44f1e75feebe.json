@@ -1,0 +1,34 @@
+{
+  "id": "review_6a9151e3e11182adfd5c44f1e75feebe",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_6a9151e3e11182adfd5c44f1e75feebe",
+  "digest": {
+    "goal_and_constraints": "ค้นหา rounding กับ satang ในทุกไฟล์ แล้วไล่อ่านทุกไฟล์ที่เจอทีละไฟล์ แล้วบอกว่าที่ไหนปัดเศษไม่ตรงกัน อย่าสรุปก่อนอ่านครบ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_f3d22bafa6862086001495a5321ffc50:workspace.search_files:succeeded",
+      "event:event_20d3612dee9a3c847e27fdf97db03331:workspace.search_files:succeeded",
+      "event:event_cf434f0683951b2a74a849254971c652:workspace.list_files:succeeded",
+      "event:event_4f9dc99b48fcfeb0a67ff243ae2e596e:workspace.list_files:succeeded",
+      "event:event_7e6cfc9ffc8c97649cd67910c46b561b:workspace.list_files:succeeded",
+      "event:event_4139acc0401ebf6aec4f2b1811932c69:workspace.search_files:succeeded",
+      "event:event_a984fbd450948a8b3dcd6c49ce9b8ccb:workspace.search_files:succeeded",
+      "event:event_fd787b7dec61c3c2b77e6086904c3bfd:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

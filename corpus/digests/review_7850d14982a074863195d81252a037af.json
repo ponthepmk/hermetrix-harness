@@ -1,0 +1,30 @@
+{
+  "id": "review_7850d14982a074863195d81252a037af",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_7850d14982a074863195d81252a037af",
+  "digest": {
+    "goal_and_constraints": "อ่าน app/orders.py แล้วบอกว่า order_total มีปัญหาอะไรกับการปัดเศษ ตอบสั้นๆ",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_852c88d3b051cfe3c33c8b707a28421d:skill_search:succeeded",
+      "event:event_dae3d700e044b4778c655e6d1f557921:workspace.read_file:succeeded",
+      "event:event_1e9ccd5fc24b8d7be351d5366575193e:skill_view:succeeded",
+      "event:event_69bd82506ef51cb691bb8adac561c6ee:skill_view:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

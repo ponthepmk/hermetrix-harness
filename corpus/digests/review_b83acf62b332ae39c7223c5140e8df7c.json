@@ -1,0 +1,26 @@
+{
+  "id": "review_b83acf62b332ae39c7223c5140e8df7c",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_b83acf62b332ae39c7223c5140e8df7c",
+  "digest": {
+    "goal_and_constraints": "ไม่ใช่ อย่าคืน 0 เฉยๆ โปรเจกต์นี้ต้องคืน None เมื่อไม่มีข้อมูล เพราะ 0% กับ ไม่มีข้อมูล ไม่เหมือนกันในรายงาน",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_dbb25d972e211ff186e1b1c08b595034:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_27dfbfb939e94702c1e11940068fd564"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "The user pushed back and stated the rule they wanted, and the turn acted on it. One correction is weaker evidence than two, but the convention is explicit and was applied.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

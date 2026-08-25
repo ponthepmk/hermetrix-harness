@@ -1,0 +1,40 @@
+{
+  "id": "review_d322049ff2cb327bb22223067e96cd1f",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_d322049ff2cb327bb22223067e96cd1f",
+  "digest": {
+    "goal_and_constraints": "ค้นหา rounding กับ satang ในทุกไฟล์ แล้วไล่อ่านทุกไฟล์ที่เจอทีละไฟล์ แล้วบอกว่าที่ไหนปัดเศษไม่ตรงกัน อย่าสรุปก่อนอ่านครบ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_552bbb51f759484af16671b6f6e9ed3e:workspace.search_files:succeeded",
+      "event:event_e36bf5a0b1e5e291d5db164e7af313c3:workspace.search_files:succeeded",
+      "event:event_4f6a668f214a9174d0f4ad7dc6271ca2:workspace.list_files:succeeded",
+      "event:event_ef1619173a97a3ab3dc42fde94f9a122:workspace.list_files:succeeded",
+      "event:event_756130eb827a887a021e5119157e0d06:workspace.list_files:succeeded",
+      "event:event_4996a1dffc2600f50d578603f3488c7f:workspace.search_files:succeeded",
+      "event:event_7c3cc1b82c1501e544f070beb3a196d6:workspace.search_files:succeeded",
+      "event:event_d3cdc228a5bb5044968d0767df3335c2:workspace.search_files:succeeded",
+      "event:event_24e974c44c0c2a68c6993f9fd5794004:workspace.read_file:succeeded",
+      "event:event_dc4f96bce55af21cb06e9da94c8ef770:workspace.read_file:succeeded",
+      "event:event_2b32d9d97805f3c692576920e241dacf:workspace.read_file:succeeded",
+      "event:event_eb9334af6f08df1354a4e882d3abb006:workspace.read_file:succeeded",
+      "event:event_f5de3c160ed4b07e198429578646c3d2:workspace.read_file:succeeded",
+      "event:event_ae23bf400b762df04f7505364682986a:workspace.read_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

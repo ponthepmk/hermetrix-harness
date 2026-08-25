@@ -1,0 +1,26 @@
+{
+  "id": "review_0f3ce175e72fc607c80305459ed0e4dc",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_0f3ce175e72fc607c80305459ed0e4dc",
+  "digest": {
+    "goal_and_constraints": "แก้ invoice_number ให้ปฏิเสธ seq ที่ไม่ใช่จำนวนเต็มบวก แล้วเขียนทับ app/orders.py ด้วย workspace.write_file",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [
+      "event:event_defbae739f8ab978e7b084d73d2724d9"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

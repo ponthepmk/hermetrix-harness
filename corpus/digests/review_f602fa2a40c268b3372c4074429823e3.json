@@ -1,0 +1,31 @@
+{
+  "id": "review_f602fa2a40c268b3372c4074429823e3",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_f602fa2a40c268b3372c4074429823e3",
+  "digest": {
+    "goal_and_constraints": "ค้นหา invoice ในทุกไฟล์ แล้วอ่านทีละไฟล์จนครบทุกไฟล์ที่เจอ แล้วเทียบว่าแต่ละที่สร้าง invoice number ต่างกันยังไง ห้ามข้าม",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_d27f70f4e1d648c85f7fdadd15d36e64:skill_search:succeeded",
+      "event:event_6dfb86a6c69beac18b2654abe3533127:workspace.search_files:succeeded",
+      "event:event_1a7efe5077f939dfa4970360889490a6:workspace.read_file:succeeded",
+      "event:event_3ff318b217f47a4369c701d4efb6f4ef:workspace.read_file:succeeded",
+      "event:event_37ddc60878edad017332fd745a0334ae:workspace.search_files:succeeded",
+      "event:event_bb23cc851c5b9d9cc7c7085e1d9a452b:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

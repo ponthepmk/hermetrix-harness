@@ -1,0 +1,32 @@
+{
+  "id": "review_5682545d90b4d2adfa94b7d539db001c",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_5682545d90b4d2adfa94b7d539db001c",
+  "digest": {
+    "goal_and_constraints": "ค้นหาคำว่า satang ในโปรเจกต์ แล้วเปิดอ่านทุกไฟล์ที่เจอทีละไฟล์จนครบ แล้วสรุปว่าแต่ละไฟล์ใช้ satang ต่างกันยังไง อย่าข้ามไฟล์ไหนเลย",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_6f2315d8e10bd247bab30c81d1a9f1a6:workspace.search_files:succeeded",
+      "event:event_bc1ed8ebd98ba8e3802e05a4d8460521:workspace.list_files:succeeded",
+      "event:event_9e9f1f915961e551872c6d521a2deaaa:workspace.list_files:succeeded",
+      "event:event_4ecd204792008a131698f3a3eceaeaed:workspace.list_files:succeeded",
+      "event:event_5fa27dd214c3cba5195b62ec24f423ff:workspace.search_files:succeeded",
+      "event:event_304358216ee2a189e5a2adf2da07c9b9:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "review_7b24473baf77da0898c1a125003a0471",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_7b24473baf77da0898c1a125003a0471",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า เลขที่ใบกำกับภาษีต้องเป็น INV ตามด้วยเลขห้าหลัก ถ้าเกินห้าหลักให้ error ห้ามตัดทิ้ง",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

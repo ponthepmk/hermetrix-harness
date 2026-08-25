@@ -1,0 +1,29 @@
+{
+  "id": "review_1aad39a281376232ea44a2860aa9ae9b",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_1aad39a281376232ea44a2860aa9ae9b",
+  "digest": {
+    "goal_and_constraints": "แก้ order_total ให้คงเป็นจำนวนเต็มสตางค์ตลอด ปัดครึ่งขึ้น แล้วเขียนทับ app/orders.py ด้วย workspace.write_file",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_ac3d5d70ded37db122c609406c968fd5:skill_view:succeeded",
+      "event:event_f536cce30264fc69cc1fb285d02e1dc3:skill_view:succeeded",
+      "event:event_699f4af50ecc33e9a99eb464e0d544cf:workspace.write_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb",
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "A fix was performed and written to a file, under a stated convention -- kept as integer satang, rounded half up, None rather than zero for absent data. The convention was applied rather than only described, so the steps are in the evidence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

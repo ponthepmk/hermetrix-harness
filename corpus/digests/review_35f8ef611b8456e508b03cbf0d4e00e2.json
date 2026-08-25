@@ -1,0 +1,25 @@
+{
+  "id": "review_35f8ef611b8456e508b03cbf0d4e00e2",
+  "trigger_kind": "repeated_correction",
+  "provenance": "driven",
+  "source_review_id": "review_35f8ef611b8456e508b03cbf0d4e00e2",
+  "digest": {
+    "goal_and_constraints": "ผิด ทำซ้ำ — ต้องปัดครึ่งขึ้นที่ขั้นตอนส่วนลด ไม่ใช่ตอนท้าย เขียนโค้ดที่ถูกออกมาสั้นๆ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_0470f099180dfc01828a3879c67c5002",
+      "event:event_be5c483c04fa61d047df815a26375202"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "The user corrected the same point twice in one session and stated the rule they wanted. A convention someone had to repeat is the clearest evidence that it was missing, and it is stated precisely enough to write down.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "review_ce6560bd92b81e5f6e9726b66253144a",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_ce6560bd92b81e5f6e9726b66253144a",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า ก่อนแก้ไฟล์ใน app/ ต้องอ่านไฟล์ก่อนเสมอ แล้วอ้าง sha256 เดิมตอนเขียนทับ ห้ามเขียนทับโดยไม่อ่าน",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_c72edb1dd07413a39ecca18a82324f74:workspace.list_files:succeeded"
+    ],
+    "skill_activations": [],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

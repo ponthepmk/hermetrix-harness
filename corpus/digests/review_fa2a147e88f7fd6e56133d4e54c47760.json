@@ -1,0 +1,24 @@
+{
+  "id": "review_fa2a147e88f7fd6e56133d4e54c47760",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_fa2a147e88f7fd6e56133d4e54c47760",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า รายงานที่ไม่มีข้อมูลต้องคืน None ไม่ใช่ 0 เพราะผู้อ่านรายงานต้องแยกสองกรณีนี้ออกจากกัน",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_6c3f6841400ebc0a4ce7b4b710bc7462"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

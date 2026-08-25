@@ -1,0 +1,30 @@
+{
+  "id": "review_de035cadc2b8fedfde264f89d7e4718e",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_de035cadc2b8fedfde264f89d7e4718e",
+  "digest": {
+    "goal_and_constraints": "อ่าน app/orders.py แล้วเสนอวิธีแก้การปัดเศษส่วนลดใน order_total ตอบสั้นๆ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_6aa97fd6487a2fb9b96dd3b66f681d80:skill_search:succeeded",
+      "event:event_80afb4a441a664c330dbfc0cf6f7351e:workspace.read_file:succeeded",
+      "event:event_67bcdd3c88c2e7873ec70292a4cc8a22:skill_view:succeeded",
+      "event:event_5c7c8d1665d79268099e4378290cf583:skill_view:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

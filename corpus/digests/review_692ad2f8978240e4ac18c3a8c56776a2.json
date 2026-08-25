@@ -1,0 +1,45 @@
+{
+  "id": "review_692ad2f8978240e4ac18c3a8c56776a2",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_692ad2f8978240e4ac18c3a8c56776a2",
+  "digest": {
+    "goal_and_constraints": "ค้นหา invoice ในทุกไฟล์ แล้วอ่านทีละไฟล์จนครบทุกไฟล์ที่เจอ แล้วเทียบว่าแต่ละที่สร้าง invoice number ต่างกันยังไง ห้ามข้าม",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_a317142aa1b5808038e53fd02b357a28:workspace.search_files:succeeded",
+      "event:event_1ba069c9875549e5f2836e4bd52fcc81:workspace.list_files:succeeded",
+      "event:event_7940784d1f49f70f447742d399e5ad20:workspace.search_files:succeeded",
+      "event:event_772e99025482f0759a97caa43442b157:workspace.list_files:succeeded",
+      "event:event_87807cb5ab6da13a8b43b9b91bc8b21c:workspace.list_files:succeeded",
+      "event:event_dd6eb10c6f2c8329d41a2056199adcb3:workspace.read_file:succeeded",
+      "event:event_707c5ae513d8a0a673639ca8d26d98dc:workspace.read_file:succeeded",
+      "event:event_79014d48b85d3729e0a8895c4381615e:workspace.read_file:succeeded",
+      "event:event_6174e8b0a9292895e2965496d1ae0949:workspace.read_file:succeeded",
+      "event:event_e52c880857ae75d98e917a42268fae08:workspace.read_file:succeeded",
+      "event:event_0f97b12b0894e729a5aa559da643ebc1:workspace.read_file:succeeded",
+      "event:event_de7350d8d94d01d7c105f321fb8e01b6:workspace.read_file:succeeded",
+      "event:event_725677742c4ded7921509aebac796552:workspace.read_file:succeeded",
+      "event:event_7e5612d6dfb30ab9e9aa1c542c3ad24a:workspace.read_file:succeeded",
+      "event:event_c5faff9b68f7b568e93ec1f7c20a19c2:workspace.read_file:succeeded",
+      "event:event_e45cf03a7f2e3e1e21966554c944e656:workspace.read_file:succeeded",
+      "event:event_eb321b1e335d2705d6bb8ebb170ecffd:workspace.read_file:succeeded",
+      "event:event_21294d5e40bcf810c7d553c8a87080ee:workspace.read_file:succeeded",
+      "event:event_2af9d11d2ea9f0053fe51ad7fbbdd2d9:workspace.read_file:succeeded",
+      "event:event_3a411ef265de624aa5bcce091bc989f7:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

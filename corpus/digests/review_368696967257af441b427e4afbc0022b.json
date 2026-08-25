@@ -1,0 +1,27 @@
+{
+  "id": "review_368696967257af441b427e4afbc0022b",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_368696967257af441b427e4afbc0022b",
+  "digest": {
+    "goal_and_constraints": "invoice_number ใน app/orders.py คืนค่าอะไร ตอบบรรทัดเดียว",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_b9bbad11543a0ccf9073844151d3e4f1:workspace.search_files:succeeded",
+      "event:event_36e3b69921643ae13a6c1e5f746563dd:workspace.read_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

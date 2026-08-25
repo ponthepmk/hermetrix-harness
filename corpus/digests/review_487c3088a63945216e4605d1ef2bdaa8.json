@@ -1,0 +1,25 @@
+{
+  "id": "review_487c3088a63945216e4605d1ef2bdaa8",
+  "trigger_kind": "repeated_correction",
+  "provenance": "driven",
+  "source_review_id": "review_487c3088a63945216e4605d1ef2bdaa8",
+  "digest": {
+    "goal_and_constraints": "ผิดอีกแล้ว ทำซ้ำ — ถ้า seq เกินห้าหลักต้อง error ไม่ใช่ตัดทิ้ง เขียนโค้ดที่ถูกออกมาสั้นๆ",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_34aaadef996a2d1d28502d52a64655a3",
+      "event:event_81c3f9fde8e2e72637745f0fe99336e5"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "The user corrected the same point twice in one session and stated the rule they wanted. A convention someone had to repeat is the clearest evidence that it was missing, and it is stated precisely enough to write down.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

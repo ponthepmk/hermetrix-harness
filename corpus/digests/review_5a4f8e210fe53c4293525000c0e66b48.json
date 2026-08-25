@@ -1,0 +1,39 @@
+{
+  "id": "review_5a4f8e210fe53c4293525000c0e66b48",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_5a4f8e210fe53c4293525000c0e66b48",
+  "digest": {
+    "goal_and_constraints": "ค้นหา rounding กับ satang ในทุกไฟล์ แล้วไล่อ่านทุกไฟล์ที่เจอทีละไฟล์ แล้วบอกว่าที่ไหนปัดเศษไม่ตรงกัน อย่าสรุปก่อนอ่านครบ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_047a39da0039549d85ab40ce5e263358:workspace.search_files:succeeded",
+      "event:event_5462552642601ab3d38baeec44198eff:workspace.search_files:succeeded",
+      "event:event_8ff12ec156237d0c830daf9eb0c7bbd3:workspace.list_files:succeeded",
+      "event:event_c5d911e38f6d8668e01c994c665b44c9:workspace.list_files:succeeded",
+      "event:event_05fcdd91793ec8968de3dbe9150dc3e2:workspace.list_files:succeeded",
+      "event:event_1fb531c99c140e16a76f63906d824a3d:workspace.read_file:succeeded",
+      "event:event_78f98b402f6db34d06bc7d55303d6076:workspace.read_file:succeeded",
+      "event:event_5741b33829ebd78f1398a6205e2084a5:workspace.read_file:succeeded",
+      "event:event_0bdf4b5b456c66047d52ba3f6dab042e:workspace.read_file:succeeded",
+      "event:event_4a3e507cba582a70d489df20c321e7a9:workspace.read_file:succeeded",
+      "event:event_86ad34fa2d16b4626fa13e5bfe07cdb5:workspace.search_files:succeeded",
+      "event:event_5a65e772b81feb15c60762f8f3643d0e:workspace.search_files:failed",
+      "event:event_34e2a648b5bc21b2c77f86b403e4d1f4:workspace.search_files:failed"
+    ],
+    "skill_activations": [
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb",
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

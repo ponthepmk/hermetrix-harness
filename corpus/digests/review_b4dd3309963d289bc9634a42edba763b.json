@@ -1,0 +1,25 @@
+{
+  "id": "review_b4dd3309963d289bc9634a42edba763b",
+  "trigger_kind": "repeated_correction",
+  "provenance": "driven",
+  "source_review_id": "review_b4dd3309963d289bc9634a42edba763b",
+  "digest": {
+    "goal_and_constraints": "ผิดอีกแล้ว ทำซ้ำ — ต้องคืน None และต้องไม่เปลี่ยน count กับ late เขียนโค้ดที่ถูกออกมาสั้นๆ",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_60908d13a4583c2ece13a2b55d174e57",
+      "event:event_b76d8d4c966b7dcfee725cb2b8cf45c1"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "The user corrected the same point twice in one session and stated the rule they wanted. A convention someone had to repeat is the clearest evidence that it was missing, and it is stated precisely enough to write down.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

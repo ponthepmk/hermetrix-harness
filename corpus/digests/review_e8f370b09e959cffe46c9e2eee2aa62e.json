@@ -1,0 +1,30 @@
+{
+  "id": "review_e8f370b09e959cffe46c9e2eee2aa62e",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_e8f370b09e959cffe46c9e2eee2aa62e",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า เวลาคำนวณเงินในโปรเจกต์นี้ ให้เก็บเป็นจำนวนเต็มสตางค์เสมอ ปัดครึ่งขึ้นเฉพาะตอนแสดงผล และกระทบยอดรวมกับผลบวกรายบรรทัดทุกครั้ง",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_61a6ad187d9e86e3b090eaad971242c7:skill_search:succeeded",
+      "event:event_b5d89e2559143317093eb91ba6b7f404:skill_search:succeeded",
+      "event:event_b6e03e702fd2dd42712961c6b0cfc7d7:skill_view:succeeded",
+      "event:event_08d2c3ee4060eb3796f420751ac6f7a1:skill_view:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

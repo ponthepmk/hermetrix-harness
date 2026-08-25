@@ -1,0 +1,29 @@
+{
+  "id": "review_a9b4008c8e0e29ec36363bdd038e1e47",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_a9b4008c8e0e29ec36363bdd038e1e47",
+  "digest": {
+    "goal_and_constraints": "ค้นหา invoice ในทุกไฟล์ แล้วอ่านทีละไฟล์จนครบทุกไฟล์ที่เจอ แล้วเทียบว่าแต่ละที่สร้าง invoice number ต่างกันยังไง ห้ามข้าม",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_5fa6f21af9482c5eff3b3bce03ffc0f8:workspace.list_files:succeeded",
+      "event:event_b5791125a07f70bf68505b52d919dce6:workspace.search_files:succeeded",
+      "event:event_f429b2b37bafbe78b300530de57e796b:workspace.read_file:succeeded",
+      "event:event_2f18e2be00c6c8d7f1301becb12a214e:workspace.read_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "review_2e11c9e0296fd3d6cc1c67e764e48f12",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_2e11c9e0296fd3d6cc1c67e764e48f12",
+  "digest": {
+    "goal_and_constraints": "อ่าน app/orders.py แล้วเสนอวิธีแก้การปัดเศษส่วนลดใน order_total ตอบสั้นๆ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_9819daaac534963e6fb019eeadb7cb52:workspace.read_file:succeeded",
+      "event:event_6ce71b7af3a1aa94a36f46e25bc691e3:skill_search:succeeded",
+      "event:event_4d74ad1077a48a78722d3c03a73507e9:skill_view:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

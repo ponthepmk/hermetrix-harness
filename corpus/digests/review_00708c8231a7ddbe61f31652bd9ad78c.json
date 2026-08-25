@@ -1,0 +1,43 @@
+{
+  "id": "review_00708c8231a7ddbe61f31652bd9ad78c",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_00708c8231a7ddbe61f31652bd9ad78c",
+  "digest": {
+    "goal_and_constraints": "ค้นหา rounding กับ satang ในทุกไฟล์ แล้วไล่อ่านทุกไฟล์ที่เจอทีละไฟล์ แล้วบอกว่าที่ไหนปัดเศษไม่ตรงกัน อย่าสรุปก่อนอ่านครบ",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_0364631d0d9e3853137d95e317133990:workspace.search_files:succeeded",
+      "event:event_7c50daba0a87af75eb846bf430e49fb4:workspace.search_files:succeeded",
+      "event:event_d7f095fe5a77b1aca1577e32389930c2:workspace.list_files:succeeded",
+      "event:event_524f3a4679bfce0fb3b58f0b0c4b3b8b:workspace.list_files:succeeded",
+      "event:event_82d95c83502285b4859ca8815932b30e:workspace.list_files:succeeded",
+      "event:event_13b3a1c2f1c3a443d5da790ab4417b57:workspace.search_files:succeeded",
+      "event:event_7a16f89c43024e6f71aa6dfb940bb3ab:workspace.search_files:succeeded",
+      "event:event_5d94925c8ba0ab31935292ceba6c27ee:workspace.search_files:succeeded",
+      "event:event_fc18dbf579c83ffb3536995276b88ab4:workspace.read_file:succeeded",
+      "event:event_6655a75e33b233e5eb0ea62f31112f79:workspace.read_file:succeeded",
+      "event:event_37b5742fca3ec4e7082fef42fe5e1740:workspace.read_file:succeeded",
+      "event:event_049177c2e8cca6544d789c5e5eab3da1:workspace.read_file:succeeded",
+      "event:event_6299701b1b5e76d34196ca05b66d14b6:workspace.read_file:succeeded",
+      "event:event_c912bb16cd02fdce8e03601a24a09d2f:workspace.read_file:succeeded",
+      "event:event_23d289c6f222c545e5da2e8c88aaf051:workspace.read_file:succeeded",
+      "event:event_7c3bf31e01d8a0421290e4298f71f37f:workspace.read_file:succeeded",
+      "event:event_2c695b62f00805a95cbbbf58514d6e21:workspace.read_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

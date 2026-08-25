@@ -1,0 +1,37 @@
+{
+  "id": "review_f74bbc528839041c6c2645334a1cb6e3",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_f74bbc528839041c6c2645334a1cb6e3",
+  "digest": {
+    "goal_and_constraints": "ค้นหาคำว่า satang ในโปรเจกต์ แล้วเปิดอ่านทุกไฟล์ที่เจอทีละไฟล์จนครบ แล้วสรุปว่าแต่ละไฟล์ใช้ satang ต่างกันยังไง อย่าข้ามไฟล์ไหนเลย",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_448c72e22561e44cbc88b91170f1f554:workspace.search_files:succeeded",
+      "event:event_89583b56525c9d84f04b3c2ed154729a:workspace.list_files:succeeded",
+      "event:event_58c3e2d247244d2175bd3226fe2df139:workspace.list_files:succeeded",
+      "event:event_01c4394033a2fa370a3d2ce33e2d5569:workspace.list_files:succeeded",
+      "event:event_8575d4fb2b39cc4b801fb39b8212aa54:workspace.search_files:succeeded",
+      "event:event_328b577da0687e867999a2d4c8e27f12:workspace.search_files:succeeded",
+      "event:event_47af3b31322ba58c0b4016d060993e07:workspace.search_files:succeeded",
+      "event:event_fca68f54009a757edf31d6f690fd6a02:workspace.search_files:succeeded",
+      "event:event_224d2db35267c78828bad12c3bf14209:workspace.search_files:succeeded",
+      "event:event_251dd5a7e56fe7fcd6ed75617d2a0016:workspace.search_files:succeeded",
+      "event:event_f3276ffeb9f8aac10e375c8701a57f3f:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb",
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

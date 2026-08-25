@@ -1,0 +1,24 @@
+{
+  "id": "review_845ccd40dbe66b81fbe4b39bb625179e",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_845ccd40dbe66b81fbe4b39bb625179e",
+  "digest": {
+    "goal_and_constraints": "แก้ order_total ให้คงเป็นจำนวนเต็มสตางค์ตลอด ใช้ปัดครึ่งขึ้น แล้วเขียนทับ app/orders.py ด้วย workspace.write_file",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_28334178aee363ad28d1c148832d7e68:workspace.write_file:succeeded"
+    ],
+    "skill_activations": [],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "A fix was performed and written to a file, under a stated convention -- kept as integer satang, rounded half up, None rather than zero for absent data. The convention was applied rather than only described, so the steps are in the evidence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

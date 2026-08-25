@@ -1,0 +1,35 @@
+{
+  "id": "review_034a42fdcdca2d2ec610b4ef95330e47",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_034a42fdcdca2d2ec610b4ef95330e47",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า รายงานที่ไม่มีข้อมูลต้องคืน None ไม่ใช่ 0 เพราะผู้อ่านรายงานต้องแยกสองกรณีนี้ออกจากกัน",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_b4d11c1a1acf7c2c977c3fbf3b211609:tool_search:succeeded",
+      "event:event_6c5036376bac092bc96ebaeda2876e89:tool_search:succeeded",
+      "event:event_93deb5745cfa803ef226de4a27d1cc92:workspace.list_files:succeeded",
+      "event:event_a62d97879d098cda3122d4a341ee4e1c:workspace.list_files:succeeded",
+      "event:event_cd75e4abd0ee2e8d4db513e805ae3f2d:workspace.list_files:succeeded",
+      "event:event_9a0f2aca5e8b2d6414a771d878b8621b:workspace.read_file:succeeded",
+      "event:event_200d571259304c499b4cb1523f4f83c3:workspace.read_file:succeeded",
+      "event:event_e0d599a08b8eb792de7982769c410112:workspace.read_file:succeeded",
+      "event:event_63a551f90124532689aba2e1380d5628:workspace.read_file:succeeded",
+      "event:event_1e2551a59c4406d99c01636bb873de11:workspace.write_file:succeeded"
+    ],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_7e79976a944f3db79f718eb2b1a6730a"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

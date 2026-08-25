@@ -1,0 +1,39 @@
+{
+  "id": "review_a30ac33282480cc5579d253b0854a4cb",
+  "trigger_kind": "skill_failure",
+  "provenance": "driven",
+  "source_review_id": "review_a30ac33282480cc5579d253b0854a4cb",
+  "digest": {
+    "goal_and_constraints": "ค้นหาคำว่า satang ในโปรเจกต์ แล้วเปิดอ่านทุกไฟล์ที่เจอทีละไฟล์จนครบ แล้วสรุปว่าแต่ละไฟล์ใช้ satang ต่างกันยังไง อย่าข้ามไฟล์ไหนเลย",
+    "outcome": "failure",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_f04850e59c370654076e9ebb10c69d33:workspace.search_files:succeeded",
+      "event:event_bea7fcb19794c8a900d2e42f8461df52:workspace.list_files:succeeded",
+      "event:event_6852288108a0d92ac0a868e4106d8a2b:workspace.list_files:succeeded",
+      "event:event_0d082b550ce4063a512723503c22b96b:workspace.list_files:succeeded",
+      "event:event_c0f6248a3950c96e79e36daa2595edab:workspace.search_files:succeeded",
+      "event:event_252c69340d59973ba7739780f30c4346:workspace.search_files:succeeded",
+      "event:event_4b3230fc0ea3a2e2ec219a4df1b4f974:workspace.search_files:succeeded",
+      "event:event_16b671a0ed3eacfde2361451af48c8cc:workspace.search_files:succeeded",
+      "event:event_5b3bf35035a00fc3c909bb40494b08e5:workspace.search_files:succeeded",
+      "event:event_7f4a8867c0bf7be346e9bf0fee9772d6:workspace.search_files:succeeded",
+      "event:event_0e1b2044284fc494407500cb371c40d7:workspace.search_files:succeeded",
+      "event:event_d4ac7276a9826ed5c95f601629e247e9:workspace.read_file:succeeded",
+      "event:event_a90ea58c94111c1392944fb3cda7dba5:workspace.read_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

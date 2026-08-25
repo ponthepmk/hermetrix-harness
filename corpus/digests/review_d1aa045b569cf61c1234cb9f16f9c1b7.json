@@ -1,0 +1,39 @@
+{
+  "id": "review_d1aa045b569cf61c1234cb9f16f9c1b7",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_d1aa045b569cf61c1234cb9f16f9c1b7",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า เวลาคำนวณเงินในโปรเจกต์นี้ ให้เก็บเป็นจำนวนเต็มสตางค์เสมอ ปัดครึ่งขึ้นเฉพาะตอนแสดงผล และกระทบยอดรวมกับผลบวกรายบรรทัดทุกครั้ง",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_e7a381529ab4ed30606d42b5976096bc:skill_search:succeeded",
+      "event:event_5ef347f45f46fe2d8caf79b0deffa4ae:skill_search:succeeded",
+      "event:event_12666bd4eba15f47ad53fe133d6f0640:skill_view:succeeded",
+      "event:event_fd30dde7dc1d060fd1adf2ec8f0135d7:skill_view:succeeded",
+      "event:event_8483a1677d3b275cfe0b1e97fa3899b8:workspace.list_files:succeeded",
+      "event:event_baffd597c8c7a0d93e6cdfc8c1be73eb:workspace.read_file:succeeded",
+      "event:event_3cbabe5295173dbe44f2d8d479f999bf:workspace.list_files:succeeded",
+      "event:event_18353c813f73456e8382895ebc6b21f3:workspace.list_files:succeeded",
+      "event:event_b0e32f1380ee41769b6bda384d7e8026:workspace.read_file:succeeded",
+      "event:event_0f6435649f89f4d9ae61c40eadbfdcc2:workspace.read_file:succeeded",
+      "event:event_0af2a5a5d79314a123dba63d5d809bdd:workspace.read_file:succeeded",
+      "event:event_a352dd206616faf84ac465141999ac20:workspace.read_file:succeeded",
+      "event:event_fe2901ff3da00050d714674dd10d0aab:workspace.write_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

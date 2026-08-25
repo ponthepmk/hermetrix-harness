@@ -1,0 +1,28 @@
+{
+  "id": "review_cdf6f492f6d3cb2631cc9a384d141650",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_cdf6f492f6d3cb2631cc9a384d141650",
+  "digest": {
+    "goal_and_constraints": "อ่าน app/orders.py แล้วบอกว่า order_total มีปัญหาอะไรกับการปัดเศษ ตอบสั้นๆ",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_212c0dee688e860d03ea6ce46c9d4daa:skill_search:succeeded",
+      "event:event_0cb0baad4a33095b54c462c464c9b4c7:workspace.read_file:succeeded",
+      "event:event_7c9b77968bbeec45c67295680686dafb:skill_view:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

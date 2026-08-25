@@ -1,0 +1,33 @@
+{
+  "id": "review_6e410d53e05a85c81e8f9b28d53b18b0",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_6e410d53e05a85c81e8f9b28d53b18b0",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า เวลาคำนวณเงินในโปรเจกต์นี้ ให้เก็บเป็นจำนวนเต็มสตางค์เสมอ ปัดครึ่งขึ้นเฉพาะตอนแสดงผล และกระทบยอดรวมกับผลบวกรายบรรทัดทุกครั้ง",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_925e0e1aa0208b330714b57c77a19a67:skill_search:succeeded",
+      "event:event_54768b6e486126e2e7f8ecc42bbf69f5:workspace.list_files:succeeded",
+      "event:event_93b38dbf81a1550a8b1daf0fe55ca2d8:skill_view:succeeded",
+      "event:event_11c39e879a2e6b9077f516fbad109740:skill_view:succeeded",
+      "event:event_49ca3279ca010495e846fcb711d8b9ca:workspace.read_file:succeeded",
+      "event:event_a3184452b7714fc3e3673753c27de5fb:workspace.list_files:succeeded",
+      "event:event_b049ebac7232bc1156139957f075be13:workspace.list_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_9e1c016f3c6fb7601708fdd3a11ccd05@ver_52b05ac2ff661d0dbbc27d36d8970cb6",
+      "skill:skill_a954b336363b435f262afddc5bd22c3d@ver_414c3251870c1156fee2cfad8a7e97bb"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

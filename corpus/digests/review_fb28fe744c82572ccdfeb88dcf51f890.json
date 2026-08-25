@@ -1,0 +1,38 @@
+{
+  "id": "review_fb28fe744c82572ccdfeb88dcf51f890",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_fb28fe744c82572ccdfeb88dcf51f890",
+  "digest": {
+    "goal_and_constraints": "ค้นหา invoice ในทุกไฟล์ แล้วอ่านทีละไฟล์จนครบทุกไฟล์ที่เจอ แล้วเทียบว่าแต่ละที่สร้าง invoice number ต่างกันยังไง ห้ามข้าม",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_da1fe421d9a55f45d6966973100482eb:workspace.list_files:succeeded",
+      "event:event_e3006c59dcc91d248a1ae3892f8c2d51:workspace.search_files:succeeded",
+      "event:event_1c89520512254c139a4026123fb71ead:workspace.read_file:succeeded",
+      "event:event_75c6aa919f85360353f0e2671b3d1e8f:workspace.read_file:succeeded",
+      "event:event_b15f1a2de9d59b3d4e713a3546b9ab48:workspace.list_files:succeeded",
+      "event:event_36a2ded6c3c68fe2fbc530aec5dce26d:workspace.list_files:succeeded",
+      "event:event_f6bd59521bac8b5c66957596c285be53:workspace.search_files:succeeded",
+      "event:event_987ef87d2aebe0126c12943beac081d7:workspace.search_files:succeeded",
+      "event:event_1539eccd016b0e4313d807b914944d5f:workspace.search_files:succeeded",
+      "event:event_e95a80100f21917162fd7ef41fe0026c:workspace.read_file:succeeded",
+      "event:event_bcbe5f98ecf63614bcc22fa6173345bc:workspace.read_file:succeeded",
+      "event:event_c410cbc3c446026d69b5c9faf1c66d27:workspace.read_file:succeeded",
+      "event:event_c548f8918ecfd871b41146abe7c9decc:workspace.search_files:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": false,
+    "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

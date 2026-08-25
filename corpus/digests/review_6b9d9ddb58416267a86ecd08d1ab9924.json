@@ -1,0 +1,28 @@
+{
+  "id": "review_6b9d9ddb58416267a86ecd08d1ab9924",
+  "trigger_kind": "successful_milestone",
+  "provenance": "driven",
+  "source_review_id": "review_6b9d9ddb58416267a86ecd08d1ab9924",
+  "digest": {
+    "goal_and_constraints": "แก้ invoice_number ให้ปฏิเสธ seq ที่ไม่ใช่จำนวนเต็มบวก แล้วเขียนทับ app/orders.py ด้วย workspace.write_file",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_138fd9de946ac9ea6147ce478d27274d:workspace.write_file:succeeded"
+    ],
+    "skill_activations": [
+      "skill:skill_532bafa8a72bbb57c0a8cdac37fb8ce2@ver_d4504ce3f078601fcf53663ea46cf9c0"
+    ],
+    "user_corrections": [
+      "event:event_b3e95873f6024082cce97465f5ed0264"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "A fix was performed and written to a file, under a stated convention -- kept as integer satang, rounded half up, None rather than zero for absent data. The convention was applied rather than only described, so the steps are in the evidence.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}

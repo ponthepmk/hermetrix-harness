@@ -1,0 +1,30 @@
+{
+  "id": "review_825e1841ddb20ac9d0015bc8fa646d05",
+  "trigger_kind": "explicit_learn",
+  "provenance": "driven",
+  "source_review_id": "review_825e1841ddb20ac9d0015bc8fa646d05",
+  "digest": {
+    "goal_and_constraints": "จำไว้ว่า รายงานที่ไม่มีข้อมูลต้องคืน None ไม่ใช่ 0 เพราะผู้อ่านรายงานต้องแยกสองกรณีนี้ออกจากกัน",
+    "outcome": "success",
+    "decisions": [],
+    "tool_receipts": [
+      "event:event_4fd9796250e26db60c9f827fa1219130:tool_search:succeeded",
+      "event:event_c3ecffd30aa1795bd31daee3a2e9aa87:workspace.list_files:succeeded",
+      "event:event_1ff3eeba236e559c121366a3c570adf5:workspace.read_file:succeeded",
+      "event:event_2fc071dd5c0e000b5338181f37bb3e27:workspace.list_files:succeeded",
+      "event:event_14f6a8fc5a86aa56f2cb3500f6670292:workspace.list_files:succeeded"
+    ],
+    "skill_activations": [],
+    "user_corrections": [
+      "event:event_ba0cbdda896287f1687f0bb454e20072"
+    ],
+    "artifacts": [],
+    "redactions": []
+  },
+  "label": {
+    "should_propose": true,
+    "rationale": "ASSUMPTION:constraint-counts — the user asked in so many words to keep a project convention. It is a rule rather than a sequence of steps, and the reviewer's instruction favours steps; counted as a procedure here because explicit_learn exists for exactly this request, and a family that declines half of what it was built to catch should be removed rather than kept.",
+    "labeled_by": "claude",
+    "labeled_at": "2026-08-24"
+  }
+}
