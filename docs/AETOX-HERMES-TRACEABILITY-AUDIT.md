@@ -195,6 +195,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **V-7** | `open_task` ไม่มีผู้ผลิตที่**เรียกถึงได้** — approval ที่ค้างบล็อก session ไม่มี compile เกิดขึ้นระหว่างนั้น | high | **วัดแล้ว ไม่ปิดบัง** — ถอด producer ที่ยิงไม่ออกทิ้ง |
 | **O-41** | qualification โหมด `qualified` เรียกไม่ถึงสำหรับ provider ระยะไกล — ผ่านทุก check เกรด A แต่ `eligible=false` | high | **บันทึกแล้ว รอตัดสินใจ** |
 | **O-42** | 6 ตารางมีแต่ schema ไม่มีคนอ่านคนเขียน แต่อยู่ในรายการ backup | medium | **ตรวจจับอัตโนมัติแล้ว** ใน `doc-truth.sh` |
+| **V-8** | MCP: เทสต์ทุกตัวตั้ง `TrustAnnotations: true` — สาขา default ที่ป้องกัน operator ไม่เคยรัน | high | **ปิดแล้ว** hostile fixture + mutation |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 

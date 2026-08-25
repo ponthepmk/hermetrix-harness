@@ -149,6 +149,8 @@ retrieval-blindness-counted|TurnsGoalScriptUnmatched|internal/agent/models.go
 qualified-mode-unreachable-remotely|func TestRemoteProviderCannotReachQualifiedMode|internal/qualification/service_test.go
 local-probe-refuses-remote|remote model endpoints are disabled in the local probe|internal/localmodel/probe.go
 stored-content-cannot-execute|func TestStoredArtifactContentCannotRunAsAPage|internal/web/server_test.go
+untrusted-annotations-cannot-waive|func TestUntrustedServerAnnotationsCannotWaiveApproval|internal/mcp/service_test.go
+catalogue-is-never-a-primitive|func TestCatalogueMetadataNeverBecomesAProviderFunction|internal/tools/registry_test.go
 CLAIMS
 )
 
