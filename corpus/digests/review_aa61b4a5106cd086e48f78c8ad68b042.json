@@ -34,6 +34,8 @@
     "should_propose": false,
     "rationale": "The turn did not finish. The digest carries the goal, the tools that ran and an outcome of failure -- it does not carry a way of doing the task that worked. A Skill written from this would be invented rather than observed, which the reviewer is instructed not to do. That a lesson exists in the failure is not the same as the evidence containing one.",
     "labeled_by": "claude",
-    "labeled_at": "2026-08-24"
+    "labeled_at": "2026-08-24",
+    "audited_by": "rodmay",
+    "audit_agreed": true
   }
 }

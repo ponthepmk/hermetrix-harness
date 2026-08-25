@@ -19,6 +19,8 @@
     "should_propose": true,
     "rationale": "A fix was performed and written to a file, under a stated convention -- kept as integer satang, rounded half up, None rather than zero for absent data. The convention was applied rather than only described, so the steps are in the evidence.",
     "labeled_by": "claude",
-    "labeled_at": "2026-08-24"
+    "labeled_at": "2026-08-24",
+    "audited_by": "rodmay",
+    "audit_agreed": true
   }
 }

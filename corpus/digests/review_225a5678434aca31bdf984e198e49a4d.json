@@ -20,6 +20,8 @@
     "should_propose": true,
     "rationale": "The user corrected the same point twice in one session and stated the rule they wanted. A convention someone had to repeat is the clearest evidence that it was missing, and it is stated precisely enough to write down.",
     "labeled_by": "claude",
-    "labeled_at": "2026-08-24"
+    "labeled_at": "2026-08-24",
+    "audited_by": "rodmay",
+    "audit_agreed": true
   }
 }

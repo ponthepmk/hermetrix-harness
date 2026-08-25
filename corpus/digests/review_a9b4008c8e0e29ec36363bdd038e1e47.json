@@ -24,6 +24,8 @@
     "should_propose": false,
     "rationale": "Nothing was performed. The user asked a question about the code or the domain and received an answer; the tools that ran only observed. There is no sequence that would be the same next time because there was no sequence.",
     "labeled_by": "claude",
-    "labeled_at": "2026-08-24"
+    "labeled_at": "2026-08-24",
+    "audited_by": "rodmay",
+    "audit_agreed": true
   }
 }

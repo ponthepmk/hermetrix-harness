@@ -50,6 +50,19 @@ and a single grep flips them.
 
 Labelled 55 positive, 45 negative.
 
+## Audit
+
+Twenty cases, drawn evenly across the four families, were read back by the
+project owner. Agreement was twenty of twenty. The threshold agreed in advance
+was that disagreement above twenty percent would stop the labelling and reopen
+the standard; it did not.
+
+The sample included cases resting on `ASSUMPTION:constraint-counts`, so agreeing
+to it settles that question: a rule the user asked to keep is a Skill even
+when no steps were performed. The reviewer's instruction currently disagrees,
+and that disagreement is now a defect in the instruction rather than an open
+question.
+
 ## Reading it
 
     hermetrix corpus score --data DIR --dir corpus/digests --repeats 3

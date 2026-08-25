@@ -21,6 +21,8 @@
     "should_propose": true,
     "rationale": "The user pushed back and stated the rule they wanted, and the turn acted on it. One correction is weaker evidence than two, but the convention is explicit and was applied.",
     "labeled_by": "claude",
-    "labeled_at": "2026-08-24"
+    "labeled_at": "2026-08-24",
+    "audited_by": "rodmay",
+    "audit_agreed": true
   }
 }
