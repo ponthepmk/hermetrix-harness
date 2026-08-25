@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"hermetrix-harness/internal/blob"
 	ctxcompiler "hermetrix-harness/internal/context"
@@ -299,5 +300,72 @@ func TestAFullContextThatDoesNotFitStopsTheRun(t *testing.T) {
 	runner.FullContextCeiling = 96000 - 4096
 	if _, _, _, err := runner.Prepare(context.Background(), fitting[0]); err != nil {
 		t.Fatalf("the default corpus does not fit a 96k provider: %v", err)
+	}
+}
+
+// flakyAnswerer fails a fixed number of times before succeeding, the way a
+// rate-limited gateway does.
+type flakyAnswerer struct {
+	mutex    sync.Mutex
+	failures int
+	inner    Answerer
+}
+
+func (a *flakyAnswerer) Answer(ctx context.Context, messages []providers.Message) (providers.Completion, error) {
+	a.mutex.Lock()
+	if a.failures > 0 {
+		a.failures--
+		a.mutex.Unlock()
+		return providers.Completion{}, fmt.Errorf("provider returned HTTP 429: rate limit exceeded")
+	}
+	a.mutex.Unlock()
+	return a.inner.Answer(ctx, messages)
+}
+
+// A rate limit says something about the caller's pace, not about whether the
+// model can do the work. Scoring one as a failed task would make the gate's
+// answer depend on how busy the endpoint happened to be -- a six-request smoke
+// run against the real gateway came back with four HTTP 429s.
+func TestARateLimitIsNotAFailedTask(t *testing.T) {
+	original := answerRetryDelay
+	answerRetryDelay = time.Millisecond
+	t.Cleanup(func() { answerRetryDelay = original })
+
+	reader := &needleReader{needle: "ตกลงกันที่ 4096", answer: "4096"}
+	runner := testRunner(t, &flakyAnswerer{failures: 3, inner: reader})
+	runner.Concurrency = 1
+	task := buriedTask("t1", ClassResearch, "head", "ตกลงกันที่ 4096 ตามที่คุยไว้", "4096")
+
+	report, err := runner.Run(context.Background(), []Task{task})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range report.Outcomes {
+		if outcome.Error != "" {
+			t.Fatalf("a transient fault was recorded as a task error: %s", outcome.Error)
+		}
+	}
+	if report.Classes[0].Errors != 0 {
+		t.Fatalf("errors = %d, want 0", report.Classes[0].Errors)
+	}
+}
+
+// A fault that never clears has to stop being retried and be reported.
+func TestAPersistentFaultIsStillAnError(t *testing.T) {
+	original := answerRetryDelay
+	answerRetryDelay = time.Millisecond
+	t.Cleanup(func() { answerRetryDelay = original })
+
+	runner := testRunner(t, &flakyAnswerer{failures: 1000,
+		inner: &needleReader{needle: "x", answer: "x"}})
+	runner.Concurrency = 1
+	task := buriedTask("t1", ClassResearch, "head", "ตกลงกันที่ 4096 ตามที่คุยไว้", "4096")
+
+	report, err := runner.Run(context.Background(), []Task{task})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Classes[0].Errors == 0 {
+		t.Fatal("a fault that never cleared was not reported")
 	}
 }

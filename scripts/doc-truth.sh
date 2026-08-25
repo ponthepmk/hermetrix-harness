@@ -158,6 +158,7 @@ taskeval-sample-floor|MinimumTasksPerClass|internal/taskeval/models.go
 taskeval-placement-is-measured|MiddlePlacementRate = 0.345|internal/taskeval/generate.go
 taskeval-full-must-be-sendable|ErrFullContextTooLarge|internal/taskeval/runner.go
 taskeval-corpus-is-generated|/corpus/tasks/\*.json|.gitignore
+taskeval-retries-transient|func answerWithRetry|internal/taskeval/runner.go
 CLAIMS
 )
 

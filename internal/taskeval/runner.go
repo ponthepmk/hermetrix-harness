@@ -49,6 +49,47 @@ var ErrFullContextTooLarge = errors.New("full context exceeds the provider windo
 // latency dominated by queueing.
 const DefaultConcurrency = 4
 
+// answerRetries and answerRetryDelay bound how long a transient provider fault
+// can be tolerated before a task is recorded as an error.
+//
+// The gateway rate-limits: a smoke run of six requests came back with four
+// HTTP 429s, which would have been scored as four failed tasks. A rate limit
+// is a statement about the caller's pace, not about whether the model can do
+// the work, and scoring it as a failure would make the gate's answer depend on
+// how busy the endpoint happened to be. Retries back off linearly.
+//
+// answerRetryDelay is a variable so tests can shrink it; sleeping for real in
+// a unit test buys nothing.
+const answerRetries = 4
+
+var answerRetryDelay = 6 * time.Second
+
+// answerWithRetry asks once and retries transient faults. Every provider error
+// is treated as transient: the alternative is a taxonomy of gateway error
+// strings that goes stale silently, and a request that is genuinely
+// unanswerable fails all five attempts anyway.
+func answerWithRetry(ctx context.Context, answerer Answerer, messages []providers.Message) (providers.Completion, error) {
+	var err error
+	for attempt := 0; attempt <= answerRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return providers.Completion{}, ctx.Err()
+			case <-time.After(answerRetryDelay * time.Duration(attempt)):
+			}
+		}
+		var completion providers.Completion
+		completion, err = answerer.Answer(ctx, messages)
+		if err == nil {
+			return completion, nil
+		}
+		if ctx.Err() != nil {
+			return providers.Completion{}, ctx.Err()
+		}
+	}
+	return providers.Completion{}, fmt.Errorf("after %d attempts: %w", answerRetries+1, err)
+}
+
 // LoadCorpus reads every .json task in dir.
 func LoadCorpus(dir string) ([]Task, error) {
 	entries, err := os.ReadDir(dir)
@@ -236,7 +277,7 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 func (r *Runner) score(ctx context.Context, item job) Outcome {
 	outcome := Outcome{TaskID: item.task.ID, Class: item.task.Class, Condition: item.condition,
 		NeedleRetained: item.retained}
-	completion, err := r.answerer.Answer(ctx, item.messages)
+	completion, err := answerWithRetry(ctx, r.answerer, item.messages)
 	if err != nil {
 		outcome.Error = err.Error()
 		return outcome
