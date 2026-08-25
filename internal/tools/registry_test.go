@@ -476,3 +476,74 @@ func TestCatalogueMetadataNeverBecomesAProviderFunction(t *testing.T) {
 		t.Fatalf("hostile catalogue text reached the request's tool definitions: %s", serialized)
 	}
 }
+
+// TestReconcileWriteReadsTheFileRatherThanGuessing covers the check that turns
+// an interrupted write from "uncertain, go and look" into an answer.
+//
+// The call carries the hash the file had before and the exact bytes it meant to
+// write, so the file itself says whether the effect landed. Nothing here is
+// inferred: each verdict is a hash comparison.
+func TestReconcileWriteReadsTheFileRatherThanGuessing(t *testing.T) {
+	root := t.TempDir()
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const before, after = "old contents\n", "new contents\n"
+	beforeSum := sha256.Sum256([]byte(before))
+	beforeHash := hex.EncodeToString(beforeSum[:])
+	arguments := func(expected string) string {
+		encoded, _ := json.Marshal(map[string]string{"path": "notes.txt", "content": after,
+			"expected_sha256": expected})
+		return string(encoded)
+	}
+
+	t.Run("the write landed", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte(after), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		state, err := registry.ReconcileWrite("workspace.write_file", arguments(beforeHash))
+		if err != nil || state != WriteApplied {
+			t.Fatalf("state = %q err = %v", state, err)
+		}
+	})
+
+	t.Run("the write did not land", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte(before), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		state, err := registry.ReconcileWrite("workspace.write_file", arguments(beforeHash))
+		if err != nil || state != WriteNotApplied {
+			t.Fatalf("state = %q err = %v", state, err)
+		}
+	})
+
+	t.Run("something else changed the file", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("a third thing\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		state, err := registry.ReconcileWrite("workspace.write_file", arguments(beforeHash))
+		if err != nil || state != WriteIndeterminate {
+			t.Fatalf("state = %q err = %v", state, err)
+		}
+	})
+
+	t.Run("a create that never happened", func(t *testing.T) {
+		encoded, _ := json.Marshal(map[string]string{"path": "fresh.txt", "content": after,
+			"expected_sha256": "absent"})
+		state, err := registry.ReconcileWrite("workspace.write_file", string(encoded))
+		if err != nil || state != WriteNotApplied {
+			t.Fatalf("state = %q err = %v", state, err)
+		}
+	})
+
+	// An effect with nothing to re-read stays indeterminate. Inferring a
+	// verdict for a message that may already have been sent would be a guess
+	// wearing a receipt's clothes.
+	t.Run("an effect outside the workspace", func(t *testing.T) {
+		state, err := registry.ReconcileWrite("tool_call", `{"capability_id":"mcp:pay:charge"}`)
+		if err != nil || state != WriteIndeterminate {
+			t.Fatalf("state = %q err = %v", state, err)
+		}
+	})
+}

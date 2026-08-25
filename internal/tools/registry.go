@@ -871,3 +871,62 @@ func searchFiles(path, root, pattern string, ignoreCase bool, maxMatches int) (s
 		"path": filepath.ToSlash(rel), "pattern": pattern, "matches": len(matches),
 		"files_scanned": filesScanned, "files_skipped": filesSkipped, "truncated": truncated}, nil
 }
+
+// WriteState is what a re-read of the target says about an interrupted write.
+type WriteState string
+
+const (
+	// WriteApplied means the file already holds exactly what the call intended
+	// to put there. The effect happened; repeating it would be a second write.
+	WriteApplied WriteState = "applied"
+	// WriteNotApplied means the file is still exactly as the call expected to
+	// find it. Nothing happened, so the call is the same call it always was.
+	WriteNotApplied WriteState = "not_applied"
+	// WriteIndeterminate means neither: the file is missing when it should
+	// exist, holds something nobody in this exchange wrote, or the call is not
+	// one whose effect can be read back.
+	WriteIndeterminate WriteState = "indeterminate"
+)
+
+// ReconcileWrite reads the target of an interrupted workspace write and reports
+// whether the effect landed.
+//
+// Interrupted side effects used to be marked uncertain and left there: correct,
+// but it stops the work to ask a human to go and look. For a workspace write
+// there is nothing to guess about. The call carries the hash the file had
+// before and the exact bytes it meant to write, so the file itself answers --
+// this is the one effect in the system that is content-addressed at both ends.
+//
+// What it deliberately does not do is generalise. An MCP tool that charged a
+// card or sent a message leaves nothing to re-read, and a verdict inferred from
+// something adjacent would be a guess wearing a receipt's clothes. Those stay
+// indeterminate.
+func (r *Registry) ReconcileWrite(name, arguments string) (WriteState, error) {
+	if name != "workspace.write_file" {
+		return WriteIndeterminate, nil
+	}
+	args, err := decodeWriteArguments(arguments)
+	if err != nil {
+		return WriteIndeterminate, err
+	}
+	_, exists, currentHash, err := r.resolveWriteTarget(args.Path)
+	if err != nil {
+		return WriteIndeterminate, err
+	}
+	intended := sha256.Sum256([]byte(args.Content))
+	intendedHash := hex.EncodeToString(intended[:])
+	creating := strings.EqualFold(strings.TrimSpace(args.ExpectedSHA256), "absent")
+	switch {
+	case exists && currentHash == intendedHash:
+		return WriteApplied, nil
+	case !exists && creating:
+		return WriteNotApplied, nil
+	case exists && !creating && currentHash == args.ExpectedSHA256:
+		return WriteNotApplied, nil
+	default:
+		// The file exists when it should not, is gone when it should not be, or
+		// holds bytes that are neither the before nor the after. Something
+		// outside this exchange touched it.
+		return WriteIndeterminate, nil
+	}
+}

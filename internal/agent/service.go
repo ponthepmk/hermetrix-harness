@@ -1128,18 +1128,18 @@ func (s *Service) loadTurnUsage(ctx context.Context, turnID string) (providers.U
 
 func (s *Service) RecoverInterruptedApprovals(ctx context.Context) (int, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,session_id,turn_id,step_binding_id,tool_call_id,tool_name,
-    tool_revision,effect FROM tool_approvals WHERE state='executing' ORDER BY requested_at`)
+    tool_revision,effect,arguments_json FROM tool_approvals WHERE state='executing' ORDER BY requested_at`)
 	if err != nil {
 		return 0, err
 	}
 	type interrupted struct {
-		id, sessionID, turnID, bindingID, callID, name, revision, effect string
+		id, sessionID, turnID, bindingID, callID, name, revision, effect, arguments string
 	}
 	var items []interrupted
 	for rows.Next() {
 		var item interrupted
 		if err := rows.Scan(&item.id, &item.sessionID, &item.turnID, &item.bindingID, &item.callID,
-			&item.name, &item.revision, &item.effect); err != nil {
+			&item.name, &item.revision, &item.effect, &item.arguments); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -1158,11 +1158,45 @@ func (s *Service) RecoverInterruptedApprovals(ctx context.Context) (int, error) 
 	defer tx.Rollback()
 	now := time.Now().UTC()
 	for _, item := range items {
+		// Before declaring the outcome unknown, look. A workspace write carries
+		// the hash the file had before and the exact bytes it meant to write, so
+		// the file itself says whether the effect landed -- the one effect in
+		// this system that is content-addressed at both ends. Reporting
+		// "uncertain, go and inspect" when the answer is one hash comparison
+		// away stops the work for nothing.
+		//
+		// Anything else stays uncertain. A message that may already have been
+		// sent leaves nothing to re-read, and a verdict inferred from something
+		// adjacent would be a guess wearing a receipt's clothes.
+		state := toolruntime.WriteIndeterminate
+		if s.tools != nil {
+			if resolved, resolveErr := s.tools.ReconcileWrite(item.name, item.arguments); resolveErr == nil {
+				state = resolved
+			}
+		}
 		receipt := toolruntime.Receipt{ToolCallID: item.callID, Name: item.name, Revision: item.revision,
 			Effect: item.effect, Status: "uncertain", Error: "Hermetrix restarted while the effect lock was held; inspect the affected system before proposing another call"}
+		approvalState := "uncertain"
+		switch state {
+		case toolruntime.WriteApplied:
+			// The bytes are already there. Repeating the call would write them
+			// twice; recording it as executed is what actually happened.
+			receipt.Status, receipt.Error = "succeeded", ""
+			approvalState = "executed"
+		case toolruntime.WriteNotApplied:
+			// The file is untouched, so the call is still exactly the call the
+			// human approved. It goes back to pending rather than being
+			// replayed here: the approval was for one attempt, and re-running
+			// an effect without a live decision is the behaviour this system
+			// refuses everywhere else.
+			receipt.Status = "failed"
+			receipt.Error = "Hermetrix restarted before this write reached the file; the file is unchanged, so the same call can be approved again"
+			approvalState = "pending"
+		}
 		encoded, _ := json.Marshal(receipt)
 		metadata, _ := json.Marshal(map[string]any{"approval_id": item.id, "tool_call_id": item.callID,
-			"tool_name": item.name, "tool_status": "uncertain", "step_binding_id": item.bindingID, "tool_step": item.bindingID})
+			"tool_name": item.name, "tool_status": receipt.Status, "step_binding_id": item.bindingID,
+			"tool_step": item.bindingID, "reconciled": string(state)})
 		eventID := identity.New("event")
 		sequence, err := nextSequence(ctx, tx, item.sessionID)
 		if err != nil {
@@ -1173,8 +1207,8 @@ func (s *Service) RecoverInterruptedApprovals(ctx context.Context) (int, error) 
 			"tool_result", "tool", string(encoded), string(metadata), formatTime(now)); err != nil {
 			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE tool_approvals SET state='uncertain',receipt_event_id=?
-      WHERE id=? AND state='executing'`, eventID, item.id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE tool_approvals SET state=?,receipt_event_id=?
+      WHERE id=? AND state='executing'`, approvalState, eventID, item.id); err != nil {
 			return 0, err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_sessions SET state='active',active_turn_id='',lease_acquired_at=NULL,updated_at=? WHERE id=?`,

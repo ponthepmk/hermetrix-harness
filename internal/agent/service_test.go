@@ -487,6 +487,37 @@ func TestWriteToolPausesForPersistedApprovalThenResumes(t *testing.T) {
 	}
 }
 
+// interruptedWriteFixture drives a turn to the point where a write is approved
+// and executing, then hands back the pieces so a test can decide what the file
+// looks like when Hermetrix restarts.
+func interruptedWriteFixture(t *testing.T) (*Service, string, Session, TurnResult) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-interrupted\",\"type\":\"function\",\"function\":{\"name\":\"workspace.write_file\",\"arguments\":\"{\\\"path\\\":\\\"uncertain.txt\\\",\\\"content\\\":\\\"maybe written\\\",\\\"expected_sha256\\\":\\\"absent\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(server.Close)
+	workspace := t.TempDir()
+	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
+	t.Cleanup(cleanup)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := service.RunTurn(context.Background(), session.ID,
+		TurnInput{Content: "write uncertain.txt"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service, workspace, session, paused
+}
+
+// TestInterruptedWriteEffectRecoversAsUncertainWithoutRetry used to assert that
+// an interrupted effect is always uncertain. It is now narrower and truer: for
+// a workspace write the file answers the question, so recovery reads it. What
+// has not changed, and is the point of the test, is that recovery never runs
+// the effect itself.
 func TestInterruptedWriteEffectRecoversAsUncertainWithoutRetry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -515,15 +546,84 @@ func TestInterruptedWriteEffectRecoversAsUncertainWithoutRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Session.State != "active" || len(detail.Approvals) != 1 || detail.Approvals[0].State != "uncertain" {
-		t.Fatalf("interrupted approval not marked uncertain: %+v", detail)
+	// The file was never created, and the call carries expected_sha256=absent,
+	// so the effect provably did not land. Recovery says so instead of
+	// reporting an outcome nobody can act on.
+	if detail.Session.State != "active" || len(detail.Approvals) != 1 ||
+		detail.Approvals[0].State != "pending" {
+		t.Fatalf("a write that provably did not happen was not returned for decision: %+v",
+			detail.Approvals)
 	}
 	last := detail.Events[len(detail.Events)-1]
-	if last.EventKind != "tool_result" || !strings.Contains(last.Content, `"status":"uncertain"`) {
-		t.Fatalf("uncertain receipt missing: %+v", last)
+	if last.EventKind != "tool_result" || !strings.Contains(last.Content, "the file is unchanged") {
+		t.Fatalf("recovery receipt does not say what it found: %+v", last)
 	}
+	// The invariant that has not changed and must not: recovery never runs the
+	// effect. Returning the approval to pending puts the decision back in front
+	// of a human; it does not make it for them.
 	if _, err := os.Stat(filepath.Join(workspace, "uncertain.txt")); !os.IsNotExist(err) {
-		t.Fatalf("recovery retried an unknown side effect: %v", err)
+		t.Fatalf("recovery executed the side effect itself: %v", err)
+	}
+}
+
+// TestRecoveryReportsAWriteThatDidLandAsExecuted is the other half.
+//
+// The bytes are already on disk and their hash matches exactly what the call
+// meant to write, so the effect happened. Reporting it as uncertain would send
+// an operator to inspect a file that is already correct, and returning it for
+// decision would invite writing it a second time.
+func TestRecoveryReportsAWriteThatDidLandAsExecuted(t *testing.T) {
+	service, workspace, session, paused := interruptedWriteFixture(t)
+	if err := os.WriteFile(filepath.Join(workspace, "uncertain.txt"),
+		[]byte("maybe written"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB.Exec(`UPDATE tool_approvals SET state='executing' WHERE id=?`,
+		paused.Approval.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecoverInterruptedApprovals(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.GetSessionDetail(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Approvals[0].State != "executed" {
+		t.Fatalf("a write whose bytes are already on disk was not recorded as executed: %+v",
+			detail.Approvals[0])
+	}
+	last := detail.Events[len(detail.Events)-1]
+	if !strings.Contains(last.Content, `"status":"succeeded"`) {
+		t.Fatalf("receipt does not report the effect as done: %+v", last)
+	}
+}
+
+// An effect nobody can re-read stays uncertain. This is the case the original
+// behaviour was written for, and it has not changed: a message that may already
+// have been sent leaves nothing to check, and a verdict inferred from something
+// adjacent would be a guess wearing a receipt's clothes.
+func TestAnEffectThatCannotBeReReadStaysUncertain(t *testing.T) {
+	service, workspace, session, paused := interruptedWriteFixture(t)
+	// Something outside this exchange changed the file, so neither the before
+	// nor the after hash matches.
+	if err := os.WriteFile(filepath.Join(workspace, "uncertain.txt"),
+		[]byte("a third thing entirely"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB.Exec(`UPDATE tool_approvals SET state='executing' WHERE id=?`,
+		paused.Approval.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecoverInterruptedApprovals(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.GetSessionDetail(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Approvals[0].State != "uncertain" {
+		t.Fatalf("an unreadable outcome was given a verdict: %+v", detail.Approvals[0])
 	}
 }
 

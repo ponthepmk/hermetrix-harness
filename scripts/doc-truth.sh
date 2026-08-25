@@ -172,6 +172,9 @@ checkpoint-exemption-is-narrow|func isCheckpointPreamble|internal/context/compac
 compaction-ranks-by-relevance|func relevanceOf|internal/context/compactor.go
 compaction-keeps-the-focused-span|func focusedExcerpt|internal/context/compactor.go
 compactor-receives-the-goal|Focus: focusOf\(request.Fragments\)|internal/context/compiler.go
+interrupted-write-is-reconciled|func \(r \*Registry\) ReconcileWrite|internal/tools/registry.go
+unreadable-effect-stays-uncertain|func TestAnEffectThatCannotBeReReadStaysUncertain|internal/agent/service_test.go
+recovery-never-runs-the-effect|recovery executed the side effect itself|internal/agent/service_test.go
 CLAIMS
 )
 
