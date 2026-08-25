@@ -183,6 +183,12 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-30** | chat template ที่ห่อทุก message ถูกเรียกเก็บเงินและไม่เคยถูกนับ | medium | **แก้แล้ว** |
 | **O-31** | metric ตัดสินจากประวัติทั้งชีวิต รวมช่วงก่อน calibrate | high | **แก้แล้ว** |
 | **O-32** | compiler จองงบให้ tool arguments ที่ transport ส่งไม่ได้ | high | **แก้แล้ว** |
+| **O-33** | `no_change` รวม "ปฏิเสธ" กับ "ตอบไม่ได้" เป็นอย่างเดียวกัน | high | **แก้แล้ว** |
+| **O-34** | `.gitignore` กลืนไดเรกทอรี `cmd/hermetrix/` — **repo ไม่มีตัวโปรแกรม** | **critical** | **แก้แล้ว** |
+| **O-35** | reviewer ไม่ deterministic — gate ที่อ่านครั้งเดียวตัดสินเส้น 0.60 ไม่ได้ | high | **แก้แล้ว (worst of N)** |
+| **O-36** | corpus scoring รีวิวซ้ำต่อ split — หลักฐานเดียวกันได้คำตอบต่างกันในรายงานฉบับเดียว | high | **แก้แล้ว** |
+| **O-37** | citation ท้ายประโยคถูกตราว่าประดิษฐ์ | medium | **แก้แล้ว** |
+| **O-38** | 502 ครั้งเดียวทิ้งงาน scoring หนึ่งชั่วโมง | medium | **แก้แล้ว** |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -423,6 +429,45 @@ verdict         within_band
 3. ลืม tool schema ในโมเดล → offset คงที่ 1,200 token อ่านเป็น error 135% ที่ context เล็ก ลดเหลือ 2% ที่ context ใหญ่
 
 ทุกรูปร่างดูเหมือน finding และทุกอันคือ**รูปร่างของตัวแปรที่ผมไม่ได้ใส่** — สัญญาณที่เรียบเกินไปคือสัญญาณของพจน์ที่หายไป ไม่ใช่ของกฎที่ค้นพบ
+
+#### O-34 — repo ไม่มีตัวโปรแกรม *(critical, แก้แล้ว)*
+
+`.gitignore` มีบรรทัด `hermetrix` ตั้งใจให้ ignore ไฟล์ binary — pattern ที่ไม่มี slash แมตช์ **ทุก path component ที่ชื่อนั้น** รวมถึงไดเรกทอรี `cmd/hermetrix/` **main package ทั้งแพ็กเกจไม่เคยถูก commit**
+
+clone ใหม่:
+
+```
+$ ls cmd                  → No such file or directory
+$ go build ./...          → ผ่าน (ไม่มีอะไรให้ build)
+$ go vet ./...            → เงียบ (ด้วยเหตุผลเดียวกัน)
+$ go test ./internal/...  → ผ่าน (internal ครบ)
+```
+
+**CI เขียวมาตลอดบน repo ที่ไม่ผลิต binary** `go build ./...` จับ main package ที่หายไปไม่ได้ แก้: anchor เป็น `/hermetrix` + CI build ตามชื่อแล้วสั่งให้โปรแกรมพิมพ์ usage ของตัวเอง
+
+#### O-35 — reviewer ไม่ deterministic *(แก้แล้ว)*
+
+`temperature = 0` อยู่แล้ว จึงเป็นความไม่นิ่งของ model เอง วัดตรงๆ 5 รอบบน 12 เคส:
+
+```
+review_05dc9fe...  explicit_learn        no no no no yes   ← พลิก
+review_01e9b09...  repeated_correction   no yes yes yes yes ← พลิก
+review_24cfddf...  repeated_correction   no no no yes yes   ← พลิก
+negatives ทั้งหมด                         no no no no no
+stable 9/12 · flipped 3/12
+```
+
+**ลังเลเฉพาะฝั่งบวก ฝั่งลบนิ่งสนิท** สามรอบบน 100 เคสเดียวกันได้ 31 · 34 · 30 = recall 0.55–0.62 **คร่อมเส้น 0.60**
+
+gate ตัดสินที่ **worst of N** (`--repeats`) ผ่าน = ผ่านทุกรอบ ไม่ใช่ผ่านรอบที่โชคดี และรายงานช่วง + จำนวนเคสที่ตอบไม่เหมือนเดิม เพราะ *สัดส่วนไหนคือวิจารณญาณ สัดส่วนไหนคือ variance* เป็นข้อมูลในตัวมันเอง
+
+#### O-36 ถึง O-38 — เจอจากการเขียนเทสต์และจากการรันจริง
+
+**O-36** scoring รีวิวเคสละครั้งต่อ split — `driven` กับ `all` เป็นชุดเดียวกันแต่ได้ 31 กับ 34 **หลักฐานเดียวกัน คำตอบต่างกัน ในรายงานฉบับเดียว** แก้แล้วรันเร็วขึ้น 33 → 13 นาที
+
+**O-37** identifier มีจุดและ colon อยู่จริง (`skill:<id>@<ver>`, `event:<id>:<tool>:<status>`) pattern จึงกลืน full stop ท้ายประโยค `event:event_real.` จะถูกกล่าวหาว่าแต่งขึ้นทั้งที่มีในหลักฐาน — **เป็นข้อกล่าวหาที่ gate ให้ tolerance = 0 จึงต้องแม่น**
+
+**O-38** run 200 รีวิว 55 นาที ถูกทิ้งด้วย 502 ครั้งเดียว ตอนนี้ retry แบบมีขอบเขต — ต่างจาก tool call ที่ harness ตั้งใจไม่ retry (`automatic_retry:false`) เพราะ review อ่านอย่างเดียว ไม่เปลี่ยนอะไร ถามซ้ำคือคำถามเดิม
 
 #### ยังไม่ wired: memory ไม่เคยเข้า context
 

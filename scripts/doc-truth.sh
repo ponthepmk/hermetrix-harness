@@ -100,6 +100,13 @@ corpus-label-required|case is unlabelled|internal/learning/corpus.go
 corpus-invented-evidence|func inventedEvidence|internal/learning/corpus.go
 corpus-splits-provenance|driven", "synthetic", "all|internal/learning/corpus.go
 reviewer-error-not-judgement|Unusable bool|internal/learning/models.go
+corpus-worst-of-n|func worstOf|internal/learning/corpus.go
+corpus-reports-instability|UnstableCases|internal/learning/corpus.go
+corpus-retries-transient-faults|func reviewWithRetry|internal/learning/corpus.go
+corpus-citation-punctuation|trailingPunctuation|internal/learning/corpus.go
+corpus-shape-sampling|func digestShape|cmd/hermetrix/corpus.go
+program-is-versioned|/hermetrix|.gitignore
+ci-builds-the-program|the program exists and runs|.github/workflows/ci.yml
 CLAIMS
 )
 
