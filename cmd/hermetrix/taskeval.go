@@ -153,10 +153,10 @@ func taskEvalScore(args []string) error {
 	fmt.Println()
 	for _, class := range report.Classes {
 		fmt.Printf("%-14s tasks %3d  full %.2f  compiled %.2f  delta %+.3f (max %.2f)  "+
-			"false success %d->%d  needles kept %d  -> %s\n",
+			"false success %d->%d  facts reachable %d  -> %s\n",
 			class.Class, class.Tasks, class.SuccessFull, class.SuccessCompiled, class.SuccessDelta,
 			class.Tolerance, class.FalseSuccessFull, class.FalseSuccessCompiled,
-			class.NeedlesRetained, class.Verdict)
+			class.FactsReachable, class.Verdict)
 		if class.Note != "" {
 			fmt.Printf("%-14s   %s\n", "", class.Note)
 		}

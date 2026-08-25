@@ -95,10 +95,18 @@ type Outcome struct {
 	Passed           bool     `json:"passed"`
 	FailedAssertions []string `json:"failed_assertions,omitempty"`
 	FalseSuccess     bool     `json:"false_success"`
-	NeedleRetained   bool     `json:"needle_retained"`
-	PromptTokens     int      `json:"prompt_tokens"`
-	Answer           string   `json:"answer,omitempty"`
-	Error            string   `json:"error,omitempty"`
+	// FactReachable reports whether the value the assertions ask for was still
+	// present anywhere in the context the model received. It separates
+	// "compaction dropped the fact" from "the model had it and still answered
+	// wrong", which are different failures with different fixes.
+	//
+	// It replaced a check on whether the carrier fragment survived verbatim.
+	// That check read false on every compiled run in the first real scoring --
+	// compaction never keeps a fragment verbatim -- so it distinguished nothing.
+	FactReachable bool   `json:"fact_reachable"`
+	PromptTokens  int    `json:"prompt_tokens"`
+	Answer        string `json:"answer,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 // ClassResult is the gate's unit of judgement.
@@ -112,13 +120,14 @@ type ClassResult struct {
 	FalseSuccessFull     int     `json:"false_success_full"`
 	FalseSuccessCompiled int     `json:"false_success_compiled"`
 	FalseSuccessDelta    int     `json:"false_success_delta"`
-	// NeedlesRetained counts compiled runs where the fragment the assertions
-	// depend on survived. A class where every needle survives is not evidence
-	// that compaction is safe -- it is evidence the tasks were too easy.
-	NeedlesRetained int    `json:"needles_retained"`
-	Errors          int    `json:"errors"`
-	Verdict         string `json:"verdict"`
-	Note            string `json:"note,omitempty"`
+	// FactsReachable counts compiled runs where the value the assertions ask
+	// for was still somewhere in the context. A class where every fact stays
+	// reachable is not evidence that compaction is safe -- it is evidence the
+	// tasks were too easy.
+	FactsReachable int    `json:"facts_reachable"`
+	Errors         int    `json:"errors"`
+	Verdict        string `json:"verdict"`
+	Note           string `json:"note,omitempty"`
 }
 
 // Report is one whole run.

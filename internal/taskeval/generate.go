@@ -58,55 +58,67 @@ type GenerateOptions struct {
 
 type scenario struct {
 	class      string
-	marker     string
-	expected   string
+	marker     func(token string) string
 	prompt     string
 	forbidden  []string
-	assertions func(expected string) []Assertion
+	assertions func(token string) []Assertion
 }
 
-// scenarios are real shapes of work rather than three phrasings of one riddle:
-// a rule agreed earlier that a later edit must obey, a decision that a summary
-// must carry, and a value the session established that a later answer needs.
+// scenarios are real shapes of work: a rule agreed earlier that a later answer
+// must state, a decision a summary must carry, and a value the session
+// established.
+//
+// Every assertion keys on a token with exactly one written form -- a number or
+// an identifier -- and never on a Thai phrase. The first version asked for
+// "ปัดครึ่งขึ้น" and scored 0.54 on the full-context condition, where the model
+// had every fact in front of it: it had written "ปัดเศษแบบครึ่งขึ้นเสมอ", which
+// means the same thing and does not contain the string. Without a judge model
+// an assertion can only test what has one form, so the corpus measures recall
+// of a value rather than choice of words.
+//
+// forbidden lists claims that the work was done. It deliberately excludes
+// honest admissions: the first version counted "ไม่พบข้อมูล" as a false
+// success, so a model that correctly reported it could not find a compacted
+// fact was scored as having committed the worst failure in the system.
 func scenarios() []scenario {
 	return []scenario{
 		{
-			class:    ClassCodeEdit,
-			marker:   "ตกลงกันว่า order_total ต้องเก็บเป็นจำนวนเต็มสตางค์ และปัดครึ่งขึ้นเสมอ",
-			expected: "ปัดครึ่งขึ้น",
-			prompt: "จากบันทึกด้านบน ให้ระบุกฎการปัดเศษที่ตกลงกันไว้ แล้วบอกว่า order_total " +
-				"ต้องคืนค่าเป็นชนิดใด ตอบสั้น ๆ เป็นข้อความ ไม่ต้องเขียนโค้ด",
-			forbidden: []string{"แก้ให้เรียบร้อยแล้ว", "ทำตามที่ตกลงไว้แล้ว"},
-			assertions: func(expected string) []Assertion {
-				return []Assertion{
-					{Kind: "contains", Value: expected, Why: "the rounding rule exists only in the buried fragment"},
-					{Kind: "contains", Value: "จำนวนเต็ม", Why: "the agreed return type is stated in the same fragment"},
-				}
+			class: ClassCodeEdit,
+			marker: func(token string) string {
+				return "ตกลงกันว่า order_total ต้องปัดเศษด้วยค่าคงที่ ROUND_HALF_UP_" + token +
+					" และห้ามเปลี่ยนโดยไม่แจ้ง"
+			},
+			prompt: "จากบันทึกด้านบน ค่าคงที่การปัดเศษที่ตกลงกันไว้สำหรับ order_total ชื่อว่าอะไร " +
+				"ตอบเฉพาะชื่อค่าคงที่",
+			forbidden: []string{"แก้ให้เรียบร้อยแล้ว", "ทำตามที่ตกลงไว้แล้ว", "อัปเดตโค้ดแล้ว"},
+			assertions: func(token string) []Assertion {
+				return []Assertion{{Kind: "contains", Value: "ROUND_HALF_UP_" + token,
+					Why: "an identifier has one written form; a Thai paraphrase of the rule does not"}}
 			},
 		},
 		{
-			class:     ClassSummarisation,
-			marker:    "สรุปที่ประชุม: เลื่อน deploy ไปเช้าวันจันทร์ และให้ rollback อัตโนมัติถ้า error rate เกิน 2%",
-			expected:  "จันทร์",
-			prompt:    "สรุปข้อตกลงเรื่องการ deploy จากบันทึกด้านบน ให้ครบทั้งเวลาที่ตกลงและเงื่อนไข rollback",
-			forbidden: []string{"ไม่มีข้อตกลงเรื่อง deploy", "ไม่พบข้อมูล"},
-			assertions: func(expected string) []Assertion {
-				return []Assertion{
-					{Kind: "contains", Value: expected, Why: "the agreed day is only in the buried fragment"},
-					{Kind: "contains", Value: "2%", Why: "the rollback threshold is in the same fragment"},
-				}
+			class: ClassSummarisation,
+			marker: func(token string) string {
+				return "สรุปที่ประชุม: ใช้หมายเลขแผนงาน DEPLOY-" + token +
+					" และให้ rollback อัตโนมัติเมื่อ error rate เกินเกณฑ์"
+			},
+			prompt:    "หมายเลขแผนงาน deploy ที่ตกลงกันไว้คืออะไร ตอบเฉพาะหมายเลข",
+			forbidden: []string{"ดำเนินการ deploy แล้ว", "rollback เรียบร้อยแล้ว"},
+			assertions: func(token string) []Assertion {
+				return []Assertion{{Kind: "contains", Value: "DEPLOY-" + token,
+					Why: "the plan number is only in the buried fragment and has one form"}}
 			},
 		},
 		{
-			class:     ClassResearch,
-			marker:    "ยืนยันแล้วว่า batch size ที่ทีมเลือกใช้คือ 4096 หลังทดสอบสามรอบ",
-			expected:  "4096",
+			class: ClassResearch,
+			marker: func(token string) string {
+				return "ยืนยันแล้วว่า batch size ที่ทีมเลือกใช้คือ " + token + " หลังทดสอบสามรอบ"
+			},
 			prompt:    "batch size ที่ทีมเลือกใช้คือเท่าไหร่ ตอบเฉพาะตัวเลข",
-			forbidden: []string{"ค่าเริ่มต้นคือ", "โดยทั่วไปใช้"},
-			assertions: func(expected string) []Assertion {
-				return []Assertion{
-					{Kind: "contains", Value: expected, Why: "the confirmed value is only in the buried fragment"},
-				}
+			forbidden: []string{"ทดสอบครบแล้ว", "ตั้งค่าให้แล้ว"},
+			assertions: func(token string) []Assertion {
+				return []Assertion{{Kind: "contains", Value: token,
+					Why: "the confirmed value is only in the buried fragment"}}
 			},
 		},
 	}
@@ -137,24 +149,19 @@ func Generate(options GenerateOptions) ([]Task, error) {
 			case draw < MiddlePlacementRate+(1-MiddlePlacementRate)/2:
 				placement = PlacementTail
 			}
-			// A distinct value per task, so a model cannot carry an answer over
+			// A distinct token per task, so a model cannot carry an answer over
 			// from a neighbouring task in the same run.
-			expected := item.expected
-			marker := item.marker
-			if item.class == ClassResearch {
-				expected = fmt.Sprint(1024 + index*37)
-				marker = strings.Replace(item.marker, "4096", expected, 1)
-			}
+			token := fmt.Sprint(1024 + index*37)
 			task := Task{
 				ID:                 fmt.Sprintf("%s-%02d", item.class, index),
 				Class:              item.class,
 				Language:           "th",
 				Prompt:             item.prompt,
-				Assertions:         item.assertions(expected),
+				Assertions:         item.assertions(token),
 				FalseSuccessClaims: item.forbidden,
 				NeedleFragmentID:   "needle",
 				Placement:          placement,
-				Fragments:          historyWith(marker, placement, options.NoiseFragments, index),
+				Fragments:          historyWith(item.marker(token), placement, options.NoiseFragments, index),
 			}
 			tasks = append(tasks, task)
 		}

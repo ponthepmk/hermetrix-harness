@@ -169,7 +169,7 @@ func NewRunner(compiler *ctxcompiler.Compiler, profile ctxcompiler.Profile, answ
 // compiled one is genuinely smaller. It is exported because proving that a
 // corpus applies pressure is a separate step from scoring it, and one worth
 // doing before spending a model budget.
-func (r *Runner) Prepare(ctx context.Context, task Task) (full, compiled []providers.Message, retained bool, err error) {
+func (r *Runner) Prepare(ctx context.Context, task Task) (full, compiled []providers.Message, reachable bool, err error) {
 	result, err := r.compiler.Compile(ctx, ctxcompiler.Request{Profile: r.profile, Fragments: task.Fragments})
 	if err != nil {
 		return nil, nil, false, err
@@ -177,9 +177,16 @@ func (r *Runner) Prepare(ctx context.Context, task Task) (full, compiled []provi
 	if result.Report.CompressionRatio >= 1 {
 		return nil, nil, false, fmt.Errorf("%w: compression ratio %.4f", ErrNoPressure, result.Report.CompressionRatio)
 	}
+	// Reachability is asked of the compiled text, not of the carrier fragment:
+	// compaction never keeps a fragment verbatim, so asking whether the fragment
+	// survived answers "no" every time and distinguishes nothing.
+	compiledBody := ""
 	for _, fragment := range result.Fragments {
-		if task.NeedleFragmentID != "" && fragment.ID == task.NeedleFragmentID {
-			retained = true
+		compiledBody += "\n" + fragment.Content
+	}
+	for _, assertion := range task.Assertions {
+		if assertion.Kind == "contains" && strings.Contains(compiledBody, assertion.Value) {
+			reachable = true
 		}
 	}
 	fullMessages := messagesFor(task.Fragments, task.Prompt)
@@ -197,7 +204,7 @@ func (r *Runner) Prepare(ctx context.Context, task Task) (full, compiled []provi
 				ErrFullContextTooLarge, size, r.FullContextCeiling)
 		}
 	}
-	return fullMessages, messagesFor(result.Fragments, task.Prompt), retained, nil
+	return fullMessages, messagesFor(result.Fragments, task.Prompt), reachable, nil
 }
 
 func messagesFor(fragments []ctxcompiler.Fragment, prompt string) []providers.Message {
@@ -215,7 +222,7 @@ type job struct {
 	task      Task
 	condition string
 	messages  []providers.Message
-	retained  bool
+	reachable bool
 }
 
 // Run scores every task under both conditions and summarises per class.
@@ -223,7 +230,7 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 	report := Report{StartedAt: time.Now().UTC(), Profile: r.profile.Name}
 	var jobs []job
 	for _, task := range tasks {
-		full, compiled, retained, err := r.Prepare(ctx, task)
+		full, compiled, reachable, err := r.Prepare(ctx, task)
 		if err != nil {
 			// A task that cannot apply pressure must stop the run rather than be
 			// quietly scored: a corpus half of which is uncompacted reports a
@@ -231,8 +238,8 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 			return Report{}, fmt.Errorf("task %s: %w", task.ID, err)
 		}
 		jobs = append(jobs,
-			job{task: task, condition: ConditionFull, messages: full, retained: true},
-			job{task: task, condition: ConditionCompiled, messages: compiled, retained: retained})
+			job{task: task, condition: ConditionFull, messages: full, reachable: true},
+			job{task: task, condition: ConditionCompiled, messages: compiled, reachable: reachable})
 	}
 
 	concurrency := r.Concurrency
@@ -276,7 +283,7 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 
 func (r *Runner) score(ctx context.Context, item job) Outcome {
 	outcome := Outcome{TaskID: item.task.ID, Class: item.task.Class, Condition: item.condition,
-		NeedleRetained: item.retained}
+		FactReachable: item.reachable}
 	completion, err := answerWithRetry(ctx, r.answerer, item.messages)
 	if err != nil {
 		outcome.Error = err.Error()
@@ -310,10 +317,10 @@ func (r *Runner) score(ctx context.Context, item job) Outcome {
 
 func summarise(outcomes []Outcome) []ClassResult {
 	type counter struct {
-		tasks                        int
-		passFull, passCompiled       int
-		falseFull, falseCompiled     int
-		needles, errors, compiledRun int
+		tasks                          int
+		passFull, passCompiled         int
+		falseFull, falseCompiled       int
+		reachable, errors, compiledRun int
 	}
 	byClass := map[string]*counter{}
 	for _, outcome := range outcomes {
@@ -342,8 +349,8 @@ func summarise(outcomes []Outcome) []ClassResult {
 			if outcome.FalseSuccess {
 				item.falseCompiled++
 			}
-			if outcome.NeedleRetained {
-				item.needles++
+			if outcome.FactReachable {
+				item.reachable++
 			}
 		}
 	}
@@ -357,7 +364,7 @@ func summarise(outcomes []Outcome) []ClassResult {
 		item := byClass[class]
 		result := ClassResult{Class: class, Tasks: item.tasks, Tolerance: ClassTolerance[class],
 			FalseSuccessFull: item.falseFull, FalseSuccessCompiled: item.falseCompiled,
-			NeedlesRetained: item.needles, Errors: item.errors}
+			FactsReachable: item.reachable, Errors: item.errors}
 		result.FalseSuccessDelta = item.falseCompiled - item.falseFull
 		if item.tasks > 0 {
 			result.SuccessFull = float64(item.passFull) / float64(item.tasks)
@@ -367,8 +374,8 @@ func summarise(outcomes []Outcome) []ClassResult {
 		}
 		result.SuccessDelta = result.SuccessFull - result.SuccessCompiled
 		result.Verdict = verdictFor(result, item.tasks)
-		if item.tasks > 0 && item.needles == item.compiledRun {
-			result.Note = "every needle survived compilation; the tasks may not be putting retention under real pressure"
+		if item.tasks > 0 && item.reachable == item.compiledRun {
+			result.Note = "every fact stayed reachable after compilation; the tasks may not be putting retention under real pressure"
 		}
 		results = append(results, result)
 	}

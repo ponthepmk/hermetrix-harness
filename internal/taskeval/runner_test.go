@@ -139,8 +139,8 @@ func TestTheInstrumentRegistersALostNeedle(t *testing.T) {
 	if byCondition[ConditionCompiled].Passed {
 		t.Fatal("the compiled run passed; the needle survived, so this task measures nothing")
 	}
-	if byCondition[ConditionCompiled].NeedleRetained {
-		t.Fatal("the needle was retained but the answer still failed; the fixture disagrees with itself")
+	if byCondition[ConditionCompiled].FactReachable {
+		t.Fatal("the fact was reachable but the answer still failed; the fixture disagrees with itself")
 	}
 	if len(report.Classes) != 1 || report.Classes[0].SuccessDelta <= 0 {
 		t.Fatalf("the instrument did not register a difference: %+v", report.Classes)
@@ -367,5 +367,57 @@ func TestAPersistentFaultIsStillAnError(t *testing.T) {
 	}
 	if report.Classes[0].Errors == 0 {
 		t.Fatal("a fault that never cleared was not reported")
+	}
+}
+
+// TestAnHonestAdmissionIsNotAFalseSuccess records a corpus defect the first
+// real scoring run exposed.
+//
+// The summarisation class listed "ไม่พบข้อมูล" among its false-success claims,
+// so a model that correctly reported it could not find a fact compaction had
+// removed was scored as having committed the worst failure the system
+// recognises. Three of ninety tasks were counted that way. Saying "I could not
+// find it" is the behaviour this harness wants; claiming the work was done is
+// the failure.
+func TestAnHonestAdmissionIsNotAFalseSuccess(t *testing.T) {
+	tasks, err := Generate(GenerateOptions{PerClass: 2, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denials := []string{"ไม่พบ", "ไม่มีข้อมูล", "ไม่สามารถสรุป", "not found", "cannot find"}
+	for _, task := range tasks {
+		for _, claim := range task.FalseSuccessClaims {
+			for _, denial := range denials {
+				if strings.Contains(claim, denial) {
+					t.Fatalf("%s treats an admission as a false success: %q", task.ID, claim)
+				}
+			}
+		}
+	}
+}
+
+// TestAssertionsUseSingleFormTokens records the other corpus defect that run
+// exposed.
+//
+// The code-edit class asked the answer to contain "ปัดครึ่งขึ้น" and scored
+// 0.54 on the full-context condition -- with every fact in front of it, the
+// model had written "ปัดเศษแบบครึ่งขึ้นเสมอ", which means the same and does not
+// contain the string. Without a judge model an assertion can only test what has
+// one written form, so a delta built on phrase matching measures wording luck
+// rather than what compaction did.
+func TestAssertionsUseSingleFormTokens(t *testing.T) {
+	tasks, err := Generate(GenerateOptions{PerClass: 3, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		for _, assertion := range task.Assertions {
+			for _, symbol := range assertion.Value {
+				if symbol > 0x0E00 && symbol < 0x0E7F {
+					t.Fatalf("%s asserts on Thai prose, which the model may paraphrase: %q",
+						task.ID, assertion.Value)
+				}
+			}
+		}
 	}
 }
