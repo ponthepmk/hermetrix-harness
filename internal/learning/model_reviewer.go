@@ -45,7 +45,28 @@ func (r *ModelReviewer) Revision() string { return "model-reviewer-v1" }
 // qualification suite report a recall failure that was really a budget failure.
 const reviewerOutputBudget = 4096
 
-const reviewerInstruction = `You review one completed unit of work and decide whether it contains a procedure worth keeping.
+// reviewerInstruction was measured against the labelled P8-A corpus and changed
+// once on that evidence.
+//
+// The first version asked for a procedure and required that "the work followed
+// steps". Against a hundred cases whose labels a second reader agreed with
+// twenty out of twenty, it recalled 0.55 against a floor of 0.60 while
+// producing no false proposal in forty-five negatives and inventing no
+// evidence. It was not confused; it was applying a narrower definition of a
+// Skill than the project holds.
+//
+// Two families showed the same gap from opposite sides. A user saying in so
+// many words to remember a convention was declined as "no steps performed". A
+// fix performed and written to a file was declined as "a one-off, file-specific
+// edit". The reviewer wanted a convention and steps together, and no trigger
+// family produces both.
+//
+// This version says what a Skill is rather than what shape the evidence takes,
+// and keeps the two guards that were working: nothing invented, and a summary
+// of a run is not knowledge. Whether it helps is a measurement, not a claim --
+// and it is measured once. Tuning a prompt against the corpus until the corpus
+// passes would fit the prompt to the hundred cases rather than to the job.
+const reviewerInstruction = `You review one completed unit of work and decide whether it contains knowledge worth keeping for next time.
 
 Answer with one JSON object and nothing else:
 
@@ -55,13 +76,20 @@ or
 
 {"kind":"create","reason":"...","canonical_name":"kebab-case-name","description":"one sentence","markdown":"---\nname: kebab-case-name\ndescription: \"one sentence\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. ...\n"}
 
-Choose no_change unless ALL of these hold:
-- the work followed steps that would be the same next time, not facts about one file
-- the steps can be written without any value that was specific to this run
-- someone doing this task again would get it wrong without them
+Keep something when ANY of these holds:
+- the user asked, in so many words, to remember a rule or a convention
+- the user corrected the same point more than once
+- the work applied a stated convention rather than only satisfying one request
 
-A summary of what happened is not a procedure. A correction the user had to make usually is.
-Do not invent steps that the evidence does not show. Keep the body under 40 lines.`
+Choose no_change when the evidence is a summary of what happened, an answer to a
+question that was asked, or a fact about one value in one file and nothing more.
+
+What you write down must be usable next time by someone who was not here, with
+no value that belonged only to this run. A convention counts even when no steps
+were performed: "money is kept as integer satang and rounded half up only at
+display" is knowledge, and a turn that only stated it still carries it.
+
+Do not invent steps the evidence does not show. Keep the body under 40 lines.`
 
 func (r *ModelReviewer) Review(ctx context.Context, digest Digest) (Decision, error) {
 	if err := ctx.Err(); err != nil {
