@@ -486,10 +486,15 @@ func pressureCase() CaseInput {
 // A census of 772 compiled snapshots found decision, open_task and
 // acceptance_criteria at max=0.
 //
-// Approvals closed two thirds of that. This case carries their real shape --
-// a human decision that must outlive the tool output it authorised, and a
-// request still waiting on a human -- under enough pressure that neither is
-// retained by having had room for everything.
+// Approvals closed one third of that. This case carries the real shape: a
+// human decision that must outlive the tool output it authorised, under enough
+// pressure that it is not retained merely by having had room for everything.
+//
+// There is deliberately no KindOpenTask fragment here. Nothing in the running
+// system produces one -- raising an approval blocks the session, so no compile
+// happens while a request is outstanding -- and a corpus that carries a kind
+// the system never emits is how this corpus became the only place in Hermetrix
+// where a decision existed. See V-7.
 func approvalCase() CaseInput {
 	fragments := []ctxcompiler.Fragment{
 		{ID: "approval-goal", Kind: ctxcompiler.KindUserGoal, Scope: "session", Provenance: "fixture",
@@ -498,9 +503,6 @@ func approvalCase() CaseInput {
 		{ID: "approval-decision", Kind: ctxcompiler.KindDecision, Scope: "session", Provenance: "approval",
 			Trust: "user", Version: "v1", Priority: 90,
 			Content: "rodmay approved workspace.write_file (stated reason: corpus drive)"},
-		{ID: "approval-open", Kind: ctxcompiler.KindOpenTask, Scope: "session", Provenance: "approval",
-			Trust: "system", Version: "v1", Priority: 86,
-			Content: "waiting on a human decision: workspace.delete_file (delete) -- remove app/legacy.py"},
 		{ID: "approval-call", Kind: ctxcompiler.KindToolCall, PairID: "approval-pair", Scope: "session",
 			Provenance: "fixture", Trust: "tool", Version: "v1", Priority: 82,
 			Content: "workspace.write_file app/orders.py"},
@@ -518,9 +520,8 @@ func approvalCase() CaseInput {
 	return CaseInput{Name: "approval-retention", Language: "th", BenchmarkClass: "instruction-retention",
 		Fragments: fragments,
 		Expectations: Expectations{EssentialIDs: []string{"approval-goal"},
-			DecisionIDs: []string{"approval-decision"}, OpenTaskIDs: []string{"approval-open"},
-			CausalPairIDs:  []string{"approval-pair"},
-			TaskAssertions: []string{"rodmay approved", "waiting on a human decision"}, MaxTaskDelta: 0.05}}
+			DecisionIDs: []string{"approval-decision"}, CausalPairIDs: []string{"approval-pair"},
+			TaskAssertions: []string{"rodmay approved"}, MaxTaskDelta: 0.05}}
 }
 
 const (

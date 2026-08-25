@@ -191,7 +191,8 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | **O-38** | 502 ครั้งเดียวทิ้งงาน scoring หนึ่งชั่วโมง | medium | **แก้แล้ว** |
 | **O-39** | verdict ของ fidelity ไม่อ่าน decision/open-task/file-state recall — run ที่ทิ้ง decision 97% รายงาน `passed` | high | **แก้แล้ว** |
 | **P-7** | P9-A วางไว้วัด essential retention ที่วัดไม่ได้ — pinned retention เป็น 1 หรือ compile error ไม่มีค่ากลาง | high | **เปลี่ยนรูปแล้ว** |
-| **O-40** | `decision` / `open_task` / `acceptance_criteria` ไม่มีผู้ผลิตนอก fixture — สอง ใน สาม ประธานของ gate Phase 9 ไม่มีอยู่จริง | **critical** | **แก้แล้วสองใน สาม** — approval กลายเป็น decision/open_task · `acceptance_criteria` รอการตัดสินใจ |
+| **O-40** | `decision` / `open_task` / `acceptance_criteria` ไม่มีผู้ผลิตนอก fixture — สอง ใน สาม ประธานของ gate Phase 9 ไม่มีอยู่จริง | **critical** | **แก้แล้วหนึ่งในสาม** — `approval_decision` กลายเป็น `decision` ยืนยันในสนามจริง<br>`open_task` ดู V-7 · `acceptance_criteria` รอการตัดสินใจ |
+| **V-7** | `open_task` ไม่มีผู้ผลิตที่**เรียกถึงได้** — approval ที่ค้างบล็อก session ไม่มี compile เกิดขึ้นระหว่างนั้น | high | **วัดแล้ว ไม่ปิดบัง** — ถอด producer ที่ยิงไม่ออกทิ้ง |
 
 surface ที่ขับแล้วสะอาด ไม่มี finding: **GC** (dry-run → quarantine → restore, staleness guard, actor guard) · **capability review** (deny บล็อก approve ปล่อย บันทึก actor/revision/tool ครบ) · **settings/memories** (lifecycle ครบ, `source` ต้องเป็น `user` เท่านั้นตามเจตนา)
 
@@ -582,6 +583,35 @@ fix invoice numbering                 -> [invoice-numbering]
 ยังไม่แก้ retrieval — นั่นเป็นการตัดสินใจ (catalog เป็นไทย หรือ retrieval ข้ามภาษา) แต่ **หยุดรายงานความบอดว่าเป็นความเงียบ** ได้เลย: นับ `turns_goal_script_unmatched` (goal ไม่ใช่ ASCII · catalog เป็น ASCII ล้วน · scorer ได้ศูนย์) แล้วถ้า turn แบบนี้มากกว่า turn ที่ไม่ตรงด้วยเหตุผลอื่น verdict เป็น `retrieval_blind` ไม่ใช่ `insufficient_evidence`
 
 ต่างกันตรงที่ `insufficient_evidence` บอก operator ว่า *"รออีกหน่อย"* ส่วน `retrieval_blind` บอกว่า *"รอไปก็ไม่มา"* — mutation: ถอดเงื่อนไขออกแล้วได้ `verdict = "insufficient_evidence", want retrieval_blind`
+
+#### V-7 — producer ที่ยิงไม่ออก คือโรคเดียวกับที่กำลังไล่ปิด
+
+รอบแรกผมทำ `approval_required` ที่ยังไม่มีคำตอบให้กลายเป็น `open_task` ด้วย ดูสมเหตุสมผล มี mutation ผ่าน แล้ว census จากสนามจริงหลังต่อ producer ได้:
+
+```
+decision   max=1     <- เดิม 0 จาก 772 snapshot
+open_task  max=0
+```
+
+`decision` โผล่จริง `open_task` ไม่โผล่ ตรวจว่าทำไม ไม่เดา:
+
+```
+approval_858d45f7 session_state=awaiting_approval events_after_request=0
+approval_d1e7eba7 session_state=awaiting_approval events_after_request=0
+```
+
+pending approval ทั้งสองตัวใน corpus อยู่ใน session ที่ค้าง **ไม่มี event เกิดหลังคำขอเลย** แล้วลองกับ gateway จริง — ปล่อย approval ไว้ไม่ตอบ แล้วเปิด turn ที่สอง:
+
+```
+turn2 -> failed  session is awaiting_approval with active turn turn_54e37bb1...;
+                 only one turn may commit
+```
+
+การขอ approval ทำให้ session ค้างที่ `awaiting_approval` โดยยังถือ turn lease อยู่ **ไม่มี compile เกิดขึ้นเลยระหว่างที่คำขอค้าง** fragment ที่ผมเขียนจึงไปถึง request ไม่ได้ตลอดกาล
+
+ถอดทิ้ง **producer ที่ยิงไม่ออกแย่กว่าไม่มี** เพราะมันทำให้ kind ดูเหมือนมีคนดูแล — ซึ่งคือโรคเดียวกับที่ไล่ปิดมาทั้ง session และผมเพิ่งเป็นเอง เหลือไว้เป็นเทสต์ที่ยืนยันข้อเท็จจริงเรื่อง reachability แทน: ถ้าวันหนึ่ง `TestNoCompileRunsWhileAnApprovalIsOutstanding` ล้ม แปลว่า flow เปลี่ยนแล้ว `open_task` มีที่มาจริง
+
+`approvalCase` ใน fidelity corpus ก็ถอด open task ออกด้วย — corpus ที่ถือ kind ที่ระบบไม่เคยผลิต คือวิธีที่ corpus นี้เคยกลายเป็นที่เดียวใน Hermetrix ที่ decision มีอยู่
 
 **ยังเหลือ `acceptance_criteria`** — ตัวนี้ไม่มีแหล่งที่ deterministic และมีอันตรายเฉพาะตัว: `sliceFor` ส่งมันเข้า slice `pinned` ซึ่ง**ทิ้งไม่ได้และ fail-closed** ถ้าเกิน `PinnedBudget` (2,048 บน compact-32k) `Compile` คืน `ErrPinnedOverflow` แล้ว **ทั้ง turn ล้ม** ไม่ใช่แค่ตัดของทิ้ง ผู้ผลิตอะไรก็ตามที่ต่อเข้ากับ kind นี้ต้องมีเพดานของตัวเอง เป็นเรื่องที่ต้องตัดสินใจ ไม่ใช่เลือกเอง
 

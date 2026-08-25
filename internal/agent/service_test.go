@@ -2709,20 +2709,22 @@ func TestUnsendableToolArgumentsAreNotBudgetedFor(t *testing.T) {
 	}
 }
 
-// TestApprovalsBecomeDecisionsAndOpenTasks closes O-40.
+// TestApprovalDecisionsBecomeDecisionFragments closes the reachable half of
+// O-40.
 //
-// approval_required and approval_decision were written to the event log and
-// then discarded by every compile: the switch in compileTurn had no case for
-// them. In the driven session that threw away 11 requests and 9 human
-// decisions. A model told at step 3 that an operator had approved a write was
-// told nothing about it at step 40, and a write blocked on a human was
-// invisible to the model that was blocked on it.
+// approval_decision was written to the event log and then discarded by every
+// compile: the switch in compileTurn had no case for it. In the driven session
+// that threw away 9 human decisions. A model told at step 3 that an operator
+// had approved a write knew nothing of it at step 40.
 //
 // It is also why the Phase 9 gate had no subject. A census of 772 compiled
 // snapshots found decision, open_task and acceptance_criteria at max=0 -- the
 // compiler had consumed those kinds since it was written and nothing produced
 // one outside a test fixture.
-func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
+//
+// approval_required must produce nothing: see
+// TestNoCompileRunsWhileAnApprovalIsOutstanding.
+func TestApprovalDecisionsBecomeDecisionFragments(t *testing.T) {
 	service, profile, cleanup := testAgentService(t, httptest.NewServer(http.NotFoundHandler()))
 	defer cleanup()
 	ctx := context.Background()
@@ -2735,7 +2737,6 @@ func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
 	events := []Event{
 		{ID: "event_user", SessionID: session.ID, TurnID: "t1", EventKind: "message", Role: "user",
 			Content: "แก้ไฟล์ให้หน่อย", CreatedAt: now},
-		// decided: becomes a decision, and stops being an open task
 		{ID: "event_req_a", SessionID: session.ID, TurnID: "t1", EventKind: "approval_required", Role: "system",
 			Content: "replace app/orders.py (467 bytes)", CreatedAt: now.Add(time.Second),
 			Metadata: map[string]any{"approval_id": "approval_a", "tool_name": "workspace.write_file",
@@ -2744,11 +2745,6 @@ func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
 			Content: "approve", CreatedAt: now.Add(2 * time.Second),
 			Metadata: map[string]any{"approval_id": "approval_a", "tool_name": "workspace.write_file",
 				"actor": "rodmay", "reason": "corpus drive"}},
-		// still waiting: stays an open task
-		{ID: "event_req_b", SessionID: session.ID, TurnID: "t1", EventKind: "approval_required", Role: "system",
-			Content: "delete app/legacy.py (2 KiB)", CreatedAt: now.Add(3 * time.Second),
-			Metadata: map[string]any{"approval_id": "approval_b", "tool_name": "workspace.delete_file",
-				"effect": "delete"}},
 	}
 	profileSpec, ok := ctxcompiler.ProfileByName("certified-64k")
 	if !ok {
@@ -2759,11 +2755,12 @@ func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	byKind := map[ctxcompiler.Kind][]ctxcompiler.Fragment{}
+	var decisions []ctxcompiler.Fragment
 	for _, fragment := range compiled.Fragments {
-		byKind[fragment.Kind] = append(byKind[fragment.Kind], fragment)
+		if fragment.Kind == ctxcompiler.KindDecision {
+			decisions = append(decisions, fragment)
+		}
 	}
-	decisions, openTasks := byKind[ctxcompiler.KindDecision], byKind[ctxcompiler.KindOpenTask]
 	if len(decisions) != 1 {
 		t.Fatalf("decisions = %d, want 1", len(decisions))
 	}
@@ -2772,20 +2769,47 @@ func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
 			t.Fatalf("the decision does not say %q: %q", want, decisions[0].Content)
 		}
 	}
-	// An approval that has been answered is no longer outstanding. Carrying it
-	// as both would tell the model a settled question is still open.
-	if len(openTasks) != 1 {
-		t.Fatalf("open tasks = %d, want 1 (only the undecided approval)", len(openTasks))
+	// Not pinned. Retention that cannot fail cannot be measured -- that is
+	// exactly how essential retention became a tautology (P-7).
+	if decisions[0].Pinned {
+		t.Fatal("the decision is pinned, so its retention can never be measured")
 	}
-	if !strings.Contains(openTasks[0].Content, "workspace.delete_file") {
-		t.Fatalf("the open task is the wrong one: %q", openTasks[0].Content)
+}
+
+// TestNoCompileRunsWhileAnApprovalIsOutstanding is why compileTurn does not
+// turn approval_required into a KindOpenTask fragment.
+//
+// It reads like the obvious producer for that kind, and a first cut emitted
+// one. But raising an approval leaves the session in awaiting_approval still
+// holding its turn lease, so the fragment can never reach a request: there is
+// no compile to put it in. Confirmed against the live gateway -- a second turn
+// came back "session is awaiting_approval with active turn ...; only one turn
+// may commit" -- and against the driven corpus, where both undecided approvals
+// sit in sessions with zero events after the request.
+//
+// A producer that cannot fire is worse than no producer, because it makes the
+// kind look covered. If this test ever fails the flow has changed and
+// KindOpenTask has somewhere real to come from.
+func TestNoCompileRunsWhileAnApprovalIsOutstanding(t *testing.T) {
+	service, profile, cleanup := testAgentService(t, httptest.NewServer(http.NotFoundHandler()))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "blocked", ProviderID: profile.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Neither may be pinned. Retention that cannot fail cannot be measured --
-	// that is exactly how essential retention became a tautology (P-7).
-	for _, fragment := range append(append([]ctxcompiler.Fragment{}, decisions...), openTasks...) {
-		if fragment.Pinned {
-			t.Fatalf("%s is pinned, so its retention can never be measured", fragment.ID)
-		}
+	if _, err := service.store.DB.ExecContext(ctx, `UPDATE agent_sessions
+      SET state='awaiting_approval', active_turn_id='turn_blocked' WHERE id=?`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.RunTurn(ctx, session.ID, TurnInput{Content: "มีอะไรค้างอยู่บ้าง"},
+		func(StreamEvent) error { return nil })
+	if err == nil {
+		t.Fatal("a turn started while an approval was outstanding; KindOpenTask now has a reachable producer")
+	}
+	if !strings.Contains(err.Error(), "awaiting_approval") {
+		t.Fatalf("refused for the wrong reason: %v", err)
 	}
 }
 

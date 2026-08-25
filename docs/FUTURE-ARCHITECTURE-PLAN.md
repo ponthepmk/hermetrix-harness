@@ -756,7 +756,7 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 | 8 | provenance ครบ | query ที่หา candidate ซึ่งไม่มี `source_review_id` ชี้ committed event range คืน **0 แถว** | — |
 | 8 | behavioral eval | promotion API ปฏิเสธ candidate ที่ eval state เป็น `not_run` หรือ `inconclusive` และมี test ยืนยันการปฏิเสธ | — |
 | 9 | causal integrity | causal split = **0** | ~~ต้องมี corpus~~ **ปิดแล้ว** — วัดสนามจริง 5,933 คู่ ใน 660 snapshot แตก 0 · รับประกันสองชั้น (unit key + `evaluateIntegrity` ปฏิเสธ compile) มี mutation ทั้งคู่ |
-| 9 | essential retention | retention ของ goal/constraint/decision = **100%** ที่ความหนาแน่นซึ่ง session จริงสร้าง | **P9-A ถูกเปลี่ยนรูป** — ~~gold corpus ≥50 เคสต่อภาษา~~ วัดแล้วว่าไม่ตอบอะไร (P-7) · **O-40**: `decision`/`open_task` มี producer แล้ว (approval) เหลือ `acceptance_criteria` ที่ต้องตัดสินใจก่อน เพราะมันลง slice `pinned` ที่ fail-closed |
+| 9 | essential retention | retention ของ goal/constraint/decision = **100%** ที่ความหนาแน่นซึ่ง session จริงสร้าง | **P9-A ถูกเปลี่ยนรูป** — ~~gold corpus ≥50 เคสต่อภาษา~~ วัดแล้วว่าไม่ตอบอะไร (P-7) · **O-40**: `decision` มี producer แล้ว (approval_decision) ยืนยันในสนามจริง · `open_task` ไม่มีผู้ผลิตที่เรียกถึงได้ (V-7) · `acceptance_criteria` ต้องตัดสินใจก่อน เพราะลง slice `pinned` ที่ fail-closed |
 | 9 | task success delta | เทียบ full context กับ compiled: code-edit ถอยได้ไม่เกิน **3 percentage point** · document/summarisation และ research/multi-step ไม่เกิน **5 pp** · **false-success delta = 0** วัดจาก ≥**30 task ต่อ class** ใช้ seed เดียวกันเมื่อ provider รองรับ | **P9-B** task corpus ต่อ class |
 | 9 | token error band | predicted เทียบ usage ที่ provider รายงาน อยู่ใน **±10%** ที่ p95 และไม่มี overflow/silent truncation แม้แต่ครั้งเดียว | ~~P9-C~~ **ปิดแล้วสำหรับ provider แรก** — วัดสด p95 6.0%, within band 100%, overflow 0 (`GET /api/token-accuracy`) |
 | 10 | untrusted metadata | hostile fixture ที่ฝัง instruction ใน description, tool result, schema และ error ผ่าน **100%** — agent ไม่ทำตามสักเคส | **P10-A** hostile fixture ≥20 เคส |
@@ -936,7 +936,7 @@ Phase 8 และ 9 เริ่มได้ เพราะ state authority, co
 | Prerequisite | สำหรับ gate |
 |---|---|
 | ~~**P8-A** digest corpus ≥100 เคส แยก trigger family~~ | ~~semantic reviewer~~ — **ปิดแล้ว** ดู [`corpus/README.md`](../corpus/README.md) |
-| **P9-A** ~~gold corpus ≥50 เคสต่อภาษา~~ **เปลี่ยนเป็น O-40** สร้าง producer | essential retention — corpus ปิด gate นี้ไม่ได้ เพราะ corpus จะเป็นที่เดียวที่ decision มีอยู่ · decision/open_task ทำแล้ว |
+| **P9-A** ~~gold corpus ≥50 เคสต่อภาษา~~ **เปลี่ยนเป็น O-40** สร้าง producer | essential retention — corpus ปิด gate นี้ไม่ได้ เพราะ corpus จะเป็นที่เดียวที่ decision มีอยู่ · decision ทำแล้ว · open_task/acceptance_criteria ยังไม่มีที่มา |
 | **P9-B** task corpus ต่อ class | task success delta |
 | ~~**P9-C** tokenizer adapter ตัวแรก~~ | ~~token error band~~ — **ไม่ต้องใช้** ดูด้านล่าง |
 

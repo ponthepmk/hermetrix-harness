@@ -1303,25 +1303,29 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 			Priority: 88, CacheClass: "versioned", Content: version.Markdown, CreatedAt: version.CreatedAt,
 			Metadata: map[string]string{"skill_id": item.SkillID, "version_id": item.VersionID, "selection_reason": item.Reason}})
 	}
-	// O-40: approval_required and approval_decision were written to the event
-	// log and then dropped by every compile -- the switch below had no case for
-	// them. In the driven session that discarded 11 requests and 9 human
-	// decisions, so a model that had been told "rodmay approved this write,
-	// reason: corpus drive" at step 3 was told nothing at step 40, and a write
-	// waiting on a human was invisible to it entirely.
+	// O-40: approval_decision was written to the event log and then dropped by
+	// every compile -- the switch below had no case for it. In the driven
+	// session that discarded 9 human decisions, so a model that had been told
+	// "rodmay approved this write, reason: corpus drive" at step 3 was told
+	// nothing about it at step 40.
 	//
-	// These are also the system's only real decisions and open tasks. The
-	// compiler has consumed KindDecision and KindOpenTask since it was written
-	// -- the compactor even reserves them a larger extract -- but nothing
-	// outside test fixtures ever produced one, so the Phase 9 retention gate
-	// had no subject. Derived from the log rather than extracted by a model:
-	// deterministic, ordered, and already carrying its own provenance.
-	decided := map[string]bool{}
-	for _, event := range events {
-		if event.EventKind == "approval_decision" {
-			decided[metadataString(event.Metadata, "approval_id")] = true
-		}
-	}
+	// It is also the system's only real decision. The compiler has consumed
+	// KindDecision since it was written -- the compactor even reserves it a
+	// larger extract -- but nothing outside test fixtures produced one, so the
+	// Phase 9 retention gate had no subject. Derived from the log rather than
+	// extracted by a model: deterministic, ordered, already carrying its own
+	// provenance.
+	//
+	// approval_required deliberately produces nothing. It reads like the
+	// obvious source of KindOpenTask, and a first cut emitted one -- but the
+	// fragment can never reach a request. Raising an approval puts the session
+	// in awaiting_approval holding its turn lease, and a second turn is
+	// refused with "only one turn may commit", so no compile ever runs while an
+	// approval is outstanding. Verified against the live gateway, and against
+	// the driven corpus, where both undecided approvals sit in sessions with
+	// zero events after the request. A producer that cannot fire is worse than
+	// none: it makes the kind look covered. KindOpenTask has no reachable
+	// producer today -- see V-7.
 	for _, event := range events {
 		metadata := map[string]string{"role": event.Role, "turn_id": event.TurnID, "sequence": fmt.Sprint(event.Sequence)}
 		switch event.EventKind {
@@ -1347,21 +1351,6 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 			fragments = append(fragments, ctxcompiler.Fragment{ID: "event:" + event.ID,
 				Kind: ctxcompiler.KindDecision, Scope: "session", Provenance: "approval", Trust: "user",
 				Version: "v1", Priority: 90, CacheClass: "rolling", Content: content,
-				CreatedAt: event.CreatedAt, Metadata: metadata})
-		case "approval_required":
-			approvalID := metadataString(event.Metadata, "approval_id")
-			if decided[approvalID] {
-				continue // it stopped being open; the decision fragment carries it now
-			}
-			metadata["approval_id"] = approvalID
-			metadata["tool_name"] = metadataString(event.Metadata, "tool_name")
-			metadata["effect"] = metadataString(event.Metadata, "effect")
-			fragments = append(fragments, ctxcompiler.Fragment{ID: "event:" + event.ID,
-				Kind: ctxcompiler.KindOpenTask, Scope: "session", Provenance: "approval", Trust: "system",
-				Version: "v1", Priority: 86, CacheClass: "rolling",
-				Content: fmt.Sprintf("waiting on a human decision: %s (%s) -- %s",
-					metadataString(event.Metadata, "tool_name"), metadataString(event.Metadata, "effect"),
-					event.Content),
 				CreatedAt: event.CreatedAt, Metadata: metadata})
 		case "message", "turn_failed":
 			if event.EventKind == "turn_failed" {

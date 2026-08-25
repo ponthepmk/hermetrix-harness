@@ -114,8 +114,7 @@ causal-pairs-held-or-refused|func TestCausalPairsSurviveTogetherOrTheCompileRefu
 pair-split-refuses-compile|causal pair %s was split|internal/context/compiler.go
 field-census-exists|NEVER PRODUCED|scripts/fragment-census.py
 approvals-become-decisions|Kind: ctxcompiler.KindDecision|internal/agent/service.go
-open-approvals-are-open-tasks|Kind: ctxcompiler.KindOpenTask|internal/agent/service.go
-decided-approvals-close|it stopped being open|internal/agent/service.go
+open-task-has-no-reachable-producer|func TestNoCompileRunsWhileAnApprovalIsOutstanding|internal/agent/service_test.go
 derived-not-user-speech|func isTranscriptKind|internal/agent/service.go
 corpus-carries-real-shapes|func approvalCase|internal/fidelity/service.go
 retrieval-blindness-named|retrieval_blind|internal/agent/service.go
