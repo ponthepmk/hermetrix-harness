@@ -111,9 +111,17 @@ type Outcome struct {
 	// that run was correct whenever the fact was present. A reasoning model
 	// spends part of its output budget before it writes anything, which the
 	// agent already accounts for in answerBudget and this runner did not.
-	EmptyAnswer bool   `json:"empty_answer,omitempty"`
-	Answer      string `json:"answer,omitempty"`
-	Error       string `json:"error,omitempty"`
+	EmptyAnswer bool `json:"empty_answer,omitempty"`
+	// SearchCalls counts context_search calls the model chose to make. Zero
+	// beside a failed answer is the R-14 shape: the tool was there, described,
+	// and the model did not reach for it.
+	SearchCalls int `json:"search_calls,omitempty"`
+	// SearchFoundTheFact records that a search result carried the value the
+	// assertions ask for. It separates a model that searched badly from one
+	// that searched well and answered badly anyway.
+	SearchFoundTheFact bool   `json:"search_found_the_fact,omitempty"`
+	Answer             string `json:"answer,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 // ClassResult is the gate's unit of judgement.
@@ -136,10 +144,19 @@ type ClassResult struct {
 	// the score rather than folded into it: an empty answer says something
 	// about the output budget, not about whether compaction kept what the task
 	// needed.
-	EmptyAnswers int    `json:"empty_answers"`
-	Errors       int    `json:"errors"`
-	Verdict      string `json:"verdict"`
-	Note         string `json:"note,omitempty"`
+	EmptyAnswers int `json:"empty_answers"`
+	// SuccessRetrieval is the compiled condition with context_search available,
+	// and RetrievalDelta is what remains of the gap once the model may go and
+	// look. RetrievalSearched counts how often it chose to, which is a separate
+	// question from whether searching helped.
+	SuccessRetrieval  float64 `json:"success_retrieval,omitempty"`
+	RetrievalDelta    float64 `json:"retrieval_delta,omitempty"`
+	RetrievalRuns     int     `json:"retrieval_runs,omitempty"`
+	RetrievalSearched int     `json:"retrieval_searched,omitempty"`
+	RetrievalFound    int     `json:"retrieval_found,omitempty"`
+	Errors            int     `json:"errors"`
+	Verdict           string  `json:"verdict"`
+	Note              string  `json:"note,omitempty"`
 }
 
 // Report is one whole run.

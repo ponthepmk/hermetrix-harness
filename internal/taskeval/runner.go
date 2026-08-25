@@ -23,7 +23,8 @@ import (
 // tasks at once, because the gateway's latency is dominated by queueing rather
 // than by generation.
 type Answerer interface {
-	Answer(ctx context.Context, messages []providers.Message) (providers.Completion, error)
+	Answer(ctx context.Context, messages []providers.Message,
+		tools []providers.ToolDefinition) (providers.Completion, error)
 }
 
 const (
@@ -68,7 +69,8 @@ var answerRetryDelay = 6 * time.Second
 // is treated as transient: the alternative is a taxonomy of gateway error
 // strings that goes stale silently, and a request that is genuinely
 // unanswerable fails all five attempts anyway.
-func answerWithRetry(ctx context.Context, answerer Answerer, messages []providers.Message) (providers.Completion, error) {
+func answerWithRetry(ctx context.Context, answerer Answerer, messages []providers.Message,
+	tools []providers.ToolDefinition) (providers.Completion, error) {
 	var err error
 	for attempt := 0; attempt <= answerRetries; attempt++ {
 		if attempt > 0 {
@@ -79,7 +81,7 @@ func answerWithRetry(ctx context.Context, answerer Answerer, messages []provider
 			}
 		}
 		var completion providers.Completion
-		completion, err = answerer.Answer(ctx, messages)
+		completion, err = answerer.Answer(ctx, messages, tools)
 		if err == nil {
 			return completion, nil
 		}
@@ -156,6 +158,12 @@ type Runner struct {
 	// Estimator sizes the full condition for that check. Zero uses the
 	// compiler's own estimator via a default.
 	Estimator ctxcompiler.Estimator
+	// WithRetrieval adds a third condition: the compiled context plus a working
+	// context_search. It answers a question building the tool did not settle --
+	// whether a model reaches for it. R-14 is the warning: skill_search was
+	// present, described and reachable, and went uncalled on every turn where
+	// it would have helped.
+	WithRetrieval bool
 	// Progress is called once per completed request, serialised under the
 	// runner's own lock so a caller may write to a terminal without interleaving.
 	Progress func(done, total int, outcome Outcome)
@@ -240,6 +248,10 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 		jobs = append(jobs,
 			job{task: task, condition: ConditionFull, messages: full, reachable: true},
 			job{task: task, condition: ConditionCompiled, messages: compiled, reachable: reachable})
+		if r.WithRetrieval {
+			jobs = append(jobs, job{task: task, condition: ConditionRetrieval,
+				messages: compiled, reachable: reachable})
+		}
 	}
 
 	concurrency := r.Concurrency
@@ -258,6 +270,10 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 			tickets <- struct{}{}
 			defer func() { <-tickets }()
 			outcome := r.score(ctx, item)
+			if item.condition == ConditionRetrieval {
+				outcome = r.scoreWithRetrieval(ctx, item.task, item.messages)
+				outcome.FactReachable = item.reachable
+			}
 			mutex.Lock()
 			outcomes[index] = outcome
 			done++
@@ -284,7 +300,7 @@ func (r *Runner) Run(ctx context.Context, tasks []Task) (Report, error) {
 func (r *Runner) score(ctx context.Context, item job) Outcome {
 	outcome := Outcome{TaskID: item.task.ID, Class: item.task.Class, Condition: item.condition,
 		FactReachable: item.reachable}
-	completion, err := answerWithRetry(ctx, r.answerer, item.messages)
+	completion, err := answerWithRetry(ctx, r.answerer, item.messages, nil)
 	if err != nil {
 		outcome.Error = err.Error()
 		return outcome
@@ -318,10 +334,11 @@ func (r *Runner) score(ctx context.Context, item job) Outcome {
 
 func summarise(outcomes []Outcome) []ClassResult {
 	type counter struct {
-		tasks                                 int
-		passFull, passCompiled                int
-		falseFull, falseCompiled              int
-		reachable, errors, empty, compiledRun int
+		tasks                                        int
+		passFull, passCompiled                       int
+		falseFull, falseCompiled                     int
+		reachable, errors, empty, compiledRun        int
+		retrievalRun, retrievalPass, searched, found int
 	}
 	byClass := map[string]*counter{}
 	for _, outcome := range outcomes {
@@ -356,6 +373,17 @@ func summarise(outcomes []Outcome) []ClassResult {
 			if outcome.FactReachable {
 				item.reachable++
 			}
+		case ConditionRetrieval:
+			item.retrievalRun++
+			if outcome.Passed {
+				item.retrievalPass++
+			}
+			if outcome.SearchCalls > 0 {
+				item.searched++
+			}
+			if outcome.SearchFoundTheFact {
+				item.found++
+			}
 		}
 	}
 	classes := make([]string, 0, len(byClass))
@@ -368,7 +396,9 @@ func summarise(outcomes []Outcome) []ClassResult {
 		item := byClass[class]
 		result := ClassResult{Class: class, Tasks: item.tasks, Tolerance: ClassTolerance[class],
 			FalseSuccessFull: item.falseFull, FalseSuccessCompiled: item.falseCompiled,
-			FactsReachable: item.reachable, EmptyAnswers: item.empty, Errors: item.errors}
+			FactsReachable: item.reachable, EmptyAnswers: item.empty, Errors: item.errors,
+			RetrievalRuns: item.retrievalRun, RetrievalSearched: item.searched,
+			RetrievalFound: item.found}
 		result.FalseSuccessDelta = item.falseCompiled - item.falseFull
 		if item.tasks > 0 {
 			result.SuccessFull = float64(item.passFull) / float64(item.tasks)
@@ -377,6 +407,10 @@ func summarise(outcomes []Outcome) []ClassResult {
 			result.SuccessCompiled = float64(item.passCompiled) / float64(item.compiledRun)
 		}
 		result.SuccessDelta = result.SuccessFull - result.SuccessCompiled
+		if item.retrievalRun > 0 {
+			result.SuccessRetrieval = float64(item.retrievalPass) / float64(item.retrievalRun)
+			result.RetrievalDelta = result.SuccessFull - result.SuccessRetrieval
+		}
 		result.Verdict = verdictFor(result, item.tasks)
 		if item.tasks > 0 && item.reachable == item.compiledRun {
 			result.Note = "every fact stayed reachable after compilation; the tasks may not be putting retention under real pressure"

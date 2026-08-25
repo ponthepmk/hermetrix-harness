@@ -175,6 +175,9 @@ compactor-receives-the-goal|Focus: focusOf\(request.Fragments\)|internal/context
 interrupted-write-is-reconciled|func \(r \*Registry\) ReconcileWrite|internal/tools/registry.go
 unreadable-effect-stays-uncertain|func TestAnEffectThatCannotBeReReadStaysUncertain|internal/agent/service_test.go
 recovery-never-runs-the-effect|recovery executed the side effect itself|internal/agent/service_test.go
+retrieval-condition-exists|ConditionRetrieval|internal/taskeval/retrieval.go
+retrieval-counts-whether-it-searched|SearchCalls|internal/taskeval/models.go
+retrieval-separates-two-failures|func TestRetrievalConditionSeparatesNotSearchingFromSearchingBadly|internal/taskeval/runner_test.go
 CLAIMS
 )
 

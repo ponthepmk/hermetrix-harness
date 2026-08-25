@@ -44,7 +44,8 @@ type needleReader struct {
 	calls int
 }
 
-func (r *needleReader) Answer(_ context.Context, messages []providers.Message) (providers.Completion, error) {
+func (r *needleReader) Answer(_ context.Context, messages []providers.Message,
+	_ []providers.ToolDefinition) (providers.Completion, error) {
 	r.mutex.Lock()
 	r.calls++
 	r.mutex.Unlock()
@@ -300,7 +301,8 @@ type flakyAnswerer struct {
 	inner    Answerer
 }
 
-func (a *flakyAnswerer) Answer(ctx context.Context, messages []providers.Message) (providers.Completion, error) {
+func (a *flakyAnswerer) Answer(ctx context.Context, messages []providers.Message,
+	tools []providers.ToolDefinition) (providers.Completion, error) {
 	a.mutex.Lock()
 	if a.failures > 0 {
 		a.failures--
@@ -308,7 +310,7 @@ func (a *flakyAnswerer) Answer(ctx context.Context, messages []providers.Message
 		return providers.Completion{}, fmt.Errorf("provider returned HTTP 429: rate limit exceeded")
 	}
 	a.mutex.Unlock()
-	return a.inner.Answer(ctx, messages)
+	return a.inner.Answer(ctx, messages, tools)
 }
 
 // A rate limit says something about the caller's pace, not about whether the
@@ -409,4 +411,97 @@ func TestAssertionsUseSingleFormTokens(t *testing.T) {
 			}
 		}
 	}
+}
+
+// searchingReader is a model that notices it cannot answer and looks, then
+// answers from what it found. It is the behaviour the retrieval condition is
+// meant to detect -- and having it lets the test prove the condition can
+// detect it at all.
+type searchingReader struct {
+	mutex   sync.Mutex
+	needle  string
+	answer  string
+	willUse bool
+	calls   int
+}
+
+func (r *searchingReader) Answer(_ context.Context, messages []providers.Message,
+	tools []providers.ToolDefinition) (providers.Completion, error) {
+	r.mutex.Lock()
+	r.calls++
+	r.mutex.Unlock()
+	body := ""
+	for _, message := range messages {
+		body += message.Content
+	}
+	if strings.Contains(body, r.needle) {
+		return providers.Completion{Content: r.answer}, nil
+	}
+	// Nothing to answer from. Search if the tool is offered and this model is
+	// the kind that reaches for it.
+	if r.willUse && len(tools) > 0 {
+		alreadyTried := strings.Contains(body, `"results"`)
+		if !alreadyTried {
+			return providers.Completion{ToolCalls: []providers.ToolCall{{ID: "c1", Type: "function",
+				Name: "context_search", Arguments: `{"query":"` + r.needle + `"}`}}}, nil
+		}
+	}
+	return providers.Completion{Content: "หาไม่เจอ"}, nil
+}
+
+// TestRetrievalConditionSeparatesNotSearchingFromSearchingBadly is why the
+// condition reports two numbers rather than one.
+//
+// R-14 is the warning it exists to catch: skill_search was present, described
+// and reachable, and went uncalled on every turn where it would have helped. A
+// model that never searches and a model that searches and still gets it wrong
+// both score zero on the task and need different fixes, so the run has to tell
+// them apart.
+func TestRetrievalConditionSeparatesNotSearchingFromSearchingBadly(t *testing.T) {
+	const marker = "ตกลงกันที่ 4096"
+	task := buriedTask("t1", ClassResearch, "middle", marker+" ตามที่คุยไว้", "4096")
+
+	t.Run("a model that looks recovers the answer", func(t *testing.T) {
+		runner := testRunner(t, &searchingReader{needle: marker, answer: "4096", willUse: true})
+		runner.WithRetrieval = true
+		report, err := runner.Run(context.Background(), []Task{task})
+		if err != nil {
+			t.Fatal(err)
+		}
+		byCondition := map[string]Outcome{}
+		for _, outcome := range report.Outcomes {
+			byCondition[outcome.Condition] = outcome
+		}
+		// Premise: without the tool this task is unanswerable, or the condition
+		// is measuring nothing.
+		if byCondition[ConditionCompiled].Passed {
+			t.Fatal("the compiled condition already passes; retrieval cannot be shown to help")
+		}
+		retrieval := byCondition[ConditionRetrieval]
+		if retrieval.SearchCalls == 0 {
+			t.Fatal("the model did not search even though the tool was offered")
+		}
+		if !retrieval.SearchFoundTheFact || !retrieval.Passed {
+			t.Fatalf("searching did not recover the answer: %+v", retrieval)
+		}
+		if report.Classes[0].RetrievalDelta != 0 {
+			t.Fatalf("retrieval delta = %.3f, want 0", report.Classes[0].RetrievalDelta)
+		}
+	})
+
+	t.Run("a model that never looks is reported as such", func(t *testing.T) {
+		runner := testRunner(t, &searchingReader{needle: marker, answer: "4096", willUse: false})
+		runner.WithRetrieval = true
+		report, err := runner.Run(context.Background(), []Task{task})
+		if err != nil {
+			t.Fatal(err)
+		}
+		class := report.Classes[0]
+		if class.RetrievalSearched != 0 {
+			t.Fatalf("searched = %d, want 0", class.RetrievalSearched)
+		}
+		if class.SuccessRetrieval != 0 {
+			t.Fatalf("a model that never searched still scored %.2f", class.SuccessRetrieval)
+		}
+	})
 }

@@ -82,9 +82,10 @@ type completionAnswerer struct {
 	maxTokens int
 }
 
-func (a completionAnswerer) Answer(ctx context.Context, messages []providers.Message) (providers.Completion, error) {
+func (a completionAnswerer) Answer(ctx context.Context, messages []providers.Message,
+	tools []providers.ToolDefinition) (providers.Completion, error) {
 	return a.service.StreamChat(ctx, a.profile, providers.ChatRequest{
-		Messages: messages, MaxTokens: a.maxTokens}, func(providers.Delta) error { return nil })
+		Messages: messages, Tools: tools, MaxTokens: a.maxTokens}, func(providers.Delta) error { return nil })
 }
 
 func taskEvalScore(args []string) error {
@@ -98,6 +99,9 @@ func taskEvalScore(args []string) error {
 	maxTokens := flags.Int("max-tokens", 2048,
 		"answer budget per request; a reasoning model spends part of it before writing "+
 			"anything, so a tight budget returns empty content rather than a short answer")
+	withRetrieval := flags.Bool("retrieval", false,
+		"add a third condition: compiled context plus a working context_search, to measure "+
+			"whether the model reaches for it and whether reaching helps")
 	out := flags.String("out", "", "optional path to write the full JSON report")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -130,12 +134,17 @@ func taskEvalScore(args []string) error {
 	runner := taskeval.NewRunner(compiler, contextProfile,
 		completionAnswerer{service: providerService, profile: profile, maxTokens: *maxTokens})
 	runner.Concurrency = *concurrency
+	runner.WithRetrieval = *withRetrieval
 	// The full-context condition has to be a request the provider will accept,
 	// or the comparison is an answer against an error.
 	runner.FullContextCeiling = profile.ContextWindow - profile.MaxOutputTokens
 
-	fmt.Printf("scoring %d tasks (%d requests) against %s (%s) at %s\n\n",
-		len(tasks), len(tasks)*2, profile.Name, profile.Model, contextProfile.Name)
+	conditions := 2
+	if *withRetrieval {
+		conditions = 3
+	}
+	fmt.Printf("scoring %d tasks (%d conditions) against %s (%s) at %s\n\n",
+		len(tasks), conditions, profile.Name, profile.Model, contextProfile.Name)
 	started := time.Now()
 	runner.Progress = func(done, total int, outcome taskeval.Outcome) {
 		elapsed := time.Since(started)
@@ -159,6 +168,11 @@ func taskEvalScore(args []string) error {
 			class.Class, class.Tasks, class.SuccessFull, class.SuccessCompiled, class.SuccessDelta,
 			class.Tolerance, class.FalseSuccessFull, class.FalseSuccessCompiled,
 			class.FactsReachable, class.EmptyAnswers, class.Verdict)
+		if class.RetrievalRuns > 0 {
+			fmt.Printf("%-14s   with context_search: %.2f (delta %+.3f)  searched %d/%d  "+
+				"found the fact %d\n", "", class.SuccessRetrieval, class.RetrievalDelta,
+				class.RetrievalSearched, class.RetrievalRuns, class.RetrievalFound)
+		}
 		if class.Note != "" {
 			fmt.Printf("%-14s   %s\n", "", class.Note)
 		}
