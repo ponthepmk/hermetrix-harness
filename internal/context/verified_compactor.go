@@ -54,7 +54,7 @@ func verifyCheckpointEvidence(checkpoint Fragment, source []Fragment) error {
 	}
 	for _, line := range strings.Split(checkpoint.Content, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "Extractive checkpoint;") {
+		if line == "" || isCheckpointPreamble(line) {
 			continue
 		}
 		if !strings.HasPrefix(line, "- [") {

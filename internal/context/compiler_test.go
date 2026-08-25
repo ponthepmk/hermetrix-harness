@@ -645,3 +645,68 @@ func TestCausalPairsSurviveTogetherOrTheCompileRefuses(t *testing.T) {
 		}
 	})
 }
+
+// TestTheCheckpointSaysWhatItLostAndHowToGetItBack closes the other half of
+// the retrieval problem.
+//
+// context_search made the history readable. It changes nothing on its own: a
+// model that does not know something is missing does not go looking. That is
+// R-14 in miniature -- skill_search was called 165 times across the driven
+// corpus and never once on a turn where a relevant Skill existed, because
+// nothing told the model there was one.
+//
+// So the checkpoint has to declare its own lossiness: that its lines are
+// extracts with the middles removed, that some exchanges are absent entirely,
+// and what to call to read them in full.
+func TestTheCheckpointSaysWhatItLostAndHowToGetItBack(t *testing.T) {
+	profile, _ := ProfileByName("compact-32k")
+	compiler := NewCompiler(NewAdaptiveEstimator(), nil, NewVerifiedCompactor(StructuredCompactor{}))
+	fragments := []Fragment{
+		{ID: "goal", Kind: KindUserGoal, Scope: "session", Provenance: "f", Trust: "user",
+			Version: "v1", Priority: 100, Pinned: true, Content: "ถามเรื่องการปัดเศษ"},
+	}
+	for index := 0; index < 200; index++ {
+		fragments = append(fragments, Fragment{ID: fmt.Sprintf("event:e%03d", index),
+			Kind: KindConversation, Scope: "session", Provenance: "assistant", Trust: "assistant",
+			Version: "v1", Priority: 70, Content: fmt.Sprintf("ลำดับ %d ", index) +
+				strings.Repeat("บันทึกการสนทนายาว ", 120)})
+	}
+	compiled, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile, Fragments: fragments})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := ""
+	for _, fragment := range compiled.Fragments {
+		if fragment.Kind == KindCheckpoint {
+			checkpoint = fragment.Content
+		}
+	}
+	if checkpoint == "" {
+		t.Fatal("premise broken: nothing was compacted, so there is no checkpoint to inspect")
+	}
+	for _, want := range []string{"extracts", "omits the middle", "context_search", "not shown here at all"} {
+		if !strings.Contains(checkpoint, want) {
+			t.Fatalf("the checkpoint does not say %q:\n%s", want, headOf(checkpoint))
+		}
+	}
+	// The exemption must stay narrow: everything that is not the checkpoint
+	// describing itself still needs an evidence marker, or a summariser could
+	// assert whatever it liked by prefixing a line.
+	for _, line := range strings.Split(checkpoint, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || isCheckpointPreamble(line) {
+			continue
+		}
+		if !strings.HasPrefix(line, "- [") {
+			t.Fatalf("a checkpoint line makes a claim with no evidence marker: %q", line)
+		}
+	}
+}
+
+func headOf(value string) string {
+	runes := []rune(value)
+	if len(runes) > 400 {
+		return string(runes[:400])
+	}
+	return value
+}

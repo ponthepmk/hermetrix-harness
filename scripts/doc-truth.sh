@@ -166,6 +166,9 @@ eval-refusal-is-tested|func TestPromotionRefusesACandidateThatWasNeverEvaluated|
 history-is-retrievable|context_search|internal/tools/registry.go
 search-excerpt-centres-on-match|func excerptAround|internal/agent/contextsearch.go
 search-recovers-compacted-fact|func TestContextSearchRecoversWhatCompactionDestroyed|internal/agent/contextsearch_test.go
+checkpoint-declares-its-loss|omits the middle|internal/context/compactor.go
+checkpoint-names-the-recovery-tool|context_search with a keyword|internal/context/compactor.go
+checkpoint-exemption-is-narrow|func isCheckpointPreamble|internal/context/compactor.go
 CLAIMS
 )
 

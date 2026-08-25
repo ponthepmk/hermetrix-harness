@@ -92,6 +92,26 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, fragments []Fragment, t
 	var body strings.Builder
 	body.WriteString("# Compacted evidence\n")
 	body.WriteString("Extractive checkpoint; source IDs remain authoritative.\n")
+	// Say that this is lossy, and say what to do about it.
+	//
+	// Every line below is an extract: headTail keeps 360 runes from each end of
+	// a fragment and drops the middle, and a fact at a uniformly random position
+	// in a real conversation fragment lands in that gap 34.5% of the time. Units
+	// that did not fit the checkpoint budget are not here at all.
+	//
+	// A model that does not know something is missing does not go looking. That
+	// is R-14 in miniature: skill_search was called 165 times in the driven
+	// corpus and never once on a turn where a relevant Skill existed, because
+	// nothing told the model there was one. So the checkpoint names the tool,
+	// which couples this text to a tool name by string -- deliberately, because
+	// the alternative is a retrieval path nobody uses.
+	if omitted := len(units) - len(selected); omitted > 0 {
+		fmt.Fprintf(&body, "%s%d earlier exchange(s) are not shown here at all.\n",
+			checkpointNoticePrefix, omitted)
+	}
+	fmt.Fprintf(&body, "%sLines below are extracts: each shows the start and end of what was said and "+
+		"omits the middle, marked \u2026. Call context_search with a keyword, an identifier or a source "+
+		"ID to read any of this in full before answering from it.\n", checkpointNoticePrefix)
 	for _, item := range selected {
 		body.WriteString(item.text)
 		body.WriteByte('\n')
@@ -99,6 +119,23 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, fragments []Fragment, t
 	return Fragment{ID: "checkpoint:extractive", Kind: KindCheckpoint, Scope: "session",
 		Provenance: "hermetrix:structured-compactor-v1", Trust: "derived", Version: "v1",
 		Priority: 85, CacheClass: "rolling", Content: strings.TrimSpace(body.String()), CreatedAt: checkpointTime}, nil
+}
+
+// checkpointNoticePrefix marks a line the checkpoint says about itself rather
+// than about the session. The verifier requires every other line to carry an
+// evidence marker, and rightly: a checkpoint that can assert without evidence
+// is a summariser that can invent. These lines describe the checkpoint's own
+// lossiness, so they are exempt -- and the prefix exists so the exemption is a
+// named category both sides agree on, not a string prefix duplicated in two
+// files that can drift apart.
+const checkpointNoticePrefix = "> "
+
+// isCheckpointPreamble reports whether a line is structure or self-description
+// rather than a claim about the session.
+func isCheckpointPreamble(line string) bool {
+	return strings.HasPrefix(line, "#") ||
+		strings.HasPrefix(line, "Extractive checkpoint;") ||
+		strings.HasPrefix(line, checkpointNoticePrefix)
 }
 
 func compactWhitespace(value string) string { return strings.Join(strings.Fields(value), " ") }
