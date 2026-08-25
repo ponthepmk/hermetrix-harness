@@ -752,7 +752,7 @@ exit gate ที่วัดไม่ได้คือ gate ที่ผ่า�
 
 | Phase | Gate | Predicate ที่ใช้ตัดสิน | Prerequisite |
 |---|---|---|---|
-| 8 | semantic reviewer | บน digest corpus: digest ที่มี evidence จริง ≥**60%** ให้ candidate ที่ผ่าน checks · false-proposal rate ≤**10%** · candidate ที่อ้าง evidence ที่ไม่ได้รับ = **0** (ไม่มี tolerance) | **P8-A** digest corpus ≥100 เคส แยก trigger family ทั้งสี่ |
+| 8 | semantic reviewer | บน digest corpus: digest ที่มี evidence จริง ≥**60%** ให้ candidate ที่ผ่าน checks · false-proposal rate ≤**10%** · candidate ที่อ้าง evidence ที่ไม่ได้รับ = **0** (ไม่มี tolerance) | ~~P8-A~~ **ปิดแล้ว** — corpus 100 เคส 4 family ใน [`corpus/`](../corpus/README.md) วัดสด recall 0.94 · false 0.09 · invented 0 (worst of 2) |
 | 8 | provenance ครบ | query ที่หา candidate ซึ่งไม่มี `source_review_id` ชี้ committed event range คืน **0 แถว** | — |
 | 8 | behavioral eval | promotion API ปฏิเสธ candidate ที่ eval state เป็น `not_run` หรือ `inconclusive` และมี test ยืนยันการปฏิเสธ | — |
 | 9 | essential retention | retention ของ goal/constraint/decision = **100%** บน gold corpus · causal split = **0** | **P9-A** gold corpus ≥50 เคสต่อภาษา พร้อม ground truth ที่คนตรวจแล้ว |
@@ -934,7 +934,7 @@ Phase 8 และ 9 เริ่มได้ เพราะ state authority, co
 
 | Prerequisite | สำหรับ gate |
 |---|---|
-| **P8-A** digest corpus ≥100 เคส แยก trigger family | semantic reviewer |
+| ~~**P8-A** digest corpus ≥100 เคส แยก trigger family~~ | ~~semantic reviewer~~ — **ปิดแล้ว** ดู [`corpus/README.md`](../corpus/README.md) |
 | **P9-A** gold corpus ≥50 เคสต่อภาษา พร้อม ground truth | essential retention |
 | **P9-B** task corpus ต่อ class | task success delta |
 | ~~**P9-C** tokenizer adapter ตัวแรก~~ | ~~token error band~~ — **ไม่ต้องใช้** ดูด้านล่าง |

@@ -73,3 +73,40 @@ positive, while negatives never moved. Three scorings of these hundred cases
 returned 31, 34 and 30 proposals -- recall 0.55 to 0.62 against a floor of 0.60.
 One reading cannot settle a threshold the reviewer's own variance straddles, so
 the gate reports the worst of N.
+
+## Result
+
+Read twice against the live gateway, judged on the worse reading:
+
+```
+100 cases · positives 55 · proposed 52 · recall 0.94   floor 0.60   pass
+false proposals 4 / 45 = 0.09                          ceiling 0.10 pass
+invented evidence 0                                    no tolerance pass
+reviewer errors 0
+recall ranged 0.94 to 0.96 · 5 cases did not answer the same way twice
+```
+
+The reviewer's instruction was revised once on this corpus and measured once.
+Before and after, by family:
+
+| family | recall before | recall after | false |
+|---|---:|---:|---:|
+| explicit_learn | 0.64 | 1.00 | 0 |
+| repeated_correction | 0.56 | 0.96 | 0 |
+| successful_milestone | 0.20 | 0.60 | 2 |
+| skill_failure | — (no positives) | — | 2 |
+
+It moved exactly where it was aimed. It also moved past where it was aimed:
+false proposals went from none to four, which is 0.089 against a ceiling of
+0.100. One more would fail the gate. The margin on precision is one case.
+
+All four are the same shape from two families -- evidence that *describes*
+steps without performing them. Two are questions about a domain procedure
+("explain the steps for verifying a full-form tax invoice"), which the
+instruction explicitly tells the reviewer to decline. Two are the failed
+exploration in `skill_failure`, where the digest carries a goal, some reads and
+an outcome of failure, and no method that worked.
+
+That is the mirror image of the failure the revision fixed. The corpus is now
+the record of a reviewer that is slightly too eager rather than slightly too
+strict, and the number that says so is one case from failing.
