@@ -96,6 +96,7 @@ func TestCapabilityWideningRequiresExactHumanReview(t *testing.T) {
 	if err != nil || len(review.AddedTools) != 1 || review.AddedTools[0] != "filesystem.write" {
 		t.Fatalf("review=%+v err=%v", review, err)
 	}
+	passBehavioralEval(t, service, candidate.ID)
 	if _, err := service.PromoteCandidate(ctx, candidate.ID, "user", candidate.Revision); err != nil {
 		t.Fatal(err)
 	}

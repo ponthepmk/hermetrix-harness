@@ -531,6 +531,27 @@ CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON mcp_servers(status, updated
 `
 
 const schemaV7 = `
+CREATE TABLE IF NOT EXISTS candidate_behavioral_evals (
+  id TEXT PRIMARY KEY,
+  candidate_id TEXT NOT NULL,
+  candidate_revision INTEGER NOT NULL,
+  candidate_hash TEXT NOT NULL,
+  base_version_id TEXT NOT NULL DEFAULT '',
+  runner_revision TEXT NOT NULL,
+  state TEXT NOT NULL,
+  tasks INTEGER NOT NULL DEFAULT 0,
+  baseline_passed INTEGER NOT NULL DEFAULT 0,
+  candidate_passed INTEGER NOT NULL DEFAULT 0,
+  regressions INTEGER NOT NULL DEFAULT 0,
+  false_success_delta INTEGER NOT NULL DEFAULT 0,
+  result_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_behavioral_evals_candidate
+  ON candidate_behavioral_evals(candidate_id, started_at);
+
 CREATE TABLE IF NOT EXISTS skill_replay_runs (
   id TEXT PRIMARY KEY,
   candidate_id TEXT NOT NULL,

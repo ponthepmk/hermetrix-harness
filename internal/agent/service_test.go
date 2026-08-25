@@ -246,6 +246,14 @@ func TestSessionUsesFrozenSkillVersionAfterLaterPromotion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Promotion of an improvement now needs a passing behavioral evaluation, so
+	// this test has to go through the same gate a real promotion does.
+	if _, err := service.skills.RecordBehavioralEval(ctx, skills.BehavioralEvalInput{
+		CandidateID: improvement.ID, Tasks: skills.MinimumBehavioralTasks,
+		BaselinePassed:  skills.MinimumBehavioralTasks,
+		CandidatePassed: skills.MinimumBehavioralTasks}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := service.skills.PromoteCandidate(ctx, improvement.ID, "test", improvement.Revision); err != nil {
 		t.Fatal(err)
 	}

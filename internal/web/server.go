@@ -115,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/candidates/{id}", s.updateCandidate)
 	mux.HandleFunc("GET /api/candidates/{id}/replays", s.listCandidateReplays)
 	mux.HandleFunc("POST /api/candidates/{id}/replays", s.runCandidateReplay)
+	mux.HandleFunc("GET /api/candidates/{id}/behavioral-eval", s.getCandidateBehavioralEval)
+	mux.HandleFunc("POST /api/candidates/{id}/behavioral-eval", s.recordCandidateBehavioralEval)
 	mux.HandleFunc("POST /api/candidates/{id}/capability-review", s.reviewCandidateCapabilities)
 	mux.HandleFunc("POST /api/candidates/{id}/promote", s.promoteCandidate)
 	mux.HandleFunc("POST /api/candidates/{id}/reject", s.rejectCandidate)
@@ -643,6 +645,38 @@ func (s *Server) listCandidateReplays(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+// getCandidateBehavioralEval reports the current evaluation state, including
+// "not_run", so an operator can see why promotion is blocked without having to
+// try it.
+func (s *Server) getCandidateBehavioralEval(w http.ResponseWriter, r *http.Request) {
+	item, err := s.skills.LatestBehavioralEval(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+// recordCandidateBehavioralEval stores the result of an evaluation run.
+//
+// The verdict is derived from the numbers rather than accepted from the caller,
+// so a client cannot post "passed" beside a regression. Promotion of an
+// improvement is blocked until a passing evaluation exists for that exact
+// candidate revision and hash.
+func (s *Server) recordCandidateBehavioralEval(w http.ResponseWriter, r *http.Request) {
+	var input skills.BehavioralEvalInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.CandidateID = r.PathValue("id")
+	item, err := s.skills.RecordBehavioralEval(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
 }
 
 func (s *Server) runCandidateReplay(w http.ResponseWriter, r *http.Request) {

@@ -358,6 +358,20 @@ func (s *Service) PromoteCandidate(ctx context.Context, id, actor string, expect
 	if err := s.requireCapabilityReview(ctx, preflight, preflightPackage); err != nil {
 		return Skill{}, err
 	}
+	// Last of the gates, and deliberately so. Replay compares lexical fixtures,
+	// which catches a Skill whose wording drifted rather than one whose
+	// procedure got worse; this asks the second question. It runs after the
+	// authority checks because a candidate that widens rights without review
+	// must be refused for that reason whatever its evaluation says, and the
+	// operator should be told the reason they can act on.
+	//
+	// Bound to the same change kind as replay: an evaluation against the version
+	// being replaced only means something when there is a version being replaced.
+	if preflight.Checks.ReplayRequired {
+		if err := s.requireCurrentBehavioralEval(ctx, preflight); err != nil {
+			return Skill{}, err
+		}
+	}
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return Skill{}, err

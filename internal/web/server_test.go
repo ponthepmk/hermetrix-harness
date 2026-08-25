@@ -481,6 +481,11 @@ func TestHTTPSkillReplayCapabilityReviewAndFidelityEvidence(t *testing.T) {
 	}
 	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/capability-review", http.MethodPost,
 		map[string]any{"actor": "user", "decision": "approve", "expected_revision": updated.Revision}, http.StatusOK)
+	// Promotion of an improvement is gated on a passing behavioral evaluation,
+	// so the HTTP surface has to be able to record one -- without this route an
+	// operator could never promote an improvement through the API at all.
+	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/behavioral-eval", http.MethodPost,
+		map[string]any{"tasks": 5, "baseline_passed": 5, "candidate_passed": 5}, http.StatusCreated)
 	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/promote", http.MethodPost,
 		map[string]any{"actor": "user", "expected_revision": updated.Revision}, http.StatusOK)
 	casesResponse, err := http.Get(harness.URL + "/api/fidelity/cases")

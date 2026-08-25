@@ -185,11 +185,30 @@ func TestStaleBaseCannotOverwriteNewVersion(t *testing.T) {
 	secondInput.Markdown = strings.ReplaceAll(firstInput.Markdown, "Revision one", "Revision two")
 	first, _ := service.CreateCandidate(ctx, firstInput)
 	second, _ := service.CreateCandidate(ctx, secondInput)
+	passBehavioralEval(t, service, first.ID)
+	passBehavioralEval(t, service, second.ID)
 	if _, err := service.PromoteCandidate(ctx, first.ID, "user", first.Revision); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.PromoteCandidate(ctx, second.ID, "user", second.Revision); !errors.Is(err, ErrRevisionConflict) {
 		t.Fatalf("stale promotion error = %v", err)
+	}
+}
+
+// passBehavioralEval records the evaluation that promotion now requires for an
+// improvement. Tests that promote an improvement have to go through it, which
+// is the point of the gate: replay proves the wording still matches, this
+// proves the procedure still works.
+func passBehavioralEval(t *testing.T, service *Service, candidateID string) {
+	t.Helper()
+	eval, err := service.RecordBehavioralEval(context.Background(), BehavioralEvalInput{
+		CandidateID: candidateID, Tasks: MinimumBehavioralTasks,
+		BaselinePassed: MinimumBehavioralTasks, CandidatePassed: MinimumBehavioralTasks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eval.State != EvalPassed {
+		t.Fatalf("fixture evaluation did not pass: %+v", eval)
 	}
 }
 
@@ -208,6 +227,7 @@ func TestImprovementCannotChangeSkillAuthorityMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	passBehavioralEval(t, service, candidate.ID)
 	if _, err := service.PromoteCandidate(ctx, candidate.ID, "user", candidate.Revision); !errors.Is(err, ErrImmutableMetadata) {
 		t.Fatalf("metadata-changing promotion error = %v", err)
 	}

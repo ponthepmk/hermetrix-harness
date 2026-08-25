@@ -152,13 +152,17 @@ stored-content-cannot-execute|func TestStoredArtifactContentCannotRunAsAPage|int
 untrusted-annotations-cannot-waive|func TestUntrustedServerAnnotationsCannotWaiveApproval|internal/mcp/service_test.go
 catalogue-is-never-a-primitive|func TestCatalogueMetadataNeverBecomesAProviderFunction|internal/tools/registry_test.go
 taskeval-refuses-uncompacted|ErrNoPressure|internal/taskeval/runner.go
-taskeval-no-judge-model|func (r \*Runner) score|internal/taskeval/runner.go
+taskeval-no-judge-model|func \(r \*Runner\) score|internal/taskeval/runner.go
 taskeval-instrument-registers|func TestTheInstrumentRegistersALostNeedle|internal/taskeval/runner_test.go
 taskeval-sample-floor|MinimumTasksPerClass|internal/taskeval/models.go
 taskeval-placement-is-measured|MiddlePlacementRate = 0.345|internal/taskeval/generate.go
 taskeval-full-must-be-sendable|ErrFullContextTooLarge|internal/taskeval/runner.go
 taskeval-corpus-is-generated|/corpus/tasks/\*.json|.gitignore
 taskeval-retries-transient|func answerWithRetry|internal/taskeval/runner.go
+promotion-needs-behavioral-eval|func \(s \*Service\) requireCurrentBehavioralEval|internal/skills/behavioral.go
+eval-verdict-is-derived|func behavioralVerdict|internal/skills/behavioral.go
+eval-binds-exact-candidate|eval.CandidateHash != candidate.CandidateHash|internal/skills/behavioral.go
+eval-refusal-is-tested|func TestPromotionRefusesACandidateThatWasNeverEvaluated|internal/skills/behavioral_test.go
 CLAIMS
 )
 
