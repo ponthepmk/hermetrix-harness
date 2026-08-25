@@ -1302,9 +1302,66 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 			Priority: 88, CacheClass: "versioned", Content: version.Markdown, CreatedAt: version.CreatedAt,
 			Metadata: map[string]string{"skill_id": item.SkillID, "version_id": item.VersionID, "selection_reason": item.Reason}})
 	}
+	// O-40: approval_required and approval_decision were written to the event
+	// log and then dropped by every compile -- the switch below had no case for
+	// them. In the driven session that discarded 11 requests and 9 human
+	// decisions, so a model that had been told "rodmay approved this write,
+	// reason: corpus drive" at step 3 was told nothing at step 40, and a write
+	// waiting on a human was invisible to it entirely.
+	//
+	// These are also the system's only real decisions and open tasks. The
+	// compiler has consumed KindDecision and KindOpenTask since it was written
+	// -- the compactor even reserves them a larger extract -- but nothing
+	// outside test fixtures ever produced one, so the Phase 9 retention gate
+	// had no subject. Derived from the log rather than extracted by a model:
+	// deterministic, ordered, and already carrying its own provenance.
+	decided := map[string]bool{}
+	for _, event := range events {
+		if event.EventKind == "approval_decision" {
+			decided[metadataString(event.Metadata, "approval_id")] = true
+		}
+	}
 	for _, event := range events {
 		metadata := map[string]string{"role": event.Role, "turn_id": event.TurnID, "sequence": fmt.Sprint(event.Sequence)}
 		switch event.EventKind {
+		case "approval_decision":
+			approvalID := metadataString(event.Metadata, "approval_id")
+			metadata["approval_id"] = approvalID
+			metadata["tool_name"] = metadataString(event.Metadata, "tool_name")
+			metadata["decision"] = event.Content
+			verb := "denied"
+			if event.Content == "approve" {
+				verb = "approved"
+			}
+			actor := metadataString(event.Metadata, "actor")
+			if actor == "" {
+				actor = "an operator"
+			}
+			content := fmt.Sprintf("%s %s %s", actor, verb, metadataString(event.Metadata, "tool_name"))
+			if reason := metadataString(event.Metadata, "reason"); reason != "" {
+				content += fmt.Sprintf(" (stated reason: %s)", reason)
+			}
+			// Not pinned. A decision that cannot be dropped cannot be measured,
+			// which is how essential retention became a tautology once already.
+			fragments = append(fragments, ctxcompiler.Fragment{ID: "event:" + event.ID,
+				Kind: ctxcompiler.KindDecision, Scope: "session", Provenance: "approval", Trust: "user",
+				Version: "v1", Priority: 90, CacheClass: "rolling", Content: content,
+				CreatedAt: event.CreatedAt, Metadata: metadata})
+		case "approval_required":
+			approvalID := metadataString(event.Metadata, "approval_id")
+			if decided[approvalID] {
+				continue // it stopped being open; the decision fragment carries it now
+			}
+			metadata["approval_id"] = approvalID
+			metadata["tool_name"] = metadataString(event.Metadata, "tool_name")
+			metadata["effect"] = metadataString(event.Metadata, "effect")
+			fragments = append(fragments, ctxcompiler.Fragment{ID: "event:" + event.ID,
+				Kind: ctxcompiler.KindOpenTask, Scope: "session", Provenance: "approval", Trust: "system",
+				Version: "v1", Priority: 86, CacheClass: "rolling",
+				Content: fmt.Sprintf("waiting on a human decision: %s (%s) -- %s",
+					metadataString(event.Metadata, "tool_name"), metadataString(event.Metadata, "effect"),
+					event.Content),
+				CreatedAt: event.CreatedAt, Metadata: metadata})
 		case "message", "turn_failed":
 			if event.EventKind == "turn_failed" {
 				event.Role = "assistant"

@@ -113,6 +113,9 @@ unpinned-retention-can-fail|func TestVerdictFailsWhenDeclaredDecisionsAreDropped
 causal-pairs-held-or-refused|func TestCausalPairsSurviveTogetherOrTheCompileRefuses|internal/context/compiler_test.go
 pair-split-refuses-compile|causal pair %s was split|internal/context/compiler.go
 field-census-exists|NEVER PRODUCED|scripts/fragment-census.py
+approvals-become-decisions|Kind: ctxcompiler.KindDecision|internal/agent/service.go
+open-approvals-are-open-tasks|Kind: ctxcompiler.KindOpenTask|internal/agent/service.go
+decided-approvals-close|it stopped being open|internal/agent/service.go
 CLAIMS
 )
 

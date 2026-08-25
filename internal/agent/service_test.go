@@ -2708,3 +2708,83 @@ func TestUnsendableToolArgumentsAreNotBudgetedFor(t *testing.T) {
 		}
 	}
 }
+
+// TestApprovalsBecomeDecisionsAndOpenTasks closes O-40.
+//
+// approval_required and approval_decision were written to the event log and
+// then discarded by every compile: the switch in compileTurn had no case for
+// them. In the driven session that threw away 11 requests and 9 human
+// decisions. A model told at step 3 that an operator had approved a write was
+// told nothing about it at step 40, and a write blocked on a human was
+// invisible to the model that was blocked on it.
+//
+// It is also why the Phase 9 gate had no subject. A census of 772 compiled
+// snapshots found decision, open_task and acceptance_criteria at max=0 -- the
+// compiler had consumed those kinds since it was written and nothing produced
+// one outside a test fixture.
+func TestApprovalsBecomeDecisionsAndOpenTasks(t *testing.T) {
+	service, profile, cleanup := testAgentService(t, httptest.NewServer(http.NotFoundHandler()))
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "approvals", ProviderID: profile.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	events := []Event{
+		{ID: "event_user", SessionID: session.ID, TurnID: "t1", EventKind: "message", Role: "user",
+			Content: "แก้ไฟล์ให้หน่อย", CreatedAt: now},
+		// decided: becomes a decision, and stops being an open task
+		{ID: "event_req_a", SessionID: session.ID, TurnID: "t1", EventKind: "approval_required", Role: "system",
+			Content: "replace app/orders.py (467 bytes)", CreatedAt: now.Add(time.Second),
+			Metadata: map[string]any{"approval_id": "approval_a", "tool_name": "workspace.write_file",
+				"effect": "write"}},
+		{ID: "event_dec_a", SessionID: session.ID, TurnID: "t1", EventKind: "approval_decision", Role: "user",
+			Content: "approve", CreatedAt: now.Add(2 * time.Second),
+			Metadata: map[string]any{"approval_id": "approval_a", "tool_name": "workspace.write_file",
+				"actor": "rodmay", "reason": "corpus drive"}},
+		// still waiting: stays an open task
+		{ID: "event_req_b", SessionID: session.ID, TurnID: "t1", EventKind: "approval_required", Role: "system",
+			Content: "delete app/legacy.py (2 KiB)", CreatedAt: now.Add(3 * time.Second),
+			Metadata: map[string]any{"approval_id": "approval_b", "tool_name": "workspace.delete_file",
+				"effect": "delete"}},
+	}
+	profileSpec, ok := ctxcompiler.ProfileByName("certified-64k")
+	if !ok {
+		t.Fatal("missing profile")
+	}
+	compiled, _, err := service.compileTurn(ctx, profileSpec, events, "t1", session.Contract,
+		ctxcompiler.ScriptEstimator{NonASCIIRate: 0.55, Scale: 1}, TransportOverhead{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKind := map[ctxcompiler.Kind][]ctxcompiler.Fragment{}
+	for _, fragment := range compiled.Fragments {
+		byKind[fragment.Kind] = append(byKind[fragment.Kind], fragment)
+	}
+	decisions, openTasks := byKind[ctxcompiler.KindDecision], byKind[ctxcompiler.KindOpenTask]
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %d, want 1", len(decisions))
+	}
+	for _, want := range []string{"rodmay", "approved", "workspace.write_file", "corpus drive"} {
+		if !strings.Contains(decisions[0].Content, want) {
+			t.Fatalf("the decision does not say %q: %q", want, decisions[0].Content)
+		}
+	}
+	// An approval that has been answered is no longer outstanding. Carrying it
+	// as both would tell the model a settled question is still open.
+	if len(openTasks) != 1 {
+		t.Fatalf("open tasks = %d, want 1 (only the undecided approval)", len(openTasks))
+	}
+	if !strings.Contains(openTasks[0].Content, "workspace.delete_file") {
+		t.Fatalf("the open task is the wrong one: %q", openTasks[0].Content)
+	}
+	// Neither may be pinned. Retention that cannot fail cannot be measured --
+	// that is exactly how essential retention became a tautology (P-7).
+	for _, fragment := range append(append([]ctxcompiler.Fragment{}, decisions...), openTasks...) {
+		if fragment.Pinned {
+			t.Fatalf("%s is pinned, so its retention can never be measured", fragment.ID)
+		}
+	}
+}
