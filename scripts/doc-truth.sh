@@ -42,6 +42,33 @@ printf 'HTTP routes:           %s\n' "$routes"
 tables=$(grep -cE '^CREATE TABLE IF NOT EXISTS' internal/store/store.go || true)
 printf 'SQLite tables:         %s\n' "$tables"
 
+# Tables that exist in the schema and nowhere else. A table with no reader and
+# no writer is not an unbuilt feature waiting its turn -- it is a claim the
+# schema makes on the product's behalf. The backup manifest lists them, so a
+# restore reports them as restored, which reads as coverage of features that do
+# not exist. O-42.
+schema_only=""
+for table in $(grep -oE '^CREATE TABLE IF NOT EXISTS [a-z_]+' internal/store/store.go | awk '{print $NF}'); do
+  # `|| true` at every stage: a table with no users makes grep exit 1, and
+  # pipefail would take the whole script down before it printed anything.
+  #
+  # The manifest in backup.go names every table on one line, so excluding that
+  # whole file would hide backup_runs, which the same file really does read and
+  # write. Drop manifest-shaped lines instead -- three or more quoted lowercase
+  # identifiers in a row -- and keep everything else.
+  users=$( { grep -rn "$table" --include='*.go' internal cmd 2>/dev/null || true; } |
+           { grep -vE 'internal/store/store(_test)?\.go' || true; } |
+           { grep -vE '"[a-z_]+", *"[a-z_]+", *"[a-z_]+"' || true; } |
+           wc -l | tr -d ' ')
+  [ "$users" = "0" ] && schema_only="$schema_only $table"
+done
+if [ -n "$schema_only" ]; then
+  printf 'schema-only tables:    %s\n' "$(echo $schema_only | wc -w | tr -d ' ')"
+  for table in $schema_only; do printf '                       %s\n' "$table"; done
+else
+  printf 'schema-only tables:    0\n'
+fi
+
 go_lines=$(find internal cmd assets -name '*.go' -not -name '*_test.go' -exec cat {} + | wc -l | tr -d ' ')
 test_lines=$(find internal -name '*_test.go' -exec cat {} + | wc -l | tr -d ' ')
 printf 'Go lines (non-test):   %s\n' "$go_lines"
@@ -119,6 +146,9 @@ derived-not-user-speech|func isTranscriptKind|internal/agent/service.go
 corpus-carries-real-shapes|func approvalCase|internal/fidelity/service.go
 retrieval-blindness-named|retrieval_blind|internal/agent/service.go
 retrieval-blindness-counted|TurnsGoalScriptUnmatched|internal/agent/models.go
+qualified-mode-unreachable-remotely|func TestRemoteProviderCannotReachQualifiedMode|internal/qualification/service_test.go
+local-probe-refuses-remote|remote model endpoints are disabled in the local probe|internal/localmodel/probe.go
+stored-content-cannot-execute|func TestStoredArtifactContentCannotRunAsAPage|internal/web/server_test.go
 CLAIMS
 )
 

@@ -719,3 +719,73 @@ func TestHealthReportsTheSchemaTheDatabaseActuallyHas(t *testing.T) {
 		t.Fatalf("migrated database is at %d, build targets %d", body.Schema, store.CurrentSchemaVersion)
 	}
 }
+
+// TestStoredArtifactContentCannotRunAsAPage covers the one route that returns
+// bytes a caller supplied, under a MIME type the same caller chose.
+//
+// GET /api/artifacts/{id}/content writes the stored blob with
+// Content-Type: <whatever was posted> and Content-Disposition: inline. Post
+// text/html and the browser is being handed a page on the app's own origin --
+// the origin that also serves an API with no authentication, because the
+// listener is loopback-only. Nothing in the corpus ever created an artifact, so
+// this route had never been exercised at all.
+//
+// It is in fact defended: securityHeaders wraps the whole mux, so the response
+// carries a CSP without unsafe-inline and X-Content-Type-Options: nosniff. That
+// defence was untested here -- the existing check reads the CSP off the UI page
+// only, which would keep passing if raw content were ever served from a mux
+// that skipped the middleware.
+func TestStoredArtifactContentCannotRunAsAPage(t *testing.T) {
+	server := testHTTPServer(t)
+	defer server.Close()
+
+	payload := `{"name":"probe.html","kind":"report","mime_type":"text/html",` +
+		`"content":"<script>alert(1)</script><b>hi</b>"}`
+	created, err := http.Post(server.URL+"/api/artifacts", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(created.Body)
+		t.Fatalf("create artifact: %d %s", created.StatusCode, body)
+	}
+	var artifact struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(created.Body).Decode(&artifact); err != nil {
+		t.Fatal(err)
+	}
+
+	fetched, err := http.Get(server.URL + "/api/artifacts/" + artifact.ID + "/content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fetched.Body.Close()
+
+	// The premise: the route really does hand back the caller's HTML under the
+	// caller's content type. If either stops being true this test is guarding
+	// something that no longer exists.
+	if got := fetched.Header.Get("Content-Type"); got != "text/html" {
+		t.Fatalf("premise changed: content type is %q", got)
+	}
+	body, _ := io.ReadAll(fetched.Body)
+	if !bytes.Contains(body, []byte("<script>")) {
+		t.Fatalf("premise changed: the stored markup was altered: %s", body)
+	}
+
+	// The guarantee.
+	policy := fetched.Header.Get("Content-Security-Policy")
+	if policy == "" {
+		t.Fatal("stored content is served without a CSP; it executes on the app's own origin")
+	}
+	if !strings.Contains(policy, "script-src 'self'") || strings.Contains(policy, "unsafe-inline") {
+		t.Fatalf("CSP would let stored markup execute: %q", policy)
+	}
+	if fetched.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("stored content is sniffable, so a benign MIME type is not binding")
+	}
+	if fetched.Header.Get("X-Frame-Options") != "DENY" {
+		t.Fatal("stored content can be framed by another page")
+	}
+}
