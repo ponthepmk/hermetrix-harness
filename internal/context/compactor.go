@@ -173,45 +173,167 @@ func isCheckpointPreamble(line string) bool {
 		strings.HasPrefix(line, checkpointNoticePrefix)
 }
 
-// focusedExcerpt keeps the span around what the session is working on.
+// focusedExcerpt keeps the span of content that carries the most of the focus.
 //
-// It centres on the focus's most distinctive *term*, not on the focus string
-// as a whole. The first version passed the whole goal to textmatch.Excerpt,
-// which looks for it as a substring: a goal reads "answer only from the notes
-// above" and never appears verbatim inside an exchange, so every excerpt fell
-// through to the no-match branch. Measured on the task corpus that took
-// reachability from 63% to 34% -- worse than the positional rule it replaced,
-// because the fallback kept only the head where headTail had kept both ends.
+// It centres on the window with the densest coverage of the focus's terms
+// rather than on any single term. Centring on the longest term seemed
+// reasonable and measured badly: a goal's most distinctive word often appears
+// somewhere other than the passage that answers it, so the window opened in the
+// wrong place. Across the task corpus that left facts stated in the question's
+// own words reachable only 62% of the time when they sat mid-message -- the
+// case relevance ranking exists to rescue.
 //
-// So: match on terms, and when no term of the focus appears, keep both ends.
-// With nothing to centre on there is no reason to prefer one span, and the
-// wider net is the safer one.
+// When no term of the focus appears at all, both ends are kept. With nothing to
+// centre on there is no reason to prefer one span, and the wider net is safer.
 func focusedExcerpt(content, focus string, maxRunes int) string {
-	if len([]rune(content)) <= maxRunes {
+	runes := []rune(content)
+	if len(runes) <= maxRunes {
 		return content
 	}
-	if term := bestFocusTerm(content, focus); term != "" {
-		return textmatch.Excerpt(content, term, maxRunes)
+	terms := focusTermsPresent(content, focus)
+	if len(terms) == 0 {
+		// No whole word of the focus appears. For Thai and other unspaced
+		// scripts that is the normal case rather than the exception: Terms
+		// splits on whitespace, so "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร" is one
+		// enormous word that matches nothing, and the trigram path is the only
+		// way in. Falling back to both ends here left a fact stated in the
+		// question's own words reachable just 62% of the time when it sat
+		// mid-message -- in Thai, which is the language this system is used in.
+		if window, ok := densestTrigramWindow(content, focus, maxRunes); ok {
+			return window
+		}
+		return headTail(content, maxRunes)
 	}
-	return headTail(content, maxRunes)
+	lowered := strings.ToLower(content)
+	// Every position a focus term starts at, in runes.
+	var marks []int
+	for _, term := range terms {
+		for offset := 0; ; {
+			index := strings.Index(lowered[offset:], term)
+			if index < 0 {
+				break
+			}
+			marks = append(marks, len([]rune(lowered[:offset+index])))
+			offset += index + len(term)
+		}
+	}
+	// The window centred on the mark that covers the most other marks.
+	best, bestCount := marks[0], 0
+	for _, mark := range marks {
+		start, end := mark-maxRunes/2, mark+maxRunes/2
+		count := 0
+		for _, other := range marks {
+			if other >= start && other <= end {
+				count++
+			}
+		}
+		if count > bestCount {
+			best, bestCount = mark, count
+		}
+	}
+	start := best - maxRunes/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxRunes
+	if end > len(runes) {
+		end, start = len(runes), len(runes)-maxRunes
+	}
+	excerpt := string(runes[start:end])
+	if start > 0 {
+		excerpt = "… " + excerpt
+	}
+	if end < len(runes) {
+		excerpt += " …"
+	}
+	return excerpt
 }
 
-// bestFocusTerm picks the longest term of the focus that appears in content.
-// Longest wins because a longer match is a more specific one: "order_total"
-// locates a passage, "the" does not.
-func bestFocusTerm(content, focus string) string {
+// focusTermsPresent returns the focus terms that actually appear in content,
+// lowercased. Short terms and trigrams are skipped: "the" locates nothing, and
+// a trigram match is what the relevance score is for, not what a window should
+// be aimed at.
+func focusTermsPresent(content, focus string) []string {
 	words, _ := textmatch.Terms(strings.ToLower(focus))
 	lowered := strings.ToLower(content)
-	best := ""
+	var present []string
 	for term := range words {
 		if strings.HasPrefix(term, "tri:") || len([]rune(term)) < 3 {
 			continue
 		}
-		if len(term) > len(best) && strings.Contains(lowered, term) {
-			best = term
+		if strings.Contains(lowered, term) {
+			present = append(present, term)
 		}
 	}
-	return best
+	sort.Strings(present)
+	return present
+}
+
+// densestTrigramWindow finds the span of content sharing the most trigrams with
+// the focus. It is how an unspaced script gets a focused excerpt at all.
+//
+// Windows are stepped rather than evaluated at every rune: a fact worth keeping
+// is a sentence, not a character, and scoring 10,000 offsets to place a 500-rune
+// window buys nothing but time.
+// focusedWindowFloor is the share of the focus's trigrams a window must carry
+// before it is preferred over keeping both ends. See densestTrigramWindow.
+const focusedWindowFloor = 0.30
+
+func densestTrigramWindow(content, focus string, maxRunes int) (string, bool) {
+	_, focusGrams := textmatch.Terms(strings.ToLower(focus))
+	if len(focusGrams) == 0 {
+		return "", false
+	}
+	runes := []rune(strings.ToLower(content))
+	if len(runes) <= maxRunes {
+		return content, true
+	}
+	step := maxRunes / 4
+	if step < 1 {
+		step = 1
+	}
+	starts := []int{}
+	for start := 0; start+maxRunes <= len(runes); start += step {
+		starts = append(starts, start)
+	}
+	// The stepped loop stops before the end, so the last window never gets
+	// scanned. A fact in the final sentence of a long message was invisible to
+	// this search until the tail was added explicitly -- which showed up as a
+	// whole cell of the corpus going from fully reachable to not reachable at
+	// all.
+	if tail := len(runes) - maxRunes; tail > 0 && (len(starts) == 0 || starts[len(starts)-1] != tail) {
+		starts = append(starts, tail)
+	}
+	best, bestShared := -1, 0
+	for _, start := range starts {
+		_, grams := textmatch.Terms(string(runes[start : start+maxRunes]))
+		if shared := textmatch.Overlap(focusGrams, grams); shared > bestShared {
+			best, bestShared = start, shared
+		}
+	}
+	// Only override the positional default when relevance actually has
+	// something to say. Measured on this corpus: a fact stated in the
+	// question's own words puts 0.48 of the focus's trigrams inside the best
+	// window, one stated in different words 0.15, and a window that never
+	// covers the fact 0.11. Below the threshold the signal is indistinguishable
+	// from background similarity between two pieces of Thai prose, and keeping
+	// both ends is the safer bet.
+	if best < 0 || float64(bestShared)/float64(len(focusGrams)) < focusedWindowFloor {
+		return "", false
+	}
+	original := []rune(content)
+	end := best + maxRunes
+	if end > len(original) {
+		end = len(original)
+	}
+	excerpt := string(original[best:end])
+	if best > 0 {
+		excerpt = "… " + excerpt
+	}
+	if end < len(original) {
+		excerpt += " …"
+	}
+	return excerpt, true
 }
 
 // relevanceOf scores an extract against the focus with the same Thai-aware

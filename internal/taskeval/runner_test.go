@@ -221,27 +221,31 @@ func TestASmallSampleIsNotAPass(t *testing.T) {
 // TestGeneratedCorpusBehavesAsMeasured is the pre-flight for P9-B: it proves
 // the corpus can register something before any model budget is spent on it.
 //
-// What it asserts changed when the compactor did. It used to check that
-// placement predicted survival -- head and tail reachable, middle lost -- which
-// was true of a compactor that kept 360 runes from each end and dropped the
-// middle. That compactor is gone. The current one centres its extract on the
-// terms of the session's goal, so position no longer decides anything and a
-// placement-based assertion would be testing a rule the code no longer follows.
+// What it asserts has changed twice, because what decides has changed twice.
+// It first checked that placement predicted survival, which was true of a
+// compactor that kept 360 runes from each end and dropped the middle. Once the
+// compactor started ranking by relevance to the goal, every placement came back
+// reachable and the corpus stopped measuring loss at all.
 //
-// Measured on this corpus, all three placements are now reachable 100% of the
-// time. That is the improvement, and it is also a warning: a corpus where
-// nothing is ever lost cannot measure loss. What decides now is whether the
-// fact shares words with the question, so that is what the corpus has to vary
-// next -- see the note in corpus/tasks/README.md.
+// What decides now is phrasing distance, and the grid is sharp:
+//
+//	          head   middle   tail
+//	near      100%     100%   100%
+//	far       100%       0%   100%
+//
+// A fact stated in the question's own words survives wherever it sits. A fact
+// stated in different words survives at either end -- relevance has no signal,
+// so the positional default keeps both -- and is lost in the middle. Those
+// twenty tasks are the only ones that need context_search, and they are why
+// the retrieval condition exists.
 func TestGeneratedCorpusBehavesAsMeasured(t *testing.T) {
 	runner := testRunner(t, &needleReader{needle: "x", answer: "x"})
-	tasks, err := Generate(GenerateOptions{PerClass: 12, Seed: 7})
+	tasks, err := Generate(GenerateOptions{PerClass: 30, Seed: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 36 {
-		t.Fatalf("tasks = %d, want 36", len(tasks))
-	}
+	type counter struct{ total, reachable int }
+	byCell := map[string]*counter{}
 	for _, task := range tasks {
 		full, compiled, _, err := runner.Prepare(context.Background(), task)
 		if err != nil {
@@ -251,11 +255,33 @@ func TestGeneratedCorpusBehavesAsMeasured(t *testing.T) {
 		if !strings.Contains(join(full), marker) {
 			t.Fatalf("%s: the full context does not carry its own answer", task.ID)
 		}
-		// The compaction is real -- Prepare refuses a task that compacts
-		// nothing -- and the fact still comes through, at any placement.
-		if !strings.Contains(join(compiled), marker) {
-			t.Fatalf("%s: a %s-placed fact the question asks about was lost; "+
-				"relevance-based compaction has regressed", task.ID, task.Placement)
+		cell := task.Phrasing + "/" + task.Placement
+		if byCell[cell] == nil {
+			byCell[cell] = &counter{}
+		}
+		byCell[cell].total++
+		if strings.Contains(join(compiled), marker) {
+			byCell[cell].reachable++
+		}
+	}
+	for cell, want := range map[string]bool{
+		"near/head": true, "near/middle": true, "near/tail": true,
+		"far/head": true, "far/middle": false, "far/tail": true,
+	} {
+		got := byCell[cell]
+		if got == nil || got.total == 0 {
+			t.Fatalf("%s has no tasks; the sampler stopped covering the grid", cell)
+		}
+		reachable := got.reachable == got.total
+		unreachable := got.reachable == 0
+		switch {
+		case want && !reachable:
+			t.Fatalf("%s: %d/%d reachable, want all -- compaction has regressed",
+				cell, got.reachable, got.total)
+		case !want && !unreachable:
+			t.Fatalf("%s: %d/%d reachable, want none -- the corpus can no longer "+
+				"measure loss, so a delta of zero would mean nothing",
+				cell, got.reachable, got.total)
 		}
 	}
 }

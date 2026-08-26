@@ -710,3 +710,79 @@ func headOf(value string) string {
 	}
 	return value
 }
+
+// TestAThaiFocusFindsItsOwnPassage covers the branch an unspaced script depends
+// on entirely.
+//
+// textmatch.Terms splits words on whitespace, so a Thai goal is one enormous
+// token that matches nothing: "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร" never appears
+// inside an exchange even when the exchange is about exactly that. Word
+// matching alone left a fact stated in the question's own words reachable only
+// 62% of the time when it sat mid-message -- in Thai, which is the language
+// this system is used in.
+func TestAThaiFocusFindsItsOwnPassage(t *testing.T) {
+	const marker = "PLAN-1061"
+	focus := "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร ตอบเฉพาะหมายเลข"
+	pad := strings.Repeat("รายละเอียดประกอบการทำงานที่ไม่มีคำตอบอยู่ในนั้น ", 120)
+	content := pad + " สรุปที่ประชุม: ใช้หมายเลขแผนงาน " + marker + " และให้ย้อนกลับอัตโนมัติ " + pad
+
+	// Premise: no whole word of the focus appears, so word matching has nothing.
+	if len(focusTermsPresent(content, focus)) != 0 {
+		t.Fatal("premise broken: a whole focus word appears, so this is not the Thai path")
+	}
+	excerpt := focusedExcerpt(content, focus, 520)
+	if !strings.Contains(excerpt, marker) {
+		t.Fatalf("the Thai focus did not find its own passage: %.120q", excerpt)
+	}
+	// And the window must not be the head-and-tail default, or it found the
+	// passage by luck rather than by looking.
+	if strings.HasPrefix(excerpt, "รายละเอียด") {
+		t.Fatal("the excerpt is the head-and-tail default, not a focused window")
+	}
+}
+
+// Relevance only gets to override the positional default when it has something
+// to say. Two pieces of Thai prose share trigrams whatever they are about, so a
+// weak best window is background similarity rather than signal -- and
+// committing to it cost a whole cell of the task corpus, taking facts at the
+// end of a message from fully reachable to not reachable at all.
+func TestAWeakFocusKeepsBothEnds(t *testing.T) {
+	const marker = "PLAN-1061"
+	focus := "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร ตอบเฉพาะหมายเลข"
+	pad := strings.Repeat("รายละเอียดประกอบการทำงานที่ไม่มีคำตอบอยู่ในนั้น ", 120)
+	// The fact is stated in words the question does not use, and sits at the end.
+	unrelated := pad + " ที่คุยกันไว้คือเคาะรหัสอ้างอิงรอบนำขึ้นระบบเป็น " + marker
+
+	excerpt := focusedExcerpt(unrelated, focus, 520)
+	if !strings.Contains(excerpt, marker) {
+		t.Fatalf("a weakly matched focus discarded the tail: %.120q", excerpt)
+	}
+	// Strong signal still wins, or the floor would have disabled the feature.
+	related := pad + " สรุปที่ประชุม: ใช้หมายเลขแผนงาน " + marker + " และให้ย้อนกลับอัตโนมัติ " + pad
+	if window, ok := densestTrigramWindow(related, focus, 520); !ok ||
+		!strings.Contains(window, marker) {
+		t.Fatalf("a strongly matched focus was refused: ok=%v", ok)
+	}
+}
+
+// The stepped window search stops before the end of the content, so a fact in
+// the final stride is never scanned. The head-and-tail fallback happens to keep
+// it anyway, which is why the corpus grid does not notice -- but it means the
+// compactor spends its whole budget on both ends when it could have spent it on
+// the passage that answers the question.
+//
+// This asserts what the tail scan actually buys: a focused window rather than
+// the default, for a fact at the very end of a long fragment.
+func TestTheWindowSearchReachesTheEndOfTheContent(t *testing.T) {
+	focus := "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร ตอบเฉพาะหมายเลข"
+	pad := strings.Repeat("รายละเอียดประกอบการทำงานที่ไม่มีคำตอบอยู่ในนั้น ", 120)
+	content := pad + " สรุปที่ประชุม: ใช้หมายเลขแผนงาน PLAN-1061"
+
+	window, ok := densestTrigramWindow(content, focus, 520)
+	if !ok {
+		t.Fatal("a strongly matched fact in the final stride was not found by the window search")
+	}
+	if !strings.Contains(window, "PLAN-1061") {
+		t.Fatalf("the window does not contain the fact: %.120q", window)
+	}
+}

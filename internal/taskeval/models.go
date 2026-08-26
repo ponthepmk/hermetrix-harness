@@ -85,6 +85,13 @@ type Task struct {
 	// so a report can separate "compaction dropped the fact" from "the model had
 	// it and still got the answer wrong".
 	Placement string `json:"placement,omitempty"`
+	// Phrasing says whether the fact is stated in the question's own words
+	// ("near") or in different words for the same thing ("far"). It replaced
+	// placement as the dimension that decides anything: once the compactor
+	// started ranking by relevance to the goal, position stopped mattering and
+	// every placement came back reachable, so a corpus varying only position
+	// could no longer register a loss.
+	Phrasing string `json:"phrasing,omitempty"`
 }
 
 // Outcome is one task under one condition.

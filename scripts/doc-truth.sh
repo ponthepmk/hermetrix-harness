@@ -164,7 +164,7 @@ eval-verdict-is-derived|func behavioralVerdict|internal/skills/behavioral.go
 eval-binds-exact-candidate|eval.CandidateHash != candidate.CandidateHash|internal/skills/behavioral.go
 eval-refusal-is-tested|func TestPromotionRefusesACandidateThatWasNeverEvaluated|internal/skills/behavioral_test.go
 history-is-retrievable|context_search|internal/tools/registry.go
-search-excerpt-centres-on-match|func excerptAround|internal/agent/contextsearch.go
+search-excerpt-centres-on-match|func Excerpt|internal/textmatch/excerpt.go
 search-recovers-compacted-fact|func TestContextSearchRecoversWhatCompactionDestroyed|internal/agent/contextsearch_test.go
 checkpoint-declares-its-loss|omits the middle|internal/context/compactor.go
 checkpoint-names-the-recovery-tool|context_search with a keyword|internal/context/compactor.go
@@ -178,6 +178,10 @@ recovery-never-runs-the-effect|recovery executed the side effect itself|internal
 retrieval-condition-exists|ConditionRetrieval|internal/taskeval/retrieval.go
 retrieval-counts-whether-it-searched|SearchCalls|internal/taskeval/models.go
 retrieval-separates-two-failures|func TestRetrievalConditionSeparatesNotSearchingFromSearchingBadly|internal/taskeval/runner_test.go
+thai-focus-has-a-window|func densestTrigramWindow|internal/context/compactor.go
+weak-focus-keeps-both-ends|focusedWindowFloor|internal/context/compactor.go
+corpus-varies-phrasing|FarPhrasingRate|internal/taskeval/generate.go
+far-phrasing-rate-is-chosen|this is chosen, not measured|internal/taskeval/generate.go
 CLAIMS
 )
 

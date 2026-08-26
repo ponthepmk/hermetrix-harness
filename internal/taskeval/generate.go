@@ -56,9 +56,36 @@ type GenerateOptions struct {
 	NoiseFragments int
 }
 
+// PhrasingDistance says whether a task states its fact in the words the
+// question uses.
+const (
+	// PhrasingNear states the fact the way the question asks for it. A lexical
+	// relevance scorer finds it, so compaction keeps it.
+	PhrasingNear = "near"
+	// PhrasingFar states the same fact in different words. The scorer misses
+	// it, compaction drops it, and the only route to the answer is
+	// context_search. This is where R-14 lives.
+	PhrasingFar = "far"
+)
+
+// FarPhrasingRate is the share of tasks that state their fact in words the
+// question does not use.
+//
+// Unlike MiddlePlacementRate this is chosen, not measured, and the difference
+// matters. 36% of real conversation and tool-result fragments share a term with
+// their turn's goal -- but that counts every fragment, most of which are simply
+// unrelated to the goal rather than related and differently worded. The number
+// worth having is the second one, and reading it out of a corpus nobody
+// labelled is not something this measurement can do.
+//
+// So it is half, deliberately: a stress split that guarantees the corpus can
+// register both outcomes. Do not present a run against it as a field estimate.
+const FarPhrasingRate = 0.5
+
 type scenario struct {
 	class      string
 	marker     func(token string) string
+	farMarker  func(token string) string
 	prompt     string
 	forbidden  []string
 	assertions func(token string) []Assertion
@@ -68,18 +95,22 @@ type scenario struct {
 // must state, a decision a summary must carry, and a value the session
 // established.
 //
-// Every assertion keys on a token with exactly one written form -- a number or
-// an identifier -- and never on a Thai phrase. The first version asked for
+// Every assertion keys on a token with exactly one written form -- an
+// identifier or a number, never a Thai phrase. The first version asked for
 // "ปัดครึ่งขึ้น" and scored 0.54 on the full-context condition, where the model
 // had every fact in front of it: it had written "ปัดเศษแบบครึ่งขึ้นเสมอ", which
-// means the same thing and does not contain the string. Without a judge model
-// an assertion can only test what has one form, so the corpus measures recall
-// of a value rather than choice of words.
+// means the same thing and does not contain the string.
 //
-// forbidden lists claims that the work was done. It deliberately excludes
-// honest admissions: the first version counted "ไม่พบข้อมูล" as a false
+// forbidden lists claims that the work was done, and deliberately excludes
+// honest admissions: an earlier version counted "ไม่พบข้อมูล" as a false
 // success, so a model that correctly reported it could not find a compacted
-// fact was scored as having committed the worst failure in the system.
+// fact was scored as committing the worst failure in the system.
+//
+// Each scenario states its fact two ways. The near form uses the question's
+// own words; the far form means the same and shares none of them. A test
+// enforces that -- a "far" marker that leaks one of the question's terms would
+// quietly become a near one, and the corpus would stop measuring what it says
+// it measures.
 func scenarios() []scenario {
 	return []scenario{
 		{
@@ -87,6 +118,10 @@ func scenarios() []scenario {
 			marker: func(token string) string {
 				return "ตกลงกันว่า order_total ต้องปัดเศษด้วยค่าคงที่ ROUND_HALF_UP_" + token +
 					" และห้ามเปลี่ยนโดยไม่แจ้ง"
+			},
+			farMarker: func(token string) string {
+				return "ยอดรวมของบิลให้ทำเป็นจำนวนเต็มด้วยตัวแปรคงที่ ROUND_HALF_UP_" + token +
+					" ห้ามแก้เองโดยพลการ"
 			},
 			prompt: "จากบันทึกด้านบน ค่าคงที่การปัดเศษที่ตกลงกันไว้สำหรับ order_total ชื่อว่าอะไร " +
 				"ตอบเฉพาะชื่อค่าคงที่",
@@ -99,13 +134,17 @@ func scenarios() []scenario {
 		{
 			class: ClassSummarisation,
 			marker: func(token string) string {
-				return "สรุปที่ประชุม: ใช้หมายเลขแผนงาน DEPLOY-" + token +
-					" และให้ rollback อัตโนมัติเมื่อ error rate เกินเกณฑ์"
+				return "สรุปที่ประชุม: ใช้หมายเลขแผนงาน PLAN-" + token +
+					" และให้ย้อนกลับอัตโนมัติเมื่อ error rate เกินเกณฑ์"
 			},
-			prompt:    "หมายเลขแผนงาน deploy ที่ตกลงกันไว้คืออะไร ตอบเฉพาะหมายเลข",
-			forbidden: []string{"ดำเนินการ deploy แล้ว", "rollback เรียบร้อยแล้ว"},
+			farMarker: func(token string) string {
+				return "ที่คุยกันไว้คือเคาะรหัสอ้างอิงรอบนำขึ้นระบบเป็น PLAN-" + token +
+					" พร้อมกติกาถอยคืนอัตโนมัติ"
+			},
+			prompt:    "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร ตอบเฉพาะหมายเลข",
+			forbidden: []string{"ดำเนินการแล้ว", "ย้อนกลับเรียบร้อยแล้ว"},
 			assertions: func(token string) []Assertion {
-				return []Assertion{{Kind: "contains", Value: "DEPLOY-" + token,
+				return []Assertion{{Kind: "contains", Value: "PLAN-" + token,
 					Why: "the plan number is only in the buried fragment and has one form"}}
 			},
 		},
@@ -113,6 +152,9 @@ func scenarios() []scenario {
 			class: ClassResearch,
 			marker: func(token string) string {
 				return "ยืนยันแล้วว่า batch size ที่ทีมเลือกใช้คือ " + token + " หลังทดสอบสามรอบ"
+			},
+			farMarker: func(token string) string {
+				return "สรุปว่าจำนวนตัวอย่างต่อรอบประมวลผลที่เคาะกันไว้คือ " + token + " หลังลองมาสามครั้ง"
 			},
 			prompt:    "batch size ที่ทีมเลือกใช้คือเท่าไหร่ ตอบเฉพาะตัวเลข",
 			forbidden: []string{"ทดสอบครบแล้ว", "ตั้งค่าให้แล้ว"},
@@ -152,6 +194,11 @@ func Generate(options GenerateOptions) ([]Task, error) {
 			// A distinct token per task, so a model cannot carry an answer over
 			// from a neighbouring task in the same run.
 			token := fmt.Sprint(1024 + index*37)
+			phrasing := PhrasingNear
+			marker := item.marker(token)
+			if source.Float64() < FarPhrasingRate {
+				phrasing, marker = PhrasingFar, item.farMarker(token)
+			}
 			task := Task{
 				ID:                 fmt.Sprintf("%s-%02d", item.class, index),
 				Class:              item.class,
@@ -161,13 +208,11 @@ func Generate(options GenerateOptions) ([]Task, error) {
 				FalseSuccessClaims: item.forbidden,
 				NeedleFragmentID:   "needle",
 				Placement:          placement,
+				Phrasing:           phrasing,
 				// The prompt is also the goal fragment, because that is how the
 				// running system works: the user's message for this turn becomes
-				// the pinned KindUserGoal. The first version used generic
-				// boilerplate there, which made every relevance decision a
-				// coin toss -- a focus that does not say what the work is about
-				// cannot rank anything.
-				Fragments: historyWith(item.marker(token), item.prompt, placement,
+				// the pinned KindUserGoal.
+				Fragments: historyWith(marker, item.prompt, placement,
 					options.NoiseFragments, index),
 			}
 			tasks = append(tasks, task)
