@@ -786,3 +786,120 @@ func TestTheWindowSearchReachesTheEndOfTheContent(t *testing.T) {
 		t.Fatalf("the window does not contain the fact: %.120q", window)
 	}
 }
+
+// TestSemanticRelevanceSavesAFragmentLexicalRankingWouldDrop is the compaction
+// half of O-44.
+//
+// context_search made a dropped fact recoverable; this keeps it from being
+// dropped. The failure it addresses is sharper than "lexical misses a
+// paraphrase". Measured against the goal "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร":
+//
+//	the exchange holding the answer, in different words   relevance 1
+//	ordinary chatter sharing คุยกันไว้ / ตกลงกัน            relevance 7
+//
+// Superficially similar noise outranks the answer seven to one, so lexical
+// ranking does not merely fail to find the fact -- it spends the checkpoint
+// budget on something else.
+//
+// The test asserts both directions. A scorer that promotes everything would
+// pass the first half on its own.
+func TestSemanticRelevanceSavesAFragmentLexicalRankingWouldDrop(t *testing.T) {
+	profile, _ := ProfileByName("compact-32k")
+	compiler := NewCompiler(NewAdaptiveEstimator(), nil, NewVerifiedCompactor(StructuredCompactor{}))
+	const marker = "PLAN-4096"
+
+	// Noise that shares ordinary words with the goal without answering it,
+	// which is what a real session is full of.
+	filler := strings.Repeat("เมื่อวานคุยกันไว้เรื่องอื่นที่ตกลงกันแล้วแต่ไม่ใช่เรื่องนี้ ", 40)
+	fragments := []Fragment{
+		{ID: "goal", Kind: KindUserGoal, Scope: "session", Provenance: "f", Trust: "user",
+			Version: "v1", Priority: 100, Pinned: true,
+			Content: "หมายเลขแผนงานที่ตกลงกันไว้คืออะไร"},
+	}
+	// The answer, in words the goal does not use, and the same size as
+	// everything around it. A short fragment is kept verbatim whatever the
+	// ranking says -- selectWithin keeps scanning past a unit that does not fit,
+	// so small ones land in the leftover budget -- which would make this test
+	// pass without compaction ever having a choice to make.
+	answerFiller := strings.Repeat("รายละเอียดประกอบที่ไม่ได้ตอบคำถามนี้ ", 40)
+	// The answer sits partway through the history rather than at its start.
+	// selectWithin sorts by priority and keeps insertion order among equals, so
+	// a fragment placed early is selected verbatim and never reaches the
+	// compactor -- which is how the first two versions of this fixture managed
+	// to prove nothing.
+	for index := 0; index < 200; index++ {
+		if index == 100 {
+			fragments = append(fragments, Fragment{ID: "event:paraphrase", Kind: KindConversation,
+				Scope: "session", Provenance: "assistant", Trust: "assistant", Version: "v1",
+				Priority: 70, Content: answerFiller +
+					" ที่คุยกันไว้คือเคาะรหัสอ้างอิงรอบนำขึ้นระบบเป็น " + marker +
+					" พร้อมกติกาถอยคืนอัตโนมัติ " + answerFiller})
+			continue
+		}
+		fragments = append(fragments, Fragment{ID: fmt.Sprintf("event:noise-%03d", index),
+			Kind: KindConversation, Scope: "session", Provenance: "assistant", Trust: "assistant",
+			Version: "v1", Priority: 70, Content: fmt.Sprintf("ลำดับ %d ", index) + filler})
+	}
+
+	compiledText := func(scorer func(string) float64) string {
+		compiled, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile,
+			Fragments: fragments, SemanticRelevance: scorer})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := ""
+		for _, fragment := range compiled.Fragments {
+			body += "\n" + fragment.Content
+		}
+		return body
+	}
+
+	// Premise: lexical ranking alone loses it, or there is nothing to save.
+	if strings.Contains(compiledText(nil), marker) {
+		t.Fatal("lexical ranking already keeps the fact; this test proves nothing")
+	}
+	saved := compiledText(func(id string) float64 {
+		if id == "event:paraphrase" {
+			return 0.8
+		}
+		return 0.1
+	})
+	if !strings.Contains(saved, marker) {
+		t.Fatal("a semantically relevant fragment was still dropped")
+	}
+	// A scorer that likes everything equally must change nothing, or the
+	// mechanism is a blanket promotion rather than ranking.
+	if strings.Contains(compiledText(func(string) float64 { return 0.8 }), marker) {
+		t.Fatal("a scorer that rates every fragment alike still promoted this one")
+	}
+}
+
+// evenSlices replaced headTail as the fallback, and the difference is an
+// assumption rather than a tuning constant.
+//
+// headTail keeps the two ends, which encodes "what matters is at an edge" --
+// the same assumption that lost a third of the facts this compactor was asked
+// about. When nothing in the text says where to look, sampling across it is
+// less assumptive for the same budget: three windows instead of two.
+func TestWithNothingToAimAtTheFragmentIsSampledNotTrimmed(t *testing.T) {
+	const marker = "PLAN-4096"
+	// A fact at the centre, which head-and-tail trimming always discards.
+	pad := strings.Repeat("รายละเอียดประกอบที่ไม่ได้ตอบคำถามนี้ ", 200)
+	content := pad + " รหัสอ้างอิงคือ " + marker + " " + pad
+
+	// Premise: nothing in the focus appears, so there is nothing to aim at.
+	focus := "คำถามที่ใช้ถ้อยคำต่างออกไปโดยสิ้นเชิง"
+	if len(focusTermsPresent(content, focus)) != 0 {
+		t.Fatal("premise broken: a focus word appears, so this is not the no-anchor path")
+	}
+	if strings.Contains(headTail(content, 600), marker) {
+		t.Fatal("premise broken: head-and-tail already keeps the centre")
+	}
+	if !strings.Contains(evenSlices(content, 600), marker) {
+		t.Fatal("sampling across the fragment still missed its centre")
+	}
+	// Same budget, or this is a bigger extract rather than a better one.
+	if length := len([]rune(evenSlices(content, 600))); length > 620 {
+		t.Fatalf("the sampled extract is %d runes against a 600 budget", length)
+	}
+}

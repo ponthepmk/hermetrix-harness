@@ -224,11 +224,16 @@ func Generate(options GenerateOptions) ([]Task, error) {
 // historyWith builds a session history carrying the marker once, at the
 // requested position inside one long conversation fragment.
 func historyWith(marker, goal, placement string, noise, salt int) []ctxcompiler.Fragment {
+	// "middle" means between the windows the compactor samples, not the exact
+	// midpoint. It no longer assumes what matters sits at an edge -- it takes
+	// head, middle and tail for the same budget -- so a fact at the centre is
+	// now the one interior position it always looks at, and placing it there
+	// would make the corpus report a loss mode that no longer exists.
 	pad := strings.Repeat("รายละเอียดประกอบการทำงานที่ไม่มีคำตอบอยู่ในนั้น ", 120)
 	content := marker + " " + pad
 	switch placement {
 	case PlacementMiddle:
-		content = pad + " " + marker + " " + pad
+		content = pad + " " + marker + " " + pad + pad + pad
 	case PlacementTail:
 		content = pad + " " + marker
 	}

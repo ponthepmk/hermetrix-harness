@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"hermetrix-harness/internal/embedding"
@@ -186,4 +187,48 @@ func decodeVector(blob []byte) []float32 {
 		vector[index] = math.Float32frombits(binary.LittleEndian.Uint32(blob[index*4:]))
 	}
 	return vector
+}
+
+// fragmentRelevance returns a scorer the context compiler can use to rank what
+// a checkpoint keeps, or nil when semantic retrieval is not configured.
+//
+// It resolves fragment IDs back to events -- compileTurn names a conversation
+// fragment "event:<id>" -- and reads vectors already in the store. No model
+// call happens inside the compile: the query is embedded once here, the
+// fragment vectors were written when their events were, and what the compactor
+// receives is a lookup. A compile that had to wait on an embedding endpoint
+// would make an optional index a hard dependency of answering a turn.
+func (s *Service) fragmentRelevance(ctx context.Context, sessionID, focus string) func(string) float64 {
+	if s.embedder == nil || strings.TrimSpace(focus) == "" {
+		return nil
+	}
+	vectors, err := s.embedder.Embed(ctx, []string{focus})
+	if err != nil || len(vectors) != 1 {
+		return nil
+	}
+	focusVector := vectors[0]
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT event_id, vector FROM event_embeddings
+      WHERE session_id = ? AND revision = ?`, sessionID, s.embedder.Revision())
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	scores := map[string]float64{}
+	for rows.Next() {
+		var id string
+		var blob []byte
+		if err := rows.Scan(&id, &blob); err != nil {
+			return nil
+		}
+		// Cosine is in [-1,1] and the caller's contract is [0,1]. Negative
+		// similarity and no similarity are the same thing for ranking: not
+		// relevant.
+		if score := embedding.Cosine(focusVector, decodeVector(blob)); score > 0 {
+			scores["event:"+id] = score
+		}
+	}
+	if rows.Err() != nil || len(scores) == 0 {
+		return nil
+	}
+	return func(fragmentID string) float64 { return scores[fragmentID] }
 }

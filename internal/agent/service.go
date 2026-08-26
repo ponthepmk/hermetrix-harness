@@ -1302,6 +1302,17 @@ type selectedSkill struct {
 	Reason     string
 }
 
+// currentGoal is the pinned user goal for this turn, which is what relevance
+// is judged against.
+func currentGoal(fragments []ctxcompiler.Fragment) string {
+	for _, fragment := range fragments {
+		if fragment.Kind == ctxcompiler.KindUserGoal {
+			return fragment.Content
+		}
+	}
+	return ""
+}
+
 func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, events []Event, currentTurnID string,
 	contract SessionContract, scale ctxcompiler.ScriptEstimator,
 	transport TransportOverhead) (ctxcompiler.Compiled, []selectedSkill, error) {
@@ -1452,6 +1463,13 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 	}
 	request := ctxcompiler.Request{Profile: profile, Fragments: fragments,
 		MessageOverhead: transport.MessageOverhead, RequestOverhead: transport.RequestOverhead}
+	// Rank what a checkpoint keeps by meaning as well as by words, where an
+	// embedder is configured. Nil when it is not, and the compactor falls back
+	// to lexical ranking -- which is a supported configuration, not a degraded
+	// one.
+	if goal := currentGoal(fragments); goal != "" && len(events) > 0 {
+		request.SemanticRelevance = s.fragmentRelevance(ctx, events[0].SessionID, goal)
+	}
 	if len(contract.ToolBindings) > 0 {
 		request.DirectTools = contextSpecsFor(contract.ToolBindings)
 		request.WorstCaseToolBurst = 2048

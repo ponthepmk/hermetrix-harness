@@ -186,6 +186,9 @@ semantic-retrieval-is-optional|ErrNoEmbedder|internal/embedding/embedding.go
 vectors-bound-to-a-revision|AND revision = \?|internal/agent/semantic.go
 semantic-selection-is-relative|SemanticMargin|internal/agent/semantic.go
 semantic-does-not-replace-lexical|func TestSemanticDoesNotDisplaceAnExactMatch|internal/agent/semantic_test.go
+compaction-ranks-semantically|SemanticRelevance func\(fragmentID string\) float64|internal/context/compactor.go
+no-anchor-means-sample-not-trim|func evenSlices|internal/context/compactor.go
+semantic-rank-saves-a-fragment|func TestSemanticRelevanceSavesAFragmentLexicalRankingWouldDrop|internal/context/compiler_test.go
 CLAIMS
 )
 

@@ -26,6 +26,16 @@ type CompactRequest struct {
 	// user goal. Empty focus is allowed and falls back to the old behaviour,
 	// so a caller with nothing to say about relevance is no worse off.
 	Focus string
+	// SemanticRelevance optionally scores one fragment against the focus, in
+	// [0,1]. Nil means lexical ranking only.
+	//
+	// It is a function rather than an embedder because this package should not
+	// know how relevance is computed: the caller has the vectors, the store and
+	// the decision about whether semantic retrieval is configured at all. It
+	// also keeps compaction free of a network call it would have to fail
+	// gracefully around -- the scores are already computed by the time they
+	// arrive here.
+	SemanticRelevance func(fragmentID string) float64
 }
 
 type Compactor interface {
@@ -79,8 +89,35 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, request CompactRequest)
 			// nothing is in focus this degrades to the old head-and-tail trim,
 			// which is the right fallback: with no focus there is no reason to
 			// prefer any span over another.
+			// Ranking alone turned out not to be enough: promoting a unit into
+			// the checkpoint while still extracting it with the lexical ladder
+			// keeps the fragment and cuts out the answer, because the ladder has
+			// no anchor to aim at in text sharing no words with the goal. What
+			// fixed it was sampling across the fragment rather than widening the
+			// window -- see evenSlices. Widening was tried first and could not
+			// be shown to recover anything: going from 360 to 1,086 runes on a
+			// 10,000-rune fragment still missed, while costing the budget that
+			// other fragments needed.
+			semantic := 0.0
+			if request.SemanticRelevance != nil {
+				semantic = request.SemanticRelevance(fragment.ID)
+			}
 			content = focusedExcerpt(content, request.Focus, maxRunes)
 			current.relevance += relevanceOf(content, focusWords, focusGrams)
+			// Semantic relevance is added to lexical, not substituted for it.
+			// Where the wording matches, lexical is exact and an identifier is
+			// something a substring finds and a vector approximates; where it
+			// does not, lexical is provably blind (O-44). The two disagree in
+			// different directions, so a fragment either method rates highly
+			// survives, and one both rate highly outranks it.
+			//
+			// Ranking is where semantics are applied and extraction is not:
+			// choosing the window would mean embedding several candidate spans
+			// per fragment, which is tens of model calls inside a compile. The
+			// window still comes from the lexical ladder, so a semantically
+			// relevant fragment with no lexical anchor is kept whole-ish rather
+			// than aimed precisely.
+			current.relevance += int(semanticRelevanceWeight * semantic)
 			lines = append(lines, fmt.Sprintf("- [%s:%s] %s", fragment.Kind, fragment.ID, content))
 			if fragment.Priority > current.priority {
 				current.priority = fragment.Priority
@@ -202,7 +239,7 @@ func focusedExcerpt(content, focus string, maxRunes int) string {
 		if window, ok := densestTrigramWindow(content, focus, maxRunes); ok {
 			return window
 		}
-		return headTail(content, maxRunes)
+		return evenSlices(content, maxRunes)
 	}
 	lowered := strings.ToLower(content)
 	// Every position a focus term starts at, in runes.
@@ -249,6 +286,35 @@ func focusedExcerpt(content, focus string, maxRunes int) string {
 	return excerpt
 }
 
+// evenSlices samples a fragment at its start, middle and end.
+//
+// It replaces keeping only the two ends for the case where nothing in the text
+// tells us where to look. headTail was built for a compactor that ranked by
+// position, and it encodes the assumption that what matters is at an edge --
+// which is exactly the assumption that lost a third of the facts it was asked
+// about. When a fragment is known to be about the work but not where, sampling
+// across it is the honest shape: three windows instead of two, same budget.
+func evenSlices(content string, maxRunes int) string {
+	runes := []rune(content)
+	if len(runes) <= maxRunes {
+		return content
+	}
+	const slices = 3
+	width := maxRunes / slices
+	if width < 1 {
+		return headTail(content, maxRunes)
+	}
+	var out strings.Builder
+	for index := range slices {
+		start := index * (len(runes) - width) / (slices - 1)
+		if index > 0 {
+			out.WriteString(" … ")
+		}
+		out.WriteString(string(runes[start : start+width]))
+	}
+	return out.String()
+}
+
 // focusTermsPresent returns the focus terms that actually appear in content,
 // lowercased. Short terms and trigrams are skipped: "the" locates nothing, and
 // a trigram match is what the relevance score is for, not what a window should
@@ -275,6 +341,13 @@ func focusTermsPresent(content, focus string) []string {
 // Windows are stepped rather than evaluated at every rune: a fact worth keeping
 // is a sentence, not a character, and scoring 10,000 offsets to place a 500-rune
 // window buys nothing but time.
+// semanticRelevanceWeight scales a similarity in [0,1] onto the same range the
+// lexical score uses, where a strong word match contributes 4 per term and a
+// full trigram overlap 20. A confident semantic match is worth about as much as
+// a good lexical one -- enough to save a fragment lexical ranking would drop,
+// not enough to bury an exact match.
+const semanticRelevanceWeight = 24
+
 // focusedWindowFloor is the share of the focus's trigrams a window must carry
 // before it is preferred over keeping both ends. See densestTrigramWindow.
 const focusedWindowFloor = 0.30

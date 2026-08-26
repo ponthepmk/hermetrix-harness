@@ -106,7 +106,8 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 		// keep the part of an exchange that bears on the work rather than the
 		// part that happens to sit at its ends.
 		checkpoint, err = c.compactor.Compact(ctx, CompactRequest{Fragments: droppedActive,
-			TargetTokens: profile.SummaryTarget, Estimator: c.estimator, Focus: focusOf(request.Fragments)})
+			TargetTokens: profile.SummaryTarget, Estimator: c.estimator,
+			Focus: focusOf(request.Fragments), SemanticRelevance: request.SemanticRelevance})
 		if err != nil {
 			return Compiled{}, fmt.Errorf("compact context: %w", err)
 		}

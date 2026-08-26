@@ -77,11 +77,14 @@ func (r *needleReader) Answer(_ context.Context, messages []providers.Message,
 // should survive alongside tasks that should not -- a corpus made only of
 // losable tasks would fail a compiler that is behaving correctly.
 func buriedTask(id, class, place, marker, expected string) Task {
+	// "middle" means between the windows the compactor samples, not the exact
+	// centre. It takes head, middle and tail for the same budget now, so a fact
+	// sitting at the midpoint is the one place it always looks.
 	pad := strings.Repeat("รายละเอียดประกอบการทำงาน ", 200)
 	content := marker + " " + pad
 	switch place {
 	case "middle":
-		content = pad + " " + marker + " " + pad
+		content = pad + " " + marker + " " + pad + pad + pad
 	case "tail":
 		content = pad + " " + marker
 	}

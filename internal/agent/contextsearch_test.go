@@ -25,8 +25,16 @@ import (
 // pass against a compiler that never compacted anything.
 func TestContextSearchRecoversWhatCompactionDestroyed(t *testing.T) {
 	const marker = "ROUND_HALF_UP_4096"
-	pad := strings.Repeat("รายละเอียดประกอบการทำงาน ", 200)
-	buried := pad + " ตกลงกันว่าใช้ " + marker + " เสมอ " + pad
+	// Large enough that even sampling three windows across it misses the
+	// middle. The compactor no longer assumes what matters sits at an edge --
+	// it takes head, middle and tail for the same budget -- so a fragment has to
+	// be genuinely bigger than the extract to lose its centre.
+	// Placed between the sampled windows rather than at the exact centre. The
+	// compactor no longer assumes what matters sits at an edge -- it takes
+	// head, middle and tail for the same budget -- so a fact is lost only when
+	// it falls in one of the gaps between those three.
+	pad := strings.Repeat("รายละเอียดประกอบการทำงาน ", 500)
+	buried := pad + " ตกลงกันว่าใช้ " + marker + " เสมอ " + pad + pad + pad
 
 	events := []Event{{ID: "event_buried", TurnID: "t1", EventKind: "message", Role: "assistant",
 		Content: buried, CreatedAt: time.Now().UTC()}}
