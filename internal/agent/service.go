@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	ctxcompiler "hermetrix-harness/internal/context"
+	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/providers"
@@ -40,6 +41,11 @@ type Service struct {
 	tools     *toolruntime.Registry
 	skills    *skills.Service
 	learning  *learning.Service
+	// embedder is optional. Nil means semantic retrieval is off and every
+	// caller falls back to lexical matching, which is a supported
+	// configuration: an embedder is a second model to run and Hermetrix is
+	// local-first.
+	embedder embedding.Embedder
 }
 
 func NewService(dataStore *store.Store, providerService *providers.Service, compiler *ctxcompiler.Compiler,

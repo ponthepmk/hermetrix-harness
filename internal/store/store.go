@@ -778,6 +778,24 @@ CREATE TABLE IF NOT EXISTS maintenance_schedules (
 -- with the columns those implementations need rather than the ones guessed
 -- here. scripts/doc-truth.sh reports any table that drifts back into this state.
 
+-- Vectors for semantic retrieval. Optional: a workspace with no embedder
+-- configured never writes here and every reader falls back to lexical search.
+--
+-- Keyed by revision because vectors from different models are not comparable --
+-- their coordinates mean different things -- so a model change invalidates
+-- rather than silently mixing two geometries into one similarity score.
+CREATE TABLE IF NOT EXISTS event_embeddings (
+  event_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  vector BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(event_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_event_embeddings_session
+  ON event_embeddings(session_id, revision);
+
 CREATE TABLE IF NOT EXISTS gc_runs (
   id TEXT PRIMARY KEY,
   state TEXT NOT NULL,

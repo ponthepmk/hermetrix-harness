@@ -71,7 +71,7 @@ func TestContextSearchRecoversWhatCompactionDestroyed(t *testing.T) {
 	}
 
 	// The point: the event log still has it, and the search finds it.
-	results := searchEvents(events, marker, 5)
+	results := searchEvents(events, marker, 5, nil)
 	if len(results) != 1 {
 		t.Fatalf("results = %d, want 1", len(results))
 	}
@@ -91,7 +91,7 @@ func TestContextSearchAnswersAThaiQuery(t *testing.T) {
 		{ID: "e2", EventKind: "message", Role: "user", Content: "เรื่องอื่นที่ไม่เกี่ยวข้องเลย",
 			CreatedAt: time.Now().UTC()},
 	}
-	results := searchEvents(events, "ปัดเศษสตางค์", 5)
+	results := searchEvents(events, "ปัดเศษสตางค์", 5, nil)
 	if len(results) == 0 || results[0].EventID != "e1" {
 		t.Fatalf("a Thai query did not reach Thai content: %+v", results)
 	}
@@ -105,7 +105,7 @@ func TestContextSearchReturnsOnlyWhatWasSaidOrObserved(t *testing.T) {
 		{ID: "e1", EventKind: "model_step_bound", Role: "system", Content: "batch size 4096", CreatedAt: now},
 		{ID: "e2", EventKind: "message", Role: "user", Content: "batch size 4096", CreatedAt: now},
 	}
-	results := searchEvents(events, "batch size 4096", 5)
+	results := searchEvents(events, "batch size 4096", 5, nil)
 	if len(results) != 1 || results[0].EventID != "e2" {
 		t.Fatalf("bookkeeping leaked into the results: %+v", results)
 	}
@@ -121,7 +121,7 @@ func TestAnExactMatchOutranksALexicalNeighbour(t *testing.T) {
 		{ID: "exact", EventKind: "message", Role: "assistant",
 			Content: "ใช้ ROUND_HALF_UP_4096 ตามที่ตกลง", CreatedAt: now},
 	}
-	results := searchEvents(events, "ROUND_HALF_UP_4096", 5)
+	results := searchEvents(events, "ROUND_HALF_UP_4096", 5, nil)
 	if len(results) == 0 || results[0].EventID != "exact" {
 		t.Fatalf("the exact match did not come first: %+v", results)
 	}

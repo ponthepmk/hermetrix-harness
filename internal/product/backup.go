@@ -25,7 +25,7 @@ var (
 	backupTables = []string{
 		"skills", "skill_versions", "skill_candidates", "skill_events", "skill_activations", "skill_archives",
 		"skill_relations", "learning_reviews", "curator_runs", "provider_profiles", "agent_sessions", "agent_events",
-		"context_snapshots", "step_bindings", "tool_approvals", "mcp_servers", "mcp_tools", "skill_replay_runs",
+		"context_snapshots", "event_embeddings", "step_bindings", "tool_approvals", "mcp_servers", "mcp_tools", "skill_replay_runs",
 		"skill_replay_cases", "candidate_capability_reviews", "context_eval_cases", "context_eval_runs",
 		"model_qualification_runs", "projects", "artifacts", "background_jobs", "settings", "memories", "backup_runs",
 		"curator_findings", "maintenance_schedules", "gc_runs",

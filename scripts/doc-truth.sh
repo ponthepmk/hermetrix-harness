@@ -182,6 +182,10 @@ thai-focus-has-a-window|func densestTrigramWindow|internal/context/compactor.go
 weak-focus-keeps-both-ends|focusedWindowFloor|internal/context/compactor.go
 corpus-varies-phrasing|FarPhrasingRate|internal/taskeval/generate.go
 far-phrasing-rate-is-chosen|this is chosen, not measured|internal/taskeval/generate.go
+semantic-retrieval-is-optional|ErrNoEmbedder|internal/embedding/embedding.go
+vectors-bound-to-a-revision|AND revision = \?|internal/agent/semantic.go
+semantic-selection-is-relative|SemanticMargin|internal/agent/semantic.go
+semantic-does-not-replace-lexical|func TestSemanticDoesNotDisplaceAnExactMatch|internal/agent/semantic_test.go
 CLAIMS
 )
 

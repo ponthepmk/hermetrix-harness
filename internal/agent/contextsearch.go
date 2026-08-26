@@ -85,8 +85,22 @@ func (s *Service) executeContextSearch(ctx context.Context, session Session, cal
 		receipt.Error = err.Error()
 		return finish()
 	}
-	results := searchEvents(events, arguments.Query, limit)
-	encoded, err := json.Marshal(map[string]any{"results": results, "events_searched": len(events)})
+	// Semantic matches are folded in where an embedder is configured. Failures
+	// are deliberately swallowed: an optional index being unavailable must not
+	// turn a search that lexical matching could still answer into an error.
+	semantic, semanticErr := s.semanticMatches(ctx, session.ID, arguments.Query)
+	if semanticErr == nil {
+		if _, embedErr := s.embedNewEvents(ctx, session.ID); embedErr == nil {
+			// Newly embedded events were not in the first pass; ask again so a
+			// fact written this turn is searchable in the same turn.
+			if refreshed, err := s.semanticMatches(ctx, session.ID, arguments.Query); err == nil {
+				semantic = refreshed
+			}
+		}
+	}
+	results := searchEvents(events, arguments.Query, limit, semantic)
+	encoded, err := json.Marshal(map[string]any{"results": results, "events_searched": len(events),
+		"semantic": semanticErr == nil})
 	if err != nil {
 		receipt.Error = err.Error()
 		return finish()
@@ -97,7 +111,17 @@ func (s *Service) executeContextSearch(ctx context.Context, session Session, cal
 }
 
 // searchEvents ranks the session's own record against a query.
-func searchEvents(events []Event, query string, limit int) []contextSearchResult {
+// searchEvents ranks the session's own record against a query, using lexical
+// matching and -- where vectors exist -- semantic similarity.
+//
+// The two are unioned rather than swapped. Lexical is exact where the wording
+// matches and is the only thing that finds an identifier like
+// ROUND_HALF_UP_1024 reliably; semantic is what crosses a paraphrase, which is
+// the case lexical provably cannot handle (O-44). A result found by both
+// outranks one found by either, because agreement between two different methods
+// is the strongest signal available without a model call.
+func searchEvents(events []Event, query string, limit int,
+	semantic map[string]float64) []contextSearchResult {
 	queryWords, queryGrams := textmatch.Terms(strings.ToLower(strings.TrimSpace(query)))
 	type scored struct {
 		result contextSearchResult
@@ -142,6 +166,12 @@ func searchEvents(events []Event, query string, limit int) []contextSearchResult
 			if smaller > 0 {
 				score += 20 * shared / smaller
 			}
+		}
+		// A semantic hit is worth about as much as a strong lexical one, and
+		// the two add: an event both methods like should not be beaten by one
+		// that only scored well on a single axis.
+		if similarity, ok := semantic[event.ID]; ok {
+			score += int(60 * similarity)
 		}
 		if score == 0 {
 			continue
