@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ctxcompiler "hermetrix-harness/internal/context"
+	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/store"
 	"hermetrix-harness/internal/taskeval"
@@ -102,6 +103,10 @@ func taskEvalScore(args []string) error {
 	withRetrieval := flags.Bool("retrieval", false,
 		"add a third condition: compiled context plus a working context_search, to measure "+
 			"whether the model reaches for it and whether reaching helps")
+	embedURL := flags.String("embed-url", "",
+		"optional OpenAI-compatible embeddings endpoint, e.g. http://127.0.0.1:11434/v1; "+
+			"empty runs the lexical-only configuration")
+	embedModel := flags.String("embed-model", "bge-m3", "embedding model name")
 	out := flags.String("out", "", "optional path to write the full JSON report")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -135,6 +140,9 @@ func taskEvalScore(args []string) error {
 		completionAnswerer{service: providerService, profile: profile, maxTokens: *maxTokens})
 	runner.Concurrency = *concurrency
 	runner.WithRetrieval = *withRetrieval
+	if *embedURL != "" {
+		runner.Embedder = embedding.NewOpenAIEmbedder(nil, *embedURL, *embedModel, "", 0)
+	}
 	// The full-context condition has to be a request the provider will accept,
 	// or the comparison is an answer against an error.
 	runner.FullContextCeiling = profile.ContextWindow - profile.MaxOutputTokens

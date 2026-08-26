@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/embedding"
 )
 
@@ -67,7 +68,19 @@ func (s *Service) embedNewEvents(ctx context.Context, sessionID string) (int, er
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	vectors, err := s.embedder.Embed(ctx, texts)
+	// Chunk before embedding. Whole-message vectors dilute a fact until the
+	// message holding the answer scores below one holding nothing.
+	var chunkTexts []string
+	var chunkOwner []string
+	var chunkIndex []int
+	for index, text := range texts {
+		for position, chunk := range embedding.Chunk(text) {
+			chunkTexts = append(chunkTexts, chunk)
+			chunkOwner = append(chunkOwner, ids[index])
+			chunkIndex = append(chunkIndex, position)
+		}
+	}
+	vectors, err := s.embedder.Embed(ctx, chunkTexts)
 	if err != nil {
 		return 0, err
 	}
@@ -75,8 +88,9 @@ func (s *Service) embedNewEvents(ctx context.Context, sessionID string) (int, er
 	written := 0
 	for index, vector := range vectors {
 		if _, err := s.store.DB.ExecContext(ctx, `INSERT OR REPLACE INTO event_embeddings
-          (event_id,session_id,revision,dimensions,vector,created_at) VALUES(?,?,?,?,?,?)`,
-			ids[index], sessionID, revision, len(vector), encodeVector(vector), now); err != nil {
+          (event_id,session_id,revision,chunk,dimensions,vector,created_at) VALUES(?,?,?,?,?,?,?)`,
+			chunkOwner[index], sessionID, revision, chunkIndex[index], len(vector),
+			encodeVector(vector), now); err != nil {
 			return written, err
 		}
 		written++
@@ -128,14 +142,25 @@ func (s *Service) semanticMatches(ctx context.Context, sessionID, query string) 
 		id    string
 		score float64
 	}
-	var scored []scoredEvent
+	// An event is as relevant as its most relevant chunk, not as its average.
+	best := map[string]float64{}
 	for rows.Next() {
 		var id string
 		var blob []byte
 		if err := rows.Scan(&id, &blob); err != nil {
 			return nil, err
 		}
-		scored = append(scored, scoredEvent{id: id, score: embedding.Cosine(queryVector, decodeVector(blob))})
+		// Every event enters the map, including the ones scoring zero: the
+		// baseline is the median of the whole session, and computing it over
+		// only the events that matched would compare the best against itself.
+		score := embedding.Cosine(queryVector, decodeVector(blob))
+		if existing, seen := best[id]; !seen || score > existing {
+			best[id] = score
+		}
+	}
+	var scored []scoredEvent
+	for id, score := range best {
+		scored = append(scored, scoredEvent{id: id, score: score})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -198,7 +223,7 @@ func decodeVector(blob []byte) []float32 {
 // fragment vectors were written when their events were, and what the compactor
 // receives is a lookup. A compile that had to wait on an embedding endpoint
 // would make an optional index a hard dependency of answering a turn.
-func (s *Service) fragmentRelevance(ctx context.Context, sessionID, focus string) func(string) float64 {
+func (s *Service) fragmentRelevance(ctx context.Context, sessionID, focus string) func(string) ctxcompiler.SemanticHint {
 	if s.embedder == nil || strings.TrimSpace(focus) == "" {
 		return nil
 	}
@@ -207,28 +232,33 @@ func (s *Service) fragmentRelevance(ctx context.Context, sessionID, focus string
 		return nil
 	}
 	focusVector := vectors[0]
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT event_id, vector FROM event_embeddings
-      WHERE session_id = ? AND revision = ?`, sessionID, s.embedder.Revision())
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT v.event_id, v.chunk, v.vector,
+        length(e.content) FROM event_embeddings v JOIN agent_events e ON e.id = v.event_id
+      WHERE v.session_id = ? AND v.revision = ?`, sessionID, s.embedder.Revision())
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	scores := map[string]float64{}
+	hints := map[string]ctxcompiler.SemanticHint{}
 	for rows.Next() {
 		var id string
+		var chunk, contentLength int
 		var blob []byte
-		if err := rows.Scan(&id, &blob); err != nil {
+		if err := rows.Scan(&id, &chunk, &blob, &contentLength); err != nil {
 			return nil
 		}
 		// Cosine is in [-1,1] and the caller's contract is [0,1]. Negative
-		// similarity and no similarity are the same thing for ranking: not
-		// relevant.
-		if score := embedding.Cosine(focusVector, decodeVector(blob)); score > 0 {
-			scores["event:"+id] = score
+		// similarity and no similarity are the same thing for ranking.
+		score := embedding.Cosine(focusVector, decodeVector(blob))
+		key := "event:" + id
+		if score <= hints[key].Score {
+			continue
 		}
+		start, end := embedding.ChunkSpan(chunk, contentLength)
+		hints[key] = ctxcompiler.SemanticHint{Score: score, Start: start, End: end}
 	}
-	if rows.Err() != nil || len(scores) == 0 {
+	if rows.Err() != nil || len(hints) == 0 {
 		return nil
 	}
-	return func(fragmentID string) float64 { return scores[fragmentID] }
+	return func(fragmentID string) ctxcompiler.SemanticHint { return hints[fragmentID] }
 }

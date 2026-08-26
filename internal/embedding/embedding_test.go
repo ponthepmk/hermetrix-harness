@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,51 @@ func TestNormaliseMakesLengthIrrelevant(t *testing.T) {
 func TestCosineRefusesMismatchedWidths(t *testing.T) {
 	if score := Cosine([]float32{1, 0}, []float32{1, 0, 0}); score != 0 {
 		t.Fatalf("mismatched widths scored %.3f", score)
+	}
+}
+
+// A fact inside a long text is averaged out of that text's vector. Measured
+// with bge-m3 against a question the fact answers: 0.567 for the fact alone,
+// 0.406 inside ~470 runes of padding, 0.338 inside ~5,600 -- below the 0.354 of
+// padding containing no fact at all. Chunking is what keeps the signal, and a
+// chunk that loses a fact spanning its boundary would defeat the purpose.
+func TestChunkingKeepsAFactWholeAcrossABoundary(t *testing.T) {
+	const fact = "ROUND_HALF_UP_4096"
+	pad := strings.Repeat("ก", ChunkRunes-len([]rune(fact))/2)
+	text := pad + fact + pad
+
+	chunks := Chunk(text)
+	if len(chunks) < 2 {
+		t.Fatalf("premise broken: the text fits in %d chunk(s)", len(chunks))
+	}
+	whole := 0
+	for _, chunk := range chunks {
+		if strings.Contains(chunk, fact) {
+			whole++
+		}
+	}
+	if whole == 0 {
+		t.Fatal("the fact was split across every chunk, so no vector represents it")
+	}
+	// And short text is one chunk, not a needless split.
+	if got := Chunk("สั้นมาก"); len(got) != 1 || got[0] != "สั้นมาก" {
+		t.Fatalf("short text was chunked: %v", got)
+	}
+}
+
+// A chunk index has to map back to where in the text it came from, or a scorer
+// can say a fragment matters without being able to say where -- which is the
+// case measured leaving reachability unchanged at 70 of 90.
+func TestChunkSpanLocatesTheChunk(t *testing.T) {
+	text := strings.Repeat("ก", 3*ChunkRunes)
+	length := len([]rune(text))
+	for index, chunk := range Chunk(text) {
+		start, end := ChunkSpan(index, length)
+		if start < 0 || end > length || start >= end {
+			t.Fatalf("chunk %d spans [%d,%d) of %d", index, start, end, length)
+		}
+		if got := len([]rune(chunk)); index < 2 && got != ChunkRunes {
+			t.Fatalf("chunk %d is %d runes, expected %d", index, got, ChunkRunes)
+		}
 	}
 }

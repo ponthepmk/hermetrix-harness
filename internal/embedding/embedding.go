@@ -91,3 +91,85 @@ func Normalise(vector []float32) []float32 {
 	}
 	return vector
 }
+
+// ChunkRunes and ChunkOverlap size the windows a long text is split into before
+// embedding.
+//
+// A bi-encoder returns one vector for whatever it is given, so a fact inside a
+// large fragment is averaged away. Measured with bge-m3 against a question the
+// fact answers:
+//
+//	the fact on its own                     0.567
+//	the fact inside ~470 runes of padding   0.406
+//	the fact inside ~5,600 runes            0.338
+//	pure padding of the same length         0.354
+//
+// Buried deeply enough, the fragment holding the answer scores below one
+// holding nothing. That is not a threshold that can be tuned around: the vector
+// no longer represents the fact. Chunking is the fix, and 500 runes is where
+// the signal was still intact.
+//
+// The overlap exists so a fact spanning a boundary is whole in one window --
+// without it, splitting can destroy exactly what splitting was meant to
+// preserve.
+const (
+	ChunkRunes   = 500
+	ChunkOverlap = 100
+)
+
+// Chunk splits text into overlapping windows for embedding. Short text is
+// returned as a single chunk.
+func Chunk(text string) []string {
+	runes := []rune(text)
+	if len(runes) <= ChunkRunes {
+		return []string{text}
+	}
+	stride := ChunkRunes - ChunkOverlap
+	var chunks []string
+	for start := 0; start < len(runes); start += stride {
+		end := start + ChunkRunes
+		if end >= len(runes) {
+			chunks = append(chunks, string(runes[start:]))
+			break
+		}
+		chunks = append(chunks, string(runes[start:end]))
+	}
+	return chunks
+}
+
+// Best returns the highest cosine between the query and any of the vectors,
+// which is how a chunked document is scored: a document is as relevant as its
+// most relevant part, not as its average.
+func Best(query []float32, vectors [][]float32) float64 {
+	best := 0.0
+	for _, vector := range vectors {
+		if score := Cosine(query, vector); score > best {
+			best = score
+		}
+	}
+	return best
+}
+
+// ChunkSpan returns the rune range a chunk index covers, so a caller that knows
+// which chunk matched also knows where in the text to look.
+//
+// This is what makes semantic ranking useful to a compactor rather than only to
+// a search. Ranking alone put the right fragment in the checkpoint and the
+// extract still cut the fact out, because nothing told it where inside the
+// fragment to aim. The vectors already knew: the chunk that scored highest is
+// the passage that matters.
+func ChunkSpan(index, length int) (start, end int) {
+	if index <= 0 {
+		start = 0
+	} else {
+		start = index * (ChunkRunes - ChunkOverlap)
+	}
+	if start > length {
+		start = length
+	}
+	end = start + ChunkRunes
+	if end > length {
+		end = length
+	}
+	return start, end
+}

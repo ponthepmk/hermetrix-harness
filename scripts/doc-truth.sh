@@ -189,6 +189,10 @@ semantic-does-not-replace-lexical|func TestSemanticDoesNotDisplaceAnExactMatch|i
 compaction-ranks-semantically|SemanticRelevance func\(fragmentID string\) float64|internal/context/compactor.go
 no-anchor-means-sample-not-trim|func evenSlices|internal/context/compactor.go
 semantic-rank-saves-a-fragment|func TestSemanticRelevanceSavesAFragmentLexicalRankingWouldDrop|internal/context/compiler_test.go
+embedding-is-chunked|func Chunk|internal/embedding/embedding.go
+chunk-maps-back-to-a-span|func ChunkSpan|internal/embedding/embedding.go
+hint-carries-a-position|type SemanticHint|internal/context/compactor.go
+score-alone-is-not-enough|func TestAScoreWithoutAPositionIsNotEnough|internal/context/compiler_test.go
 CLAIMS
 )
 

@@ -841,7 +841,7 @@ func TestSemanticRelevanceSavesAFragmentLexicalRankingWouldDrop(t *testing.T) {
 			Version: "v1", Priority: 70, Content: fmt.Sprintf("ลำดับ %d ", index) + filler})
 	}
 
-	compiledText := func(scorer func(string) float64) string {
+	compiledText := func(scorer func(string) SemanticHint) string {
 		compiled, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile,
 			Fragments: fragments, SemanticRelevance: scorer})
 		if err != nil {
@@ -858,18 +858,22 @@ func TestSemanticRelevanceSavesAFragmentLexicalRankingWouldDrop(t *testing.T) {
 	if strings.Contains(compiledText(nil), marker) {
 		t.Fatal("lexical ranking already keeps the fact; this test proves nothing")
 	}
-	saved := compiledText(func(id string) float64 {
+	// A score with no position: the scorer knows the fragment matters but not
+	// where in it, which is what ranking alone provides.
+	saved := compiledText(func(id string) SemanticHint {
 		if id == "event:paraphrase" {
-			return 0.8
+			return SemanticHint{Score: 0.8}
 		}
-		return 0.1
+		return SemanticHint{Score: 0.1}
 	})
 	if !strings.Contains(saved, marker) {
 		t.Fatal("a semantically relevant fragment was still dropped")
 	}
 	// A scorer that likes everything equally must change nothing, or the
 	// mechanism is a blanket promotion rather than ranking.
-	if strings.Contains(compiledText(func(string) float64 { return 0.8 }), marker) {
+	if strings.Contains(compiledText(func(string) SemanticHint {
+		return SemanticHint{Score: 0.8}
+	}), marker) {
 		t.Fatal("a scorer that rates every fragment alike still promoted this one")
 	}
 }
@@ -901,5 +905,84 @@ func TestWithNothingToAimAtTheFragmentIsSampledNotTrimmed(t *testing.T) {
 	// Same budget, or this is a bigger extract rather than a better one.
 	if length := len([]rune(evenSlices(content, 600))); length > 620 {
 		t.Fatalf("the sampled extract is %d runes against a 600 budget", length)
+	}
+}
+
+// TestAScoreWithoutAPositionIsNotEnough is what the measurement forced.
+//
+// Semantic ranking put the right fragment into the checkpoint -- confirmed
+// against bge-m3, where chunking raised the fragment holding the answer from
+// 0.339 to 0.449 and it was selected -- and the extract still cut the answer
+// out, because nothing told it where inside the fragment to aim. Reachability
+// across the task corpus did not move: 70 of 90 with semantics on, and 70 of 90
+// with them off.
+//
+// The vectors already knew where. The chunk that scored highest is the passage
+// that matters, and passing its range along is the difference between the
+// mechanism working and merely running.
+func TestAScoreWithoutAPositionIsNotEnough(t *testing.T) {
+	profile, _ := ProfileByName("compact-32k")
+	compiler := NewCompiler(NewAdaptiveEstimator(), nil, NewVerifiedCompactor(StructuredCompactor{}))
+	const marker = "PLAN-4096"
+
+	// The answer sits between the windows an unaimed extract samples.
+	head := strings.Repeat("ช่วงต้นที่ไม่ได้ตอบคำถามนี้ ", 60)
+	gap := strings.Repeat("ช่วงถัดมาที่ยังไม่ตอบอะไร ", 60)
+	rest := strings.Repeat("ส่วนที่เหลือซึ่งไม่เกี่ยวข้อง ", 300)
+	answer := head + gap + " รหัสอ้างอิงคือ " + marker + " " + rest
+
+	fragments := []Fragment{
+		{ID: "goal", Kind: KindUserGoal, Scope: "session", Provenance: "f", Trust: "user",
+			Version: "v1", Priority: 100, Pinned: true, Content: "หมายเลขแผนงานคืออะไร"},
+	}
+	filler := strings.Repeat("เรื่องอื่นที่คุยกันไว้แล้วแต่ไม่ใช่เรื่องนี้ ", 40)
+	for index := 0; index < 200; index++ {
+		if index == 100 {
+			fragments = append(fragments, Fragment{ID: "event:answer", Kind: KindConversation,
+				Scope: "session", Provenance: "assistant", Trust: "assistant", Version: "v1",
+				Priority: 70, Content: answer})
+			continue
+		}
+		fragments = append(fragments, Fragment{ID: fmt.Sprintf("event:noise-%03d", index),
+			Kind: KindConversation, Scope: "session", Provenance: "assistant", Trust: "assistant",
+			Version: "v1", Priority: 70, Content: fmt.Sprintf("ลำดับ %d ", index) + filler})
+	}
+	compiledText := func(scorer func(string) SemanticHint) string {
+		compiled, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile,
+			Fragments: fragments, SemanticRelevance: scorer})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := ""
+		for _, fragment := range compiled.Fragments {
+			body += "\n" + fragment.Content
+		}
+		return body
+	}
+
+	// A score alone gets the fragment in and still loses the answer.
+	scoreOnly := compiledText(func(id string) SemanticHint {
+		if id == "event:answer" {
+			return SemanticHint{Score: 0.9}
+		}
+		return SemanticHint{Score: 0.1}
+	})
+	if !strings.Contains(scoreOnly, "conversation:event:answer") {
+		t.Fatal("premise broken: the fragment was not even selected, so position is not what is missing")
+	}
+	if strings.Contains(scoreOnly, marker) {
+		t.Fatal("premise broken: an unaimed extract already keeps the answer")
+	}
+
+	// The same score, with the range the matching chunk covered.
+	start := len([]rune(head + gap))
+	aimed := compiledText(func(id string) SemanticHint {
+		if id == "event:answer" {
+			return SemanticHint{Score: 0.9, Start: start, End: start + 500}
+		}
+		return SemanticHint{Score: 0.1}
+	})
+	if !strings.Contains(aimed, marker) {
+		t.Fatal("the extract still missed a passage it was pointed at")
 	}
 }

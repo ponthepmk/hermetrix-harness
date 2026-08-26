@@ -110,7 +110,6 @@ func (s *Service) executeContextSearch(ctx context.Context, session Session, cal
 	return finish()
 }
 
-// searchEvents ranks the session's own record against a query.
 // searchEvents ranks the session's own record against a query, using lexical
 // matching and -- where vectors exist -- semantic similarity.
 //

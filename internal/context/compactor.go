@@ -27,7 +27,13 @@ type CompactRequest struct {
 	// so a caller with nothing to say about relevance is no worse off.
 	Focus string
 	// SemanticRelevance optionally scores one fragment against the focus, in
-	// [0,1]. Nil means lexical ranking only.
+	// [0,1], and says which rune range carried that score. Nil means lexical
+	// ranking only.
+	//
+	// The range matters as much as the score. Ranking alone was measured
+	// putting the right fragment into the checkpoint while the extract still
+	// cut the fact out, because nothing told the extract where inside the
+	// fragment to aim.
 	//
 	// It is a function rather than an embedder because this package should not
 	// know how relevance is computed: the caller has the vectors, the store and
@@ -35,7 +41,18 @@ type CompactRequest struct {
 	// also keeps compaction free of a network call it would have to fail
 	// gracefully around -- the scores are already computed by the time they
 	// arrive here.
-	SemanticRelevance func(fragmentID string) float64
+	SemanticRelevance func(fragmentID string) SemanticHint
+}
+
+// SemanticHint is what a semantic scorer knows about one fragment: how relevant
+// it is, and which part of it carried that relevance.
+type SemanticHint struct {
+	Score float64
+	// Start and End bound the most relevant passage, in runes. A zero range
+	// means "relevant, but I cannot say where", and the extract falls back to
+	// sampling across the fragment.
+	Start int
+	End   int
 }
 
 type Compactor interface {
@@ -98,11 +115,11 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, request CompactRequest)
 			// be shown to recover anything: going from 360 to 1,086 runes on a
 			// 10,000-rune fragment still missed, while costing the budget that
 			// other fragments needed.
-			semantic := 0.0
+			var hint SemanticHint
 			if request.SemanticRelevance != nil {
-				semantic = request.SemanticRelevance(fragment.ID)
+				hint = request.SemanticRelevance(fragment.ID)
 			}
-			content = focusedExcerpt(content, request.Focus, maxRunes)
+			content = hintedExcerpt(content, request.Focus, maxRunes, hint)
 			current.relevance += relevanceOf(content, focusWords, focusGrams)
 			// Semantic relevance is added to lexical, not substituted for it.
 			// Where the wording matches, lexical is exact and an identifier is
@@ -117,7 +134,7 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, request CompactRequest)
 			// window still comes from the lexical ladder, so a semantically
 			// relevant fragment with no lexical anchor is kept whole-ish rather
 			// than aimed precisely.
-			current.relevance += int(semanticRelevanceWeight * semantic)
+			current.relevance += int(semanticRelevanceWeight * hint.Score)
 			lines = append(lines, fmt.Sprintf("- [%s:%s] %s", fragment.Kind, fragment.ID, content))
 			if fragment.Priority > current.priority {
 				current.priority = fragment.Priority
@@ -208,6 +225,57 @@ func isCheckpointPreamble(line string) bool {
 	return strings.HasPrefix(line, "#") ||
 		strings.HasPrefix(line, "Extractive checkpoint;") ||
 		strings.HasPrefix(line, checkpointNoticePrefix)
+}
+
+// hintedExcerpt prefers the passage a semantic scorer pointed at, and falls
+// back to the lexical ladder when there is no hint.
+//
+// A hint is the only thing in this pipeline that can find a fact stated in
+// words the goal does not use. Lexical matching cannot, by construction; and
+// ranking without a position was measured keeping the right fragment while
+// still discarding the answer inside it.
+func hintedExcerpt(content, focus string, maxRunes int, hint SemanticHint) string {
+	runes := []rune(content)
+	if len(runes) <= maxRunes {
+		return content
+	}
+	if hint.End > hint.Start && hint.Start >= 0 && hint.Start < len(runes) {
+		end := hint.End
+		if end > len(runes) {
+			end = len(runes)
+		}
+		// Anchor the window at the passage's start rather than its midpoint.
+		// Centring was tried and measured wrong: a chunk is 500 runes and the
+		// fact is often at its beginning, so a 360-rune window centred on the
+		// chunk's middle opens after the fact and misses it. Starting where the
+		// matching chunk starts is what guarantees the passage is included.
+		start := hint.Start
+		if start < 0 {
+			start = 0
+		}
+		if end-start < maxRunes {
+			// Room to spare: pull back a little so the sentence leading into
+			// the passage comes with it.
+			if lead := (maxRunes - (end - start)) / 2; start > lead {
+				start -= lead
+			} else {
+				start = 0
+			}
+		}
+		stop := start + maxRunes
+		if stop > len(runes) {
+			stop, start = len(runes), len(runes)-maxRunes
+		}
+		excerpt := string(runes[start:stop])
+		if start > 0 {
+			excerpt = "… " + excerpt
+		}
+		if stop < len(runes) {
+			excerpt += " …"
+		}
+		return excerpt
+	}
+	return focusedExcerpt(content, focus, maxRunes)
 }
 
 // focusedExcerpt keeps the span of content that carries the most of the focus.

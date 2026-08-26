@@ -788,10 +788,16 @@ CREATE TABLE IF NOT EXISTS event_embeddings (
   event_id TEXT NOT NULL,
   session_id TEXT NOT NULL,
   revision TEXT NOT NULL,
+  -- One row per chunk. A bi-encoder averages whatever it is given, so a fact
+  -- inside a long message is diluted out of its own vector: measured with
+  -- bge-m3, a fact scoring 0.567 alone scored 0.338 inside 5,600 runes of
+  -- padding, below the 0.354 of padding with no fact in it at all. A document
+  -- is scored by its most relevant chunk rather than by its average.
+  chunk INTEGER NOT NULL DEFAULT 0,
   dimensions INTEGER NOT NULL,
   vector BLOB NOT NULL,
   created_at TEXT NOT NULL,
-  PRIMARY KEY(event_id, revision)
+  PRIMARY KEY(event_id, revision, chunk)
 );
 CREATE INDEX IF NOT EXISTS idx_event_embeddings_session
   ON event_embeddings(session_id, revision);

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/textmatch"
 )
@@ -60,13 +61,35 @@ func searchToolDefinition() providers.ToolDefinition {
 // answerFromHistory serves a context_search call out of the task's full
 // history -- the same source the real tool reads, which is the append-only
 // event log rather than the compacted context.
-func answerFromHistory(task Task, query string) string {
+func (r *Runner) answerFromHistory(ctx context.Context, task Task, query string) string {
 	type hit struct {
 		ID      string `json:"event_id"`
 		Content string `json:"content"`
 		Score   int    `json:"score"`
 	}
 	queryWords, queryGrams := textmatch.Terms(strings.ToLower(strings.TrimSpace(query)))
+	// Semantic scores, where an embedder is configured. This mirrors what the
+	// agent's context_search does: lexical and semantic are unioned, because
+	// each is blind where the other sees -- an identifier is a substring match
+	// and a paraphrase is not.
+	semantic := map[string]float64{}
+	if r.Embedder != nil {
+		texts := []string{query}
+		var owner []string
+		for _, fragment := range task.Fragments {
+			for _, chunk := range embedding.Chunk(fragment.Content) {
+				owner = append(owner, fragment.ID)
+				texts = append(texts, chunk)
+			}
+		}
+		if vectors, err := r.Embedder.Embed(ctx, texts); err == nil && len(vectors) == len(texts) {
+			for index, id := range owner {
+				if score := embedding.Cosine(vectors[0], vectors[index+1]); score > semantic[id] {
+					semantic[id] = score
+				}
+			}
+		}
+	}
 	var hits []hit
 	for _, fragment := range task.Fragments {
 		lowered := strings.ToLower(fragment.Content)
@@ -88,6 +111,9 @@ func answerFromHistory(task Task, query string) string {
 			if smaller > 0 {
 				score += 20 * shared / smaller
 			}
+		}
+		if similarity, ok := semantic[fragment.ID]; ok {
+			score += int(60 * similarity)
 		}
 		if score == 0 {
 			continue
@@ -139,7 +165,7 @@ func (r *Runner) scoreWithRetrieval(ctx context.Context, task Task,
 				Query string `json:"query"`
 			}
 			_ = json.Unmarshal([]byte(call.Arguments), &arguments)
-			result := answerFromHistory(task, arguments.Query)
+			result := r.answerFromHistory(ctx, task, arguments.Query)
 			if call.Name != "context_search" {
 				result = fmt.Sprintf(`{"error":"no tool named %q"}`, call.Name)
 			}

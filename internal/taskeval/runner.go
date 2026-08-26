@@ -13,6 +13,7 @@ import (
 	"time"
 
 	ctxcompiler "hermetrix-harness/internal/context"
+	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/providers"
 )
 
@@ -158,6 +159,11 @@ type Runner struct {
 	// Estimator sizes the full condition for that check. Zero uses the
 	// compiler's own estimator via a default.
 	Estimator ctxcompiler.Estimator
+	// Embedder is optional. When set, compaction ranks fragments by meaning as
+	// well as by words and context_search answers semantically -- which is what
+	// the run is measuring. Nil reproduces the lexical-only behaviour, so the
+	// same corpus scores both configurations.
+	Embedder embedding.Embedder
 	// WithRetrieval adds a third condition: the compiled context plus a working
 	// context_search. It answers a question building the tool did not settle --
 	// whether a model reaches for it. R-14 is the warning: skill_search was
@@ -178,7 +184,11 @@ func NewRunner(compiler *ctxcompiler.Compiler, profile ctxcompiler.Profile, answ
 // corpus applies pressure is a separate step from scoring it, and one worth
 // doing before spending a model budget.
 func (r *Runner) Prepare(ctx context.Context, task Task) (full, compiled []providers.Message, reachable bool, err error) {
-	result, err := r.compiler.Compile(ctx, ctxcompiler.Request{Profile: r.profile, Fragments: task.Fragments})
+	compileRequest := ctxcompiler.Request{Profile: r.profile, Fragments: task.Fragments}
+	if scorer := r.taskRelevance(ctx, task); scorer != nil {
+		compileRequest.SemanticRelevance = scorer
+	}
+	result, err := r.compiler.Compile(ctx, compileRequest)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -433,4 +443,47 @@ func verdictFor(result ClassResult, tasks int) string {
 	default:
 		return "passed"
 	}
+}
+
+// taskRelevance scores a task's fragments against its prompt, the way the agent
+// scores a session's events against the turn's goal.
+//
+// Vectors are computed here rather than read from a store because a corpus task
+// is not a session: it has no event log behind it. That makes a run slower and
+// is the honest cost of measuring the mechanism the product uses rather than a
+// cheaper stand-in for it.
+func (r *Runner) taskRelevance(ctx context.Context, task Task) func(string) ctxcompiler.SemanticHint {
+	if r.Embedder == nil {
+		return nil
+	}
+	// Chunk before embedding. A whole-fragment vector averages a fact away:
+	// measured with bge-m3, a fact scoring 0.567 on its own scored 0.338 inside
+	// 5,600 runes of padding, below the 0.354 of padding containing no fact at
+	// all. A fragment is scored by its most relevant chunk.
+	texts := []string{task.Prompt}
+	var owner []string
+	var chunkIndex []int
+	length := map[string]int{}
+	for _, fragment := range task.Fragments {
+		length[fragment.ID] = len([]rune(fragment.Content))
+		for position, chunk := range embedding.Chunk(fragment.Content) {
+			owner = append(owner, fragment.ID)
+			chunkIndex = append(chunkIndex, position)
+			texts = append(texts, chunk)
+		}
+	}
+	vectors, err := r.Embedder.Embed(ctx, texts)
+	if err != nil || len(vectors) != len(texts) {
+		return nil
+	}
+	hints := make(map[string]ctxcompiler.SemanticHint, len(owner))
+	for index, id := range owner {
+		score := embedding.Cosine(vectors[0], vectors[index+1])
+		if score <= hints[id].Score {
+			continue
+		}
+		start, end := embedding.ChunkSpan(chunkIndex[index], length[id])
+		hints[id] = ctxcompiler.SemanticHint{Score: score, Start: start, End: end}
+	}
+	return func(fragmentID string) ctxcompiler.SemanticHint { return hints[fragmentID] }
 }

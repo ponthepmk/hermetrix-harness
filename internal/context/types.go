@@ -74,7 +74,7 @@ type Request struct {
 	// goal in [0,1], used when ranking what a checkpoint keeps. Nil means
 	// lexical ranking only, which is the supported configuration wherever no
 	// embedder is running. Not serialised: it is a callback, not state.
-	SemanticRelevance func(fragmentID string) float64 `json:"-"`
+	SemanticRelevance func(fragmentID string) SemanticHint `json:"-"`
 }
 
 type SliceUsage struct {
