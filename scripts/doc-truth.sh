@@ -198,6 +198,9 @@ skill-vectors-are-cached-by-text|CREATE TABLE IF NOT EXISTS skill_embeddings|int
 skill-semantic-cut-is-relative|func skillSemanticBonus|internal/agent/skillsemantic.go
 semantic-controls-express-no-match|var semanticControls|internal/agent/skillsemantic.go
 cross-script-measured-not-assumed|func TestRealEmbedderCrossesScripts|internal/agent/skillsemantic_real_test.go
+corpus-measures-withdrawn-facts|RevisionSuperseded|internal/taskeval/generate.go
+withdrawn-answer-is-its-own-count|StaleAnswersCompiled|internal/taskeval/models.go
+corpus-still-has-loss-to-measure|func TestSupersededFactsGiveTheCorpusSomethingLeftToLose|internal/taskeval/runner_test.go
 semantic-retrieval-is-a-serve-flag|embed-url|cmd/hermetrix/main.go
 manifest-only-replay-blocks|ErrReplayImplicitOnly|internal/skills/replay.go
 export-is-skill-lifecycle-only|func TestExportCarriesOnlyWhatImportRestores|internal/product/backup_test.go

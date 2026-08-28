@@ -534,3 +534,80 @@ func TestRetrievalConditionSeparatesNotSearchingFromSearchingBadly(t *testing.T)
 		}
 	})
 }
+
+// TestSupersededFactsGiveTheCorpusSomethingLeftToLose is the premise guard for
+// the revision dimension.
+//
+// The corpus has run out of measurable loss three times. Placement stopped
+// separating anything once compaction took head, middle and tail for the same
+// budget; phrasing stopped separating anything once ranking went semantic. A
+// delta of zero against a corpus where everything is reachable says nothing
+// about the compiler, and the way that failure presents is a passing gate.
+//
+// A superseded fact is the case neither fix addresses, because both statements
+// are about the same thing in nearly the same words. Measured on the generated
+// corpus, far/middle superseded tasks keep the withdrawn value and drop the one
+// that replaced it -- so the compiled context contains a confident wrong answer
+// rather than a missing one.
+func TestSupersededFactsGiveTheCorpusSomethingLeftToLose(t *testing.T) {
+	runner := testRunner(t, &needleReader{needle: "x", answer: "x"})
+	tasks, err := Generate(GenerateOptions{PerClass: 30, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type counter struct{ total, current, stale int }
+	cells := map[string]*counter{}
+	revised := 0
+	for _, task := range tasks {
+		if task.Revision != RevisionSuperseded {
+			if len(task.Assertions) != 1 {
+				t.Fatalf("%s: an unrevised task carries %d assertions", task.ID, len(task.Assertions))
+			}
+			continue
+		}
+		revised++
+		if len(task.Assertions) != 2 || task.Assertions[1].Kind != "absent" {
+			t.Fatalf("%s: a superseded task must also assert the old value is absent: %+v",
+				task.ID, task.Assertions)
+		}
+		// The two values must not contain one another, or the absent assertion
+		// would fire on a correct answer.
+		if strings.Contains(task.Assertions[0].Value, task.Assertions[1].Value) ||
+			strings.Contains(task.Assertions[1].Value, task.Assertions[0].Value) {
+			t.Fatalf("%s: the current and withdrawn values overlap: %q vs %q",
+				task.ID, task.Assertions[0].Value, task.Assertions[1].Value)
+		}
+		_, compiled, _, err := runner.Prepare(context.Background(), task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cell := task.Phrasing + "/" + task.Placement
+		if cells[cell] == nil {
+			cells[cell] = &counter{}
+		}
+		item := cells[cell]
+		item.total++
+		body := join(compiled)
+		if strings.Contains(body, task.Assertions[0].Value) {
+			item.current++
+		}
+		if strings.Contains(body, task.Assertions[1].Value) {
+			item.stale++
+		}
+	}
+	if revised == 0 {
+		t.Fatal("no task was generated with a superseded fact")
+	}
+	worst := cells[PhrasingFar+"/"+PlacementMiddle]
+	if worst == nil || worst.total == 0 {
+		t.Fatal("far/middle superseded tasks are not being generated; the grid lost a cell")
+	}
+	if worst.current != 0 {
+		t.Fatalf("far/middle superseded: %d/%d kept the current fact -- the corpus can no "+
+			"longer measure this loss", worst.current, worst.total)
+	}
+	if worst.stale != worst.total {
+		t.Fatalf("far/middle superseded: %d/%d kept the withdrawn fact -- without it the task "+
+			"is merely unanswerable, not answerable wrongly", worst.stale, worst.total)
+	}
+}

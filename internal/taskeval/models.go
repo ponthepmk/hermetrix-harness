@@ -92,6 +92,11 @@ type Task struct {
 	// every placement came back reachable, so a corpus varying only position
 	// could no longer register a loss.
 	Phrasing string `json:"phrasing,omitempty"`
+	// Revision says whether an earlier version of the same fact is also in the
+	// history, explicitly withdrawn. A superseded task is answered wrongly
+	// rather than not at all when retrieval keeps the stale statement, which is
+	// why it is scored with an absent assertion as well as a contains one.
+	Revision string `json:"revision,omitempty"`
 }
 
 // Outcome is one task under one condition.
@@ -152,6 +157,15 @@ type ClassResult struct {
 	// about the output budget, not about whether compaction kept what the task
 	// needed.
 	EmptyAnswers int `json:"empty_answers"`
+	// StaleAnswersCompiled counts compiled runs that answered with a value the
+	// session had explicitly withdrawn.
+	//
+	// It is separated from ordinary failure because it is a different kind of
+	// wrong. A model that cannot find the fact says so; a model that finds the
+	// superseded one answers confidently from something that is no longer true,
+	// and nothing downstream can tell the two apart from the success rate.
+	StaleAnswersCompiled int `json:"stale_answers_compiled"`
+	StaleAnswersFull     int `json:"stale_answers_full"`
 	// SuccessRetrieval is the compiled condition with context_search available,
 	// and RetrievalDelta is what remains of the gap once the model may go and
 	// look. RetrievalSearched counts how often it chose to, which is a separate

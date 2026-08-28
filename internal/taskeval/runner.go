@@ -342,6 +342,18 @@ func (r *Runner) score(ctx context.Context, item job) Outcome {
 	return outcome
 }
 
+// answeredStale reports whether an outcome failed an absent-assertion, which is
+// how a withdrawn value shows up: the answer contained something the session
+// had already retracted.
+func answeredStale(outcome Outcome) bool {
+	for _, failed := range outcome.FailedAssertions {
+		if strings.HasPrefix(failed, "absent:") {
+			return true
+		}
+	}
+	return false
+}
+
 func summarise(outcomes []Outcome) []ClassResult {
 	type counter struct {
 		tasks                                        int
@@ -349,6 +361,7 @@ func summarise(outcomes []Outcome) []ClassResult {
 		falseFull, falseCompiled                     int
 		reachable, errors, empty, compiledRun        int
 		retrievalRun, retrievalPass, searched, found int
+		staleFull, staleCompiled                     int
 	}
 	byClass := map[string]*counter{}
 	for _, outcome := range outcomes {
@@ -372,6 +385,9 @@ func summarise(outcomes []Outcome) []ClassResult {
 			if outcome.FalseSuccess {
 				item.falseFull++
 			}
+			if answeredStale(outcome) {
+				item.staleFull++
+			}
 		case ConditionCompiled:
 			item.compiledRun++
 			if outcome.Passed {
@@ -382,6 +398,9 @@ func summarise(outcomes []Outcome) []ClassResult {
 			}
 			if outcome.FactReachable {
 				item.reachable++
+			}
+			if answeredStale(outcome) {
+				item.staleCompiled++
 			}
 		case ConditionRetrieval:
 			item.retrievalRun++
@@ -407,6 +426,7 @@ func summarise(outcomes []Outcome) []ClassResult {
 		result := ClassResult{Class: class, Tasks: item.tasks, Tolerance: ClassTolerance[class],
 			FalseSuccessFull: item.falseFull, FalseSuccessCompiled: item.falseCompiled,
 			FactsReachable: item.reachable, EmptyAnswers: item.empty, Errors: item.errors,
+			StaleAnswersCompiled: item.staleCompiled, StaleAnswersFull: item.staleFull,
 			RetrievalRuns: item.retrievalRun, RetrievalSearched: item.searched,
 			RetrievalFound: item.found}
 		result.FalseSuccessDelta = item.falseCompiled - item.falseFull

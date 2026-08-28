@@ -82,6 +82,30 @@ const (
 // register both outcomes. Do not present a run against it as a field estimate.
 const FarPhrasingRate = 0.5
 
+// Revision says whether the task's fact was ever changed.
+//
+// It exists because the corpus kept running out of loss to measure. Placement
+// stopped separating anything once compaction took head, middle and tail for
+// the same budget; phrasing stopped separating anything once ranking went
+// semantic -- with bge-m3 configured, every cell reached 100% and a delta of
+// zero meant nothing, for the fourth time.
+//
+// A superseded fact is the case neither fix helps with, and it is not a
+// contrivance: sessions revise decisions constantly. Both statements are about
+// the same thing in almost the same words, so semantic ranking scores them
+// alike and has no way to prefer the later one. Keeping the wrong one is a
+// wrong answer rather than a missing one, which is the more dangerous failure:
+// the model answers confidently from a fact that was withdrawn.
+const (
+	RevisionCurrent    = "current"
+	RevisionSuperseded = "superseded"
+)
+
+// SupersededRate is the share of tasks whose fact was revised. Half, so the
+// dimension has both arms at every placement and phrasing, and so the unrevised
+// half still measures what the earlier corpus measured.
+const SupersededRate = 0.5
+
 type scenario struct {
 	class      string
 	marker     func(token string) string
@@ -89,6 +113,10 @@ type scenario struct {
 	prompt     string
 	forbidden  []string
 	assertions func(token string) []Assertion
+	// staleMarker states an earlier version of the same fact, which a later
+	// fragment then corrects. The wording says outright that it was superseded,
+	// so the task is "read the correction", not "infer time from position".
+	staleMarker func(token string) string
 }
 
 // scenarios are real shapes of work: a rule agreed earlier that a later answer
@@ -130,6 +158,10 @@ func scenarios() []scenario {
 				return []Assertion{{Kind: "contains", Value: "ROUND_HALF_UP_" + token,
 					Why: "an identifier has one written form; a Thai paraphrase of the rule does not"}}
 			},
+			staleMarker: func(token string) string {
+				return "เดิมตกลงกันว่า order_total ใช้ค่าคงที่ ROUND_HALF_UP_" + token +
+					" ซึ่งภายหลังยกเลิกแล้ว"
+			},
 		},
 		{
 			class: ClassSummarisation,
@@ -147,6 +179,9 @@ func scenarios() []scenario {
 				return []Assertion{{Kind: "contains", Value: "PLAN-" + token,
 					Why: "the plan number is only in the buried fragment and has one form"}}
 			},
+			staleMarker: func(token string) string {
+				return "หมายเลขแผนงานเดิมคือ PLAN-" + token + " ซึ่งยกเลิกไปแล้วในรอบก่อน"
+			},
 		},
 		{
 			class: ClassResearch,
@@ -161,6 +196,9 @@ func scenarios() []scenario {
 			assertions: func(token string) []Assertion {
 				return []Assertion{{Kind: "contains", Value: token,
 					Why: "the confirmed value is only in the buried fragment"}}
+			},
+			staleMarker: func(token string) string {
+				return "batch size ที่เคยใช้คือ " + token + " ซึ่งเลิกใช้แล้วหลังทดสอบรอบล่าสุด"
 			},
 		},
 	}
@@ -199,20 +237,31 @@ func Generate(options GenerateOptions) ([]Task, error) {
 			if source.Float64() < FarPhrasingRate {
 				phrasing, marker = PhrasingFar, item.farMarker(token)
 			}
+			revision, stale, assertions := RevisionCurrent, "", item.assertions(token)
+			if source.Float64() < SupersededRate && item.staleMarker != nil {
+				// A token far enough from the current one that neither is a
+				// substring of the other, or the absent assertion would fire on
+				// the right answer.
+				staleToken := fmt.Sprint(9000 + index*37)
+				revision = RevisionSuperseded
+				stale = item.staleMarker(staleToken)
+				assertions = append(assertions, staleAssertion(item.assertions(staleToken)[0]))
+			}
 			task := Task{
 				ID:                 fmt.Sprintf("%s-%02d", item.class, index),
 				Class:              item.class,
 				Language:           "th",
 				Prompt:             item.prompt,
-				Assertions:         item.assertions(token),
+				Assertions:         assertions,
 				FalseSuccessClaims: item.forbidden,
 				NeedleFragmentID:   "needle",
 				Placement:          placement,
 				Phrasing:           phrasing,
+				Revision:           revision,
 				// The prompt is also the goal fragment, because that is how the
 				// running system works: the user's message for this turn becomes
 				// the pinned KindUserGoal.
-				Fragments: historyWith(marker, item.prompt, placement,
+				Fragments: historyWith(marker, stale, item.prompt, placement,
 					options.NoiseFragments, index),
 			}
 			tasks = append(tasks, task)
@@ -221,9 +270,27 @@ func Generate(options GenerateOptions) ([]Task, error) {
 	return tasks, nil
 }
 
+// staleAssertion turns the withdrawn fact's contains-assertion into the
+// absent-assertion that scores it.
+//
+// The prompt asks for the value alone, so quoting the old one is already
+// outside what was asked -- and whatever unfairness remains lands on the
+// full-context condition too, which is the condition the compiled one is
+// measured against. A scoring quirk that hits both arms equally does not move
+// the delta.
+func staleAssertion(contains Assertion) Assertion {
+	return Assertion{Kind: "absent", Value: contains.Value,
+		Why: "this value was explicitly withdrawn; answering with it is answering from a fact that no longer holds"}
+}
+
 // historyWith builds a session history carrying the marker once, at the
 // requested position inside one long conversation fragment.
-func historyWith(marker, goal, placement string, noise, salt int) []ctxcompiler.Fragment {
+//
+// When stale is non-empty it goes in an earlier fragment, at the head of that
+// fragment where compaction is most likely to keep it. The arrangement is
+// deliberately adverse: the withdrawn fact is easier to retain than the one
+// that replaced it, which is the shape that produces a confident wrong answer.
+func historyWith(marker, stale, goal, placement string, noise, salt int) []ctxcompiler.Fragment {
 	// "middle" means between the windows the compactor samples, not the exact
 	// midpoint. It no longer assumes what matters sits at an edge -- it takes
 	// head, middle and tail for the same budget -- so a fact at the centre is
@@ -246,6 +313,13 @@ func historyWith(marker, goal, placement string, noise, salt int) []ctxcompiler.
 	// Using anything lower would create a loss mode the running system cannot
 	// produce.
 	for index := 0; index < noise; index++ {
+		if stale != "" && index == noise/4 {
+			fragments = append(fragments, ctxcompiler.Fragment{
+				ID: "stale", Kind: ctxcompiler.KindConversation, Scope: "session", Provenance: "corpus",
+				Trust: "assistant", Version: "v1", Priority: 70,
+				Content: stale + " " + pad})
+			continue
+		}
 		if index == noise/2 {
 			fragments = append(fragments, ctxcompiler.Fragment{
 				ID: "needle", Kind: ctxcompiler.KindConversation, Scope: "session", Provenance: "corpus",

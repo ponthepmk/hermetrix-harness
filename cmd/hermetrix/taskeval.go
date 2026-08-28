@@ -56,8 +56,10 @@ func taskEvalGenerate(args []string) error {
 		return err
 	}
 	placements := map[string]int{}
+	revisions := map[string]int{}
 	for _, task := range tasks {
 		placements[task.Placement]++
+		revisions[task.Revision]++
 		encoded, err := json.MarshalIndent(task, "", "  ")
 		if err != nil {
 			return err
@@ -72,6 +74,9 @@ func taskEvalGenerate(args []string) error {
 		placements[taskeval.PlacementMiddle],
 		100*float64(placements[taskeval.PlacementMiddle])/float64(len(tasks)),
 		100*taskeval.MiddlePlacementRate)
+	fmt.Printf("revision mix:  current %d, superseded %d (a superseded task can be answered "+
+		"wrongly, not only missed)\n",
+		revisions[taskeval.RevisionCurrent], revisions[taskeval.RevisionSuperseded])
 	return nil
 }
 
@@ -176,6 +181,10 @@ func taskEvalScore(args []string) error {
 			class.Class, class.Tasks, class.SuccessFull, class.SuccessCompiled, class.SuccessDelta,
 			class.Tolerance, class.FalseSuccessFull, class.FalseSuccessCompiled,
 			class.FactsReachable, class.EmptyAnswers, class.Verdict)
+		if class.StaleAnswersCompiled > 0 || class.StaleAnswersFull > 0 {
+			fmt.Printf("%-14s   answered from a withdrawn fact: full %d -> compiled %d\n", "",
+				class.StaleAnswersFull, class.StaleAnswersCompiled)
+		}
 		if class.RetrievalRuns > 0 {
 			fmt.Printf("%-14s   with context_search: %.2f (delta %+.3f)  searched %d/%d  "+
 				"found the fact %d\n", "", class.SuccessRetrieval, class.RetrievalDelta,
