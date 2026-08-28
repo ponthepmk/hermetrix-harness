@@ -384,7 +384,10 @@ func (s *Service) initializeSessionSkills(ctx context.Context, session Session, 
 	if session.Contract.SkillsInitialized {
 		return session, nil
 	}
-	session.Contract.SelectedSkills = selectSkillBindings(goal, session.Contract.SkillCatalog)
+	// Best-effort: skillRelevance returns nil on a missing embedder, a slow one,
+	// or a failing one, and the scorer falls back to words alone.
+	semantic := s.skillRelevance(ctx, goal, session.Contract.SkillCatalog)
+	session.Contract.SelectedSkills = rankSkillBindings(goal, session.Contract.SkillCatalog, semantic)
 	session.Contract.SkillsInitialized = true
 	session.Contract.Revision = sessionContractRevision(session.Contract)
 	encoded, err := json.Marshal(session.Contract)
@@ -414,7 +417,20 @@ func (s *Service) initializeSessionSkills(ctx context.Context, session Session, 
 // under a wordy wrong one. Against the shorter side those become 40 and 14.
 const gramWeight = 40
 
+// selectSkillBindings ranks on words alone. It is the fallback path: no
+// embedder configured, or one that failed, and it is what every caller got
+// before R-14.
 func selectSkillBindings(goal string, catalog []SessionSkillBinding) []SessionSkillBinding {
+	return rankSkillBindings(goal, catalog, nil)
+}
+
+// rankSkillBindings scores the catalog against a goal, optionally adding what
+// meaning-similarity contributed. The semantic bonus is summed with the lexical
+// score rather than replacing it, because the two are blind to different
+// things: a vector crosses a paraphrase and an exact canonical name is a
+// substring a vector only approximates.
+func rankSkillBindings(goal string, catalog []SessionSkillBinding,
+	semantic map[string]int) []SessionSkillBinding {
 	type scored struct {
 		binding SessionSkillBinding
 		score   int
@@ -449,6 +465,7 @@ func selectSkillBindings(goal string, catalog []SessionSkillBinding) []SessionSk
 			}
 			score += int(math.Round(gramWeight * float64(shared) / float64(smaller)))
 		}
+		score += semantic[bindingKey(binding)]
 		if score > 0 {
 			candidates = append(candidates, scored{binding: binding, score: score})
 		}
@@ -1997,7 +2014,8 @@ func (s *Service) executeSkillTool(ctx context.Context, session Session, turnID 
 			preloaded[binding.VersionID] = true
 		}
 		results := []skillSearchResult{}
-		for _, binding := range selectSkillBindings(arguments.Query, session.Contract.SkillCatalog) {
+		semantic := s.skillRelevance(ctx, arguments.Query, session.Contract.SkillCatalog)
+		for _, binding := range rankSkillBindings(arguments.Query, session.Contract.SkillCatalog, semantic) {
 			if len(results) == limit {
 				break
 			}
@@ -2110,9 +2128,16 @@ func (s *Service) SkillRetrievalMetrics(ctx context.Context) ([]SkillRetrievalSt
 		preloaded := len(session.Contract.SelectedSkills) > 0
 		asciiCatalog := catalogIsASCIIOnly(session.Contract.SkillCatalog)
 		for _, turnID := range order {
+			// Scored with the semantic path when one is configured, because the
+			// question this metric answers is whether the product found a Skill
+			// for this goal, not whether one of its two scorers did. Each turn
+			// costs one embedding of the goal; the catalog is embedded once and
+			// then read from cache.
+			semantic := s.skillRelevance(ctx, goals[turnID], session.Contract.SkillCatalog)
+			matched := len(rankSkillBindings(goals[turnID], session.Contract.SkillCatalog, semantic)) > 0
 			for _, target := range []*counter{byModel[model], overall} {
 				target.turns++
-				if len(selectSkillBindings(goals[turnID], session.Contract.SkillCatalog)) == 0 {
+				if !matched {
 					// R-14: a turn the scorer could not read is not the same as a
 					// turn with nothing to find, but both land here. Count the
 					// unreadable ones so the difference is visible.

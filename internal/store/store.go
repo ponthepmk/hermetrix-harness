@@ -802,6 +802,21 @@ CREATE TABLE IF NOT EXISTS event_embeddings (
 CREATE INDEX IF NOT EXISTS idx_event_embeddings_session
   ON event_embeddings(session_id, revision);
 
+-- Vectors for Skill catalog entries, so a goal in one language can reach a
+-- summary written in another (R-14). Keyed by the hash of the embedded text
+-- rather than by the Skill: an edited summary is a different text and earns a
+-- different vector with nothing to invalidate, and a version that changed
+-- nothing about how it describes itself is not embedded twice.
+CREATE TABLE IF NOT EXISTS skill_embeddings (
+  text_hash TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  chunk INTEGER NOT NULL DEFAULT 0,
+  dimensions INTEGER NOT NULL,
+  vector BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(text_hash, revision, chunk)
+);
+
 CREATE TABLE IF NOT EXISTS gc_runs (
   id TEXT PRIMARY KEY,
   state TEXT NOT NULL,

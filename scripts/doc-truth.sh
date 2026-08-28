@@ -193,6 +193,12 @@ embedding-is-chunked|func Chunk|internal/embedding/embedding.go
 chunk-maps-back-to-a-span|func ChunkSpan|internal/embedding/embedding.go
 hint-carries-a-position|type SemanticHint|internal/context/compactor.go
 score-alone-is-not-enough|func TestAScoreWithoutAPositionIsNotEnough|internal/context/compiler_test.go
+skill-retrieval-crosses-scripts|func TestASemanticGoalReachesACatalogInAnotherLanguage|internal/agent/skillsemantic_test.go
+skill-vectors-are-cached-by-text|CREATE TABLE IF NOT EXISTS skill_embeddings|internal/store/store.go
+skill-semantic-cut-is-relative|func skillSemanticBonus|internal/agent/skillsemantic.go
+semantic-controls-express-no-match|var semanticControls|internal/agent/skillsemantic.go
+cross-script-measured-not-assumed|func TestRealEmbedderCrossesScripts|internal/agent/skillsemantic_real_test.go
+semantic-retrieval-is-a-serve-flag|embed-url|cmd/hermetrix/main.go
 manifest-only-replay-blocks|ErrReplayImplicitOnly|internal/skills/replay.go
 export-is-skill-lifecycle-only|func TestExportCarriesOnlyWhatImportRestores|internal/product/backup_test.go
 CLAIMS

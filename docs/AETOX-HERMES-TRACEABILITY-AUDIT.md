@@ -140,7 +140,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 
 | ID | เรื่อง | severity | สถานะ |
 |---|---|---|---|
-| **R-14** | เกณฑ์ถอยของ ADR-7 ยังวัดไม่ได้ในสนามจริง | **medium** | **วัดได้แล้วว่าตาบอด** — verdict `retrieval_blind` แยก "ยังไม่มีหลักฐานพอ" ออกจาก "scorer อ่านไม่ออก" · ทางแก้จริงยังต้องตัดสินใจ<br> รันกับ gateway จริงแล้ว **254 turn**: `turns_with_relevant_skill` = 12 (ต้องการ ≥20) `turns_model_requested` = 0 `rate` = 1.0 verdict `insufficient_evidence`<br>**ตัวหารเล็กเพราะ goal เป็นไทยแต่ catalog เป็นอังกฤษ** — lexical ข้ามภาษาไม่ได้ตามที่ O-20 ระบุ model เรียก `skill_search`/`skill_view` ไป **165 ครั้ง** แต่ไม่ตรงกับ 12 turn ที่ scorer บอกว่ามี Skill ตรงเลยสักครั้ง<br>วัดจริงไม่ได้จนกว่า catalog จะเป็นไทย หรือ retrieval จะข้ามภาษาได้ |
+| **R-14** | เกณฑ์ถอยของ ADR-7 ยังวัดไม่ได้ในสนามจริง | **medium** | **วัดได้แล้วว่าตาบอด** — verdict `retrieval_blind` แยก "ยังไม่มีหลักฐานพอ" ออกจาก "scorer อ่านไม่ออก" · ทางแก้จริงยังต้องตัดสินใจ<br> รันกับ gateway จริงแล้ว **254 turn**: `turns_with_relevant_skill` = 12 (ต้องการ ≥20) `turns_model_requested` = 0 `rate` = 1.0 verdict `insufficient_evidence`<br>**ตัวหารเล็กเพราะ goal เป็นไทยแต่ catalog เป็นอังกฤษ** — lexical ข้ามภาษาไม่ได้ตามที่ O-20 ระบุ model เรียก `skill_search`/`skill_view` ไป **165 ครั้ง** แต่ไม่ตรงกับ 12 turn ที่ scorer บอกว่ามี Skill ตรงเลยสักครั้ง<br>วัดจริงไม่ได้จนกว่า catalog จะเป็นไทย หรือ retrieval จะข้ามภาษาได้<br>**ปิดแล้ว** — `rankSkillBindings` บวกคะแนน semantic เข้ากับ lexical ต่อครบสามจุดเรียก (freeze contract · `skill_search` · metric) และ `serve` มี `--embed-url` แล้ว cache vector ด้วย hash ของข้อความ · floor เป็นค่าที่สูงกว่าระหว่าง quartile ของ catalog กับค่ากลางของ control ไม่ใช่ค่าคงที่<br>mutation ห้าข้อแดงหมด รวม **ถอด control floor แล้ว goal เรื่องอากาศดึง Skill มาจริง**<br>วัดกับ bge-m3 จริง: 3/3 goal ไทยถึง Skill ที่ถูก · goal ไม่เกี่ยวได้ `[]` ทั้ง catalog 3 และ 8 ตัว |
 | **O-7** | documentation drift | medium | มี `scripts/doc-truth.sh` สองชั้นแล้ว (facts + claim registry) claim registry จับ anchor ที่หายได้จริงตั้งแต่รันครั้งแรก; ข้อความเชิงความหมายยังต้องให้คนไล่ |
 | ~~**P-3**~~ | ~~exit gate ของ Phase 8–14 หลายข้อยังวัดไม่ได้~~ | — | **ปิดแล้ว** — gate audit ครบใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md) ทุก gate เป็น predicate; ที่ขาด artifact กลายเป็น prerequisite ที่มีชื่อ (P8-A…P14-A) แถวนี้ค้างมาจากรอบก่อน |
 | **P-4** | effort band ไม่มีฐานจาก velocity จริง | medium | มี band แล้วแต่เป็นการเดา; calibrate ได้หลังมี git history พอ |
@@ -654,6 +654,78 @@ fix invoice numbering                 -> [invoice-numbering]
 ยังไม่แก้ retrieval — นั่นเป็นการตัดสินใจ (catalog เป็นไทย หรือ retrieval ข้ามภาษา) แต่ **หยุดรายงานความบอดว่าเป็นความเงียบ** ได้เลย: นับ `turns_goal_script_unmatched` (goal ไม่ใช่ ASCII · catalog เป็น ASCII ล้วน · scorer ได้ศูนย์) แล้วถ้า turn แบบนี้มากกว่า turn ที่ไม่ตรงด้วยเหตุผลอื่น verdict เป็น `retrieval_blind` ไม่ใช่ `insufficient_evidence`
 
 ต่างกันตรงที่ `insufficient_evidence` บอก operator ว่า *"รออีกหน่อย"* ส่วน `retrieval_blind` บอกว่า *"รอไปก็ไม่มา"* — mutation: ถอดเงื่อนไขออกแล้วได้ `verdict = "insufficient_evidence", want retrieval_blind`
+
+##### ปิดแล้ว — เพิ่ม scorer ตัวที่สอง ไม่ใช่แก้ตัวเดิม
+
+เจ้าของเลือก "ใช้ embedder ที่มีแล้ว" เหตุผลคือกลไกที่พิสูจน์กับประวัติสนทนาไปแล้ว — embed, chunk, ชี้ตำแหน่ง — เอามาใช้กับ catalog ได้ตรง ๆ (reachability 70/90 → 90/90 ในการวัดครั้งนั้น) ราคาถูกกว่าตอนเสนอครั้งแรกมาก
+
+`selectSkillBindings` ไม่ถูกแก้ มันกลายเป็น wrapper บาง ๆ ของ `rankSkillBindings(goal, catalog, semantic)` ที่**บวก** คะแนน semantic เข้ากับคะแนน lexical ไม่ใช่แทนที่ เหตุผลเดียวกับ `context_search`: ชื่อ canonical ที่พิมพ์ตรงเป๊ะเป็น substring ที่ vector ทำได้แค่ประมาณ ส่วน paraphrase ข้ามภาษาเป็นสิ่งที่ trigram ทำไม่ได้เลย ทั้งสองตาบอดคนละที่
+
+`skillSemanticBonus` แยกออกมาเป็น pure function เพราะกฎการตัดสินคือส่วนที่ผิดมาแล้วทุกรอบ — **floor แบบ absolute โอนข้ามคำถามไม่ได้** วัดด้วย bge-m3 บนภาษาไทยจริง:
+
+```
+คำถามเรื่อง batch size  เทียบ paraphrase ของมัน  0.480
+                        เทียบข้อความไม่เกี่ยว     0.419
+คำถามเรื่อง plan id     เทียบ paraphrase ของมัน  0.604
+                        เทียบข้อความไม่เกี่ยว     0.471
+```
+
+การจัดอันดับถูกทั้งสองคำถาม แต่ค่าทับกัน: floor ใด ๆ ที่รับ 0.480 ก็รับ 0.471 ด้วย จึงต้องเป็น floor ที่คิดจากตัวเอง — แต่ **"ค่ากลางของ catalog" ไม่ได้แปลว่า noise floor** และวัดจริงแล้วพังทั้งสองทาง
+
+ทางแรก catalog จริงของ corpus มี 3 ตัว และสองในนั้นเรื่องปัดเศษเหมือนกัน:
+
+```
+goal: ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์
+      satang-rounding 0.525 · money-rounding-thai 0.547 · invoice-numbering 0.466
+```
+
+ค่ากลางคือ 0.525 ซึ่งอยู่**ระหว่างคำตอบที่ถูกสองตัว** ไม่มีใครชนะเกิน margin ผลลัพธ์ว่าง — mutation ยืนยัน: เปลี่ยนกลับเป็นค่ากลาง แล้ววัดกับ bge-m3 จริงได้ `1/3 Thai goals reached the right Skill` เปลี่ยนเป็น quartile ล่างแก้ข้อนี้ได้
+
+ทางที่สองโผล่ตอนขยาย catalog เป็น 8 ตัว **quartile ก็ไม่ใช่ noise floor เหมือนกัน**:
+
+```
+goal: วันนี้อากาศเป็นยังไงบ้าง  (ไม่เกี่ยวกับ Skill ตัวไหนเลย)
+      release 0.398 · backup 0.405 · pr 0.379 · ... quartile = 0.342
+```
+
+goal เรื่องอากาศชนะ quartile ของตัวเองเกิน margin แล้วดึง Skill สองตัวเข้า contract — **การจัดอันดับภายใน catalog มีผู้ชนะเสมอ** มันตอบไม่ได้ว่า "ไม่มีอะไรตรงเลย"
+
+ทางแก้คือ **control** — ประโยคธรรมดา 5 ประโยคสองภาษาที่จงใจไม่เกี่ยวกับ Skill ใด ๆ (แมวนอนบนหลังคา, ตารางเดินรถไฟ, สูตรตุ๋นเนื้อ, ประวัติสะพาน, คอร์ดกีตาร์) embed ครั้งเดียวแล้ว cache เหมือนข้อความอื่น ค่ากลางของ cos(goal, control) คือ "ข้อความที่ไม่เกี่ยวได้เท่าไหร่**สำหรับคำถามนี้**" ซึ่งเป็นตัวเลขที่ catalog ถูกขอให้ตอบแต่ตอบไม่ได้
+
+floor สุดท้ายคือ **ค่าที่สูงกว่าระหว่าง quartile ของ catalog กับค่ากลางของ control** เพราะสองตัวนี้พังคนละทาง: quartile ต่ำเกินเมื่อไม่มีอะไรใน catalog ตรงกับ goal ส่วน control ต่ำเกินเมื่อทุกตัวใน catalog ตรง — catalog ที่เป็นคำอธิบายทางเทคนิคล้วนย่อมชนะประโยคเรื่องแมวทั้งกระดาน
+
+ผลกับ control:
+
+```
+วันนี้อากาศเป็นยังไงบ้าง       control med 0.405 · best 0.405  -> []
+แมวของผมชอบนอนกลางแดด          control med 0.378 · best 0.354  -> []
+เขียนสคริปต์สำรองฐานข้อมูล      control med 0.364 · best 0.655  -> db-backup
+```
+
+catalog เล็กแค่ไหนก็ใช้ semantic ได้แล้ว เพราะ floor ไม่ได้มาจากขนาด catalog อีกต่อไป
+
+vector ของ catalog cache ด้วย hash ของข้อความ ไม่ใช่ด้วย skill id — summary ที่แก้แล้วคือข้อความคนละอัน ได้ vector ใหม่โดยไม่ต้องมีใครจำว่าต้อง invalidate และ version ที่ไม่ได้เปลี่ยนคำอธิบายก็ไม่ถูก embed ซ้ำ ผลคือ turn ที่สองจ่ายแค่ embed goal อย่างเดียว
+
+จุดเรียกสามที่ต่อครบ: freeze contract, `skill_search`, และ `SkillRetrievalMetrics` — จุดสุดท้ายสำคัญ เพราะ metric ต้องวัดว่า **ผลิตภัณฑ์** หา Skill เจอไหม ไม่ใช่ว่า scorer ตัวใดตัวหนึ่งหาเจอไหม ถ้าไม่ต่อ metric จะรายงาน `retrieval_blind` ต่อไปทั้งที่ production ไม่บอดแล้ว
+
+mutation ห้าข้อ: ถอด `score += semantic[...]` → goal ไทยกลับไปได้ศูนย์ · baseline เป็นค่าคงที่ 0.40 → noise ของคำถาม plan ได้คะแนน 5 · ปิด cache → batch ที่สองมี 4 ข้อความแทนที่จะเป็น 1 · **ถอด control floor → วัดกับ bge-m3 จริง goal เรื่องอากาศดึง `db-backup` มา goal เรื่องแมวดึง `satang-rounding` มา** · ถอด catalog floor → control ต่ำเกินจนทุกตัวผ่านหมด
+
+**และปิดช่องที่ทำให้ทั้งหมดนี้ไม่มีผลจริง**: `SetEmbedder` ไม่เคยถูกเรียกจาก `main.go` เลย กลไก semantic ทุกอย่างที่สร้างมาทำงานแต่ใน test กับ taskeval เท่านั้น ตอนนี้ `serve` มี `--embed-url` / `--embed-model` / `--embed-api-key-env` / `--embed-dimensions` — credential เก็บเป็น**ชื่อ** env var ตามสถาปัตยกรรม ไม่ใช่ค่า
+
+วัดกับ bge-m3 จริงแล้ว ไม่ใช่แค่ fake — `TestRealEmbedderCrossesScripts` ข้าม test ไปเงียบ ๆ ถ้าไม่ตั้ง `HERMETRIX_EMBED_URL` เพราะ test ที่ผ่านตอนไม่มีโมเดลคือคำอ้างที่ไม่มีหลักฐาน:
+
+```
+HERMETRIX_EMBED_URL=http://127.0.0.1:11434/v1 go test ./internal/agent/ \
+  -run TestRealEmbedderCrossesScripts -v
+
+ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์  -> money-rounding-thai
+แก้การปัดเศษสตางค์ให้ปัดครึ่งขึ้น   -> satang-rounding
+ออกเลขที่ใบกำกับภาษีให้ถูกรูปแบบ    -> invoice-numbering
+```
+
+สามในสาม goal ที่เคยได้ `[]` ทั้งหมด และ goal ที่ไม่เกี่ยวได้ `[]` ทั้งกับ catalog 3 ตัวและ 8 ตัว
+
+`conceptEmbedder` ยังอยู่ มันพิสูจน์การต่อสายและกฎการตัดสินโดยไม่ต้องมีโมเดล ส่วน test ตัวจริงพิสูจน์ว่าโมเดลจริงจับคู่ข้ามภาษาได้ — **สองอย่างนี้ตอบคนละคำถาม อันไหนหายไปก็เหลือคำอ้างที่ไม่มีหลักฐานครึ่งหนึ่ง**
 
 #### V-7 — producer ที่ยิงไม่ออก คือโรคเดียวกับที่กำลังไล่ปิด
 

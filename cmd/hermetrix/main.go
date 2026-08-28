@@ -17,6 +17,7 @@ import (
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/curator"
+	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/fidelity"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/localmodel"
@@ -73,6 +74,19 @@ func runServe(args []string) {
 	providerAPIKeyEnv := flags.String("provider-api-key-env", "HERMETRIX_PROVIDER_API_KEY", "environment variable holding the provider credential")
 	providerContext := flags.Int("provider-context", 131072, "declared provider context window")
 	providerMaxOutput := flags.Int("provider-max-output", 8192, "maximum output tokens for the startup provider")
+	// Semantic retrieval is opt-in. An embedding model is a second model to run,
+	// and with none configured every path that would use one falls back to the
+	// lexical scorer it used before -- a supported configuration, not a degraded
+	// one. Turning it on is what lets a goal in one language reach a Skill or an
+	// earlier turn written in another (R-14, O-44).
+	embedBaseURL := flags.String("embed-url", "",
+		"optional OpenAI-compatible embeddings endpoint, for example http://127.0.0.1:11434/v1; "+
+			"empty leaves retrieval lexical")
+	embedModel := flags.String("embed-model", "bge-m3", "embedding model ID")
+	embedAPIKeyEnv := flags.String("embed-api-key-env", "HERMETRIX_EMBED_API_KEY",
+		"environment variable holding the embeddings credential; the name is configured, never the value")
+	embedDimensions := flags.Int("embed-dimensions", 0,
+		"expected vector width; 0 accepts whatever the model returns, any other value rejects a mismatch")
 	_ = flags.Parse(args)
 	if err := requireLoopbackListener(*listen); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -164,6 +178,11 @@ func runServe(args []string) {
 	}
 	toolRegistry.SetCatalog(capabilityCatalog)
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).WithLearning(learningService)
+	if *embedBaseURL != "" {
+		agentService.SetEmbedder(embedding.NewOpenAIEmbedder(nil, *embedBaseURL, *embedModel,
+			os.Getenv(*embedAPIKeyEnv), *embedDimensions))
+		logger.Info("semantic retrieval enabled", "model", *embedModel, "endpoint", *embedBaseURL)
+	}
 	if recovered, recoverErr := agentService.RecoverInterruptedApprovals(ctx); recoverErr != nil {
 		logger.Error("recover interrupted tool approvals", "error", recoverErr)
 		os.Exit(1)

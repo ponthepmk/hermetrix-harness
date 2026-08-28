@@ -2960,18 +2960,26 @@ func TestDerivedDecisionsAreNotRenderedAsUserSpeech(t *testing.T) {
 	}
 }
 
-// TestThaiGoalsAgainstAnEnglishCatalogAreReportedAsBlindNotAbsent covers R-14.
+// TestThaiGoalsAgainstAnEnglishCatalogAreReportedAsBlindNotAbsent records the
+// limit of the lexical scorer, which is still what runs when no embedder is
+// configured.
 //
 // ADR-7's exit criterion reads no_skill_requested_rate over the turns where a
-// relevant Skill existed. That denominator is produced by selectSkillBindings
-// -- the same scorer whose adequacy is in question -- so a total retrieval
-// failure and an empty catalog produce identical numbers, and the verdict sits
-// at "insufficient_evidence" waiting for a sample that cannot arrive.
+// relevant Skill existed. That denominator is produced by the same scorer whose
+// adequacy is in question, so a total retrieval failure and an empty catalog
+// produce identical numbers, and the verdict sits at "insufficient_evidence"
+// waiting for a sample that cannot arrive.
 //
 // The driven corpus is exactly that shape: Thai goals, English Skill
 // summaries. "ปัดเศษเงินบาทเป็นจำนวนเต็มสตางค์" is a literal statement of what
 // money-rounding-thai does and scores zero against it, while the English
 // translation of the same goal retrieves it first.
+//
+// R-14 is closed by adding a second scorer rather than by changing this one --
+// see TestASemanticGoalReachesACatalogInAnotherLanguage. This test stays as
+// written because it is the premise that test depends on: the day the lexical
+// path starts crossing scripts on its own, the semantic test would pass without
+// the semantic path doing any work, and both need rewriting together.
 func TestThaiGoalsAgainstAnEnglishCatalogAreReportedAsBlindNotAbsent(t *testing.T) {
 	catalog := []SessionSkillBinding{
 		{SkillID: "s1", CanonicalName: "satang-rounding", Summary: "Round Thai money amounts half up in satang"},
