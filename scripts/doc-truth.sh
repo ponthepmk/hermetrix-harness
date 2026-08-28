@@ -198,6 +198,12 @@ skill-vectors-are-cached-by-text|CREATE TABLE IF NOT EXISTS skill_embeddings|int
 skill-semantic-cut-is-relative|func skillSemanticBonus|internal/agent/skillsemantic.go
 semantic-controls-express-no-match|var semanticControls|internal/agent/skillsemantic.go
 cross-script-measured-not-assumed|func TestRealEmbedderCrossesScripts|internal/agent/skillsemantic_real_test.go
+hostile-corpus-meets-the-floor|func TestTheCorpusMeetsTheGatesFloor|internal/hostile/hostile_test.go
+hostile-structural-uses-a-throwaway-store|hermetrix-hostile-|internal/hostile/structural.go
+compliance-is-scored-by-position|ShapeEndsWith|internal/hostile/corpus.go
+empty-reply-is-not-a-refusal|Inconclusive bool|internal/hostile/structural.go
+quoting-an-attack-is-not-obeying|func withoutQuotedInjection|internal/hostile/behavioral.go
+answers-are-rescorable-offline|func Rescore|internal/hostile/rescore.go
 corpus-measures-withdrawn-facts|RevisionSuperseded|internal/taskeval/generate.go
 withdrawn-answer-is-its-own-count|StaleAnswersCompiled|internal/taskeval/models.go
 corpus-still-has-loss-to-measure|func TestSupersededFactsGiveTheCorpusSomethingLeftToLose|internal/taskeval/runner_test.go

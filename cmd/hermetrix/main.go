@@ -46,6 +46,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "corpus:", err)
 			os.Exit(1)
 		}
+	case "hostile":
+		if err := runHostile(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "hostile:", err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 	}
@@ -58,6 +63,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus score  --data PATH --dir DIR [--provider NAME]")
 	fmt.Fprintln(os.Stderr, "  hermetrix taskeval generate --dir DIR [--per-class N] [--seed N]")
 	fmt.Fprintln(os.Stderr, "  hermetrix taskeval score  --data PATH --dir DIR [--provider NAME] [--profile NAME]")
+	fmt.Fprintln(os.Stderr, "  hermetrix hostile --data PATH [--provider NAME] [--workspace PATH]")
 	os.Exit(2)
 }
 
