@@ -10,10 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"hermetrix-harness/internal/identity"
@@ -89,15 +87,7 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 	workingDir, _ := resolveInside(project.RootPath, input.WorkingDir, true)
 	command.Dir = workingDir
 	command.Env = minimalEnvironment()
-	if runtime.GOOS != "windows" {
-		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		command.Cancel = func() error {
-			if command.Process == nil {
-				return nil
-			}
-			return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-		}
-	}
+	isolated := isolateProcessGroup(command)
 	command.WaitDelay = 2 * time.Second
 	buffer := &boundedBuffer{limit: maxCommandOutput}
 	command.Stdout, command.Stderr = buffer, buffer
@@ -128,7 +118,7 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		Metadata: map[string]any{"job_id": job.ID, "executable": input.Executable, "exit_code": exitCode,
 			"truncated": buffer.truncated}})
 	result := map[string]any{"exit_code": exitCode, "duration_ms": duration.Milliseconds(), "output": output,
-		"truncated": buffer.truncated, "process_group_terminated_on_cancel": runtime.GOOS != "windows"}
+		"truncated": buffer.truncated, "process_group_terminated_on_cancel": isolated}
 	if artifactErr == nil {
 		result["artifact_id"] = artifact.ID
 	} else if errorMessage == "" {

@@ -204,6 +204,7 @@ compliance-is-scored-by-position|ShapeEndsWith|internal/hostile/corpus.go
 empty-reply-is-not-a-refusal|Inconclusive bool|internal/hostile/structural.go
 quoting-an-attack-is-not-obeying|func withoutQuotedInjection|internal/hostile/behavioral.go
 answers-are-rescorable-offline|func Rescore|internal/hostile/rescore.go
+windows-has-its-own-process-handling|func isolateProcessGroup|internal/product/commands_windows.go
 corpus-measures-withdrawn-facts|RevisionSuperseded|internal/taskeval/generate.go
 withdrawn-answer-is-its-own-count|StaleAnswersCompiled|internal/taskeval/models.go
 corpus-still-has-loss-to-measure|func TestSupersededFactsGiveTheCorpusSomethingLeftToLose|internal/taskeval/runner_test.go
