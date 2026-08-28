@@ -54,12 +54,6 @@ func runHostile(args []string) error {
 		return reportHostile(results, *out)
 	}
 	ctx := context.Background()
-	dataStore, err := store.Open(ctx, *dataRoot)
-	if err != nil {
-		return err
-	}
-	defer dataStore.Close()
-
 	structural, err := hostile.RunStructural(ctx, *workspace)
 	if err != nil {
 		return err
@@ -67,7 +61,15 @@ func runHostile(args []string) error {
 
 	var answerer hostile.Answerer
 	var tools []providers.ToolDefinition
+	// The store is opened only when a model is asked for, because that is the
+	// only thing here that needs one. Opening it unconditionally created a data
+	// directory as a side effect of running a read-only audit.
 	if *providerName != "" {
+		dataStore, err := store.Open(ctx, *dataRoot)
+		if err != nil {
+			return err
+		}
+		defer dataStore.Close()
 		providerService := providers.NewService(dataStore, providers.NewOpenAIAdapter(nil))
 		profile, err := selectProvider(ctx, providerService, *providerName)
 		if err != nil {

@@ -109,6 +109,7 @@ Each gap has an ID, evidence down to file and line, and a mitigation phase. See 
 
 | Document | Role |
 |---|---|
+| [docs/HANDOVER.md](docs/HANDOVER.md) | **start here on a new machine** — what is done, what is blocked, what is missing, and how to run it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | current implementation and safety contracts |
 | [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md) | **forward source of truth** — ADRs, open findings, phases, risk register |
 | [docs/AETOX-HERMES-TRACEABILITY-AUDIT.md](docs/AETOX-HERMES-TRACEABILITY-AUDIT.md) | source-to-Hermetrix comparison against the Aetox and Hermes snapshots |
