@@ -21,10 +21,16 @@ func testService(t *testing.T) (*Service, *store.Store) {
 	return NewService(dataStore), dataStore
 }
 
+// candidateInput carries a replay fixture, because promotion refuses a replay
+// that only confirmed the manifest (O-24). Every Skill these tests promote is
+// one somebody would promote for real, and a Skill worth promoting has a test.
 func candidateInput(name, description, body string) CreateCandidateInput {
 	return CreateCandidateInput{CanonicalName: name, ScopeKind: "user", Origin: "user_created", Owner: "user",
 		ChangeKind: "create", CreatedBy: "user", TriggerKind: "manual", Reason: "repeatable procedure",
-		EvidenceRefs: []string{"session:test"}, Markdown: "---\nname: " + name + "\ndescription: \"" + description + "\"\ntags: [test]\ntools: [filesystem.read]\n---\n\n" + body + "\n"}
+		EvidenceRefs: []string{"session:test"},
+		Files: []File{{Path: "tests/procedure.json",
+			Content: []byte(`{"id":"procedure","prompt":"what does this procedure say","required_phrases":["#"]}`)}},
+		Markdown: "---\nname: " + name + "\ndescription: \"" + description + "\"\ntags: [test]\ntools: [filesystem.read]\n---\n\n" + body + "\n"}
 }
 
 func TestSkillLifecycleIsProposalOnlyVersionedAndRecoverable(t *testing.T) {

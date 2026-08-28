@@ -236,7 +236,7 @@ func (c *Compiler) selectActive(fragments []Fragment, budget, summaryTarget int)
 }
 
 func sliceFor(fragment Fragment) string {
-	if fragment.Pinned || fragment.Kind == KindUserGoal || fragment.Kind == KindAcceptanceCriteria {
+	if fragment.Pinned || fragment.Kind == KindUserGoal {
 		return "pinned"
 	}
 	switch fragment.Kind {
@@ -339,7 +339,7 @@ func evaluateIntegrity(source, selected []Fragment, checkpoint string) (Integrit
 	}
 	pairs := map[string][]Fragment{}
 	for _, fragment := range source {
-		if fragment.Pinned || fragment.Kind == KindUserGoal || fragment.Kind == KindAcceptanceCriteria {
+		if fragment.Pinned || fragment.Kind == KindUserGoal {
 			report.PinnedTotal++
 			if selectedIDs[fragment.ID] {
 				report.PinnedRetained++

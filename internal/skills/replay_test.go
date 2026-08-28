@@ -167,17 +167,26 @@ func TestImplicitOnlyReplayIsReportedAsSuch(t *testing.T) {
 	if run.FixturesTotal != 1 || !run.Summary.Passed {
 		t.Fatalf("precondition: the implicit fixture should run and pass, got %+v", run)
 	}
-	var warned bool
+	var flagged bool
 	for _, finding := range improve.Checks.Findings {
 		if finding.Code == "replay_implicit_only" {
-			warned = true
-			if finding.Level != "warning" {
-				t.Fatalf("finding level = %q, want warning", finding.Level)
+			flagged = true
+			// An error, not a warning. The owner decided a green result nobody
+			// can distinguish from a real one is worse than a refusal, because
+			// a refusal says what to do next: write one fixture.
+			if finding.Level != "error" {
+				t.Fatalf("finding level = %q, want error", finding.Level)
 			}
 		}
 	}
-	if !warned {
+	if !flagged {
 		t.Fatalf("a candidate whose replay tested only the manifest carries no such finding: %+v", improve.Checks)
+	}
+	// And promotion refuses it. This is the candidate that reversed every step
+	// of its own procedure and passed the manifest check.
+	if _, err := service.PromoteCandidate(ctx, improve.ID, "user", improve.Revision); !errors.Is(err,
+		ErrReplayImplicitOnly) {
+		t.Fatalf("a manifest-only replay still allowed promotion: %v", err)
 	}
 }
 

@@ -263,10 +263,10 @@ func (s *Service) applyReplayChecks(ctx context.Context, candidate Candidate, ru
 		checks.Findings = append(checks.Findings, CheckFinding{Level: "error", Code: "replay_failed", Message: run.Error, Path: "tests/"})
 	}
 	// A green replay over no author-written fixture is a manifest-identity
-	// check. Say so on the candidate, where the person approving it looks,
-	// rather than only in the run they may never open.
+	// check, and promotion now refuses it outright. The finding stays so the
+	// candidate says why before anyone tries.
 	if checks.ReplayPassed && run.Summary.ImplicitOnly {
-		checks.Findings = append(checks.Findings, CheckFinding{Level: "warning", Code: "replay_implicit_only",
+		checks.Findings = append(checks.Findings, CheckFinding{Level: "error", Code: "replay_implicit_only",
 			Message: "no replay fixture exists for this Skill; the run only confirmed the manifest name, " +
 				"description and tool list are unchanged, and did not test the procedure", Path: "tests/"})
 	}
@@ -354,15 +354,40 @@ func (s *Service) ReviewCandidateCapabilities(ctx context.Context, candidateID s
 		Decision: decision, AddedTools: added, CreatedAt: now}, nil
 }
 
+// requireCurrentReplay refuses promotion unless a completed replay is bound to
+// this exact candidate, and unless that replay tested something.
+//
+// O-24: a Skill with no fixture gets a synthesised one that checks the manifest
+// name, description and tool list are unchanged. A candidate that reversed
+// every step of its procedure -- "keep satang integers, round half up" became
+// "use decimal baht, round down and drop the remainder" -- passed it and was
+// promoted with replay_passed: true. The check is worth running and it is not a
+// behavioural test, and reporting it as one is how a reviewer comes to trust a
+// green tick that means nothing about the work.
+//
+// The warning stayed on the candidate for a while and the owner decided that is
+// not enough: a green result nobody can distinguish from a real one is worse
+// than a refusal, because refusing says what to do next. Writing one fixture is
+// the thing to do next.
 func (s *Service) requireCurrentReplay(ctx context.Context, candidate Candidate) error {
-	var state, hash string
+	var state, hash, summaryJSON string
 	var revision int
-	err := s.store.DB.QueryRowContext(ctx, `SELECT state,candidate_hash,candidate_revision FROM skill_replay_runs
-      WHERE candidate_id=? ORDER BY started_at DESC LIMIT 1`, candidate.ID).Scan(&state, &hash, &revision)
-	if errors.Is(err, sql.ErrNoRows) || state != "completed" || hash != candidate.CandidateHash || revision != candidate.Revision {
+	err := s.store.DB.QueryRowContext(ctx, `SELECT state,candidate_hash,candidate_revision,result_json
+      FROM skill_replay_runs WHERE candidate_id=? ORDER BY started_at DESC LIMIT 1`,
+		candidate.ID).Scan(&state, &hash, &revision, &summaryJSON)
+	if errors.Is(err, sql.ErrNoRows) || state != "completed" || hash != candidate.CandidateHash ||
+		revision != candidate.Revision {
 		return ErrReplayRequired
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// result_json holds the ReplaySummary itself, not a wrapper around it.
+	var summary ReplaySummary
+	if json.Unmarshal([]byte(summaryJSON), &summary) == nil && summary.ImplicitOnly {
+		return ErrReplayImplicitOnly
+	}
+	return nil
 }
 
 func (s *Service) requireCapabilityReview(ctx context.Context, candidate Candidate, candidatePackage Package) error {

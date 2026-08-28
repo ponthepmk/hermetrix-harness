@@ -15,15 +15,16 @@ import (
 )
 
 var (
-	ErrNotFound          = errors.New("not found")
-	ErrRevisionConflict  = errors.New("revision conflict")
-	ErrProtectedSkill    = errors.New("protected skill cannot be changed")
-	ErrChecksFailed      = errors.New("candidate checks have not passed")
-	ErrCandidateNotReady = errors.New("candidate is not awaiting review")
-	ErrImmutableMetadata = errors.New("existing skill metadata is immutable in a content improvement")
-	ErrForkRequired      = errors.New("imported or bundled skills must be forked rather than mutated")
-	ErrReplayRequired    = errors.New("candidate replay evidence is missing or stale")
-	ErrCapabilityReview  = errors.New("capability widening requires explicit review")
+	ErrNotFound           = errors.New("not found")
+	ErrRevisionConflict   = errors.New("revision conflict")
+	ErrProtectedSkill     = errors.New("protected skill cannot be changed")
+	ErrChecksFailed       = errors.New("candidate checks have not passed")
+	ErrCandidateNotReady  = errors.New("candidate is not awaiting review")
+	ErrImmutableMetadata  = errors.New("existing skill metadata is immutable in a content improvement")
+	ErrForkRequired       = errors.New("imported or bundled skills must be forked rather than mutated")
+	ErrReplayRequired     = errors.New("candidate replay evidence is missing or stale")
+	ErrReplayImplicitOnly = errors.New("replay only confirmed the manifest; write a fixture that tests the procedure before promoting")
+	ErrCapabilityReview   = errors.New("capability widening requires explicit review")
 )
 
 type Service struct{ store *store.Store }

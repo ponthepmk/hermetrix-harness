@@ -445,7 +445,13 @@ func TestHTTPSkillReplayCapabilityReviewAndFidelityEvidence(t *testing.T) {
 	created := requestJSON(t, harness.URL+"/api/candidates", http.MethodPost, map[string]any{
 		"canonical_name": "replay-http", "scope_kind": "user", "origin": "user_created", "owner": "user",
 		"change_kind": "create", "created_by": "user", "trigger_kind": "manual", "reason": "HTTP replay test",
-		"evidence_refs": []string{"test:http-replay"}, "markdown": markdown, "files": []any{}}, http.StatusCreated)
+		"evidence_refs": []string{"test:http-replay"}, "markdown": markdown,
+		// A replay that only confirmed the manifest no longer allows promotion,
+		// so the Skill this flow promotes carries a fixture the way a real one
+		// would.
+		// File.Content is []byte, so it travels as base64 over JSON.
+		"files": []any{map[string]any{"path": "tests/replay.json", "content": "eyJpZCI6InJlcGxheSIsInByb21wdCI6IndoYXQgZG9lcyB0aGUgcHJvY2VkdXJlIHByZXNlcnZlIiwicmVxdWlyZWRfcGhyYXNlcyI6WyJyZXBsYXkiXX0="}}},
+		http.StatusCreated)
 	var candidate skills.Candidate
 	if err := json.Unmarshal(created, &candidate); err != nil {
 		t.Fatal(err)

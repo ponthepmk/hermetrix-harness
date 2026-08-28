@@ -22,14 +22,29 @@ const (
 )
 
 var (
+	// backupTables is the Skill lifecycle and nothing else, so export and
+	// import are inverses of one another.
+	//
+	// O-21: export used to serialise all 42 tables while import read two. A
+	// real restore of a file holding 210 events, 4 sessions and 21 blobs
+	// produced three Skill candidates and nothing else, reporting
+	// state: imported and conflicts: 0 -- an accurate description of what it
+	// did and a misleading one of what the file contained.
+	//
+	// The owner chose to narrow the export rather than widen the import. A file
+	// that carries conversations, provider credentials and approval receipts
+	// nobody reads is a copy of a workspace's private history travelling
+	// somewhere for no purpose, and restoring those safely is a different
+	// feature -- conflict rules, credential handling, whether a replayed
+	// approval still means anything -- rather than a bigger loop.
+	//
+	// Blobs stay: a Skill version is a content ref, so a package without its
+	// bytes restores to nothing.
 	backupTables = []string{
-		"skills", "skill_versions", "skill_candidates", "skill_events", "skill_activations", "skill_archives",
-		"skill_relations", "learning_reviews", "curator_runs", "provider_profiles", "agent_sessions", "agent_events",
-		"context_snapshots", "event_embeddings", "step_bindings", "tool_approvals", "mcp_servers", "mcp_tools", "skill_replay_runs",
-		"skill_replay_cases", "candidate_capability_reviews", "context_eval_cases", "context_eval_runs",
-		"model_qualification_runs", "projects", "artifacts", "background_jobs", "settings", "memories", "backup_runs",
-		"curator_findings", "maintenance_schedules", "gc_runs",
-		"learning_trigger_outbox", "skill_authority_policy", "skill_authority_actions",
+		"skills", "skill_versions", "skill_candidates", "skill_events", "skill_activations",
+		"skill_archives", "skill_relations", "skill_replay_runs", "skill_replay_cases",
+		"candidate_capability_reviews", "candidate_behavioral_evals",
+		"skill_authority_policy", "skill_authority_actions",
 	}
 	sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )

@@ -221,9 +221,14 @@ func TestSessionUsesFrozenSkillVersionAfterLaterPromotion(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	v1 := "---\nname: cache-skill\ndescription: \"Cache skill for frozen session verification\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. FROZEN_VERSION_ONE.\n"
+	// The Skill carries a fixture because promotion now refuses a replay that
+	// only confirmed the manifest: a candidate that reversed every step of its
+	// procedure used to pass that check and be promoted green.
+	fixture := `{"id":"frozen","prompt":"which version is this","required_phrases":["Procedure"]}`
 	candidate, err := service.skills.CreateCandidate(ctx, skills.CreateCandidateInput{CanonicalName: "cache-skill",
 		ScopeKind: "user", Origin: "user_created", Owner: "user", ChangeKind: "create", CreatedBy: "test",
-		TriggerKind: "manual", Reason: "seed frozen version", Markdown: v1})
+		TriggerKind: "manual", Reason: "seed frozen version", Markdown: v1,
+		Files: []skills.File{{Path: "tests/frozen.json", Content: []byte(fixture)}}})
 	if err != nil {
 		t.Fatal(err)
 	}

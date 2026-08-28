@@ -8,10 +8,17 @@ import (
 type Kind string
 
 const (
-	KindIdentity           Kind = "identity"
-	KindPolicy             Kind = "policy"
-	KindUserGoal           Kind = "user_goal"
-	KindAcceptanceCriteria Kind = "acceptance_criteria"
+	KindIdentity Kind = "identity"
+	KindPolicy   Kind = "policy"
+	KindUserGoal Kind = "user_goal"
+	// acceptance_criteria was defined here and consumed by sliceFor and
+	// evaluateIntegrity, and nothing ever produced one -- not the agent, not a
+	// fixture. A census of 772 compiled snapshots found it at max=0 (O-40), so
+	// the Phase 9 gate asked for retention of constraints this system has never
+	// had. The owner chose not to build a producer, and the kind goes with that
+	// decision: a type consumed by two branches and produced by nobody is the
+	// same claim the six schema-only tables were making (O-42), and it belongs
+	// in the commit that builds it.
 	KindProjectInstruction Kind = "project_instruction"
 	KindSelectedSkill      Kind = "selected_skill"
 	KindConversation       Kind = "conversation"
