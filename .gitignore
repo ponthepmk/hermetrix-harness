@@ -1,5 +1,11 @@
 .hermetrix/
 tmp-*-data/
+
+# Local provider/embedding credentials and the launch wrapper that reads them.
+# Hermetrix only ever takes the *name* of an env var; the value stays here and
+# out of Git.
+.env.local
+/scripts/serve.local.ps1
 # Root-anchored: without the leading slash this also matched the cmd/hermetrix
 # directory, and the whole main package went unversioned. The repository built
 # green and contained no program.
