@@ -38,6 +38,18 @@ jobs:
             exit 1
           fi
 
+      # The product ships for Windows and this repository was not buildable
+      # there: a process-group call guarded by runtime.GOOS still had to
+      # compile, and syscall.Kill does not exist on Windows at all. A runtime
+      # check cannot hide a compile-time symbol, and nothing on a Linux runner
+      # would ever have noticed.
+      - name: builds for every supported platform
+        run: |
+          for target in windows linux darwin; do
+            GOOS="$target" GOARCH=amd64 go build -o /dev/null ./cmd/hermetrix
+            GOOS="$target" GOARCH=amd64 go vet ./...
+          done
+
       - name: vet
         run: go vet ./...
 
