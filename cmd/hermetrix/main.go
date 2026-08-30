@@ -58,7 +58,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT]")
+	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT] [--open]")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus export --data PATH --out DIR")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus score  --data PATH --dir DIR [--provider NAME]")
 	fmt.Fprintln(os.Stderr, "  hermetrix taskeval generate --dir DIR [--per-class N] [--seed N]")
@@ -93,6 +93,8 @@ func runServe(args []string) {
 		"environment variable holding the embeddings credential; the name is configured, never the value")
 	embedDimensions := flags.Int("embed-dimensions", 0,
 		"expected vector width; 0 accepts whatever the model returns, any other value rejects a mismatch")
+	autoOpen := flags.Bool("open", false,
+		"open the control center in the default browser once the listener is up")
 	_ = flags.Parse(args)
 	if err := requireLoopbackListener(*listen); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -245,8 +247,23 @@ func runServe(args []string) {
 			}
 		}
 	}()
-	logger.Info("Hermetrix Skill Control Center", "url", "http://"+*listen, "data", *dataRoot)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	listener, err := net.Listen("tcp", *listen)
+	if err != nil {
+		logger.Error("serve", "error", err)
+		os.Exit(1)
+	}
+	url := "http://" + *listen
+	logger.Info("Hermetrix Skill Control Center", "url", url, "data", *dataRoot)
+	if *autoOpen {
+		// Only after the bind has succeeded, and never fatal: the server is the
+		// point, the browser is a convenience.
+		go func() {
+			if openErr := openBrowser(url); openErr != nil {
+				logger.Warn("open browser", "error", openErr, "url", url)
+			}
+		}()
+	}
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Error("serve", "error", err)
 		os.Exit(1)
 	}

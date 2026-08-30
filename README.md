@@ -58,7 +58,10 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 go run ./cmd/hermetrix serve --data ./.hermetrix --listen 127.0.0.1:7331
 ```
 
-Then open <http://127.0.0.1:7331>.
+Then open <http://127.0.0.1:7331>. There is no desktop window; `serve` is a
+local web server and the terminal stays attached to it until `Ctrl+C`. Add
+`--open` to launch the control center in your default browser once the
+listener is up.
 
 Use `--workspace PATH` to choose the root exposed to bounded tools. Reads stay inside that root. `workspace.write_file` can replace one UTF-8 file or create one file in an existing directory, but every exact write pauses for approval in Chat and uses `expected_sha256` to reject stale changes.
 

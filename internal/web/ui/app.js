@@ -1,4 +1,4 @@
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", selectedSkill: null, selectedSession: null, selectedProject: null, sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationOverride:false, draftQualificationReason:"" };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", selectedSkill: null, selectedSession: null, selectedProject: null, sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"" };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -21,7 +21,10 @@ let toastTimer;
 function toast(message, error = false) {
   const node = $("#toast");
   node.textContent = message;
-  node.style.background = error ? "#ff9a9a" : "#e9edf2";
+  // Class, not node.style: the server sends `style-src 'self'`, so every inline
+  // style assignment in this file was being blocked and the error tint never
+  // actually appeared.
+  node.classList.toggle("error", error);
   node.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
@@ -35,7 +38,7 @@ function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "",
   $("#actionMessage").textContent = message;
   $("#actionConfirm").textContent = confirmLabel;
   $("#actionConfirm").className = danger ? "danger" : "primary";
-  $("#actionInputLabel").style.display = reasonLabel ? "grid" : "none";
+  $("#actionInputLabel").hidden = !reasonLabel;
   $("#actionInputLabel").firstChild.textContent = reasonLabel || "Reason";
   input.value = "";
   input.required = Boolean(reasonLabel);
@@ -73,21 +76,13 @@ async function load() {
 }
 
 function renderAll() {
-  renderChat();
-  renderProviders();
-  renderMCP();
-  renderStats();
-  renderLibrary();
-  renderProposals();
-  renderLearning();
-  renderInsights();
-  renderArchive();
-  renderContext();
-  renderProjects();
-  renderOffice();
-  renderArtifacts();
-  renderFidelity();
-  renderMaintenance();
+  // Isolate each panel: one renderer throwing on an unexpected payload must not
+  // leave every panel after it in the list blank.
+  for (const render of [renderChat, renderProviders, renderMCP, renderStats, renderLibrary,
+    renderProposals, renderLearning, renderInsights, renderArchive, renderContext,
+    renderProjects, renderOffice, renderArtifacts, renderFidelity, renderMaintenance]) {
+    try { render(); } catch (error) { console.error(`${render.name} failed`, error); }
+  }
   const waiting = state.candidates.filter(item => ["needs_review", "quarantined"].includes(item.state)).length;
   $("#proposalBadge").hidden = waiting === 0;
   $("#proposalBadge").textContent = waiting;
@@ -282,7 +277,7 @@ function renderLearning() {
   const root = $("#view-learning");
   const queued = state.reviews.filter(item => item.state === "queued").length;
   root.innerHTML = `<div class="panel"><div class="proposal-head"><div><h3>Background review queue</h3><p>Jobs persist across restart, use structured digests, yield to foreground inference, and can create only checked candidates.</p></div><button class="primary" id="runReviewButton" ${queued ? "" : "disabled"}>Run next review</button></div></div>
-    <div class="card-list" style="margin-top:10px">${state.reviews.length ? state.reviews.map(item => `<article class="proposal-card"><div class="proposal-head"><div><div class="row-title"><h3>${escapeHTML(item.trigger_kind)}</h3>${pill(item.state, item.state === "completed" ? "green" : item.state === "failed" ? "red" : "amber")}</div><p>${escapeHTML(item.digest.goal_and_constraints || "Structured milestone digest")}</p></div><span class="hash">${escapeHTML(item.reviewer_revision)}</span></div><div class="meta">${pill(`session ${item.session_id}`)}${pill(`${item.attempts} attempts`)}${item.decision?.kind ? pill(item.decision.kind,"blue") : ""}${item.candidate_id ? pill("candidate created","green") : ""}</div>${item.error ? `<ul class="findings"><li class="error">${escapeHTML(item.error)}</li></ul>` : ""}</article>`).join("") : `<div class="empty"><h3>No learning reviews yet</h3><p>The agent runtime will enqueue successful milestones, repeated corrections, explicit learn requests, and skill-related failures. Empty is a valid state.</p></div>`}</div>`;
+    <div class="card-list spaced">${state.reviews.length ? state.reviews.map(item => `<article class="proposal-card"><div class="proposal-head"><div><div class="row-title"><h3>${escapeHTML(item.trigger_kind)}</h3>${pill(item.state, item.state === "completed" ? "green" : item.state === "failed" ? "red" : "amber")}</div><p>${escapeHTML(item.digest.goal_and_constraints || "Structured milestone digest")}</p></div><span class="hash">${escapeHTML(item.reviewer_revision)}</span></div><div class="meta">${pill(`session ${item.session_id}`)}${pill(`${item.attempts} attempts`)}${item.decision?.kind ? pill(item.decision.kind,"blue") : ""}${item.candidate_id ? pill("candidate created","green") : ""}</div>${item.error ? `<ul class="findings"><li class="error">${escapeHTML(item.error)}</li></ul>` : ""}</article>`).join("") : `<div class="empty"><h3>No learning reviews yet</h3><p>The agent runtime will enqueue successful milestones, repeated corrections, explicit learn requests, and skill-related failures. Empty is a valid state.</p></div>`}</div>`;
   $("#runReviewButton").addEventListener("click", runNextReview);
 }
 
@@ -368,7 +363,7 @@ function renderInsights() {
   const lastRun = state.curator_runs[0];
   const archiveEnabled = state.skillAuthority?.mode === "gated_automation" && state.skillAuthority?.auto_archive_agent_skills;
   root.innerHTML = `<div class="panel"><div class="proposal-head"><div><h3>Curator · ${archiveEnabled ? "gated archive enabled" : "report-only"}</h3><p>Deterministic retrieval runs first. Duplicate and merge findings always remain proposals. ${archiveEnabled ? "Only high-confidence stale agent-created Skills may be archived under the current versioned policy; every action has a restore path." : "The current authority policy forbids curator mutation."}</p><div class="meta">${lastRun ? `${pill(`last ${formatDate(lastRun.completed_at || lastRun.started_at)}`)}${pill(`${lastRun.findings_count} findings`)}${pill(lastRun.analyzer_revision)}` : pill("not run yet")}</div></div><button class="primary" id="analyzeButton">Analyze now</button></div></div>
-    <div class="card-list" style="margin-top:10px">${state.curatorFindings.length ? state.curatorFindings.map(item => `<article class="insight-card"><div class="insight-head"><div><h3>${escapeHTML(item.finding_kind)} · ${Math.round(item.score*100)}%</h3><p>${escapeHTML((item.evidence?.reasons || []).join("; ") || item.evidence?.note || "Version-bound human review required")}</p></div>${pill(item.severity,item.severity === "warning" ? "amber" : "blue")}</div><div class="kv"><span>Left skill</span><code>${escapeHTML(item.left_skill_id || "—")}</code><span>Right skill</span><code>${escapeHTML(item.right_skill_id || "—")}</code><span>Action</span><strong>${escapeHTML(item.proposal?.action || "report only")}</strong><span>Auto mutation</span><strong>${item.proposal?.automatic_mutation === false ? "forbidden" : "none"}</strong></div>${item.proposal?.review_steps ? `<ol class="review-steps">${item.proposal.review_steps.map(step => `<li>${escapeHTML(step)}</li>`).join("")}</ol>` : ""}</article>`).join("") : `<div class="empty"><h3>No curator findings</h3><p>Run analysis to score duplicates, overlaps and stale skills without changing active state.</p></div>`}</div>`;
+    <div class="card-list spaced">${state.curatorFindings.length ? state.curatorFindings.map(item => `<article class="insight-card"><div class="insight-head"><div><h3>${escapeHTML(item.finding_kind)} · ${Math.round(item.score*100)}%</h3><p>${escapeHTML((item.evidence?.reasons || []).join("; ") || item.evidence?.note || "Version-bound human review required")}</p></div>${pill(item.severity,item.severity === "warning" ? "amber" : "blue")}</div><div class="kv"><span>Left skill</span><code>${escapeHTML(item.left_skill_id || "—")}</code><span>Right skill</span><code>${escapeHTML(item.right_skill_id || "—")}</code><span>Action</span><strong>${escapeHTML(item.proposal?.action || "report only")}</strong><span>Auto mutation</span><strong>${item.proposal?.automatic_mutation === false ? "forbidden" : "none"}</strong></div>${item.proposal?.review_steps ? `<ol class="review-steps">${item.proposal.review_steps.map(step => `<li>${escapeHTML(step)}</li>`).join("")}</ol>` : ""}</article>`).join("") : `<div class="empty"><h3>No curator findings</h3><p>Run analysis to score duplicates, overlaps and stale skills without changing active state.</p></div>`}</div>`;
   $("#analyzeButton").addEventListener("click", analyzeRelations);
 }
 
@@ -404,11 +399,72 @@ function exactQualification(provider, profile) {
     run.provider_revision === provider.revision && run.requested_profile === profile.name && run.state === "completed" && run.eligible) || null;
 }
 
+// MINIMUM_ANSWER_BUDGET mirrors minimumAnswerBudget in internal/agent/service.go.
+// The server refuses to open a session below it, so the panel has to apply the
+// same rule -- otherwise it offers a profile the server will reject, and the
+// only feedback is a 500 that disappears with the toast.
+const MINIMUM_ANSWER_BUDGET = 512;
+
+// answerBudget mirrors answerBudget() in internal/agent/service.go: what is left
+// of the output reserve once this model has done the reasoning it usually does.
+function answerBudget(provider, profile) {
+  if (!provider || !profile) return 0;
+  const ratio = Number(provider.reasoning_ratio) || 0;
+  if (ratio <= 0) return profile.output_reserve;
+  if (ratio >= 1) return 0;
+  return Math.floor(profile.output_reserve * (1 - ratio));
+}
+
+// profileAdmission answers one question the panel needs before it enables the
+// button: can THIS provider open a session on THIS profile, and at what cost.
+// Two independent gates apply, and both were previously invisible here.
 function profileAdmission(provider, profile) {
-  if (!profile) return { admitted:false, mode:"unavailable" };
-  if (profile.name === "compact-32k") return { admitted:true, mode:"compatibility" };
+  if (!profile) return { admitted:false, mode:"unavailable", budget:0 };
+  const budget = answerBudget(provider, profile);
+  // Gate 1: the answer budget. A reasoning model can spend the whole reserve
+  // thinking; the server refuses such a session outright, whatever the
+  // qualification says, so this check comes first.
+  if (budget < MINIMUM_ANSWER_BUDGET) {
+    return { admitted:false, mode:"answer_budget", budget, blocking:true };
+  }
+  // Gate 2: qualification. compact-32k is the declared compatibility floor and
+  // needs none; every larger envelope needs exact evidence or a reviewed override.
+  if (profile.name === "compact-32k") return { admitted:true, mode:"compatibility", budget };
   const qualification = exactQualification(provider, profile);
-  return qualification ? { admitted:true, mode:"qualified", qualification } : { admitted:false, mode:"override_required" };
+  return qualification
+    ? { admitted:true, mode:"qualified", qualification, budget }
+    : { admitted:false, mode:"override_required", budget };
+}
+
+// bestProfileFor picks the smallest envelope this provider can actually open a
+// session on. Defaulting to a fixed name meant a reasoning model landed on an
+// option its own output ratio had already ruled out, with a disabled button and
+// no stated reason.
+function bestProfileFor(provider, profiles) {
+  const ordered = [...profiles].sort((a, b) => a.total - b.total);
+  return ordered.find(profile => profileAdmission(provider, profile).admitted)
+    || ordered.find(profile => answerBudget(provider, profile) >= MINIMUM_ANSWER_BUDGET)
+    || ordered[0] || null;
+}
+
+// suggestedOverrideReason writes the reason from the evidence already on screen
+// so an override that is the only available path does not also demand that the
+// operator invent prose for it. It stays editable: the audit record keeps
+// whatever is actually submitted.
+function suggestedOverrideReason(provider, profile) {
+  if (!provider || !profile) return "";
+  const run = state.qualifications.find(item => item.provider_id === provider.id &&
+    item.provider_revision === provider.revision && item.state === "completed");
+  const parts = [`${profileLabel(profile)} on ${provider.model} via ${provider.name}`];
+  if (run) {
+    parts.push(`qualification grade ${run.capability_grade || "?"}, context tier ${run.context_tier || "?"}`);
+    const notRun = (run.results?.checks || []).filter(check => check.state === "not_run").map(check => check.name);
+    if (notRun.includes("runtime_allocation")) parts.push("local runtime allocation cannot be probed on a remote endpoint");
+  } else {
+    parts.push("no qualification run recorded for this provider revision");
+  }
+  parts.push(`accepted for local single-operator use with ~${answerBudget(provider, profile).toLocaleString()} answer tokens`);
+  return parts.join("; ") + ".";
 }
 
 function renderTimelineEvent(event) {
@@ -456,12 +512,17 @@ function renderChat() {
   const draftProvider = enabledProviders.find(provider => provider.id === state.draftProviderID);
   const compatibleProfiles = availableProfiles(draftProvider);
   if (!compatibleProfiles.some(profile => profile.name === state.draftProfileName)) {
-    state.draftProfileName = compatibleProfiles.find(profile => profile.name === "certified-64k")?.name || compatibleProfiles[0]?.name || "";
+    state.draftProfileName = bestProfileFor(draftProvider, compatibleProfiles)?.name || "";
   }
-	const draftProfile = compatibleProfiles.find(profile => profile.name === state.draftProfileName);
-	const admission = profileAdmission(draftProvider, draftProfile);
-	const overrideReady = state.draftQualificationOverride && state.draftQualificationReason.trim().length >= 8;
-	const canStart = Boolean(draftProvider && draftProfile && draftProvider.credential_ready && (admission.admitted || overrideReady));
+  // Bind to the workspace project by default. An unbound session cannot read a
+  // file, which is what most sessions here are opened to do.
+  if (state.draftProjectID === undefined) state.draftProjectID = state.projects[0]?.id || "";
+  const draftProfile = compatibleProfiles.find(profile => profile.name === state.draftProfileName);
+  const admission = profileAdmission(draftProvider, draftProfile);
+  const needsOverride = admission.mode === "override_required";
+  const overrideReason = state.draftQualificationReason.trim() || suggestedOverrideReason(draftProvider, draftProfile);
+  const canStart = Boolean(draftProvider && draftProfile && draftProvider.credential_ready &&
+    (admission.admitted || (needsOverride && overrideReason.length >= 8)));
   const selectedID = state.sessionDetail?.session?.id || state.selectedSession;
   const timeline = (state.sessionDetail?.events || []).filter(event => ["message", "tool_call", "tool_result", "approval_required", "approval_decision"].includes(event.event_kind));
   const session = state.sessionDetail?.session;
@@ -470,10 +531,24 @@ function renderChat() {
       <div class="session-create">
         <p class="eyebrow">New session</p>
         <label>Provider<select id="chatProviderSelect" ${enabledProviders.length ? "" : "disabled"}>${enabledProviders.length ? enabledProviders.map(provider => `<option value="${escapeHTML(provider.id)}" ${provider.id === state.draftProviderID ? "selected" : ""}>${escapeHTML(provider.name)} · ${escapeHTML(provider.model)}</option>`).join("") : `<option>No provider</option>`}</select></label>
-        <label>Project<select id="chatProjectSelect"><option value="">Unbound session</option>${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}</select></label>
-        <label>Context<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => { const status=profileAdmission(draftProvider,profile); return `<option value="${profile.name}" ${profile.name === state.draftProfileName ? "selected" : ""}>${profileLabel(profile)} · ${status.mode === "qualified" ? "qualified" : status.mode === "compatibility" ? "compatibility" : "reviewed override required"}</option>`; }).join("")}</select></label>
-        ${draftProfile && !admission.admitted ? `<div class="qualification-override"><p class="form-note">No exact eligible qualification exists for <strong>${escapeHTML(profileLabel(draftProfile))}</strong> and provider revision <code>${escapeHTML(shortHash(draftProvider.revision))}</code>.</p><label class="check-label"><input id="chatQualificationOverride" type="checkbox" ${state.draftQualificationOverride ? "checked" : ""}> Use a reviewed 24-hour override</label>${state.draftQualificationOverride ? `<label>Override reason<textarea id="chatQualificationReason" rows="2" minlength="8" placeholder="Why this provider/context is safe for this session">${escapeHTML(state.draftQualificationReason)}</textarea></label>` : ""}</div>` : `<p class="form-note neutral">${admission.mode === "qualified" ? `Bound to qualification ${escapeHTML(shortHash(admission.qualification.id))}` : "32k compatibility mode is intentionally degraded; 64k Certified remains the product default."}</p>`}
-        <button class="primary" id="newSessionButton" ${canStart ? "" : "disabled"}>+ Start session</button>
+        <label>Project<select id="chatProjectSelect">${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}<option value="" ${state.draftProjectID ? "" : "selected"}>No project · chat only</option></select></label>
+        <label>Context<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => {
+          const status = profileAdmission(draftProvider, profile);
+          const note = status.blocking ? "too small for this model"
+            : status.mode === "qualified" ? "qualified"
+            : status.mode === "compatibility" ? "ready"
+            : "one-click override";
+          return `<option value="${profile.name}" ${profile.name === state.draftProfileName ? "selected" : ""} ${status.blocking ? "disabled" : ""}>${profileLabel(profile)} · ${status.budget.toLocaleString()} answer tokens · ${note}</option>`;
+        }).join("")}</select></label>
+        ${draftProfile ? `<div class="session-readiness ${admission.admitted ? "ready" : needsOverride ? "review" : "blocked"}">
+          <p class="readiness-line">${admission.admitted
+            ? (admission.mode === "qualified" ? `Bound to qualification ${escapeHTML(shortHash(admission.qualification.id))}.` : `Ready. ${admission.budget.toLocaleString()} tokens for the answer.`)
+            : needsOverride ? `No local qualification can exist for a remote endpoint, so this envelope opens under a reviewed 24-hour override. The reason below is recorded with the session.`
+            : `${escapeHTML(profileLabel(draftProfile))} leaves only ${admission.budget.toLocaleString()} answer tokens because ${escapeHTML(draftProvider.model)} spends about ${Math.round((draftProvider.reasoning_ratio || 0) * 100)}% of its output reasoning. The server refuses anything under ${MINIMUM_ANSWER_BUDGET}. Choose a larger envelope.`}</p>
+          ${needsOverride ? `<details class="override-details"><summary>Override reason (edit if you want)</summary><textarea id="chatQualificationReason" rows="4" minlength="8">${escapeHTML(overrideReason)}</textarea></details>` : ""}
+        </div>` : ""}
+        <button class="primary" id="newSessionButton" ${canStart ? "" : "disabled"}>${needsOverride ? "Start session with override" : "+ Start session"}</button>
+        ${state.sessionError ? `<p class="session-error" role="alert">${escapeHTML(state.sessionError)}</p>` : ""}
         ${draftProvider && !draftProvider.credential_ready ? `<p class="form-note">Set server environment variable <code>${escapeHTML(draftProvider.api_key_env)}</code> before starting a session.</p>` : ""}
       </div>
       <div class="session-list">${state.sessions.length ? state.sessions.map(item => `<button class="session-item ${item.id === selectedID ? "active" : ""}" data-session-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.model)} · ${escapeHTML(item.context_profile)}</span></button>`).join("") : `<div class="session-empty">No sessions yet</div>`}</div>
@@ -484,10 +559,11 @@ function renderChat() {
         <form class="composer" id="chatForm"><textarea id="chatInput" rows="3" maxlength="1048576" placeholder="ส่งข้อความถึง Hermetrix…" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>${enabledProviders.length ? "Start an agent session" : "Configure a provider first"}</h3><p>${enabledProviders.length ? "Choose a provider and a context envelope. The selected envelope cannot exceed the provider declaration." : "Provider profiles keep endpoint and model metadata only. Credentials stay in server environment variables."}</p>${enabledProviders.length ? "" : `<button class="primary" id="openProvidersButton">Open providers</button>`}</div>`}
     </section>
   </div>`;
-  $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationOverride=false; state.draftQualificationReason=""; renderChat(); });
+  $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
   $("#chatProjectSelect")?.addEventListener("change", event => { state.draftProjectID = event.target.value; });
-  $("#chatProfileSelect")?.addEventListener("change", event => { state.draftProfileName = event.target.value; state.draftQualificationOverride=false; state.draftQualificationReason=""; renderChat(); });
-  $("#chatQualificationOverride")?.addEventListener("change", event => { state.draftQualificationOverride=event.target.checked; if (!event.target.checked) state.draftQualificationReason=""; renderChat(); });
+  $("#chatProfileSelect")?.addEventListener("change", event => { state.draftProfileName = event.target.value; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
+  // Update state without re-rendering: the textarea lives inside an open
+  // <details>, and a re-render would collapse it and take the caret with it.
   $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; $("#newSessionButton").disabled=event.target.value.trim().length < 8; });
   $("#newSessionButton")?.addEventListener("click", createAgentSession);
   $$("[data-session-id]", root).forEach(button => button.addEventListener("click", () => selectSession(button.dataset.sessionId)));
@@ -500,16 +576,36 @@ function renderChat() {
 
 async function createAgentSession() {
   if (!state.draftProviderID || !state.draftProfileName) return;
+  const provider = state.providers.find(item => item.id === state.draftProviderID);
+  const profile = state.profiles.find(item => item.name === state.draftProfileName);
+  const admission = profileAdmission(provider, profile);
+  const project = state.projects.find(item => item.id === state.draftProjectID);
   try {
-    const body = { provider_id:state.draftProviderID, project_id:state.draftProjectID || "", context_profile:state.draftProfileName, title:"New Hermetrix session" };
-    if (state.draftQualificationOverride) body.qualification_override = { actor:"local-user", reason:state.draftQualificationReason.trim() };
+    state.sessionError = "";
+    const body = {
+      provider_id: state.draftProviderID,
+      project_id: state.draftProjectID || "",
+      context_profile: state.draftProfileName,
+      // Name the session after what it is bound to, so the list is readable
+      // once more than one session exists.
+      title: project ? `${project.name} · ${profileLabel(profile)}` : `Chat · ${profileLabel(profile)}`
+    };
+    if (admission.mode === "override_required") {
+      const reason = (state.draftQualificationReason.trim() || suggestedOverrideReason(provider, profile));
+      body.qualification_override = { actor:"local-user", reason };
+    }
     const session = await api("/api/sessions", { method:"POST", body:JSON.stringify(body) });
-    state.draftQualificationOverride=false; state.draftQualificationReason="";
+    state.draftQualificationReason = "";
     await load();
     await selectSession(session.id);
     switchTab("chat");
     $("#chatInput")?.focus();
-  } catch (error) { toast(error.message, true); }
+  } catch (error) {
+    // Keep the failure on screen. A 2.6-second toast was the only report that
+    // the server had refused the session, and it was routinely missed.
+    state.sessionError = error.message;
+    renderChat();
+  }
 }
 
 async function selectSession(id) {
@@ -762,6 +858,13 @@ function renderContext() {
     const defaults = { ollama:"http://127.0.0.1:11434", lmstudio:"http://127.0.0.1:1234", vllm:"http://127.0.0.1:8000", llamacpp:"http://127.0.0.1:8080" };
     $("#endpointInput").value = defaults[event.target.value];
   });
+  applyDataFills(root);
+}
+
+// applyDataFills sizes every [data-fill] bar through CSSOM, which the Content
+// Security Policy permits, unlike the style attribute these used to carry.
+function applyDataFills(root) {
+  $$("[data-fill]", root).forEach(node => { node.style.width = `${node.dataset.fill}%`; });
 }
 
 function renderProbeResult(result) {
@@ -783,7 +886,10 @@ async function probeLocalModel() {
 
 function renderContextResult(result) {
   const report = result.report;
-  const bars = Object.entries(report.slices).map(([name, slice]) => `<div class="budget-row"><div class="budget-label"><span>${escapeHTML(name)}</span><span>${slice.used.toLocaleString()} / ${slice.budget.toLocaleString()}</span></div><div class="bar"><i style="width:${Math.min(100, slice.used/slice.budget*100)}%"></i></div></div>`).join("");
+  // The fill carries its percentage as a data attribute and is sized through
+  // CSSOM once the markup is in the document. A `style` attribute is blocked by
+  // `style-src 'self'`, which left every bar at full width regardless of usage.
+  const bars = Object.entries(report.slices).map(([name, slice]) => `<div class="budget-row"><div class="budget-label"><span>${escapeHTML(name)}</span><span>${slice.used.toLocaleString()} / ${slice.budget.toLocaleString()}</span></div><div class="bar"><i data-fill="${Math.min(100, slice.budget ? slice.used / slice.budget * 100 : 0).toFixed(2)}"></i></div></div>`).join("");
   const preview = result.fragments.map(item => {
     const content = item.content.length > 3600 ? `${item.content.slice(0,2600)}\n… preview clipped in UI …\n${item.content.slice(-700)}` : item.content;
     return `[${item.kind}:${item.id}]\n${content}`;
@@ -926,15 +1032,31 @@ async function dryRunGC() { try { const run=await api("/api/maintenance/gc/dry-r
 async function applyGC(id) { const approved=await askAction({title:"Quarantine exact GC snapshot?",message:"The CAS set must still match the dry-run. Objects are moved to recoverable quarantine, never deleted.",confirmLabel:"Quarantine exact set",danger:true}); if(!approved)return; try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Exact snapshot moved to recoverable quarantine"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function restoreGC(id) { try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/restore`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Quarantined CAS objects restored after integrity verification"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 
+// TAB_GROUPS keeps the tab strip contextual. Every one of the fourteen views
+// used to be listed on every screen, next to a sidebar that already named ten of
+// them, so the strip carried no information about where you were. A view now
+// shows only its siblings, and a view with no siblings shows no strip at all.
+const TAB_GROUPS = [
+  ["library", "proposals", "learning", "insights", "archive"],
+  ["projects", "office", "artifacts"],
+  ["providers", "mcp"],
+  ["context", "fidelity"]
+];
+
 function switchTab(tab) {
   state.activeTab = tab;
-  $$(".tab").forEach(node => node.classList.toggle("active", node.dataset.tab === tab));
+  const group = TAB_GROUPS.find(names => names.includes(tab)) || [];
+  $$(".tab").forEach(node => {
+    node.classList.toggle("active", node.dataset.tab === tab);
+    node.hidden = !group.includes(node.dataset.tab);
+  });
+  $(".tabbar").hidden = group.length === 0;
   $$(".nav-item[data-tab]").forEach(node => node.classList.toggle("active", node.dataset.tab === tab || (node.dataset.tab === "library" && ["proposals","learning","insights","archive"].includes(tab))));
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${tab}`));
-  $("#libraryToolbar").style.display = tab === "library" ? "flex" : "none";
+  $("#libraryToolbar").hidden = tab !== "library";
   const skillTabs = ["library", "proposals", "learning", "insights", "archive"];
-  $("#stats").style.display = skillTabs.includes(tab) ? "grid" : "none";
-  $("#createButton").style.display = skillTabs.includes(tab) ? "inline-block" : "none";
+  $("#stats").hidden = !skillTabs.includes(tab);
+  $("#createButton").hidden = !skillTabs.includes(tab);
   $(".shell").classList.toggle("focus-mode", !skillTabs.includes(tab));
   const pages = {
     chat:["Hermetrix Engine / Agent runtime", "Agent Workspace"], library:["Hermetrix Engine / Skills", "Skill Control Center"],

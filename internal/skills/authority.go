@@ -288,7 +288,9 @@ func (s *Service) ListAuthorityActions(ctx context.Context, limit int) ([]Author
 		return nil, err
 	}
 	defer rows.Close()
-	var actions []AuthorityAction
+	// Return a non-nil slice so the JSON body is [] not null on an empty table:
+	// the control center assigns this straight onto state and reads .length.
+	actions := make([]AuthorityAction, 0)
 	for rows.Next() {
 		action, err := scanAuthorityAction(rows)
 		if err != nil {

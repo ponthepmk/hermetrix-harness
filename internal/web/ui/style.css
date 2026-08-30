@@ -129,6 +129,22 @@ pre { border: 1px solid var(--line); background: #090b0e; border-radius: 9px; pa
 .session-create label { display: grid; gap: 5px; margin: 9px 0; color: var(--muted); font-size: 10px; }
 .session-create select, .session-create button { width: 100%; }
 .session-create code, .provider-card code { color: var(--accent); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+/* One block states whether this session can open, and why. It replaces a
+   checkbox plus two paragraphs that between them never said what would happen. */
+.session-readiness { border-radius: 9px; padding: 9px 10px; margin: 10px 0; border: 1px solid var(--line); background: var(--panel); }
+.session-readiness .readiness-line { margin: 0; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.session-readiness.ready { border-color: rgba(156,255,56,.34); background: rgba(156,255,56,.06); }
+.session-readiness.ready .readiness-line { color: var(--accent-lime); }
+.session-readiness.review { border-color: rgba(255,207,112,.34); background: rgba(255,207,112,.06); }
+.session-readiness.review .readiness-line { color: var(--amber); }
+.session-readiness.blocked { border-color: rgba(255,123,123,.34); background: rgba(255,123,123,.06); }
+.session-readiness.blocked .readiness-line { color: var(--red); }
+.override-details { margin-top: 8px; }
+.override-details summary { cursor: pointer; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+.override-details summary:hover { color: var(--text); }
+.override-details textarea { width: 100%; margin-top: 7px; font-size: 11px; line-height: 1.5; resize: vertical; }
+/* Persistent: a refusal used to arrive as a toast that cleared in 2.6 seconds. */
+.session-error { margin: 9px 0 0; padding: 9px 10px; border-radius: 9px; border: 1px solid rgba(255,123,123,.42); background: rgba(255,123,123,.09); color: var(--red); font-size: 11px; line-height: 1.55; }
 .session-list { padding: 8px; display: grid; gap: 5px; max-height: 52vh; overflow-y: auto; }
 .session-item { border: 1px solid transparent; background: transparent; border-radius: 10px; text-align: left; padding: 10px; color: var(--muted); cursor: pointer; min-width: 0; }
 .session-item:hover { background: var(--panel); color: white; }
@@ -230,6 +246,12 @@ pre { border: 1px solid var(--line); background: #090b0e; border-radius: 9px; pa
 @keyframes pulse { from { opacity: .35; transform: scale(.8); } to { opacity: 1; transform: scale(1.1); } }
 .toast { position: fixed; left: 50%; bottom: 25px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; background: #e9edf2; color: #16191d; padding: 10px 14px; border-radius: 9px; font-size: 12px; transition: .2s; box-shadow: 0 14px 40px rgba(0,0,0,.35); }
 .toast.show { opacity: 1; transform: translate(-50%,0); }
+.toast.error { background: #ff9a9a; }
+.card-list.spaced { margin-top: 10px; }
+/* The page sets visibility through the hidden attribute rather than an inline
+   style, because the server's own `style-src 'self'` blocks inline styles.
+   Elements laid out with flex/grid need this to honour it. */
+[hidden] { display: none !important; }
 dialog { width: min(690px, calc(100vw - 40px)); border: 1px solid #363e49; border-radius: 16px; background: #11151a; color: white; padding: 0; box-shadow: 0 30px 100px rgba(0,0,0,.6); }
 dialog::backdrop { background: rgba(5,7,9,.72); backdrop-filter: blur(5px); }
 dialog form { padding: 20px; }
