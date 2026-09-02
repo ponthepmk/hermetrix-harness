@@ -179,6 +179,41 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v22: %w", err)
 		}
 	}
+	if version < 23 {
+		if _, err := tx.ExecContext(ctx, schemaV23); err != nil {
+			return fmt.Errorf("apply schema v23: %w", err)
+		}
+	}
+	if version < 24 {
+		if _, err := tx.ExecContext(ctx, schemaV24); err != nil {
+			return fmt.Errorf("apply schema v24: %w", err)
+		}
+	}
+	if version < 25 {
+		if _, err := tx.ExecContext(ctx, schemaV25); err != nil {
+			return fmt.Errorf("apply schema v25: %w", err)
+		}
+	}
+	if version < 26 {
+		if _, err := tx.ExecContext(ctx, schemaV26); err != nil {
+			return fmt.Errorf("apply schema v26: %w", err)
+		}
+	}
+	if version < 27 {
+		if _, err := tx.ExecContext(ctx, schemaV27); err != nil {
+			return fmt.Errorf("apply schema v27: %w", err)
+		}
+	}
+	if version < 28 {
+		if _, err := tx.ExecContext(ctx, schemaV28); err != nil {
+			return fmt.Errorf("apply schema v28: %w", err)
+		}
+	}
+	if version < 29 {
+		if err := migrateV29(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v29: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -191,7 +226,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 22
+const CurrentSchemaVersion = 29
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -527,6 +562,7 @@ CREATE TABLE IF NOT EXISTS mcp_tools (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mcp_tools_server ON mcp_tools(server_id, remote_name);
+
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_status ON mcp_servers(status, updated_at);
 `
 
@@ -909,9 +945,13 @@ CREATE INDEX IF NOT EXISTS idx_learning_trigger_outbox_state ON learning_trigger
 const schemaV14 = `
 CREATE TABLE IF NOT EXISTS skill_authority_policy (
   id TEXT PRIMARY KEY CHECK(id='local'),
-  mode TEXT NOT NULL DEFAULT 'manual',
-  auto_promote_agent_create INTEGER NOT NULL DEFAULT 0,
-  auto_promote_agent_improve INTEGER NOT NULL DEFAULT 0,
+  -- The agent may promote what it writes, and the user reviews it afterwards:
+  -- every automatic promotion is recorded as a reversible authority action and
+  -- shown in Skill Studio. Automatic archiving stays off, because deciding a
+  -- Skill is dead is not the same kind of judgement as writing a new one.
+  mode TEXT NOT NULL DEFAULT 'gated_automation',
+  auto_promote_agent_create INTEGER NOT NULL DEFAULT 1,
+  auto_promote_agent_improve INTEGER NOT NULL DEFAULT 1,
   auto_archive_agent_skills INTEGER NOT NULL DEFAULT 0,
   allowed_scopes_json TEXT NOT NULL DEFAULT '["user"]',
   max_candidate_tokens INTEGER NOT NULL DEFAULT 4096,
@@ -941,8 +981,8 @@ CREATE TABLE IF NOT EXISTS skill_authority_actions (
   FOREIGN KEY(skill_id) REFERENCES skills(id)
 );
 
-INSERT OR IGNORE INTO skill_authority_policy(id,mode,allowed_scopes_json,max_candidate_tokens,revision,updated_by,update_reason,created_at,updated_at)
-VALUES('local','manual','["user"]',4096,1,'system','safe default',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO skill_authority_policy(id,mode,auto_promote_agent_create,auto_promote_agent_improve,allowed_scopes_json,max_candidate_tokens,revision,updated_by,update_reason,created_at,updated_at)
+VALUES('local','gated_automation',1,1,'["user"]',4096,1,'system','agent may promote what it writes; every promotion is reversible and reviewable',strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 CREATE INDEX IF NOT EXISTS idx_skill_authority_actions_created ON skill_authority_actions(created_at DESC);
 `
@@ -1066,4 +1106,248 @@ const schemaV22 = `
 ALTER TABLE provider_profiles ADD COLUMN token_message_overhead INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE provider_profiles ADD COLUMN token_request_overhead INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE provider_profiles ADD COLUMN token_overhead_measured_at TEXT NOT NULL DEFAULT '';
+`
+
+// schemaV23 is the persistence half of the real interactive PTY runtime. The
+// process itself is intentionally not recovered or replayed after restart;
+// its bounded output tail and interrupted state remain inspectable.
+const schemaV23 = `
+CREATE TABLE IF NOT EXISTS terminal_sessions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  shell TEXT NOT NULL,
+  working_dir TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL,
+  output_tail TEXT NOT NULL DEFAULT '',
+  cursor INTEGER NOT NULL DEFAULT 0,
+  exit_code INTEGER,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_project ON terminal_sessions(project_id, created_at DESC);
+`
+
+// schemaV24 persists managed Chrome tabs and their bounded, untrusted DOM
+// snapshots. Live DevTools connections are never recovered after restart.
+const schemaV24 = `
+CREATE TABLE IF NOT EXISTS browser_tabs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL,
+  allow_private INTEGER NOT NULL DEFAULT 0,
+  text_snapshot TEXT NOT NULL DEFAULT '',
+  links_json TEXT NOT NULL DEFAULT '[]',
+  elements_json TEXT NOT NULL DEFAULT '[]',
+  screenshot_artifact_id TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+CREATE INDEX IF NOT EXISTS idx_browser_tabs_updated ON browser_tabs(updated_at DESC);
+`
+
+// schemaV25 keeps reusable team definitions separate from ephemeral runs. A
+// run freezes its task graph and never retries an interrupted model/tool effect.
+const schemaV25 = `
+CREATE TABLE IF NOT EXISTS agent_teams (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  name TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  state TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+CREATE TABLE IF NOT EXISTS agent_team_members (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  is_lead INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(team_id) REFERENCES agent_teams(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS agent_team_runs (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  project_id TEXT,
+  objective TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  context_profile TEXT NOT NULL,
+  state TEXT NOT NULL,
+  max_parallel INTEGER NOT NULL,
+  actor TEXT NOT NULL,
+  error TEXT NOT NULL DEFAULT '',
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  FOREIGN KEY(team_id) REFERENCES agent_teams(id),
+  FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+CREATE TABLE IF NOT EXISTS agent_team_tasks (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  depends_json TEXT NOT NULL DEFAULT '[]',
+  state TEXT NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT,
+  FOREIGN KEY(run_id) REFERENCES agent_team_runs(id) ON DELETE CASCADE,
+  FOREIGN KEY(member_id) REFERENCES agent_team_members(id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_teams_project ON agent_teams(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_team_runs_created ON agent_team_runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_run ON agent_team_tasks(run_id, created_at);
+`
+
+// schemaV26 snapshots team/member instructions into every run. Team roster
+// edits retire member rows rather than deleting identities referenced by
+// historical tasks, so a run never changes meaning after it starts.
+const schemaV26 = `
+ALTER TABLE agent_team_members ADD COLUMN state TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE agent_team_runs ADD COLUMN team_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_runs ADD COLUMN team_instructions TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN member_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN member_role TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN member_instructions TEXT NOT NULL DEFAULT '';
+UPDATE agent_team_runs
+SET team_name=COALESCE((SELECT name FROM agent_teams WHERE id=agent_team_runs.team_id),''),
+    team_instructions=COALESCE((SELECT instructions FROM agent_teams WHERE id=agent_team_runs.team_id),'')
+WHERE team_name='';
+UPDATE agent_team_tasks
+SET member_name=COALESCE((SELECT name FROM agent_team_members WHERE id=agent_team_tasks.member_id),''),
+    member_role=COALESCE((SELECT role FROM agent_team_members WHERE id=agent_team_tasks.member_id),''),
+    member_instructions=COALESCE((SELECT instructions FROM agent_team_members WHERE id=agent_team_tasks.member_id),'')
+WHERE member_name='';
+CREATE INDEX IF NOT EXISTS idx_agent_team_members_active ON agent_team_members(team_id,state,sort_order);
+`
+
+// schemaV27 lets a team task pause at an exact persisted agent approval and
+// resume the same turn after a human decision. The run also keeps the reviewed
+// qualification reason needed by tasks scheduled after the pause.
+// schemaV28 stores the two catalog kinds an MCP server publishes beside its
+// tools. Until now discovery indexed tools and silently dropped resources and
+// prompts, so a server whose whole point was the data it exposes appeared to
+// have nothing in it.
+const schemaV28 = `-- An MCP server publishes three kinds of thing, not one. Resources are data it
+-- can hand over (a file, a row, a page); prompts are templates it wants used
+-- verbatim. Both are stored beside the tools and replaced by the same atomic
+-- discovery, so a server's catalog is always one consistent snapshot.
+CREATE TABLE IF NOT EXISTS mcp_resources (
+  server_id TEXT NOT NULL,
+  uri TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  mime_type TEXT NOT NULL DEFAULT '',
+  annotations_json TEXT NOT NULL DEFAULT '',
+  revision TEXT NOT NULL,
+  requires_approval INTEGER NOT NULL,
+  discovered_at TEXT NOT NULL,
+  PRIMARY KEY(server_id, uri),
+  FOREIGN KEY(server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_resources_server ON mcp_resources(server_id, uri);
+
+CREATE TABLE IF NOT EXISTS mcp_prompts (
+  server_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  arguments_json TEXT NOT NULL DEFAULT '[]',
+  revision TEXT NOT NULL,
+  requires_approval INTEGER NOT NULL,
+  discovered_at TEXT NOT NULL,
+  PRIMARY KEY(server_id, name),
+  FOREIGN KEY(server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_prompts_server ON mcp_prompts(server_id, name);
+`
+
+const schemaV27 = `
+ALTER TABLE agent_team_runs ADD COLUMN qualification_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN approval_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN approval_summary TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN approval_preview TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_team_tasks ADD COLUMN approval_effect TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_approval ON agent_team_tasks(approval_id,state);
+`
+
+// schemaV29 makes a project a bounded scope rather than a code folder. A
+// project without code is ordinary -- planning a trip and planning a refactor
+// have the same shape -- so root_path becomes optional. SQLite cannot drop a
+// column's UNIQUE constraint, so the table is rebuilt and the uniqueness moves
+// to a partial index that only covers roots that actually exist.
+//
+// migrateV29 branches on whether projects already exists rather than always
+// rebuilding it. A database that never ran the schemaV10 step that created
+// projects (a hand-built fixture pinned to a later version, for instance)
+// has nothing to copy from, and rebuilding a table that was never there
+// would fail on the SELECT instead of just creating the new shape directly.
+func migrateV29(ctx context.Context, tx *sql.Tx) error {
+	var name string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='projects'`).Scan(&name)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == sql.ErrNoRows {
+		_, execErr := tx.ExecContext(ctx, schemaV29Create)
+		return execErr
+	}
+	_, execErr := tx.ExecContext(ctx, schemaV29Rebuild)
+	return execErr
+}
+
+const schemaV29Create = `
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  root_path TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'active',
+  pinned INTEGER NOT NULL DEFAULT 0,
+  last_opened_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root ON projects(root_path) WHERE root_path <> '';
+`
+
+const schemaV29Rebuild = `
+CREATE TABLE projects_v29 (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  root_path TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'active',
+  pinned INTEGER NOT NULL DEFAULT 0,
+  last_opened_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO projects_v29(id,name,root_path,state,created_at,updated_at)
+  SELECT id,name,root_path,state,created_at,updated_at FROM projects;
+DROP TABLE projects;
+ALTER TABLE projects_v29 RENAME TO projects;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root ON projects(root_path) WHERE root_path <> '';
 `
