@@ -1069,3 +1069,58 @@ func TestPickerDataChangesAndTellsTheTruth(t *testing.T) {
 		}
 	}
 }
+
+// TestHTTPRefusesRootlessProjectFilesTerminalsCommandsAndBrowser is the HTTP
+// half of the fix for the shell redesign's one Critical finding. The product
+// layer now refuses files, terminal, command and browser operations against a
+// project with no code folder, but a handler that let that refusal fall
+// through writeError's default case would still answer 500, which tells an
+// API caller nothing it can act on. Each route here has to come back as 422
+// with a body that names the missing folder, matching what the product layer
+// already asserts through errors.Is(err, product.ErrProjectHasNoCode).
+func TestHTTPRefusesRootlessProjectFilesTerminalsCommandsAndBrowser(t *testing.T) {
+	handler := testHandler(t)
+	created := requestHandlerJSON(t, handler, "/api/projects", http.MethodPost,
+		map[string]any{"name": "No folder yet"}, http.StatusCreated)
+	var project product.Project
+	if err := json.Unmarshal(created, &project); err != nil {
+		t.Fatal(err)
+	}
+	if project.RootPath != "" {
+		t.Fatalf("project unexpectedly has a root: %+v", project)
+	}
+
+	assertNamesMissingFolder := func(t *testing.T, body []byte) {
+		t.Helper()
+		var decoded struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("error body was not JSON: %s", body)
+		}
+		if !strings.Contains(decoded.Error, "no code folder") {
+			t.Fatalf("error did not name the missing folder: %q", decoded.Error)
+		}
+	}
+
+	assertNamesMissingFolder(t, requestHandlerJSON(t, handler, "/api/projects/"+project.ID+"/files?path=",
+		http.MethodGet, nil, http.StatusUnprocessableEntity))
+
+	assertNamesMissingFolder(t, requestHandlerJSON(t, handler, "/api/projects/"+project.ID+"/file?path=notes.md",
+		http.MethodGet, nil, http.StatusUnprocessableEntity))
+
+	assertNamesMissingFolder(t, requestHandlerJSON(t, handler, "/api/projects/"+project.ID+"/file", http.MethodPut,
+		map[string]any{"path": "notes.md", "content": "x", "actor": "test-user"}, http.StatusUnprocessableEntity))
+
+	assertNamesMissingFolder(t, requestHandlerJSON(t, handler, "/api/projects/"+project.ID+"/commands", http.MethodPost,
+		map[string]any{"actor": "user", "executable": "ls"}, http.StatusUnprocessableEntity))
+
+	assertNamesMissingFolder(t, requestHandlerJSON(t, handler, "/api/terminals", http.MethodPost,
+		map[string]any{"project_id": project.ID, "actor": "user", "shell": "sh"}, http.StatusUnprocessableEntity))
+
+	// A file:// browser URL is refused before Chrome is ever launched, since
+	// validateBrowserURL runs first: this route needs no browser binary to
+	// exercise the refusal.
+	assertNamesMissingFolder(t, requestHandlerJSON(t, handler, "/api/browser/tabs", http.MethodPost,
+		map[string]any{"project_id": project.ID, "url": "file:///whatever", "actor": "user"}, http.StatusUnprocessableEntity))
+}

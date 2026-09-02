@@ -242,7 +242,11 @@ func (s *Service) BrowseProject(ctx context.Context, projectID, relative string)
 	if err != nil {
 		return nil, err
 	}
-	path, err := resolveInside(project.RootPath, relative, true)
+	root, err := requireRoot(project)
+	if err != nil {
+		return nil, err
+	}
+	path, err := resolveInside(root, relative, true)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +263,7 @@ func (s *Service) BrowseProject(ctx context.Context, projectID, relative string)
 		if err != nil {
 			continue
 		}
-		rel, _ := filepath.Rel(project.RootPath, filepath.Join(path, entry.Name()))
+		rel, _ := filepath.Rel(root, filepath.Join(path, entry.Name()))
 		items = append(items, FileEntry{Name: entry.Name(), Path: filepath.ToSlash(rel), Directory: entry.IsDir(),
 			Symlink: entry.Type()&os.ModeSymlink != 0, Bytes: info.Size(), ModifiedAt: info.ModTime().UTC()})
 	}

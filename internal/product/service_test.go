@@ -933,7 +933,11 @@ func TestProjectWithoutCodeIsOrdinaryButHonest(t *testing.T) {
 		t.Errorf("RequireRoot said %v, want ErrProjectHasNoCode", err)
 	}
 
-	code, err := service.SaveProject(ctx, ProjectInput{Name: "Code", RootPath: t.TempDir()})
+	codeRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codeRoot, "notes.md"), []byte("# hi\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	code, err := service.SaveProject(ctx, ProjectInput{Name: "Code", RootPath: codeRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -947,4 +951,76 @@ func TestProjectWithoutCodeIsOrdinaryButHonest(t *testing.T) {
 	} else if errors.Is(err, ErrProjectHasNoCode) {
 		t.Error("a wrong path was reported as a project with no code folder")
 	}
+
+	// RequireRoot being correct in isolation is not the fix: the finding was
+	// that nothing called it, so every one of these consumers used to fall
+	// through resolveInside's empty-root default and quietly read or write
+	// wherever the Hermetrix process happened to be launched from. Each of
+	// these has to name the missing folder for `life`, the same as RequireRoot
+	// above, and still work normally for `code`, which has one.
+	t.Run("BrowseProject", func(t *testing.T) {
+		if _, err := service.BrowseProject(ctx, life.ID, "."); !errors.Is(err, ErrProjectHasNoCode) {
+			t.Errorf("BrowseProject on a codeless project said %v, want ErrProjectHasNoCode", err)
+		}
+		files, err := service.BrowseProject(ctx, code.ID, ".")
+		if err != nil || len(files) != 1 || files[0].Name != "notes.md" {
+			t.Fatalf("BrowseProject on a project with a root: files=%+v err=%v", files, err)
+		}
+	})
+
+	t.Run("ReadProjectFile", func(t *testing.T) {
+		if _, err := service.ReadProjectFile(ctx, life.ID, "notes.md"); !errors.Is(err, ErrProjectHasNoCode) {
+			t.Errorf("ReadProjectFile on a codeless project said %v, want ErrProjectHasNoCode", err)
+		}
+		document, err := service.ReadProjectFile(ctx, code.ID, "notes.md")
+		if err != nil || document.Content != "# hi\n" {
+			t.Fatalf("ReadProjectFile on a project with a root: document=%+v err=%v", document, err)
+		}
+	})
+
+	t.Run("WriteProjectFile", func(t *testing.T) {
+		if _, err := service.WriteProjectFile(ctx, life.ID, WriteFileInput{Path: "notes.md", Content: "x", Actor: "test-user"}); !errors.Is(err, ErrProjectHasNoCode) {
+			t.Errorf("WriteProjectFile on a codeless project said %v, want ErrProjectHasNoCode", err)
+		}
+		result, err := service.WriteProjectFile(ctx, code.ID, WriteFileInput{Path: "written-by-test.md", Content: "ok", Actor: "test-user"})
+		if err != nil || result.Document.Content != "ok" {
+			t.Fatalf("WriteProjectFile on a project with a root: result=%+v err=%v", result, err)
+		}
+	})
+
+	t.Run("StartCommand", func(t *testing.T) {
+		if _, err := service.StartCommand(ctx, CommandInput{ProjectID: life.ID, Actor: "user", Executable: "ls"}); !errors.Is(err, ErrProjectHasNoCode) {
+			t.Errorf("StartCommand on a codeless project said %v, want ErrProjectHasNoCode", err)
+		}
+		job, err := service.StartCommand(ctx, CommandInput{ProjectID: code.ID, Actor: "user", Executable: "ls"})
+		if err != nil {
+			t.Fatalf("StartCommand on a project with a root: %v", err)
+		}
+		if completed := waitForJob(t, service, job.ID); completed.State != "completed" {
+			t.Fatalf("StartCommand on a project with a root did not complete: %+v", completed)
+		}
+	})
+
+	t.Run("StartTerminal", func(t *testing.T) {
+		if _, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: life.ID, Actor: "user", Shell: "sh"}); !errors.Is(err, ErrProjectHasNoCode) {
+			t.Errorf("StartTerminal on a codeless project said %v, want ErrProjectHasNoCode", err)
+		}
+		terminal, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: code.ID, Actor: "user", Shell: "sh"})
+		if err != nil {
+			t.Fatalf("StartTerminal on a project with a root: %v", err)
+		}
+		if _, err := service.CloseTerminal(ctx, terminal.ID); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("BrowserFileURL", func(t *testing.T) {
+		if _, err := service.validateBrowserURL(ctx, life.ID, "file:///whatever", false); !errors.Is(err, ErrProjectHasNoCode) {
+			t.Errorf("file:// URL against a codeless project said %v, want ErrProjectHasNoCode", err)
+		}
+		pageURL := (&url.URL{Scheme: "file", Path: filepath.Join(codeRoot, "notes.md")}).String()
+		if _, err := service.validateBrowserURL(ctx, code.ID, pageURL, false); err != nil {
+			t.Errorf("file:// URL against a project with a root: %v", err)
+		}
+	})
 }

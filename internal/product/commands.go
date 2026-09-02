@@ -47,7 +47,11 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	if err != nil {
 		return Job{}, err
 	}
-	workingDir, err := resolveInside(project.RootPath, input.WorkingDir, true)
+	root, err := requireRoot(project)
+	if err != nil {
+		return Job{}, err
+	}
+	workingDir, err := resolveInside(root, input.WorkingDir, true)
 	if err != nil {
 		return Job{}, err
 	}
@@ -84,14 +88,13 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 	ctx, cancel := context.WithTimeout(parent, time.Duration(input.TimeoutSeconds)*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, input.Arguments...)
+	// project.RootPath is already known non-empty: StartCommand required it
+	// before this goroutine was ever launched, so the error is ignored here
+	// the same way it always was, not because the check was skipped.
 	workingDir, _ := resolveInside(project.RootPath, input.WorkingDir, true)
 	command.Dir = workingDir
 	command.Env = minimalEnvironment()
-<<<<<<< HEAD
 	subtreeTerminated := configureProcessTermination(command)
-=======
-	isolated := isolateProcessGroup(command)
->>>>>>> c7c3083f6d0b28b6e40a2c64796b5637fce5b8fd
 	command.WaitDelay = 2 * time.Second
 	buffer := &boundedBuffer{limit: maxCommandOutput}
 	command.Stdout, command.Stderr = buffer, buffer
@@ -122,11 +125,7 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		Metadata: map[string]any{"job_id": job.ID, "executable": input.Executable, "exit_code": exitCode,
 			"truncated": buffer.truncated}})
 	result := map[string]any{"exit_code": exitCode, "duration_ms": duration.Milliseconds(), "output": output,
-<<<<<<< HEAD
 		"truncated": buffer.truncated, "process_group_terminated_on_cancel": subtreeTerminated}
-=======
-		"truncated": buffer.truncated, "process_group_terminated_on_cancel": isolated}
->>>>>>> c7c3083f6d0b28b6e40a2c64796b5637fce5b8fd
 	if artifactErr == nil {
 		result["artifact_id"] = artifact.ID
 	} else if errorMessage == "" {

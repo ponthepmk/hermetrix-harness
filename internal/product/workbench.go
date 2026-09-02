@@ -19,7 +19,11 @@ func (s *Service) ReadProjectFile(ctx context.Context, projectID, relative strin
 	if err != nil {
 		return FileDocument{}, err
 	}
-	path, clean, err := regularProjectFile(project.RootPath, relative)
+	root, err := requireRoot(project)
+	if err != nil {
+		return FileDocument{}, err
+	}
+	path, clean, err := regularProjectFile(root, relative)
 	if err != nil {
 		return FileDocument{}, err
 	}
@@ -49,16 +53,20 @@ func (s *Service) WriteProjectFile(ctx context.Context, projectID string, input 
 	if err != nil {
 		return WriteFileResult{}, err
 	}
+	root, err := requireRoot(project)
+	if err != nil {
+		return WriteFileResult{}, err
+	}
 	clean := filepath.Clean(strings.TrimSpace(input.Path))
 	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return WriteFileResult{}, fmt.Errorf("file path must stay inside the project root")
 	}
-	parent, err := resolveInside(project.RootPath, filepath.Dir(clean), true)
+	parent, err := resolveInside(root, filepath.Dir(clean), true)
 	if err != nil {
 		return WriteFileResult{}, err
 	}
 	path := filepath.Join(parent, filepath.Base(clean))
-	if rel, relErr := filepath.Rel(project.RootPath, path); relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if rel, relErr := filepath.Rel(root, path); relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return WriteFileResult{}, fmt.Errorf("file path escapes project root")
 	}
 	var before []byte
