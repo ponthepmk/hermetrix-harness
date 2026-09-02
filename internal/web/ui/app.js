@@ -89,8 +89,15 @@ async function openProject(id) {
     showShell();
     // The layout key is project and view scoped, so opening a project has to
     // restore this project's memory of whichever view is already on screen --
-    // the same restore switchView performs on every later transition.
-    applyLayout();
+    // the same restore switchView performs on every later transition. This
+    // goes through the same applyLayoutForView() switchView uses rather than
+    // a second copy of its guard: the picker is reachable from any view (the
+    // project chip works from Code and Knowledge too, not only Chat), so
+    // reopening a project while parked off Chat needs the identical rule
+    // that a view with no side content stays collapsed, whatever a stale
+    // saved value or a stale #zoneSide left over from before this project
+    // was opened might otherwise imply.
+    applyLayoutForView();
     if (state.view === "code") renderPanes();
     await load();
   } catch (error) { toast(error.message, true); }
@@ -1031,6 +1038,20 @@ function wireChatSkeleton() {
   $$(".workbench-tab").forEach(node => node.addEventListener("click", () => switchWorkbench(node.dataset.workbench)));
 }
 
+// applyLayoutForView restores this project's memory of the view already on
+// screen (widths, panes, maximised pane, rail/side collapse) and then
+// enforces the one rule memory can never override: a view with nothing to
+// put in its side pane still has nothing to show, whatever was saved for
+// it. Both entry paths into the shell go through this one function --
+// switchView's later transitions, and openProject's first paint, which is
+// reachable from the picker at any view because the project chip works
+// everywhere, not only from Chat -- so neither path can drift from the
+// other's rule the way openProject once did.
+function applyLayoutForView() {
+  applyLayout();
+  if (!VIEWS[state.view].side()) collapseZone("side", true);
+}
+
 // switchView is the one place a top-level view becomes visible. Chat is the
 // only one with real state behind it -- sessions, polling, a composer that
 // has to keep its caret across renders -- so its zones are rebuilt from the
@@ -1052,16 +1073,17 @@ function switchView(name) {
   clearTimeout(workbenchPollTimer);
   $("#zoneRail").innerHTML = VIEWS[view].rail();
   $("#zoneMain").innerHTML = VIEWS[view].main();
-  const side = VIEWS[view].side();
-  $("#zoneSide").innerHTML = side;
+  $("#zoneSide").innerHTML = VIEWS[view].side();
   // Widths, panes and side-collapse are this project's memory of the view
   // being entered, not a rule that forces the side pane open every time chat
   // comes back -- that rule used to live here and it meant a side someone had
   // deliberately collapsed reopened itself the moment they returned from
-  // another view. A view with nothing to put in its side pane still has
-  // nothing to show, so it stays collapsed regardless of what was saved.
-  applyLayout();
-  if (!side) collapseZone("side", true);
+  // another view. applyLayoutForView() carries both halves of that fix: the
+  // restore, and the guard that a view with nothing to put in its side pane
+  // still has nothing to show regardless of what was saved -- the same
+  // guard openProject needs for the identical reason, so it lives in one
+  // place rather than two copies that could drift.
+  applyLayoutForView();
   if (view === "chat") {
     wireChatSkeleton();
     renderChat();

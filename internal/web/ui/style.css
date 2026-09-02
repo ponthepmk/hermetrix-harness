@@ -988,24 +988,37 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   overflow-y: auto;
 }
 
-/* Three states, each different in colour and in words. Motion is the fourth
-   signal, never the only one: with prefers-reduced-motion everything below
-   still reads exactly the same. */
-[data-action-state="working"] { border-color: rgba(69,232,232,.4); color: var(--accent); cursor: progress; }
+/* Three states, each different in colour and in words, on every button
+   variant including .primary. color/border-color could not carry the
+   colour half: button.primary/.ghost/.danger set both at specificity
+   (0,1,1), which always beats a bare [data-action-state] selector's
+   (0,1,0) no matter the source order, so the working/done/failed colours
+   never actually rendered. Matching the element too (button[data-action-
+   state=...]) would flip that fight, but on .primary specifically
+   "working"'s color:var(--accent) then sits on a background that is also
+   var(--accent) -- invisible text, a worse bug than the one it fixes. A
+   box-shadow ring is drawn outside the button's own box instead of inside
+   it, so it never has to compete with, or match, whatever colour and text
+   each variant already carries -- it is a fourth thing layered on top, not
+   a second value for a property two other rules already own. Motion is a
+   fifth signal on top of that, never the only one: with
+   prefers-reduced-motion the ring and the words below still read exactly
+   the same. */
+[data-action-state="working"] { box-shadow: 0 0 0 2px rgba(69,232,232,.6); cursor: progress; }
 [data-action-state="working"]::after {
   content: "";
   display: inline-block;
   width: 7px; height: 7px;
   margin-left: 7px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--accent);
   /* Same infinite-alternate breathing shape as the streaming dot, so it needs
      the same wait-pulse timing rather than the settle duration: an
      in-progress action is waiting, not settling into a selection. */
   animation: action-pulse var(--dur-wait-pulse) infinite alternate;
 }
-[data-action-state="done"] { border-color: rgba(156,255,56,.42); color: var(--accent-lime); }
-[data-action-state="failed"] { border-color: rgba(255,123,123,.45); color: var(--red); }
+[data-action-state="done"] { box-shadow: 0 0 0 2px rgba(156,255,56,.6); }
+[data-action-state="failed"] { box-shadow: 0 0 0 2px rgba(255,123,123,.6); }
 .action-error { margin: 6px 0 0; color: var(--red); font-size: 10px; line-height: 1.5; }
 @keyframes action-pulse { from { opacity: .35; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
