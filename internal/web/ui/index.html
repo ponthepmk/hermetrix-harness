@@ -11,94 +11,101 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="shell">
-    <aside class="rail">
-      <div class="brand"><img class="brand-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt=""><span>Hermetrix</span></div>
-      <nav aria-label="Main navigation">
-        <p class="nav-label">Workspace</p>
-        <button class="nav-item active" data-tab="chat"><span>◉</span> Chat <small>live</small></button>
-        <button class="nav-item" data-tab="projects"><span>◇</span> Projects</button>
-        <button class="nav-item" data-tab="office"><span>⌘</span> Background Jobs</button>
-        <button class="nav-item" data-tab="artifacts"><span>▱</span> Artifacts</button>
-        <p class="nav-label">Control</p>
-        <button class="nav-item" data-tab="library"><span>✦</span> Skills <b id="proposalBadge" hidden>0</b></button>
-        <button class="nav-item" data-tab="providers"><span>⌁</span> Providers</button>
-        <button class="nav-item" data-tab="mcp"><span>◎</span> MCP</button>
-        <button class="nav-item" data-tab="context"><span>◫</span> Context</button>
-        <button class="nav-item" data-tab="fidelity"><span>≋</span> Fidelity</button>
-        <button class="nav-item" data-tab="maintenance"><span>⚙</span> Maintenance</button>
+  <!-- The workspace holds only what a session needs. Everything that configures
+       Hermetrix lives in the settings overlay below, so this shell never asks a
+       question that is not about the work in front of you. -->
+  <div class="app-shell">
+    <header class="app-header" id="appHeader">
+      <button class="project-chip" id="projectChip"><span class="project-dot"></span><strong id="projectName">—</strong><span>▾</span></button>
+      <nav class="view-switch" id="viewSwitch" aria-label="Views">
+        <button data-view="work">Work</button>
+        <button data-view="chat" class="on">Chat</button>
+        <button data-view="code">Code</button>
+        <button data-view="knowledge">Knowledge</button>
       </nav>
-      <div class="runtime-card">
-        <img class="runtime-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt="">
-        <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> Local-first · proposal-only</small></div>
+      <div class="header-right">
+        <button class="command-trigger" id="commandButton" aria-label="Open command palette"><span>⌕</span> Go to or run… <kbd>⌘K</kbd></button>
+        <button class="ghost compact" id="toggleRail" aria-pressed="false" aria-label="Toggle the list pane">☰</button>
+        <button class="ghost compact" id="toggleSide" aria-pressed="false" aria-label="Toggle the evidence pane">⇔</button>
+        <button class="ghost compact" id="densityToggle" aria-pressed="false" aria-label="Toggle interface density">Comfortable</button>
+        <button class="ghost compact" id="refreshButton">Refresh</button>
+        <button class="ghost compact" id="openConfig">⚙<b id="proposalBadge" hidden>0</b></button>
       </div>
-    </aside>
-
-    <main class="workspace">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow" id="pageEyebrow">Hermetrix Engine / Agent runtime</p>
-          <h1><span id="pageTitle">Agent Workspace</span> <span class="engine-badge">VERTICAL SLICE</span></h1>
+    </header>
+    <div class="zones" id="zones">
+      <div class="zone rail" id="zoneRail">
+        <button class="new-chat" id="railNewSession">＋ New session</button>
+        <div class="session-dock" id="sessionDock" aria-label="Agent sessions"></div>
+        <div class="rail-footer">
+          <div class="runtime-card">
+            <img class="runtime-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt="">
+            <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> Local-first · authority gated</small></div>
+          </div>
         </div>
-        <div class="top-actions">
-          <button class="ghost" id="refreshButton">Refresh</button>
-          <button class="primary" id="createButton">+ New proposal</button>
+      </div>
+      <div class="zone-handle" data-handle="rail" role="separator" aria-orientation="vertical" aria-label="Resize the list pane" tabindex="0"></div>
+      <div class="zone main" id="zoneMain" tabindex="-1" aria-label="Agent Workspace">
+        <section class="view active" id="view-chat"></section>
+      </div>
+      <div class="zone-handle" data-handle="side" role="separator" aria-orientation="vertical" aria-label="Resize the evidence pane" tabindex="0"></div>
+      <div class="zone side" id="zoneSide">
+        <nav class="workbench-tabs" aria-label="Workbench rooms">
+          <button class="workbench-tab active" data-workbench="review">Review</button>
+          <button class="workbench-tab" data-workbench="files">Files</button>
+          <button class="workbench-tab" data-workbench="terminal">Terminal</button>
+          <button class="workbench-tab" data-workbench="browser">Browser</button>
+          <button class="workbench-tab" data-workbench="artifacts">Office</button>
+          <button class="workbench-tab" data-workbench="team">Team</button>
+        </nav>
+        <div class="workbench-content" id="workbenchContent">
+          <div class="empty-inspector">
+            <img class="engine-emblem" src="/assets/brand/hermetrix-engine-v3-512.png" alt="">
+            <p class="eyebrow">Hermetrix Engine</p>
+            <h2>Evidence stays beside the work</h2>
+            <p>Open files, a real PTY, managed browser, deliverables, reviews and team runs without leaving the conversation.</p>
+          </div>
         </div>
-      </header>
-
-      <section class="stats" id="stats"></section>
-
-      <div class="tabbar" role="tablist">
-        <button class="tab active" data-tab="chat">Chat</button>
-        <button class="tab" data-tab="library">Library</button>
-        <button class="tab" data-tab="proposals">Proposals <span id="tabProposalCount">0</span></button>
-        <button class="tab" data-tab="learning">Learning <span id="tabReviewCount">0</span></button>
-        <button class="tab" data-tab="insights">Insights</button>
-        <button class="tab" data-tab="archive">Archive</button>
-        <button class="tab" data-tab="context">Context diagnostics</button>
-        <button class="tab" data-tab="providers">Providers</button>
-        <button class="tab" data-tab="mcp">MCP catalog</button>
-        <button class="tab" data-tab="projects">Projects</button>
-        <button class="tab" data-tab="office">Background Jobs</button>
-        <button class="tab" data-tab="artifacts">Artifacts</button>
-        <button class="tab" data-tab="fidelity">Fidelity</button>
-        <button class="tab" data-tab="maintenance">Maintenance</button>
       </div>
+    </div>
+  </div>
 
-      <section class="toolbar" id="libraryToolbar">
-        <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Search skills, origin, owner…"></label>
-        <select id="stateFilter" aria-label="Filter state">
-          <option value="">All active states</option>
-          <option value="active">Active</option>
-          <option value="stale">Stale</option>
-          <option value="quarantined">Quarantined</option>
-        </select>
-      </section>
-
-      <section class="view active" id="view-chat"></section>
-      <section class="view" id="view-library"></section>
-      <section class="view" id="view-proposals"></section>
-      <section class="view" id="view-learning"></section>
-      <section class="view" id="view-insights"></section>
-      <section class="view" id="view-archive"></section>
-      <section class="view" id="view-context"></section>
-      <section class="view" id="view-providers"></section>
-      <section class="view" id="view-mcp"></section>
-      <section class="view" id="view-projects"></section>
-      <section class="view" id="view-office"></section>
-      <section class="view" id="view-artifacts"></section>
-      <section class="view" id="view-fidelity"></section>
-      <section class="view" id="view-maintenance"></section>
-    </main>
-
-    <aside class="inspector" id="inspector">
-      <div class="empty-inspector">
-        <img class="engine-emblem" src="/assets/brand/hermetrix-engine-v3-512.png" alt="">
-        <p class="eyebrow">Hermetrix Engine</p>
-        <h2>Select a skill</h2>
-        <p>Inspect provenance, active version, usage evidence and reversible actions.</p>
+  <!-- Settings: one full-screen room with its own navigation and its own search,
+       so configuring Hermetrix never competes with the session for the screen. -->
+  <div class="config" id="configOverlay" hidden>
+    <header class="config-head">
+      <div class="config-identity"><img class="config-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt=""><div><p class="eyebrow">Hermetrix settings</p><h1 id="configTitle">Models</h1></div></div>
+      <label class="config-search"><span>⌕</span><input id="configSearch" type="search" autocomplete="off" placeholder="Search settings…"></label>
+      <button class="icon-button" id="closeConfig" aria-label="Close settings">×</button>
+    </header>
+    <div class="config-body">
+      <nav class="config-nav" id="configNav" aria-label="Settings sections"></nav>
+      <div class="config-pane" id="configPane">
+        <section class="stats" id="stats" hidden></section>
+        <section class="toolbar" id="libraryToolbar" hidden>
+          <label class="search"><span>⌕</span><input id="searchInput" type="search" placeholder="Search skills, origin, owner…"></label>
+          <select id="stateFilter" aria-label="Filter state">
+            <option value="">All active states</option>
+            <option value="active">Active</option>
+            <option value="stale">Stale</option>
+            <option value="quarantined">Quarantined</option>
+          </select>
+          <button class="primary compact" id="createButton">+ New Skill</button>
+        </section>
+        <section class="view" id="view-library"></section>
+        <section class="view" id="view-proposals"></section>
+        <section class="view" id="view-learning"></section>
+        <section class="view" id="view-insights"></section>
+        <section class="view" id="view-archive"></section>
+        <section class="view" id="view-context"></section>
+        <section class="view" id="view-providers"></section>
+        <section class="view" id="view-mcp"></section>
+        <section class="view" id="view-projects"></section>
+        <section class="view" id="view-office"></section>
+        <section class="view" id="view-artifacts"></section>
+        <section class="view" id="view-fidelity"></section>
+        <section class="view" id="view-maintenance"></section>
       </div>
-    </aside>
+    </div>
   </div>
 
   <dialog id="candidateDialog">
@@ -123,6 +130,30 @@
       <label id="actionInputLabel">Reason<textarea id="actionInput" rows="3"></textarea></label>
       <div class="dialog-actions"><button type="button" class="ghost" id="actionCancel">Cancel</button><button type="submit" class="primary" id="actionConfirm">Confirm</button></div>
     </form>
+  </dialog>
+
+  <dialog id="commandDialog" class="command-dialog">
+    <form method="dialog" id="commandForm">
+      <label class="command-search"><span>⌕</span><input id="commandInput" type="search" autocomplete="off" placeholder="Go to a page, room, or action…"><kbd>esc</kbd></label>
+      <div class="command-list" id="commandList" role="listbox" aria-label="Hermetrix commands"></div>
+      <footer class="command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>↵</kbd> Open</span><span>Commands never bypass approval</span></footer>
+    </form>
+  </dialog>
+
+  <dialog id="capabilityDialog" class="capability-dialog">
+    <div class="capability-picker-head">
+      <div><p class="eyebrow">Session capabilities</p><h2>Ask Hermetrix to use a Skill or tool</h2><p>Mentioning guides the model; the frozen Session Contract and approval policy remain authoritative.</p></div>
+      <button type="button" class="icon-button" id="capabilityClose" aria-label="Close">×</button>
+    </div>
+    <label class="command-search"><span>⌕</span><input id="capabilityPickerQuery" type="search" autocomplete="off" placeholder="Search this session’s Skills and tools…"></label>
+    <div class="capability-picker-body" id="capabilityPickerBody"></div>
+    <footer class="capability-picker-footer"><button type="button" class="ghost" id="openToolCenter">Open Tool Center</button><button type="button" class="ghost" id="openSkillStudio">Open Skill Studio</button></footer>
+  </dialog>
+
+  <dialog id="folderDialog" class="folder-dialog">
+    <div class="dialog-head"><div><p class="eyebrow">Choose a folder</p><h2 id="folderPath">…</h2></div><button type="button" class="icon-button" id="folderClose" aria-label="Close">×</button></div>
+    <div class="folder-body" id="folderBody"></div>
+    <div class="dialog-actions"><button type="button" class="ghost" id="folderHome">Home</button><button type="button" class="primary" id="folderChoose">Use this folder</button></div>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

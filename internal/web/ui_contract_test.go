@@ -12,8 +12,7 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 	javascript := mustUIFile(t, "ui/app.js")
 	stylesheet := mustUIFile(t, "ui/style.css")
 	for _, marker := range []string{
-		`id="sessionDock"`, `id="workbenchContent"`, `data-door="assistant"`, `data-door="code"`,
-		`data-door="team"`, `data-workbench="review"`, `data-workbench="files"`,
+		`id="sessionDock"`, `id="workbenchContent"`, `data-workbench="review"`, `data-workbench="files"`,
 		`data-workbench="terminal"`, `data-workbench="browser"`, `data-workbench="artifacts"`,
 		`data-workbench="team"`, `id="commandButton"`, `id="commandDialog"`, `id="capabilityDialog"`,
 	} {
@@ -50,24 +49,61 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 			t.Errorf("workbench JavaScript is missing %s", marker)
 		}
 	}
-	// Pane widths are density tokens, not literals: the same three-pane layout
+	// Pane widths are density tokens, not literals: the same three-zone layout
 	// has to fit a 13" laptop and a desktop display without a second stylesheet.
 	for _, marker := range []string{
-		`grid-template-columns: var(--rail-width)`, `--rail-width:`, `[data-density="compact"]`,
-		`.workbench-tabs`, `.reading-card`, `.config-nav-item`, `.config-pane`, `.command-dialog`,
+		`.zones {`, `--rail-width:`, `[data-density="compact"]`,
+		`.workbench-tabs`, `.app-shell`, `.config-nav-item`, `.config-pane`, `.command-dialog`,
 		`.capability-dialog`, `details.tool-receipt`, `.tool-center-grid`,
 	} {
 		if !strings.Contains(stylesheet, marker) {
-			t.Fatalf("cockpit stylesheet no longer defines the three-pane reading-card layout: missing %s", marker)
+			t.Fatalf("cockpit stylesheet no longer defines the three-zone shell layout: missing %s", marker)
 		}
 	}
 	if strings.Contains(index, "Aetox") || strings.Contains(index, "../Aetox") || strings.Contains(stylesheet, "../Aetox") {
 		t.Fatal("product UI copied or exposed Aetox branding instead of Hermetrix identity")
 	}
-	if strings.Contains(javascript, ".style.") || strings.Contains(index, `style=`) {
+	if strings.Contains(index, `style=`) {
 		t.Fatal("UI reintroduced inline style mutations that violate its own CSP")
 	}
+	// The server sends style-src 'self', so an inline style on a rendered
+	// element -- .style.height, .style.display, anything but the one
+	// exception below -- is silently dropped rather than merely ugly. The
+	// exception is setProperty on a custom property: it writes a variable the
+	// stylesheet reads, not a style declaration on an element, and cannot be
+	// blocked the same way. That exception is narrow on purpose: it must name
+	// a literal custom property (the "--" prefix) at the call site, because
+	// setProperty("width", ...) is the exact same forbidden mutation wearing a
+	// different method name, and a variable in that slot cannot be checked by
+	// inspection at all.
+	for _, match := range styleMemberAccess.FindAllStringSubmatch(javascript, -1) {
+		if match[1] != "setProperty" {
+			t.Fatalf("UI reintroduced an inline style mutation via .style.%s", match[1])
+		}
+	}
+	setPropertyCalls := styleSetPropertyCall.FindAllStringIndex(javascript, -1)
+	literalCustomPropertyCalls := styleSetPropertyLiteral.FindAllStringSubmatch(javascript, -1)
+	if len(setPropertyCalls) != len(literalCustomPropertyCalls) {
+		t.Fatal("style.setProperty is called without a literal custom-property name as its first argument")
+	}
+	for _, match := range literalCustomPropertyCalls {
+		if !strings.HasPrefix(match[1], "--") {
+			t.Fatalf("style.setProperty(%q, ...) does not name a custom property", match[1])
+		}
+	}
 }
+
+// styleMemberAccess matches every `.style.<member>` access in app.js.
+// styleSetPropertyCall matches a bare setProperty call so it can be counted
+// against styleSetPropertyLiteral, which additionally requires that call's
+// first argument to be a quoted literal -- a variable there (as in
+// `.style.setProperty(token, value)`) cannot be verified by inspection, so it
+// is treated the same as a non-custom property rather than trusted.
+var (
+	styleMemberAccess       = regexp.MustCompile(`\.style\.([A-Za-z_$][\w$]*)`)
+	styleSetPropertyCall    = regexp.MustCompile(`\.style\.setProperty\(`)
+	styleSetPropertyLiteral = regexp.MustCompile(`\.style\.setProperty\(\s*["']([^"']*)["']`)
+)
 
 func mustUIFile(t *testing.T, name string) string {
 	t.Helper()
@@ -76,6 +112,35 @@ func mustUIFile(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// TestShellHasOneViewSwitchAndDraggableZones pins the shape the redesign exists
+// for. Two switchers is the mistake the mockup made; a zone that cannot be
+// resized is the mistake the first draft made when it put a terminal in 320px.
+func TestShellHasOneViewSwitchAndDraggableZones(t *testing.T) {
+	index := mustUIFile(t, "ui/index.html")
+	javascript := mustUIFile(t, "ui/app.js")
+	stylesheet := mustUIFile(t, "ui/style.css")
+	for _, marker := range []string{
+		`id="appHeader"`, `id="projectChip"`, `id="viewSwitch"`,
+		`id="zoneRail"`, `id="zoneMain"`, `id="zoneSide"`,
+		`data-handle="rail"`, `data-handle="side"`,
+	} {
+		if !strings.Contains(index, marker) {
+			t.Errorf("shell HTML is missing %s", marker)
+		}
+	}
+	if strings.Count(index, `id="viewSwitch"`) != 1 {
+		t.Error("there must be exactly one view switch")
+	}
+	for _, marker := range []string{"setZoneWidth", "data-view", "startZoneDrag"} {
+		if !strings.Contains(javascript, marker) {
+			t.Errorf("shell JavaScript is missing %s", marker)
+		}
+	}
+	if !strings.Contains(stylesheet, ".app-shell") || !strings.Contains(stylesheet, ".zone-handle") {
+		t.Error("stylesheet does not define the resizable three-zone shell")
+	}
 }
 
 // TestEveryCockpitElementIDIsWiredToBehaviour catches markup that ships without

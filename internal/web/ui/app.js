@@ -1,4 +1,4 @@
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0 };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {} };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -34,8 +34,18 @@ function toast(message, error = false) {
 function activateWorkbenchChrome(name) {
   state.workbenchTab = name;
   $$(".workbench-tab").forEach(node => node.classList.toggle("active", node.dataset.workbench === name));
-  $("#inspector").classList.add("open");
-  $(".shell").classList.remove("workbench-closed");
+  // Opening a room from elsewhere (a skill row, a candidate) has to reveal the
+  // side zone even if the user had collapsed it earlier.
+  collapseZone("side", false);
+}
+
+// Task 7 turns the project chip into a switcher; for now it just names the
+// project the workbench rooms are already bound to, so the chip is never
+// blank beside real project data.
+function renderProjectChip() {
+  const project = state.projects.find(item => item.id === state.selectedProject);
+  $("#projectName").textContent = project ? project.name : "No project";
+  $("#projectChip").title = project ? project.root_path : "No project registered yet";
 }
 
 function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "", danger = false, eyebrow = "Review decision" }) {
@@ -114,12 +124,9 @@ function renderAll() {
   const waiting = state.pendingProposals + state.pendingReviews;
   $("#proposalBadge").hidden = waiting === 0;
   $("#proposalBadge").textContent = waiting;
-  // The rail's one settings row has to say why it is worth opening.
-  $("#settingsSubtitle").textContent = waiting
-    ? `${waiting} waiting on you`
-    : `${state.providers.filter(item => item.enabled).length} models · ${state.mcp_servers.length} tool servers`;
+  renderProjectChip();
   switchTab(state.activeTab);
-  if (!$(".shell").classList.contains("workbench-closed")) renderCurrentWorkbench();
+  if (!$("#zones").classList.contains("side-hidden")) renderCurrentWorkbench();
 }
 
 function renderStats() {
@@ -1027,7 +1034,7 @@ async function selectSession(id) {
     state.selectedSkillDetail = null;
     state.sessionDetail = await api(`/api/sessions/${encodeURIComponent(id)}`);
     renderChat();
-    if (state.workbenchTab === "review" && !$(".shell").classList.contains("workbench-closed")) renderWorkbenchReview();
+    if (state.workbenchTab === "review" && !$("#zones").classList.contains("side-hidden")) renderWorkbenchReview();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1979,13 +1986,12 @@ function switchTab(tab) {
   const overlay = $("#configOverlay");
   overlay.hidden = !isConfig;
   document.documentElement.classList.toggle("config-open", isConfig);
+  // The settings room is a fixed overlay that covers the header completely;
+  // a screen reader does not get that for free, so it is told directly that
+  // the header underneath is not part of the page while settings is open.
+  $("#appHeader").setAttribute("aria-hidden", String(isConfig));
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${state.activeTab}`));
-  $(".shell").classList.remove("focus-mode");
-  if (!isConfig) {
-    $("#pageEyebrow").textContent = "Hermetrix Engine / Agent runtime";
-    $("#pageTitle").textContent = "Agent Workspace";
-    return;
-  }
+  if (!isConfig) return;
   const item = configItem(tab);
   $("#configTitle").textContent = item.label;
   const onSkillPage = SKILL_PAGES.includes(tab);
@@ -2068,8 +2074,10 @@ function buildCommands() {
       keywords: "settings configuration preferences config", run: () => openConfig() },
     { group: "Actions", icon: "@", title: "Mention a Skill or tool", subtitle: "Insert a capability into the composer",
       keywords: "skills tools mcp mention capability", run: () => openCapabilityPicker("all") },
-    { group: "Actions", icon: "▣", title: "Toggle the workbench", subtitle: "Show or hide the evidence pane",
-      keywords: "workbench inspector toggle", run: () => $("#toggleWorkbench").click() },
+    { group: "Actions", icon: "☰", title: "Toggle the list pane", subtitle: "Show or hide the rail zone",
+      keywords: "rail sessions list toggle zone", run: () => $("#toggleRail").click() },
+    { group: "Actions", icon: "▣", title: "Toggle the evidence pane", subtitle: "Show or hide the side zone",
+      keywords: "workbench inspector toggle side zone", run: () => $("#toggleSide").click() },
     { group: "Actions", icon: "⇔", title: "Toggle density", subtitle: "Compact for a laptop, comfortable for a desktop",
       keywords: "density compact comfortable laptop desktop zoom", run: toggleDensity },
     { group: "Actions", icon: "⟳", title: "Refresh everything", subtitle: "Reload every panel from the server",
@@ -2356,22 +2364,81 @@ function bindDensity() {
   });
 }
 
+/* --- Resizable zones --------------------------------------------------------
+   The rail, the conversation and the workbench used to be three widths a
+   designer picked once. A file tree at 320px cannot show code and a terminal
+   at 320px cannot show a test run, so the width has to come from whoever is
+   looking at the screen, not from us. Each zone still has a floor and a
+   ceiling: collapsing one to zero would swallow whatever is inside it, and
+   letting it eat the whole window would do the same to its neighbours. */
+const ZONE_LIMITS = { rail: [150, 420], side: [220, 640] };
+
+// setZoneWidth writes a custom property on the root instead of an inline
+// width on the zone itself. The server sends style-src 'self', so an inline
+// style on a rendered element is silently dropped; a custom property is a
+// variable the stylesheet reads, which style-src has no opinion about. The
+// property name below is a literal at every call site, never a variable,
+// because the CSP rule this file enforces on itself (see ui_contract_test.go)
+// verifies that literal rather than trusting whatever a caller passes in.
+function setZoneWidth(zone, px) {
+  const [min, max] = ZONE_LIMITS[zone];
+  const clamped = Math.min(max, Math.max(min, Math.round(px)));
+  if (zone === "rail") document.documentElement.style.setProperty("--rail-width", `${clamped}px`);
+  else document.documentElement.style.setProperty("--workbench-max", `${clamped}px`);
+  state.zoneWidths[zone] = clamped;
+  return clamped;
+}
+
+// Task 10 persists these widths across a reload. Until it exists the drag
+// still has to end cleanly rather than throw when the pointer lifts.
+function saveLayout() {}
+
+function startZoneDrag(handle, event) {
+  const zone = handle.dataset.handle;
+  const zones = $("#zones").getBoundingClientRect();
+  const move = pointer => {
+    const px = zone === "rail" ? pointer.clientX - zones.left : zones.right - pointer.clientX;
+    setZoneWidth(zone, px);
+  };
+  move(event);
+  const stop = () => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", stop);
+    saveLayout();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", stop);
+}
+
+// collapseZone hides a zone through the stylesheet -- .zones.rail-hidden and
+// .zones.side-hidden collapse its grid column to nothing -- rather than
+// removing it from the document, so re-opening it does not have to re-render
+// its content. Focus has to move out first: an element that becomes
+// display:none cannot keep the keyboard's focus, and a screen reader
+// announces nothing at all for a focus target that just vanished.
+function collapseZone(zone, collapsed) {
+  const target = zone === "rail" ? $("#zoneRail") : $("#zoneSide");
+  if (collapsed && target.contains(document.activeElement)) $("#zoneMain").focus();
+  $("#zones").classList.toggle(`${zone}-hidden`, collapsed);
+  (zone === "rail" ? $("#toggleRail") : $("#toggleSide")).setAttribute("aria-pressed", String(collapsed));
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   $$(".workbench-tab").forEach(node => node.addEventListener("click", () => switchWorkbench(node.dataset.workbench)));
   $("#openConfig").addEventListener("click", () => openConfig());
   $("#closeConfig").addEventListener("click", closeConfig);
   $("#configSearch").addEventListener("input", renderConfigNav);
-  $$(".door").forEach(node => node.addEventListener("click", () => {
-    $$(".door").forEach(item => item.classList.toggle("active", item === node));
-    // A door is a way of working, not a settings page: each one lands on the
-    // conversation and opens the room that door is about.
-    switchTab("chat");
-    if (node.dataset.door === "assistant") switchWorkbench("review");
-    if (node.dataset.door === "code") switchWorkbench("files");
-    if (node.dataset.door === "team") switchWorkbench("team");
-  }));
-  $("#closeWorkbench").addEventListener("click", () => { clearTimeout(workbenchPollTimer); $(".shell").classList.add("workbench-closed"); $("#inspector").classList.remove("open"); });
-  $("#toggleWorkbench").addEventListener("click", () => { const closed=$(".shell").classList.toggle("workbench-closed"); $("#inspector").classList.toggle("open",!closed); if(!closed) renderCurrentWorkbench(); });
+  $$(".zone-handle").forEach(handle => handle.addEventListener("pointerdown", event => startZoneDrag(handle, event)));
+  $("#toggleRail").addEventListener("click", () => collapseZone("rail", !$("#zones").classList.contains("rail-hidden")));
+  $("#toggleSide").addEventListener("click", () => {
+    const collapsed = !$("#zones").classList.contains("side-hidden");
+    collapseZone("side", collapsed);
+    if (!collapsed) renderCurrentWorkbench();
+  });
+  // Only Chat has a room behind it until Task 8 wires the other views. A
+  // button that looks clickable but does nothing is worse than one that says
+  // plainly it is not available yet.
+  $$("#viewSwitch [data-view]:not(.on)").forEach(button => { button.disabled = true; button.title = "Not built yet"; });
   // The rail button starts a session outright. It used to only clear the
   // selection and drop focus into a provider dropdown, which meant "new
   // session" was three more decisions before anything happened.

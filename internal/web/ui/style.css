@@ -29,11 +29,45 @@
 body { margin: 0; background: var(--bg); color: var(--text); min-width: 980px; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
-.shell { display: grid; grid-template-columns: var(--rail-width) minmax(var(--stage-min),1fr) minmax(var(--workbench-min),var(--workbench-max)); height: 100vh; overflow: hidden; }
-.shell.focus-mode .inspector { display: none; }
+/* The shell is one grid whose columns are tokens, so a drag writes a number in
+   exactly one place (setZoneWidth, in app.js) and the whole layout follows.
+   A fixed three-pane cockpit could not give a file tree or a terminal more
+   room than the designer had picked; these columns can be resized and
+   collapsed by whoever is actually looking at the screen. */
+.app-shell { display: grid; grid-template-rows: auto minmax(0,1fr); height: 100vh; overflow: hidden; }
+.app-header { display: flex; align-items: center; gap: 14px; padding: 0 12px; height: 46px;
+  border-bottom: 1px solid var(--line); background: rgba(15,19,27,.92); }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.view-switch { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.view-switch button { border: 0; border-radius: 7px; padding: 6px 14px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.view-switch button.on { background: linear-gradient(135deg,var(--accent),#72f0cc); color: #061113; font-weight: 700; }
+.view-switch button:disabled { opacity: .4; cursor: not-allowed; }
+.project-chip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
+  border-radius: 9px; padding: 6px 10px; background: #0b0f15; color: var(--text); cursor: pointer; font-size: 12px; }
+.project-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-lime); }
+.zones { display: grid; grid-template-columns: var(--rail-width) 5px minmax(0,1fr) 5px var(--workbench-max); min-height: 0; }
+.zones.rail-hidden { grid-template-columns: 0 0 minmax(0,1fr) 5px var(--workbench-max); }
+.zones.side-hidden { grid-template-columns: var(--rail-width) 5px minmax(0,1fr) 0 0; }
+.zones.rail-hidden.side-hidden { grid-template-columns: 0 0 minmax(0,1fr) 0 0; }
+.zone { min-width: 0; overflow: auto; }
+/* Grid auto-placement fills gaps left by a display:none item by sliding every
+   later item down a track, so hiding the rail alone was enough to push the
+   side zone into the main zone's 1fr track. Pinning every item's column
+   explicitly keeps each one in its own track independent of who else is
+   hidden. */
+.zone.rail { grid-column: 1; }
+.zone-handle[data-handle="rail"] { grid-column: 2; }
+.zone.main { grid-column: 3; }
+.zone-handle[data-handle="side"] { grid-column: 4; }
+.zone.side { grid-column: 5; }
+.zones.rail-hidden .zone.rail, .zones.side-hidden .zone.side { display: none; }
+.zone-handle { cursor: col-resize; background: transparent; transition: background var(--dur-press); }
+.zone-handle:hover, .zone-handle:focus-visible { background: rgba(69,232,232,.3); }
+.zones.rail-hidden > .zone-handle[data-handle="rail"],
+.zones.side-hidden > .zone-handle[data-handle="side"] { display: none; }
+@media (prefers-reduced-motion: reduce) { .zone-handle { transition: none; } }
 .rail { border-right: 1px solid var(--line); padding: 20px 14px 14px; background: #0a0c10; display: flex; flex-direction: column; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 9px 22px; font-weight: 750; letter-spacing: -.02em; }
-.brand-mark { width: 31px; height: 31px; object-fit: contain; filter: drop-shadow(0 0 12px rgba(69,232,232,.24)); }
 .nav-label { color: #626b78; text-transform: uppercase; font-size: 10px; letter-spacing: .13em; padding: 16px 10px 7px; margin: 0; }
 .nav-item { width: 100%; border: 0; background: transparent; border-radius: 9px; display: flex; align-items: center; gap: 10px; padding: 9px 10px; margin: 2px 0; cursor: pointer; color: #aeb5bf; text-align: left; }
 .nav-item:hover { background: var(--panel-2); color: white; }
@@ -46,13 +80,9 @@ button { color: inherit; }
 .runtime-card small { font-size: 10px; color: var(--muted); margin-top: 2px; }
 .runtime-mark { width: 28px; height: 28px; object-fit: contain; }
 .status-dot { display: inline-block; width: 6px; height: 6px; margin-right: 3px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
-.workspace { min-width: 0; overflow-y: auto; padding: 28px 30px 50px; }
-.topbar { display: flex; justify-content: space-between; align-items: end; gap: 20px; }
 .eyebrow { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; margin: 0 0 6px; }
 h1 { margin: 0; font-size: 27px; letter-spacing: -.035em; display: flex; align-items: center; gap: 9px; }
-.engine-badge { color: var(--accent); border: 1px solid rgba(69,232,232,.30); background: var(--accent-soft); border-radius: 9px; padding: 3px 7px; font-size: 9px; letter-spacing: .1em; font-weight: 700; }
 h2, h3, p { text-wrap: pretty; }
-.top-actions { display: flex; gap: 8px; }
 button.primary, button.ghost, button.danger { border-radius: 9px; padding: 9px 13px; cursor: pointer; border: 1px solid transparent; }
 button.primary { background: var(--accent); color: #10130e; font-weight: 700; }
 button.primary:hover { filter: brightness(1.08); }
@@ -94,7 +124,6 @@ input:focus, textarea:focus, select:focus { border-color: #65727f; box-shadow: 0
 .metric strong { color: white; display: block; font-size: 15px; }
 .empty { border: 1px dashed #303741; border-radius: var(--radius); padding: 42px 20px; color: var(--muted); text-align: center; }
 .empty h3 { color: var(--text); margin: 0 0 7px; }
-.inspector { border-left: 1px solid var(--line); background: #0f1217; padding: 23px 19px; overflow-y: auto; }
 .empty-inspector { text-align: center; color: var(--muted); margin-top: 20vh; }
 .empty-inspector h2 { color: var(--text); font-size: 16px; }
 .empty-inspector p { font-size: 12px; line-height: 1.55; }
@@ -278,16 +307,12 @@ dialog textarea { resize: vertical; font-family: inherit; }
 .dialog-message { color: #c7ced7; font-size: 13px; line-height: 1.6; }
 .action-dialog { width: min(490px, calc(100vw - 40px)); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
-@media (max-width: 1180px) {
-  .inspector { position: fixed; right: 0; top: 0; bottom: 0; width: 340px; transform: translateX(100%); transition: var(--dur-arrive); z-index: 4; box-shadow: -20px 0 50px rgba(0,0,0,.4); }
-  .inspector.open { transform: translateX(0); }
-}
 @media (max-width: 1050px) {
   .workbench-grid, .maintenance-grid, .fidelity-grid, .office-grid { grid-template-columns: 1fr; }
   .authority-checks { grid-template-columns: 1fr; }
 }
 
-/* Hermetrix cockpit: a clean-room three-pane workbench informed by the same
+/* Hermetrix cockpit: a clean-room three-zone workbench informed by the same
    desktop interaction problem as Aetox, with Hermetrix's own galaxy identity. */
 body {
   min-width: 860px;
@@ -296,19 +321,11 @@ body {
     radial-gradient(circle at 24% 118%, rgba(25,222,211,.09), transparent 42%),
     #080a0f;
 }
-.shell.workbench-closed .inspector { display: none; }
-.shell.focus-mode .inspector { display: flex; }
-.rail, .reading-card, .inspector {
+.rail, .zone.side {
   border: 1px solid rgba(120,139,170,.18);
   box-shadow: 0 18px 60px rgba(0,0,0,.2);
 }
 .rail { border-radius: 17px; padding: 14px 11px 11px; background: rgba(11,14,21,.94); overflow: hidden; }
-.brand { padding: 1px 7px 13px; }
-.brand small { margin-left: auto; color: #53606f; font-size: 8px; letter-spacing: .14em; }
-.door-switch { display: grid; grid-template-columns: repeat(3,1fr); gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 11px; background: #080b10; }
-.door { border: 0; border-radius: 8px; padding: 7px 3px; background: transparent; color: #758091; font-size: 9px; cursor: pointer; }
-.door:hover { color: white; }
-.door.active { color: #061113; background: linear-gradient(135deg,var(--accent),#72f0cc); font-weight: 750; }
 .new-chat { margin: 11px 0 7px; width: 100%; border: 1px solid rgba(69,232,232,.22); border-radius: 10px; padding: 9px; background: rgba(69,232,232,.07); color: var(--accent); cursor: pointer; text-align: left; }
 .session-dock { min-height: 0; overflow: auto; display: grid; gap: 4px; }
 .session-dock .session-create { padding: 8px 2px 10px; border-bottom: 1px solid var(--line); }
@@ -324,11 +341,7 @@ body {
 .control-nav .nav-item { padding: 7px 9px; font-size: 11px; }
 .control-nav .nav-label { padding-top: 9px; }
 .runtime-card { margin-top: 8px; }
-.workspace { padding: 0; overflow: hidden; }
-.reading-card { height: 100%; min-width: 0; overflow-y: auto; border-radius: 17px; padding: 19px 22px 28px; background: linear-gradient(180deg,rgba(16,20,29,.98),rgba(10,13,19,.98)); }
-.topbar { position: sticky; top: -19px; z-index: 3; margin: -19px -22px 0; padding: 17px 22px 14px; align-items: center; background: rgba(15,19,27,.91); backdrop-filter: blur(18px); border-bottom: 1px solid rgba(110,133,162,.14); }
-.topbar h1 { font-size: 19px; }
-.topbar .eyebrow { margin-bottom: 3px; font-size: 9px; }
+.zone.main { padding: 14px 16px; overflow-y: auto; }
 .compact { padding: 7px 10px !important; font-size: 10px; }
 .stats { margin: 15px 0 12px; }
 .stat { padding: 10px 12px; background: rgba(20,25,35,.72); }
@@ -336,11 +349,11 @@ body {
 .tabbar { gap: 1px; overflow-x: auto; flex-wrap: nowrap; }
 .tab { white-space: nowrap; padding: 9px 10px; font-size: 10px; }
 .view { padding-top: 11px; }
-.inspector { border-radius: 17px; background: rgba(12,15,22,.96); padding: 0; overflow: hidden; display: flex; flex-direction: column; }
-.workbench-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 15px 9px; }
-.workbench-head h2 { margin: 0; font-size: 14px; }
-.workbench-head .eyebrow { margin-bottom: 2px; }
-.workbench-tabs { display: flex; overflow-x: auto; padding: 0 10px 8px; gap: 3px; border-bottom: 1px solid var(--line); }
+/* The side zone has its own flex column so workbench-tabs stays put while
+   workbench-content scrolls under it -- the same arrangement the old fixed
+   inspector pane had, just inside a column the handle can now resize. */
+.zone.side { border-radius: 17px; background: rgba(12,15,22,.96); padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.workbench-tabs { display: flex; overflow-x: auto; padding: 10px 10px 8px; gap: 3px; border-bottom: 1px solid var(--line); }
 .workbench-tab { flex: none; border: 1px solid transparent; border-radius: 8px; background: transparent; padding: 6px 8px; color: #75808f; font-size: 9px; cursor: pointer; }
 .workbench-tab:hover { color: white; }
 .workbench-tab.active { color: var(--accent); border-color: rgba(69,232,232,.22); background: rgba(69,232,232,.07); }
@@ -352,8 +365,10 @@ body {
 .workbench-content input, .workbench-content select, .workbench-content textarea { width: 100%; font-size: 10px; }
 .workbench-content button.primary, .workbench-content button.ghost, .workbench-content button.danger, .workbench-content .button-link { font-size: 9px; padding: 7px 9px; }
 .workbench-content .kv { grid-template-columns: 72px 1fr; font-size: 9px; }
-.chat-layout { display: block; min-height: calc(100vh - 104px); border: 0; border-radius: 0; background: transparent; }
-.chat-stage { min-height: calc(100vh - 112px); border: 0; border-radius: 13px; overflow: hidden; background: #090c12; }
+/* 74px is the app header (46px) plus the main zone's own top and bottom
+   padding (14px each); the sticky topbar this once measured against is gone. */
+.chat-layout { display: block; min-height: calc(100vh - 74px); border: 0; border-radius: 0; background: transparent; }
+.chat-stage { min-height: calc(100vh - 74px); border: 0; border-radius: 13px; overflow: hidden; background: #090c12; }
 .chat-head { background: rgba(14,18,26,.9); }
 .message-list { min-height: 0; }
 .file-editor { display: grid; gap: 8px; margin-top: 10px; }
@@ -393,12 +408,6 @@ body {
 .slide-preview > small { position: absolute; right: 8px; bottom: 6px; color: #7f91aa; }
 .slide-preview h4 { margin: 0 0 10px; }
 .slide-preview li { margin: 4px 0; font-size: 9px; }
-@media (max-width: 1220px) {
-  .inspector { position: fixed; right: 8px; top: 8px; bottom: 8px; z-index: 8; transform: translateX(calc(100% + 12px)); }
-  .inspector.open { transform: translateX(0); }
-  .shell.workbench-closed .inspector { display: flex; transform: translateX(calc(100% + 12px)); }
-}
-
 /* Usability pass: task-first navigation and lightweight command surfaces.
    The galaxy identity stays in the background while controls use quieter,
    familiar desktop contrast and spacing. */
@@ -532,50 +541,17 @@ details.tool-receipt { padding: 0; overflow: hidden; }
    to resize a pane. */
 :root {
   --rail-width: 242px;
-  --stage-min: 420px;
-  --workbench-min: 360px;
   --workbench-max: 430px;
-  --pane-gap: 8px;
-  --pane-pad: 8px;
-  --card-pad-x: 24px;
-  --card-pad-top: 22px;
-  --card-pad-bottom: 26px;
   --stat-columns: repeat(4,1fr);
 }
 :root[data-density="compact"] {
   --rail-width: 204px;
-  --stage-min: 340px;
-  --workbench-min: 296px;
   --workbench-max: 356px;
-  --pane-gap: 6px;
-  --pane-pad: 6px;
-  --card-pad-x: 17px;
-  --card-pad-top: 15px;
-  --card-pad-bottom: 18px;
   --stat-columns: repeat(2,1fr);
-}
-.shell {
-  grid-template-columns: var(--rail-width) minmax(var(--stage-min),1fr) minmax(var(--workbench-min),var(--workbench-max));
-  gap: var(--pane-gap);
-  padding: var(--pane-pad);
-}
-.shell.workbench-closed, .shell.focus-mode.workbench-closed { grid-template-columns: var(--rail-width) minmax(0,1fr); }
-.shell.focus-mode {
-  grid-template-columns: var(--rail-width) minmax(var(--stage-min),1fr) minmax(var(--workbench-min),var(--workbench-max));
-}
-.reading-card { padding: var(--card-pad-top) var(--card-pad-x) var(--card-pad-bottom); }
-/* The sticky topbar bleeds to the card's edges, so its negative margin has to
-   be the card's own padding. Hard-coded -22px against a compact 17px padding
-   left every view scrolling sideways by 5px. */
-.topbar {
-  margin: calc(var(--card-pad-top) * -1) calc(var(--card-pad-x) * -1) 0;
-  padding: 17px var(--card-pad-x) 14px;
-  top: calc(var(--card-pad-top) * -1);
 }
 .stats { grid-template-columns: var(--stat-columns); }
 :root[data-density="compact"] .stats { margin: 15px 0 14px; }
 :root[data-density="compact"] .rail { padding: 10px 8px 8px; }
-:root[data-density="compact"] .topbar h1 { font-size: 19px; }
 :root[data-density="compact"] .session-dock { gap: 5px; }
 :root[data-density="compact"] .provider-grid,
 :root[data-density="compact"] .mcp-overview,
@@ -583,10 +559,12 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 :root[data-density="compact"] .workbench-grid,
 :root[data-density="compact"] .maintenance-grid { gap: 8px; }
 #densityToggle { min-width: 92px; }
-
-@media (max-width: 1220px) {
-  .shell, .shell.focus-mode { grid-template-columns: var(--rail-width) minmax(0,1fr); }
-  .inspector { width: min(var(--workbench-max),calc(100vw - 230px)); }
+/* The header spans the viewport rather than sitting inside a resizable zone,
+   so this shrink-to-icon behaviour keys off the window's width directly
+   instead of a @container query the way panels inside a zone do. */
+@media (max-width: 980px) {
+  #densityToggle { min-width: 0; font-size: 0; }
+  #densityToggle::after { content: "⇔"; font-size: 11px; }
 }
 
 /* Command palette and capability picker additions --------------------------- */
@@ -608,12 +586,12 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 .mcp-connection-head { margin-top: 14px; }
 
 /* Pane-relative layout ------------------------------------------------------
-   The centre pane is not the viewport. With the workbench open a 1440px window
-   leaves the stage under 700px, so every two-column panel inside it has to
-   collapse on the stage's width rather than the window's -- a viewport media
-   query cannot see that, and the Tool Center's connection form was overflowing
-   the reading card by 153px because of it. */
-.workspace { container-type: inline-size; container-name: stage; }
+   Neither the main zone nor the side zone is the viewport. With both handles
+   dragged, either one can end up well under 700px, so every two-column panel
+   inside it has to collapse on the zone's own width rather than the window's
+   -- a viewport media query cannot see that, and the Tool Center's connection
+   form was overflowing its zone by 153px because of it. */
+.zone.main, .zone.side { container-type: inline-size; container-name: stage; }
 @container stage (max-width: 900px) {
   .tool-center-grid, .provider-grid, .mcp-overview, .workbench-grid,
   .maintenance-grid, .office-grid, .fidelity-grid, .context-grid {
@@ -629,20 +607,6 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 /* The aside column is narrow by construction, so its form never gets the
    two-column treatment regardless of how wide the stage is. */
 .connection-setup .form-grid { grid-template-columns: minmax(0,1fr); }
-
-/* Topbar at narrow stage widths --------------------------------------------
-   The action row has to survive a stage that is under 600px with the workbench
-   open, so it wraps first and then sheds labels rather than pushing the
-   reading card into a horizontal scroll. */
-.topbar { flex-wrap: wrap; }
-.top-actions { flex-wrap: wrap; justify-content: flex-end; }
-@container stage (max-width: 760px) {
-  .command-trigger { min-width: 0; width: 34px; justify-content: center; }
-  .command-trigger:not(:focus-within) { font-size: 0; }
-  .command-trigger kbd { display: none; }
-  #densityToggle { min-width: 0; font-size: 0; }
-  #densityToggle::after { content: "⇔"; font-size: 11px; }
-}
 
 /* One-button session start --------------------------------------------------
    The dock used to open on three dropdowns. It now opens on the line saying
@@ -701,10 +665,11 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 /* Settings room -------------------------------------------------------------
    Configuration is a place you go to, not a strip of tabs competing with the
    conversation. It covers the workspace completely: while you are choosing a
-   model, nothing on screen is asking you anything else. */
+   model, nothing on screen is asking you anything else. Settings itself is
+   opened from the header now, not from a row at the foot of the rail. */
 /* A shelf, not the end of the scroll. Without the rule and the background the
-   session list slid under the settings row and the last session read as
-   half-drawn rather than as more to scroll. */
+   session list slid under this shelf and the last session read as half-drawn
+   rather than as more to scroll. */
 .rail-footer {
   margin-top: auto;
   display: grid;
@@ -713,36 +678,6 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   border-top: 1px solid var(--line);
   background: rgba(11,14,21,.94);
 }
-.rail-settings {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 26px minmax(0,1fr) auto;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 9px;
-  background: transparent;
-  color: #c2cbd6;
-  text-align: left;
-  cursor: pointer;
-}
-.rail-settings:hover { border-color: #3a4455; background: var(--panel-raised); color: var(--text); }
-.rail-settings-mark { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 7px; background: #10151d; color: var(--accent); }
-.rail-settings strong, .rail-settings small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail-settings strong { font-size: 11px; font-weight: 650; }
-.rail-settings small { margin-top: 2px; color: #667181; font-size: 8px; }
-.rail-settings b {
-  justify-self: end;
-  min-width: 17px;
-  border-radius: 999px;
-  padding: 2px 6px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 9px;
-  text-align: center;
-}
-
 .config {
   position: fixed;
   inset: 0;
@@ -867,11 +802,8 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 
 /* Rail layout ---------------------------------------------------------------
    The rail is a column with one growing part. Everything else keeps its size:
-   without this the brand at the top and the settings row at the bottom were
-   squeezed by whatever the session panel happened to contain, and on a session
-   that needed an override the logo was clipped off the top of the window. */
-.rail > .brand,
-.rail > .door-switch,
+   without this the new-session button and the footer at the bottom were
+   squeezed by whatever the session dock happened to contain. */
 .rail > .new-chat,
 .rail > .rail-footer { flex: 0 0 auto; }
 .session-dock { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 2px; }
@@ -893,7 +825,6 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 }
 .session-dock .session-readiness textarea { font-size: 9px; }
 
-:root[data-density="compact"] .rail > .brand { padding-bottom: 9px; }
 :root[data-density="compact"] .new-chat { margin: 8px 0 5px; padding: 8px; }
 .session-dock .session-item.terse { padding-top: 5px; padding-bottom: 5px; }
 
@@ -1018,7 +949,10 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   margin-left: 7px;
   border-radius: 50%;
   background: currentColor;
-  animation: action-pulse var(--dur-settle) infinite alternate;
+  /* Same infinite-alternate breathing shape as the streaming dot, so it needs
+     the same wait-pulse timing rather than the settle duration: an
+     in-progress action is waiting, not settling into a selection. */
+  animation: action-pulse var(--dur-wait-pulse) infinite alternate;
 }
 [data-action-state="done"] { border-color: rgba(156,255,56,.42); color: var(--accent-lime); }
 [data-action-state="failed"] { border-color: rgba(255,123,123,.45); color: var(--red); }
