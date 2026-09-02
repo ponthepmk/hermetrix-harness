@@ -118,6 +118,34 @@ func TestCapabilityPickerPreservesSessionAndApprovalContracts(t *testing.T) {
 	}
 }
 
+// literalDurationsIn finds every duration written directly into a
+// transition or animation declaration, ignoring any duration already
+// expressed as a --dur-* token. It inspects one declaration (the text up to
+// its terminating semicolon) at a time and strips known token references out
+// of it before looking for a bare number-plus-unit, rather than scanning a
+// whole declaration with one lazy match. A lazy match stops at the first
+// duration-shaped substring it reaches, so a value list such as
+// "border-color var(--dur-press), transform .15s" is reported as a single
+// match that already contains "var(--dur-" and the literal sitting right
+// after it is never inspected at all.
+var (
+	durationDeclaration = regexp.MustCompile(`(?:transition|animation)\s*:[^;{}]*;`)
+	durationTokenUse    = regexp.MustCompile(`var\(--dur-[a-z-]+\)`)
+	// No leading \b: a value like ".15s" starts with a non-word rune, so a
+	// word boundary never sits between the preceding space and the dot, and
+	// requiring one there silently dropped the leading dot from every match.
+	bareDuration = regexp.MustCompile(`\d*\.?\d+m?s\b`)
+)
+
+func literalDurationsIn(css string) []string {
+	var found []string
+	for _, declaration := range durationDeclaration.FindAllString(css, -1) {
+		withoutTokens := durationTokenUse.ReplaceAllString(declaration, "")
+		found = append(found, bareDuration.FindAllString(withoutTokens, -1)...)
+	}
+	return found
+}
+
 // TestMotionIsTokenisedAndReadableWithoutIt locks two rules that fail silently.
 // Durations written as literals are several answers to one question, and an
 // animation that carries state on its own is invisible to anyone who turns
@@ -131,14 +159,26 @@ func TestMotionIsTokenisedAndReadableWithoutIt(t *testing.T) {
 	}
 	// A literal second inside transition/animation is a second place answering
 	// the same question as the token set.
-	literal := regexp.MustCompile(`(?:transition|animation)[^;{}]*?\b\d*\.?\d+m?s\b`)
-	for _, found := range literal.FindAllString(stylesheet, -1) {
-		if !strings.Contains(found, "var(--dur-") {
-			t.Errorf("duration written as a literal instead of a token: %q", found)
-		}
+	for _, found := range literalDurationsIn(stylesheet) {
+		t.Errorf("duration written as a literal instead of a token: %q", found)
 	}
 	if strings.Count(stylesheet, "prefers-reduced-motion") < 3 {
 		t.Error("motion is used in more places than it is guarded for reduced-motion")
+	}
+}
+
+// TestLiteralDurationCheckCatchesSecondValueInAList regression-guards a
+// defect the review caught in the check above: a lazy whole-declaration
+// regex reported no literal for a rule shaped like
+// "transition: border-color var(--dur-press), transform .15s;" because the
+// text it matched already contained a --dur- token, even though the second
+// value was still a bare literal. This proves literalDurationsIn inspects
+// each value rather than stopping at the first token it sees.
+func TestLiteralDurationCheckCatchesSecondValueInAList(t *testing.T) {
+	css := `.example { transition: border-color var(--dur-press), transform .15s; }`
+	found := literalDurationsIn(css)
+	if len(found) != 1 || found[0] != ".15s" {
+		t.Fatalf("expected the literal .15s in the second transition value to be caught, got %v", found)
 	}
 }
 

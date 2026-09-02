@@ -836,7 +836,14 @@ function renderChat() {
 // The label while working names the work. "Discovering this server's tools" is
 // an answer; "Loading" is a word that fills the same space and says nothing.
 async function runAction(button, { working, done, run }) {
-  if (!button || button.dataset.actionState === "working") return;
+  // "done" is not idle: the button still shows the finished label and is
+  // still holding for --dur-hold-done. A caller that starts a new run during
+  // that hold would capture "done" as its own idle text, and the first run's
+  // still-pending timeout would later stomp the second run's state.
+  if (!button || button.dataset.actionState === "working" || button.dataset.actionState === "done") return;
+  // Any hold timer left over from a previous run must die here rather than
+  // fire later and overwrite whatever this run is about to set.
+  clearTimeout(button._runActionHold);
   const idle = button.textContent;
   const previousError = button.parentElement?.querySelector(".action-error");
   previousError?.remove();
@@ -849,8 +856,10 @@ async function runAction(button, { working, done, run }) {
     button.dataset.actionState = "done";
     button.textContent = done;
     // Work that finished says so and holds long enough to read, rather than
-    // snapping back as though nothing happened.
-    setTimeout(() => {
+    // snapping back as though nothing happened. The timer is kept on the
+    // button itself so a later run (or this same run, if it were ever
+    // re-entered) can cancel it instead of racing it.
+    button._runActionHold = setTimeout(() => {
       button.removeAttribute("data-action-state");
       button.removeAttribute("aria-busy");
       button.disabled = false;
