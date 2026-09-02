@@ -1,4 +1,4 @@
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {} };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -912,7 +912,10 @@ function renderChat() {
   $$("[data-open-capabilities]", root).forEach(button => button.addEventListener("click", () => openCapabilityPicker(button.dataset.openCapabilities)));
   $("#composerCapabilityButton")?.addEventListener("click", () => openCapabilityPicker("all"));
   $("#composerFilesButton")?.addEventListener("click", () => switchWorkbench("files"));
-  $("#composerTerminalButton")?.addEventListener("click", () => switchWorkbench("terminal"));
+  // Terminal no longer has a side-strip room to switch to; this opens (or
+  // reveals) a terminal pane in Code instead, so the quick button still
+  // works without reviving the second door the redesign closed.
+  $("#composerTerminalButton")?.addEventListener("click", () => openContentPane("terminal"));
   bindComposer();
   $("#chatForm")?.addEventListener("submit", sendTurn);
   $("#openProvidersButton")?.addEventListener("click", () => switchTab("providers"));
@@ -953,8 +956,10 @@ function renderChatMain() {
 // so that leaving chat for another view and coming back does not silently
 // snap the workbench back to the first tab.
 function renderChatSide() {
-  const rooms = [["review", "Review"], ["files", "Files"], ["terminal", "Terminal"],
-    ["browser", "Browser"], ["artifacts", "Office"], ["team", "Team"]];
+  // Terminal and browser left this 320px strip for Code's panes -- both need
+  // room a fixed-width column cannot give them -- so only the rooms that
+  // still fit one stay here.
+  const rooms = [["review", "Review"], ["files", "Files"], ["artifacts", "Office"], ["team", "Team"]];
   return `<nav class="workbench-tabs" aria-label="Workbench rooms">${rooms.map(([id, label]) =>
     `<button class="workbench-tab ${state.workbenchTab === id ? "active" : ""}" data-workbench="${id}">${escapeHTML(label)}</button>`).join("")}</nav>
     <div class="workbench-content" id="workbenchContent"></div>`;
@@ -982,7 +987,11 @@ const VIEWS = {
   code: {
     label: "Code",
     rail: () => unbuilt("Files and diffs", "spec 2"),
-    main: () => unbuilt("Code — editor, syntax highlighting, diff view", "spec 2"),
+    // Code is the one view whose main area is a split rather than a single
+    // surface -- the spec's own table gives only this row more than one
+    // pane -- so main() hands back an empty host and renderPanes() fills it,
+    // the same division of labour renderChatMain()/renderChat() already use.
+    main: () => "",
     side: () => ""
   },
   knowledge: {
@@ -1046,6 +1055,10 @@ function switchView(name) {
     renderChat();
     if (!$("#zones").classList.contains("side-hidden")) renderCurrentWorkbench();
   }
+  // main() above hands Code an empty host on purpose; this is what actually
+  // fills it, the same way renderChat() fills the empty <section> chat's own
+  // main() returns.
+  if (view === "code") renderPanes();
 }
 
 // Every action answers two questions and no others: did the press register,
@@ -1805,7 +1818,10 @@ async function selectProject(id, path = "") {
     state.selectedProject = id; state.projectPath = path;
     state.projectFiles = await api(`/api/projects/${encodeURIComponent(id)}/files?path=${encodeURIComponent(path)}`);
     renderProjects();
-    if (state.workbenchTab === "files") renderWorkbenchFiles();
+    // Files now has two possible homes; refreshWorkbenchSurface asks which
+    // one (if either) is actually showing it rather than assuming the
+    // chat-side tab.
+    refreshWorkbenchSurface("files");
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1903,15 +1919,22 @@ function renderCurrentWorkbench() {
   const tab = state.workbenchTab;
   if (tab === "review") renderWorkbenchReview();
   if (tab === "files") renderWorkbenchFiles();
-  if (tab === "terminal") renderWorkbenchTerminal();
-  if (tab === "browser") renderWorkbenchBrowser();
   if (tab === "artifacts") renderWorkbenchArtifacts();
   if (tab === "team") renderWorkbenchTeam();
 }
 
+// Terminal has exactly one home now: a Code pane. Its poll loop and the
+// output fetch it drives both have to ask whether that pane is actually open
+// rather than checking a chat-side tab that no longer exists -- checking the
+// old tab would silently stop a running terminal's output the moment
+// anything else became the active workbench tab.
+function terminalPaneOpen() {
+  return state.view === "code" && state.panes.includes("terminal");
+}
+
 function scheduleWorkbenchPoll(callback, delay = 700) {
   clearTimeout(workbenchPollTimer);
-  if (state.workbenchTab === "terminal" || state.workbenchTab === "team") {
+  if (terminalPaneOpen() || state.workbenchTab === "team") {
     workbenchPollTimer = setTimeout(callback, delay);
   }
 }
@@ -1935,27 +1958,48 @@ function renderWorkbenchReview() {
   $("#reviewRunNext")?.addEventListener("click", runNextReview);
 }
 
-function renderWorkbenchFiles() {
+// renderWorkbenchFilesHTML returns markup rather than writing it, because
+// this same markup now has two possible homes: the chat-side workbench room
+// and a Code-view pane. A pane and a room rendering from two copies of this
+// function would drift the moment one of them changed; returning a string
+// keeps there being exactly one place the files room is actually built.
+function renderWorkbenchFilesHTML() {
   const project = state.projects.find(item => item.id === state.selectedProject);
   const document = state.projectFile;
-  $("#workbenchContent").innerHTML = `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Bounded file room</p><h3>${escapeHTML(project?.name || "Select a project")}</h3></div><button class="ghost" id="newWorkbenchFile" ${project ? "" : "disabled"}>New file</button></div>
+  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Bounded file room</p><h3>${escapeHTML(project?.name || "Select a project")}</h3></div><button class="ghost" id="newWorkbenchFile" ${project ? "" : "disabled"}>New file</button></div>
     <label>Project<select id="workbenchProject">${state.projects.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === state.selectedProject ? "selected" : ""}>${escapeHTML(item.name)}</option>`).join("")}</select></label>
     ${project ? `<div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="workbenchFileUp">Up</button>` : ""}</div><div class="file-browser">${state.projectFiles.map(item => `<button class="file-row" data-workbench-file="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${item.directory ? "◇" : "·"}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "folder" : `${Number(item.bytes).toLocaleString()} B`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div>` : `<div class="probe-empty">Register a project from Control Center → Projects.</div>`}
     ${document ? `<form class="file-editor" id="workbenchFileForm"><div class="provider-head"><div><strong>${escapeHTML(document.path)}</strong><p>SHA ${escapeHTML(shortHash(document.sha256))} · optimistic save</p></div>${pill(document.mode || "new","blue")}</div><textarea id="workbenchFileContent" spellcheck="false">${escapeHTML(document.content)}</textarea><div class="action-row"><button class="primary">Save exact revision</button><button class="ghost" type="button" id="closeFileEditor">Close</button></div></form>${state.projectFileDiff ? `<section class="inspect-section"><h3>Committed diff</h3><pre class="diff-view">${escapeHTML(state.projectFileDiff)}</pre></section>` : ""}` : ""}
   </div>`;
+}
+
+// The listeners below used to be attached at the bottom of the function that
+// wrote the markup into the DOM. Now that the HTML can land in either of two
+// hosts (#workbenchContent or a pane's .pane-body), binding has to happen
+// after whichever host actually received it -- there is nothing on the page
+// to attach to before that -- so it is a separate step both callers run
+// right after they set innerHTML.
+function bindWorkbenchFilesEvents() {
   $("#workbenchProject")?.addEventListener("change", event => selectProject(event.target.value, ""));
   $("#workbenchFileUp")?.addEventListener("click", () => selectProject(state.selectedProject, (state.projectPath || "").split("/").slice(0,-1).join("/")));
   $$('[data-workbench-file]').forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? selectProject(state.selectedProject, button.dataset.workbenchFile) : openWorkbenchFile(button.dataset.workbenchFile)));
   $("#workbenchFileForm")?.addEventListener("submit", saveWorkbenchFile);
-  $("#closeFileEditor")?.addEventListener("click", () => { state.projectFile=null; state.projectFileDiff=""; renderWorkbenchFiles(); });
+  $("#closeFileEditor")?.addEventListener("click", () => { state.projectFile=null; state.projectFileDiff=""; refreshWorkbenchSurface("files"); });
   $("#newWorkbenchFile")?.addEventListener("click", newWorkbenchFile);
+}
+
+// The chat-side workbench room's own entry point: still exactly what callers
+// elsewhere in this file expect a "render the files room" call to do.
+function renderWorkbenchFiles() {
+  $("#workbenchContent").innerHTML = renderWorkbenchFilesHTML();
+  bindWorkbenchFilesEvents();
 }
 
 async function openWorkbenchFile(path) {
   try {
     state.projectFile = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file?path=${encodeURIComponent(path)}`);
     state.projectFileDiff = "";
-    renderWorkbenchFiles();
+    refreshWorkbenchSurface("files");
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1964,7 +2008,7 @@ async function newWorkbenchFile() {
   if (!path) return;
   state.projectFile = {path:path.trim(),content:"",sha256:"",mode:"0644",bytes:0};
   state.projectFileDiff = "";
-  renderWorkbenchFiles();
+  refreshWorkbenchSurface("files");
 }
 
 async function saveWorkbenchFile(event) {
@@ -1975,39 +2019,51 @@ async function saveWorkbenchFile(event) {
     state.projectFileDiff = result.diff;
     toast(`File committed · receipt ${shortHash(result.receipt_artifact.id)}`);
     state.artifacts = await api("/api/artifacts");
-    renderWorkbenchFiles();
+    refreshWorkbenchSurface("files");
   } catch (error) { toast(error.message, true); }
 }
 
 function stripANSI(value="") { return String(value).replace(/\x1B(?:[@-_][0-?]*[ -\/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, ""); }
 
-function renderWorkbenchTerminal() {
+function renderWorkbenchTerminalHTML() {
   const terminal = state.terminals.find(item => item.id === state.selectedTerminal);
-  $("#workbenchContent").innerHTML = `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Real PTY room</p><h3>${terminal ? escapeHTML(`${terminal.shell} · ${terminal.working_dir}`) : "Start terminal"}</h3></div>${terminal ? pill(terminal.state,terminal.state === "running" ? "green" : "amber") : ""}</div>
+  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Real PTY room</p><h3>${terminal ? escapeHTML(`${terminal.shell} · ${terminal.working_dir}`) : "Start terminal"}</h3></div>${terminal ? pill(terminal.state,terminal.state === "running" ? "green" : "amber") : ""}</div>
     <form id="terminalStartForm"><div class="form-grid"><label>Project<select name="project_id">${state.projects.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === state.selectedProject ? "selected" : ""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><label>Shell<select name="shell"><option>zsh</option><option>bash</option><option>sh</option></select></label></div><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><div class="form-grid"><label>Columns<input name="columns" type="number" min="20" max="400" value="100"></label><label>Rows<input name="rows" type="number" min="5" max="200" value="30"></label></div><button class="primary">New PTY tab</button></form>
     <div class="meta">${state.terminals.map(item => `<button class="ghost" data-terminal-id="${escapeHTML(item.id)}">${escapeHTML(item.shell)} · ${escapeHTML(item.state)}</button>`).join("")}</div>
     ${terminal ? `<pre class="terminal-screen" id="terminalScreen">${escapeHTML(stripANSI(state.terminalOutput || "waiting for output…"))}</pre>${terminal.state === "running" ? `<form class="terminal-command" id="terminalInputForm"><input name="input" autocomplete="off" placeholder="Command or interactive input"><button class="primary">Send ↵</button></form><form class="terminal-resize" id="terminalResizeForm"><input name="columns" type="number" min="20" max="400" value="100" aria-label="Terminal columns"><span>×</span><input name="rows" type="number" min="5" max="200" value="30" aria-label="Terminal rows"><button class="ghost">Resize PTY</button></form><div class="action-row"><button class="ghost" id="terminalInterrupt">Ctrl-C</button><button class="danger" id="terminalClose">Close PTY</button></div>` : `<p class="form-note neutral">Exit ${terminal.exit_code ?? "—"} · ${escapeHTML(terminal.error || "terminal is no longer live")}</p>`}` : `<div class="probe-empty">PTY output is streamed from a real shell process and bounded to a 1 MiB tail.</div>`}
   </div>`;
+}
+
+function bindWorkbenchTerminalEvents() {
+  const terminal = state.terminals.find(item => item.id === state.selectedTerminal);
   $("#terminalStartForm")?.addEventListener("submit", startWorkbenchTerminal);
-  $$('[data-terminal-id]').forEach(button => button.addEventListener("click", () => { state.selectedTerminal=button.dataset.terminalId; state.terminalOutput=""; renderWorkbenchTerminal(); }));
+  $$('[data-terminal-id]').forEach(button => button.addEventListener("click", () => { state.selectedTerminal=button.dataset.terminalId; state.terminalOutput=""; refreshWorkbenchSurface("terminal"); }));
   $("#terminalInputForm")?.addEventListener("submit", sendTerminalInput);
   $("#terminalResizeForm")?.addEventListener("submit", resizeWorkbenchTerminal);
   $("#terminalInterrupt")?.addEventListener("click", () => sendRawTerminalInput("\x03"));
   $("#terminalClose")?.addEventListener("click", closeWorkbenchTerminal);
+  // Polling has to (re)start from wherever the markup just landed, which is
+  // exactly why this lives in the bind step rather than back in the HTML
+  // builder: it needs the terminal to already exist in the DOM to write into.
   if (terminal) pollTerminal();
+}
+
+function renderWorkbenchTerminal() {
+  $("#workbenchContent").innerHTML = renderWorkbenchTerminalHTML();
+  bindWorkbenchTerminalEvents();
 }
 
 async function startWorkbenchTerminal(event) {
   event.preventDefault(); const form=new FormData(event.currentTarget);
   try {
     const terminal=await api("/api/terminals",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),shell:form.get("shell"),working_dir:form.get("working_dir"),actor:"local-user",columns:Number(form.get("columns")),rows:Number(form.get("rows"))})});
-    state.selectedProject=form.get("project_id"); state.selectedTerminal=terminal.id; state.terminalOutput=""; state.terminals=await api("/api/terminals"); renderWorkbenchTerminal();
+    state.selectedProject=form.get("project_id"); state.selectedTerminal=terminal.id; state.terminalOutput=""; state.terminals=await api("/api/terminals"); refreshWorkbenchSurface("terminal");
   } catch(error){toast(error.message,true);}
 }
 
 async function pollTerminal() {
   const id=state.selectedTerminal;
-  if (!id || state.workbenchTab !== "terminal") return;
+  if (!id || !terminalPaneOpen()) return;
   try {
     const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=0`);
     state.terminalOutput=output.output;
@@ -2021,25 +2077,174 @@ async function pollTerminal() {
 async function sendRawTerminalInput(input) { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/input`,{method:"POST",body:JSON.stringify({input})}); scheduleWorkbenchPoll(pollTerminal,80); } catch(error){toast(error.message,true);} }
 async function sendTerminalInput(event) { event.preventDefault(); const input=new FormData(event.currentTarget).get("input"); if(!input)return; event.currentTarget.reset(); await sendRawTerminalInput(input+"\n"); }
 async function resizeWorkbenchTerminal(event) { event.preventDefault(); const form=new FormData(event.currentTarget); try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/resize`,{method:"POST",body:JSON.stringify({columns:Number(form.get("columns")),rows:Number(form.get("rows"))})}); toast(`PTY resized to ${form.get("columns")} × ${form.get("rows")}`); } catch(error){toast(error.message,true);} }
-async function closeWorkbenchTerminal() { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/close`,{method:"POST",body:"{}"}); state.terminals=await api("/api/terminals"); renderWorkbenchTerminal(); } catch(error){toast(error.message,true);} }
+async function closeWorkbenchTerminal() { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/close`,{method:"POST",body:"{}"}); state.terminals=await api("/api/terminals"); refreshWorkbenchSurface("terminal"); } catch(error){toast(error.message,true);} }
 
-function renderWorkbenchBrowser() {
+function renderWorkbenchBrowserHTML() {
   const tab=state.browserTabs.find(item => item.id===state.selectedBrowserTab);
-  $("#workbenchContent").innerHTML=`<div class="panel"><div class="provider-head"><div><p class="eyebrow">Managed browser · untrusted web</p><h3>${escapeHTML(tab?.title || "Open a browser tab")}</h3></div>${tab ? pill(tab.state,tab.state==="ready"?"green":"amber") : ""}</div>
+  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Managed browser · untrusted web</p><h3>${escapeHTML(tab?.title || "Open a browser tab")}</h3></div>${tab ? pill(tab.state,tab.state==="ready"?"green":"amber") : ""}</div>
     <form id="browserOpenForm"><label>Address<input name="url" type="url" value="${escapeHTML(tab?.url || "https://")}" required></label><label>Bound project<select name="project_id"><option value="">None</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><label class="check-label"><input name="allow_private" type="checkbox" ${tab?.allow_private?"checked":""}> Allow local/private addresses for this tab</label><div class="action-row"><button class="primary">Open isolated tab</button>${tab?`<button class="ghost" type="button" data-browser-action="navigate">Navigate current tab</button><button class="ghost" type="button" data-browser-action="back">Back</button><button class="ghost" type="button" data-browser-action="capture">Capture</button><button class="danger" type="button" data-browser-action="close">Close</button>`:""}</div></form>
     <div class="meta">${state.browserTabs.map(item=>`<button class="ghost" data-browser-id="${escapeHTML(item.id)}">${escapeHTML(item.title||item.url)} · ${escapeHTML(item.state)}</button>`).join("")}</div>
     ${tab?`${tab.screenshot_artifact_id?`<img class="browser-shot" src="/api/artifacts/${encodeURIComponent(tab.screenshot_artifact_id)}/content" alt="Managed browser screenshot">`:""}<section class="inspect-section"><h3>Readable snapshot · untrusted content</h3><pre>${escapeHTML((tab.text_snapshot||"").slice(0,8000))}</pre></section><div class="browser-elements">${(tab.elements||[]).map(element=>`<article class="browser-element"><strong>${element.ref}</strong><span><strong>${escapeHTML(element.text||element.placeholder||element.tag)}</strong><small>${escapeHTML(element.tag)} ${escapeHTML(element.role||"")}</small></span><span><button class="ghost" data-browser-click="${element.ref}">Click</button>${["input","textarea"].includes(element.tag)?`<button class="ghost" data-browser-type="${element.ref}">Type</button>`:""}</span></article>`).join("")}</div>`:`<div class="probe-empty">This room drives Chrome through DevTools; it is not an iframe. Private URLs require an explicit per-tab opt-in.</div>`}
   </div>`;
+}
+
+function bindWorkbenchBrowserEvents() {
   $("#browserOpenForm")?.addEventListener("submit",openWorkbenchBrowser);
-  $$('[data-browser-id]').forEach(button=>button.addEventListener("click",()=>{state.selectedBrowserTab=button.dataset.browserId;renderWorkbenchBrowser();}));
+  $$('[data-browser-id]').forEach(button=>button.addEventListener("click",()=>{state.selectedBrowserTab=button.dataset.browserId;refreshWorkbenchSurface("browser");}));
   $$('[data-browser-action]').forEach(button=>button.addEventListener("click",()=>browserWorkbenchAction(button.dataset.browserAction)));
   $$('[data-browser-click]').forEach(button=>button.addEventListener("click",()=>browserWorkbenchAction("click",Number(button.dataset.browserClick))));
   $$('[data-browser-type]').forEach(button=>button.addEventListener("click",()=>typeBrowserElement(Number(button.dataset.browserType))));
 }
 
-async function openWorkbenchBrowser(event){event.preventDefault();const form=new FormData(event.currentTarget);try{const tab=await api("/api/browser/tabs",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),url:form.get("url"),allow_private:form.get("allow_private")==="on",actor:"local-user"})});state.browserTabs.unshift(tab);state.selectedBrowserTab=tab.id;renderWorkbenchBrowser();}catch(error){toast(error.message,true);}}
-async function browserWorkbenchAction(action,ref=0,text=""){const tab=state.browserTabs.find(item=>item.id===state.selectedBrowserTab);if(!tab)return;const url=action==="navigate"?new FormData($("#browserOpenForm")).get("url"):"";try{const updated=await api(`/api/browser/tabs/${encodeURIComponent(tab.id)}/actions`,{method:"POST",body:JSON.stringify({action,url,ref,text,actor:"local-user"})});state.browserTabs=state.browserTabs.map(item=>item.id===updated.id?updated:item);state.selectedBrowserTab=updated.id;renderWorkbenchBrowser();}catch(error){toast(error.message,true);}}
+function renderWorkbenchBrowser() {
+  $("#workbenchContent").innerHTML = renderWorkbenchBrowserHTML();
+  bindWorkbenchBrowserEvents();
+}
+
+async function openWorkbenchBrowser(event){event.preventDefault();const form=new FormData(event.currentTarget);try{const tab=await api("/api/browser/tabs",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),url:form.get("url"),allow_private:form.get("allow_private")==="on",actor:"local-user"})});state.browserTabs.unshift(tab);state.selectedBrowserTab=tab.id;refreshWorkbenchSurface("browser");}catch(error){toast(error.message,true);}}
+async function browserWorkbenchAction(action,ref=0,text=""){const tab=state.browserTabs.find(item=>item.id===state.selectedBrowserTab);if(!tab)return;const url=action==="navigate"?new FormData($("#browserOpenForm")).get("url"):"";try{const updated=await api(`/api/browser/tabs/${encodeURIComponent(tab.id)}/actions`,{method:"POST",body:JSON.stringify({action,url,ref,text,actor:"local-user"})});state.browserTabs=state.browserTabs.map(item=>item.id===updated.id?updated:item);state.selectedBrowserTab=updated.id;refreshWorkbenchSurface("browser");}catch(error){toast(error.message,true);}}
 async function typeBrowserElement(ref){const text=await askAction({title:`Type into browser element ${ref}`,message:"The value is sent only to this exact element reference on the active managed tab.",confirmLabel:"Type value",reasonLabel:"Text"});if(text===null)return;await browserWorkbenchAction("type",ref,text);}
+
+// Files, terminal and browser can each be showing in one of two places (a
+// chat-side workbench room, or a Code pane) or neither. A callback bound
+// inside their markup has no way to know which one raised it -- it is a
+// listener on a DOM node, not a closure over the render call that made that
+// node -- so it asks state instead of assuming a fixed target, and does
+// nothing if the content in question is not actually on screen anywhere.
+function refreshWorkbenchSurface(id) {
+  if (state.view === "code" && state.panes.includes(id)) { renderPanes(); return; }
+  if (state.view === "chat" && state.workbenchTab === id) {
+    if (id === "files") renderWorkbenchFiles();
+    if (id === "terminal") renderWorkbenchTerminal();
+    if (id === "browser") renderWorkbenchBrowser();
+  }
+}
+
+// Terminal and browser now live only as pane content in Code. Anything that
+// used to jump straight to their old side-strip room -- the composer's quick
+// button, the command palette -- opens or reveals a pane instead, so there
+// is exactly one door into either room rather than two.
+function openContentPane(id) {
+  if (!state.panes.length) state.panes = ["files"];
+  if (!state.panes.includes(id)) {
+    if (state.panes.length < MAX_PANES) state.panes.push(id);
+    else state.panes[state.panes.length - 1] = id;
+  }
+  state.maximisedPane = state.panes.indexOf(id);
+  if (state.view === "code") renderPanes();
+  else switchView("code");
+}
+
+// The Output pane reads the same state.jobs the Review room's receipt list
+// already draws from -- a second store here would be a second place that
+// list could disagree with itself.
+function renderPaneOutputHTML() {
+  const jobs = state.jobs.slice(0, 12);
+  return `<div class="panel"><p class="eyebrow">Background jobs</p><h3>Recent runs for this project</h3>
+    <div class="card-list spaced">${jobs.map(job => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(job.payload?.executable || job.kind)}</strong>${pill(job.state, job.state === "completed" ? "green" : job.state === "failed" ? "red" : "amber")}</div><small>${formatDate(job.started_at || job.created_at)} · ${escapeHTML(job.result?.artifact_id || "receipt pending")}</small></article>`).join("") || `<div class="probe-empty">No background jobs yet.</div>`}</div>
+  </div>`;
+}
+
+// Four is the ceiling because a fifth pane on one screen is smaller than the
+// thing inside it, and because a bounded number is a number that can be
+// tested. This is a split, not a tiling manager.
+const MAX_PANES = 4;
+
+// Content is not tied to a position: any pane may show any of these.
+// Terminal and browser are here rather than in the side strip because both
+// need room, which is the whole reason the panes exist.
+const PANE_CONTENT = [
+  { id: "files", label: "Files", render: () => renderWorkbenchFilesHTML() },
+  { id: "terminal", label: "Terminal", render: () => renderWorkbenchTerminalHTML() },
+  { id: "browser", label: "Browser", render: () => renderWorkbenchBrowserHTML() },
+  { id: "output", label: "Output", render: () => renderPaneOutputHTML() }
+];
+
+function paneContent(id) {
+  return PANE_CONTENT.find(item => item.id === id) || PANE_CONTENT[0];
+}
+
+function renderPanes() {
+  const host = $("#zoneMain");
+  if (!state.panes.length) state.panes = ["files"];
+  const columns = state.panes.length > 1 ? 2 : 1;
+  const rows = state.panes.length > 2 ? 2 : 1;
+  document.documentElement.style.setProperty("--pane-columns", String(columns));
+  document.documentElement.style.setProperty("--pane-rows", String(rows));
+  host.innerHTML = `<div class="pane-grid ${state.maximisedPane === null ? "" : "one-up"}">${
+    state.panes.map((id, index) => {
+      const hidden = state.maximisedPane !== null && state.maximisedPane !== index;
+      const item = paneContent(id);
+      return `<section class="pane ${hidden ? "pane-hidden" : ""}" data-pane="${index}">
+        <header class="pane-head">
+          <select data-pane-content="${index}" aria-label="Pane content">${
+            PANE_CONTENT.map(option =>
+              `<option value="${option.id}" ${option.id === id ? "selected" : ""}>${escapeHTML(option.label)}</option>`).join("")
+          }</select>
+          <button class="ghost compact" data-pane-max="${index}" aria-label="Maximise this pane">${
+            state.maximisedPane === index ? "▪" : "▫"}</button>
+          ${state.panes.length > 1
+            ? `<button class="ghost compact" data-pane-close="${index}" aria-label="Close this pane">×</button>` : ""}
+        </header>
+        <div class="pane-body">${item.render()}</div>
+      </section>`;
+    }).join("")
+  }</div>
+  ${state.panes.length < MAX_PANES ? `<button class="ghost compact pane-add" id="paneAdd">＋ แบ่งช่อง</button>` : ""}`;
+  bindPaneControls();
+}
+
+function splitPane() {
+  if (state.panes.length >= MAX_PANES) return;
+  // A new pane starts on something other than what is already open, because
+  // splitting to see the same thing twice is not why anyone splits.
+  const unused = PANE_CONTENT.find(item => !state.panes.includes(item.id));
+  state.panes.push((unused || PANE_CONTENT[0]).id);
+  state.maximisedPane = null;
+  renderPanes();
+  saveLayout();
+}
+
+function closePane(index) {
+  if (state.panes.length <= 1) return;
+  state.panes.splice(index, 1);
+  state.maximisedPane = null;
+  renderPanes();
+  saveLayout();
+}
+
+function setPaneContent(index, id) {
+  state.panes[index] = paneContent(id).id;
+  renderPanes();
+  saveLayout();
+}
+
+function maximisePane(index) {
+  state.maximisedPane = state.maximisedPane === index ? null : index;
+  renderPanes();
+  saveLayout();
+}
+
+function bindPaneControls() {
+  $("#paneAdd")?.addEventListener("click", splitPane);
+  $$("[data-pane-content]").forEach(select =>
+    select.addEventListener("change", event => setPaneContent(Number(select.dataset.paneContent), event.target.value)));
+  $$("[data-pane-max]").forEach(button =>
+    button.addEventListener("click", () => maximisePane(Number(button.dataset.paneMax))));
+  $$("[data-pane-close]").forEach(button =>
+    button.addEventListener("click", () => closePane(Number(button.dataset.paneClose))));
+  // Each *HTML() renderer above returns a string before renderPanes() ever
+  // inserts it into the document, so any listener it used to attach to
+  // itself would have had nothing to attach to. Binding happens here
+  // instead, once per pane, keyed off what that pane is actually showing --
+  // the same bind functions the workbench room calls, so a pane and a room
+  // never end up with two different behaviours for one control.
+  state.panes.forEach(id => {
+    if (id === "files") bindWorkbenchFilesEvents();
+    if (id === "terminal") bindWorkbenchTerminalEvents();
+    if (id === "browser") bindWorkbenchBrowserEvents();
+  });
+}
 
 function renderWorkbenchArtifacts(){
   $("#workbenchContent").innerHTML=`<div class="panel"><p class="eyebrow">Office deliverables</p><h3>Create a real editable file</h3><form id="deliverableForm"><label>Project<select name="project_id"><option value="">Global</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><div class="form-grid"><label>Format<select name="format"><option>docx</option><option>xlsx</option><option>pptx</option><option>pdf</option></select></label><label>Title<input name="title" required value="Hermetrix report"></label></div><label>Content<textarea name="content" rows="8" required placeholder="Paragraphs; use tab-separated rows for XLSX or --- between PPTX slides"></textarea></label><p class="form-note neutral">DOCX/XLSX/PPTX support Unicode. Native PDF currently fails closed for non-Basic-Latin text instead of generating missing glyphs.</p><button class="primary">Build immutable deliverable</button></form></div><section class="office-preview" id="deliverablePreview"></section><div class="card-list spaced">${state.artifacts.slice(0,30).map(item=>`<article class="artifact-mini"><div class="provider-head"><div><strong>${escapeHTML(item.name)}</strong><p>${escapeHTML(item.mime_type)} · ${Number(item.byte_size).toLocaleString()} B</p></div>${pill(item.kind,"blue")}</div><div class="action-row"><a class="button-link" href="/api/artifacts/${encodeURIComponent(item.id)}/content" target="_blank" rel="noreferrer">Open / download</a></div></article>`).join("")||`<div class="probe-empty">No artifacts yet.</div>`}</div>`;
@@ -2259,11 +2464,12 @@ async function submitCandidate(event) {
 
 // Every page reachable from the palette, in the order a person looks for them
 // rather than the order the views happen to appear in the document.
+// Terminal and browser are not here: switchWorkbench(room) cannot open them
+// any more, since they no longer have a chat-side room to switch to. The
+// Actions entries below reach them the one remaining way, through a pane.
 const PALETTE_ROOMS = [
   ["review", "Review room", "Pending approvals and decisions"],
   ["files", "Files room", "Read and write inside the project root"],
-  ["terminal", "Terminal room", "Interactive PTY bound to the project"],
-  ["browser", "Browser room", "Managed browser with untrusted evidence"],
   ["artifacts", "Office room", "Build DOCX, XLSX, PPTX and PDF"],
   ["team", "Team room", "Agent team roster and runs"]
 ];
@@ -2305,6 +2511,10 @@ function buildCommands() {
       keywords: "workbench inspector toggle side zone", run: () => $("#toggleSide").click() },
     { group: "Actions", icon: "⇔", title: "Toggle density", subtitle: "Compact for a laptop, comfortable for a desktop",
       keywords: "density compact comfortable laptop desktop zoom", run: toggleDensity },
+    { group: "Actions", icon: "⌨", title: "Open a terminal pane", subtitle: "Real PTY bound to the project, in Code",
+      keywords: "terminal pty shell pane code", run: () => openContentPane("terminal") },
+    { group: "Actions", icon: "◧", title: "Open a browser pane", subtitle: "Managed browser with untrusted evidence, in Code",
+      keywords: "browser pane code managed", run: () => openContentPane("browser") },
     { group: "Actions", icon: "⟳", title: "Refresh everything", subtitle: "Reload every panel from the server",
       keywords: "refresh reload", run: load }
   );

@@ -372,6 +372,25 @@ body {
 .workbench-content input, .workbench-content select, .workbench-content textarea { width: 100%; font-size: 10px; }
 .workbench-content button.primary, .workbench-content button.ghost, .workbench-content button.danger, .workbench-content .button-link { font-size: 9px; padding: 7px 9px; }
 .workbench-content .kv { grid-template-columns: 72px 1fr; font-size: 9px; }
+/* Panes are Code's main area, not a narrower copy of the 320px side strip --
+   the whole reason they exist is that terminal and browser content needed
+   more room than that strip could give them -- so pane-body deliberately
+   does not repeat the .workbench-content compact overrides above. minmax(0,…)
+   on every track, plus min-width/min-height: 0 on the pane itself, is what
+   keeps a wide terminal line or screenshot from forcing the grid wider than
+   the zone: without it a track sizes to its content's intrinsic width first
+   and the whole page gains a horizontal scrollbar to show it. */
+.pane-grid { display: grid; gap: 8px; height: 100%;
+  grid-template-columns: repeat(var(--pane-columns,1),minmax(0,1fr));
+  grid-template-rows: repeat(var(--pane-rows,1),minmax(0,1fr)); }
+.pane-grid.one-up { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
+.pane { display: grid; grid-template-rows: auto minmax(0,1fr); min-width: 0; min-height: 0;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.pane-hidden { display: none; }
+.pane-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.pane-head select { flex: 1; min-width: 0; padding: 4px 6px; font-size: 10px; }
+.pane-body { overflow: auto; padding: 9px; min-height: 0; }
+.pane-add { margin-top: 8px; }
 /* 74px is the app header (46px) plus the main zone's own top and bottom
    padding (14px each); the sticky topbar this once measured against is gone. */
 .chat-layout { display: block; min-height: calc(100vh - 74px); border: 0; border-radius: 0; background: transparent; }

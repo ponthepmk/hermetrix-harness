@@ -13,8 +13,8 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 	stylesheet := mustUIFile(t, "ui/style.css")
 	for _, marker := range []string{
 		`id="sessionDock"`, `id="workbenchContent"`, `data-workbench="review"`, `data-workbench="files"`,
-		`data-workbench="terminal"`, `data-workbench="browser"`, `data-workbench="artifacts"`,
-		`data-workbench="team"`, `id="commandButton"`, `id="commandDialog"`, `id="capabilityDialog"`,
+		`data-workbench="artifacts"`, `data-workbench="team"`, `id="commandButton"`, `id="commandDialog"`,
+		`id="capabilityDialog"`,
 	} {
 		if !strings.Contains(index, marker) {
 			t.Errorf("cockpit HTML is missing %s", marker)
@@ -302,5 +302,30 @@ func TestUnbuiltViewsSaySoRatherThanShowingNothing(t *testing.T) {
 	// of working. They are gone.
 	if strings.Contains(mustUIFile(t, "ui/index.html"), `data-door=`) {
 		t.Error("the old door switch survived the redesign")
+	}
+}
+
+// TestPanesGiveTerminalAndBrowserRoom is the correction the spec opens with: a
+// terminal in a 320px rail is the same mistake as a file tree in one. Content
+// that needs room must be able to take it, up to a ceiling that stays testable.
+func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
+	javascript := mustUIFile(t, "ui/app.js")
+	stylesheet := mustUIFile(t, "ui/style.css")
+	for _, marker := range []string{
+		"const PANE_CONTENT", "function splitPane", "function setPaneContent",
+		"function maximisePane", "MAX_PANES",
+	} {
+		if !strings.Contains(javascript, marker) {
+			t.Errorf("pane support is missing %s", marker)
+		}
+	}
+	// Terminal and browser are pane content now, not rooms in a fixed strip.
+	for _, id := range []string{`id: "terminal"`, `id: "browser"`} {
+		if !strings.Contains(javascript, id) {
+			t.Errorf("pane content is missing %s", id)
+		}
+	}
+	if !strings.Contains(stylesheet, ".pane-grid") || !strings.Contains(stylesheet, "--pane-columns") {
+		t.Error("stylesheet does not define the pane grid")
 	}
 }
