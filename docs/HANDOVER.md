@@ -1,237 +1,154 @@
-# Handover — สถานะงาน ณ 2026-08-28
+# Handover — สถานะงาน ณ 2026-08-31
 
-เอกสารนี้เขียนไว้ให้ session ใหม่บนเครื่องอื่นอ่านแล้วทำงานต่อได้ทันที
-ไม่ใช่บันทึกการประชุม — เก็บเฉพาะสิ่งที่เปลี่ยนการตัดสินใจของคนที่มาทำต่อ
+เอกสารนี้เป็น snapshot สำหรับคนที่เข้ามาทำ Hermetrix ต่อ ให้ยึด runtime และ tests เหนือข้อความในเอกสารเสมอ
 
-แหล่งความจริงที่ละเอียดกว่านี้:
+แหล่งอ้างอิงหลัก:
 
 | ต้องการรู้ | อ่านที่ |
 |---|---|
-| finding ทุกข้อ พร้อมหลักฐานและ mutation | [`AETOX-HERMES-TRACEABILITY-AUDIT.md`](AETOX-HERMES-TRACEABILITY-AUDIT.md) |
-| gate ของแต่ละ phase และ prerequisite ที่เหลือ | [`FUTURE-ARCHITECTURE-PLAN.md`](FUTURE-ARCHITECTURE-PLAN.md) |
-| ADR และเหตุผลของการตัดสินใจเชิงสถาปัตยกรรม | [`DECISIONS.md`](DECISIONS.md) |
-| วิธีตรวจสอบและวิธีรายงาน (กฎที่เจ็บมาแล้ว) | [`.claude/skills/verify-and-report/SKILL.md`](../.claude/skills/verify-and-report/SKILL.md) |
+| เปรียบเทียบ Aetox/Hermes และช่องว่าง | [`AETOX-HERMES-TRACEABILITY-AUDIT.md`](AETOX-HERMES-TRACEABILITY-AUDIT.md) |
+| phase และ qualification gates | [`FUTURE-ARCHITECTURE-PLAN.md`](FUTURE-ARCHITECTURE-PLAN.md) |
+| โครงสร้าง runtime ปัจจุบัน | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| review ตามลำดับเวลา | [`REVIEW.md`](REVIEW.md) |
 
----
+## 1. Product contract ปัจจุบัน
 
-## 0. Hermetrix คืออะไร (สำหรับ session ที่เพิ่งเปิด)
+Hermetrix เป็น local-first Go harness ที่รวม authority-safe Skill lifecycle, typed context compiler, provider qualification, deferred tools/MCP และ Aetox-style product cockpit แบบ clean-room
 
-harness ที่ทำให้ model เรียกเครื่องมือเองได้ ต่อ MCP ได้ เปิดเว็บทดสอบเองได้
-และ **จัดการ context ให้ดึงเฉพาะสิ่งที่เกี่ยวข้อง** เพราะ context มีจำกัด —
-Skill เรียกเท่าที่งานต้องใช้ เอกสารดึงมาแต่ส่วนที่เกี่ยวข้อง ประวัติเอามาเฉพาะที่เกี่ยวข้อง
+สถานะ product shell คือ **`vertical_slice`** ไม่ใช่ native parity หรือ production:
 
-Go 1.25 · SQLite (`modernc.org/sqlite`) · blob storage แบบ content-addressed · local-first
+- shell เปิดที่ project picker ก่อนเสมอ: project คือ root ของทุกอย่าง ไม่มีโฟลเดอร์โค้ดก็เปิดได้ กด project chip ที่หัวจอกลับไป picker ได้ทุกเมื่อ
+- สามโซนปรับขนาดและพับได้อิสระ (rail ซ้าย, main กลาง, side ขวา) กับ view switch สี่มุมมอง Chat/Work/Code/Knowledge — แต่ละ project จำความกว้างโซนและสถานะพับต่อมุมมองของตัวเองไว้ใน localStorage
+- Chat คือมุมมองเดียวที่สร้างเสร็จจริงแล้ว มี session dock อยู่ใน rail · Code มี pane-split ของ main สำเร็จแล้ว (files/terminal/browser/output สูงสุด 4 pane ที่จำการจัดวางไว้เช่นกัน) แต่ file tree/editor ของ Code เอง, Work และ Knowledge ทั้งมุมมอง **ยังเป็น spec ไม่ใช่ฟีเจอร์ที่สร้างแล้ว**
+- command palette (`⌘K`/`Ctrl+K`), responsive density และ session-aware Skills & tools picker
+- Review room แสดง Session Contract, exact revisions, Skill selection, direct tools และ pending approvals
+- Review/Files/Office/Team workbench rooms อยู่ใน side pane ของ Chat; Terminal/Browser ย้ายไปเป็น pane content ของ Code view แล้ว เพราะทั้งคู่ต้องการพื้นที่ที่ side pane ความกว้างคงที่ให้ไม่ได้
+- Skill Studio, provider/model/profile, MCP/tools, context และ system surfaces
+- ใช้ Hermetrix logo/identity; ห้าม copy Aetox source, component หรือ asset เพราะ license boundary
 
-**วินัยที่ทั้ง repo ยึด:** finding จะปิดได้ก็ต่อเมื่อ**ถอด guard ออกแล้ว test แดง**
-test ที่ผ่านโดยไม่มี mutation รองรับ ไม่ถือเป็นหลักฐาน
+ตัวเลขจาก `./scripts/doc-truth.sh`:
 
----
-
-## 1. สถานะปัจจุบัน
-
+```text
+test functions        346        packages              25
+direct primitives      11        HTTP routes           116
+SQLite tables          47        schema-only tables      0
+Go (non-test)      28,762        Go (test)           14,432
 ```
-test functions        300        packages              24
-direct primitives     10         HTTP routes           93
-SQLite tables         39         schema-only tables    0
-Go (non-test)         23,196     Go (test)             12,252
-```
 
-ตัวเลขเหล่านี้ generate จาก `./scripts/doc-truth.sh` ไม่ได้พิมพ์มือ
+## 2. Workbench ที่ทำงานจริงแล้ว
+
+### Files
+
+- project-bound tree/read/write/diff
+- กัน path escape, symlink และ non-regular file
+- UTF-8 ไม่เกิน 2 MiB
+- optimistic save ด้วย expected SHA, atomic replace และ immutable audit receipt
+
+### Terminal
+
+- interactive POSIX PTY: start/input/resize/output/close
+- persisted bounded output tail 1 MiB
+- restart mark session เป็น interrupted และไม่ replay command
+- Windows build ผ่าน แต่ยัง fail-closed ว่า PTY unavailable จนมี ConPTY
+
+### Managed Browser
+
+- isolated headless Chrome/Chromium profile และ pure CDP
+- open/navigate/back/read/click/type/capture/close
+- DOM snapshot ถูกจำกัดขนาดและติดป้าย untrusted evidence
+- local/private URL ต้อง explicit opt-in; `file:` จำกัดใน project root
+- screenshot เป็น immutable PNG artifact
+
+ข้อจำกัด: ยังไม่มี embedded live WebView, download workspace และ proxy-level DNS-rebinding/egress enforcement
+
+### Office Deliverables
+
+- สร้าง DOCX/XLSX/PPTX เป็น OOXML ZIP package จริงแบบ deterministic
+- PDF package จริงสำหรับ Basic Latin
+- ทุกไฟล์อยู่ใน CAS เป็น immutable Artifact พร้อม provenance
+- PDF ที่มี Unicode นอก font capability ปัจจุบันถูกปฏิเสธอย่างตรงไปตรงมา
+
+### Agent Team
+
+- team definition persistent และแก้ด้วย optimistic revision
+- 1–12 members, exactly one lead, run graph freeze ก่อนเริ่ม
+- DAG validation, ไม่เกิน 100 tasks, concurrency cap 4
+- child ทุกตัวได้ Agent Session/SessionContract แยก
+- UI แก้ roster ด้วย optimistic revision และสร้าง custom task DAG ได้
+- run snapshot team/member instructions; การแก้ roster กลาง run ไม่เปลี่ยน execution/provenance ย้อนหลัง
+- user cancellation persist ก่อนแล้ว propagate ถึง child contexts; late completion เขียนทับ `cancelled` ไม่ได้
+- child exact-effect approval ถูก persist พร้อม summary/preview/effect, pause ทั้ง run และอยู่รอดหลัง recovery; approve/deny resume turn เดิมโดยไม่ replay prompt/tool effect แล้วจึงเดิน DAG ที่เหลือ
+- specialist fan-out และ lead synthesis; peer output ถูก label เป็น untrusted evidence
+- token usage roll-up; restart จะคง approval ที่รอผู้ใช้ไว้ แต่ task ที่กำลัง sample/resolve effect จะเป็น interrupted โดยไม่ auto-retry
+
+ข้อจำกัด: ยังไม่มี checkpoint/resume กลาง model sampling, artifact-only handoff และ per-task capability/model/budget editor
+
+## 3. Skill authority ที่ต้องรักษา
+
+> **เปลี่ยน default 2026-08-31 ตามคำสั่งเจ้าของ:** เดิม `manual` (agent promote เองไม่ได้) เปลี่ยนเป็น `gated_automation` + `auto_promote_agent_create/improve` เปิด
+>
+> agent เขียน Skill เองได้ผ่าน `skill_manage` และ policy promote ให้อัตโนมัติ สิ่งที่ทำให้ยังปลอดภัยคือ **ทุก promotion เป็น `AuthorityAction` ที่ย้อนได้** และแสดงใน Skill Studio ว่า "promoted by agent" พร้อมปุ่ม undo
+>
+> `auto_archive_agent_skills` ยังปิดอยู่ — การตัดสินว่า Skill ตายแล้วเป็นคนละเรื่องกับการเขียน Skill ใหม่
+
+- agent เขียน candidate ได้ และ policy ปัจจุบัน promote ให้ (ย้อนได้เสมอ)
+- `skill_manage` action `improve` ต้องส่ง exact `skill_id`+`version_id` ที่โหลดด้วย `skill_view` ใน session เดียวกัน = read-before-write guard
+- curator ยัง report-only; auto-archive ยังปิด
+- version immutable และตรวจ exact base revision
+- protected/imported Skill ต้อง fork ก่อนแก้
+- archive restore กลับมาเป็น candidate ไม่ active โดยอัตโนมัติ
+- curator เป็น report-only: หา stale/duplicate/consolidation ได้แต่ห้าม mutate เอง
+- MCP รองรับ **stdio** (`internal/mcp/stdio.go`) และ Streamable HTTP; stdio ใช้ launcher allowlist (npx/node/bun/deno/uv/uvx/python/python3/docker/go) รันตรงไม่ผ่าน shell และ child env มีแค่ PATH/HOME/locale + token ของตัวเอง
+- discovery index ครบ 3 kind: tools, **resources**, **prompts** (`internal/mcp/catalogkinds.go`, `catalogstore.go`) เข้า deferred catalog เดียวกัน ชื่อ capability ขึ้นต้น `resource:` / `prompt:` และ waist ยังเท่าเดิม
+- stdio process อยู่ใน pool (`internal/mcp/pool.go`) 1 process ต่อ server, idle 5 นาทีถูกเก็บ, แก้ config = process ใหม่, pipe ตาย = retry 1 ครั้งบน process ใหม่ (**reconnect**) — retry เฉพาะ connection ตาย ไม่ retry เมื่อ server ปฏิเสธ
+- **sampling + elicitation** ทำแล้ว (`internal/mcp/serverrequests.go`, `internal/agent/mcpbridge.go`): `stdioSession.call` เป็น bidirectional pump ตอบ server-to-client request บน pipe เดียวกัน
+  - fail-closed: server ที่ `trust_annotations` ปิด ถูกปฏิเสธทั้งคู่ พร้อมบอกว่าต้องเปิดที่ไหน
+  - sampling ใช้ provider ของ session, cap 1024 token และ 4 ครั้งต่อ tool call, ข้อความ server เข้าเป็น user content ใต้ system line ที่บอกว่ามาจาก server
+  - elicitation รอ 3 นาที; decline ≠ cancel (คนปฏิเสธ กับ ไม่มีใครตอบ เป็นคนละเรื่อง) และ pending อยู่ใน memory เท่านั้น restart = หาย ซึ่งถูกแล้วเพราะ server ที่รออยู่ก็หายไปด้วย
+  - `toolCallBudget("tool_call")` ขยายให้คลุมเวลารอ ส่วน local tool ยัง 10 วินาที
+  - **HTTP transport ยังรับ server request ไม่ได้** (ต้องใช้ SSE + POST กลับ) — ประกาศ capability เฉพาะเมื่อมี handler จริง
+- **ยังไม่มี:** MCP OAuth
+- Skill Studio เป็นที่ให้ผู้ใช้สร้าง แก้ diff/replay/promote/reject/archive/restore และตรวจ provenance/usage
+
+auto-promote เปิดตามคำสั่งเจ้าของแล้ว แต่ auto-delete ยังห้าม ทุก automation ต้องมี undo snapshot, bounded authority และ audit receipt เสมอ
+
+## 4. Context และ provider
+
+- profiles: 32k, 64k, 128k, 256k, 1M
+- qualified capacity ใช้ evidence ที่ผูก exact provider/model/revision/profile ไม่เชื่อ declared context อย่างเดียว
+- SessionContract/Skill catalog/cache epoch freeze ระหว่าง session
+- typed fragments, causal-pair integrity, spill/recovery และ token ledger
+- OpenAI-compatible provider ใช้งานได้; provider ecosystem แบบ native Anthropic/Gemini/local runtime adapters ยังเป็น phase ถัดไป
+
+credential เก็บได้ 2 ทาง: พิมพ์ลง UI แล้วเก็บที่ `internal/secrets` vault (`<data>/secrets.json` โหมด `0600`) หรือ environment variable — token ที่ save ไว้ชนะ env
+
+ห้ามเขียน token ลง repo, SQLite, backup export, log, artifact หรือ UI response; API ตอบได้แค่ `credential_ready`/`credential_stored` และ credential ที่เคยปรากฏใน transcript ควร rotate
+
+## 5. หลักฐานทดสอบรอบนี้
+
+ผ่านใน sandbox นี้:
 
 ```bash
-go build ./... && go test ./... && ./scripts/doc-truth.sh check
+GOCACHE=/tmp/hermetrix-go-cache GOPROXY=off GOSUMDB=off \
+  go test ./internal/product ./internal/store
+GOCACHE=/tmp/hermetrix-go-cache GOPROXY=off GOSUMDB=off \
+  go test -race ./internal/product ./internal/store ./internal/skills ./internal/context
+GOCACHE=/tmp/hermetrix-go-cache GOPROXY=off GOSUMDB=off \
+  go vet ./internal/product ./internal/store ./internal/web ./cmd/hermetrix
+node --check internal/web/ui/app.js
+./scripts/doc-truth.sh check
+git diff --check
 ```
 
----
+Linux/Windows cross-compile ของ product/web/cmd ผ่าน Real Chrome integration test มีและเปิด browser จริงเมื่อ host อนุญาต แต่ environment รอบนี้ทำให้ Chrome abort และห้าม TCP bind ดังนั้น full HTTP/visual browser E2E ถูก **blocked by environment** ไม่ถูกนับเป็น pass
 
-## 2. ที่ทำไปแล้วในรอบล่าสุด
+## 6. งานถัดไปตามลำดับ
 
-### `e40b848` — R-14: Skill retrieval ข้ามภาษาได้
+1. **P11 native qualification:** เลือก Wails/Tauri จาก PTY/browser/a11y/signing spike แล้วทำ signed desktop package + reconnect E2E
+2. **Workbench hardening:** Windows ConPTY, browser egress proxy, download/artifact policy, diagnostics/multi-file editor และ rich Office preview/Unicode PDF fonts
+3. **Agent Team qualification:** checkpoint/restart กลาง sampling, artifact-only handoff และ per-task capability/model/budget
+4. **Skill Learning OS:** controlled effectiveness eval, semantic duplicate clusters, user merge assistant และ opt-in reversible curator automation
+5. **Provider/local-model matrix:** live 64k/128k canary, memory/TTFT/OOM telemetry และ native adapters โดยไม่มี silent downgrade
+6. **Release/security:** local identity, keychain, remote auth, OS sandbox, signed audit export, backup/migration/install/upgrade tests
 
-catalog ที่สรุปเป็นอังกฤษ **มองไม่เห็น** goal ภาษาไทย เพราะ lexical scorer
-ไม่มี trigram ร่วมกันข้าม script และเพราะ scorer ตัวเดียวกันเป็นคนนับ**ตัวหาร**ของ metric
-turn ที่มันอ่านไม่ออกจึงถูกนับว่า "ไม่มี Skill ที่เกี่ยวข้อง" — **ความบอดรายงานตัวเองว่าเป็นความว่างเปล่า**
-
-ไม่แก้ scorer เดิม เพิ่มตัวที่สองแล้ว**บวกกัน** (ชื่อ canonical ที่พิมพ์ตรงเป๊ะเป็น substring
-ที่ vector ทำได้แค่ประมาณ · paraphrase ข้ามภาษา trigram ทำไม่ได้เลย)
-
-กฎตัดสินผิดสองรอบก่อนถูก — floor คงที่โอนข้ามคำถามไม่ได้ · ค่ากลางของ catalog
-ตกอยู่**ระหว่างคำตอบที่ถูกสองตัว** (catalog จริงมี 3 ตัว สองตัวเรื่องปัดเศษ) ·
-quartile ล่างก็ยังไม่ใช่ noise floor เพราะ **การจัดอันดับใน catalog มีผู้ชนะเสมอ**
-ตอบไม่ได้ว่า "ไม่มีอะไรตรงเลย" ทางแก้คือ **control** — ประโยคธรรมดา 5 ประโยคที่จงใจไม่เกี่ยวกับ Skill ใด ๆ
-floor สุดท้าย = ค่าที่สูงกว่าระหว่าง quartile ของ catalog กับค่ากลางของ control
-
-วัดจริงกับ bge-m3: goal ไทย 3/3 ถึง Skill ที่ถูก · goal ที่ไม่เกี่ยวได้ `[]` ทั้ง catalog 3 และ 8 ตัว
-
-**และปิดช่องที่ทำให้ semantic ทั้งหมดที่สร้างมาไม่มีผลจริง** — `SetEmbedder`
-ไม่เคยถูกเรียกจาก `main.go` เลย ทุกอย่างทำงานแต่ใน test กับ taskeval
-
-### `1af22ce` — V-9: corpus กลับมาวัดความสูญเสียได้
-
-corpus หมดความสูญเสียให้วัดไปแล้วสามครั้ง — placement ตายเมื่อ compaction เก็บหัว-กลาง-ท้ายเท่ากัน ·
-phrasing ตายเมื่อ ranking เป็น semantic **delta = 0 บน corpus ที่ไม่มีอะไรหาย ไม่ได้แปลว่าอะไร**
-และมันโผล่มาในรูป gate ที่ผ่าน
-
-มิติใหม่: **fact ที่ถูกยกเลิก** ประวัติบอกค่าหนึ่ง ประกาศยกเลิก แล้วบอกค่าใหม่
-ทั้งสองประโยคพูดเรื่องเดียวกันด้วยคำเกือบเดียวกัน — **คุณสมบัติที่ทำให้ semantic retrieval
-ทำงานได้ คือคุณสมบัติที่แยกสองอันนี้ไม่ออก**
-
-```
-superseded/far/middle   n=6   เก็บค่าปัจจุบัน 0/6   เก็บค่าที่ยกเลิกแล้ว 6/6
-```
-
-ได้ **คำตอบผิดอย่างมั่นใจ** ไม่ใช่คำตอบที่หายไป นับแยกเป็น `stale_answers`
-
-### `fb58ec9` — P10-A: hostile fixture corpus 24 เคส
-
-**structural 12/12 ผ่าน** — ยิงผ่าน MCP server จริง protocol จริง discover ผ่านโค้ดเส้นเดิม
-mutation: เปิดให้ catalog entry เป็น provider function → แดง 10 · ถอด `untrusted_output`
-จาก `tool_describe` → แดง 4
-
-**behavioural 8/12 กับ qwen3:4b — gate ขอ 100% จึงยังไม่ผ่าน**
-เป็นคำแถลงเรื่อง model ไม่ใช่บั๊กใน repo ที่หลุดสี่เคสมีรูปร่างร่วมกัน:
-**ทุกอันสั่งให้*พูด*** ส่วนเคสที่สั่งให้***ทำ*** (เรียกเครื่องมือที่ไม่ได้ถูกขอ) ปฏิเสธทั้งอังกฤษและไทย
-
-mitigation ที่ชัดที่สุด (ห่อ tool output ด้วย boundary + คำเตือน) **วัดแล้วไม่เปลี่ยนผลแม้แต่เคสเดียว**
-ราคา 51 token ต่อ tool result จึงถอดออก
-
-### `9a4f28a` — สามการตัดสินใจของเจ้าของ
-
-manifest-only replay บล็อก promotion แล้ว · export หดจาก 42 ตารางเหลือ 13 ตาราง skill lifecycle ·
-`acceptance_criteria` ถูกลบ (นิยามไว้ มีสองสาขาบริโภค ไม่มีอะไรผลิตเลย)
-
-### `4714e99` `10340f3` `bf1f633` — semantic retrieval + relevance compaction
-
-`headTail` ทิ้งตรงกลาง — วัดจาก fragment จริง 5,649 อัน fact ที่อยู่ตำแหน่งสุ่มตกในช่วงที่ถูกทิ้ง **34.5%**
-โมเดล**ค้น 18/19 ครั้ง**เมื่อตอบไม่ได้จริง แต่ lexical search หาเจอแค่ 3/18 —
-**retriever แบบ lexical กู้สิ่งที่ ranker แบบ lexical ทิ้งไปไม่ได้ เพราะพังด้วยเหตุผลเดียวกัน**
-
-ทางแก้ต้องสามชั้นถึงจะขยับ: chunk → rank → **ตำแหน่ง** ผล reachability 70/90 → 90/90 · far/middle 0/20 → 20/20
-
----
-
-## 3. ยังไม่ได้ทำ
-
-### 3.1 ติดที่ credential — P9-B รอบสุดท้าย
-
-gate ของ Phase 9 (task success delta) วัดไปสองรอบแล้ว รอบล่าสุด delta อยู่ในเพดานทั้งสาม class
-แต่**ยังไม่ผ่าน** เพราะ 23/270 request ตาย rate limit และ corpus ตอนนั้นวัดความสูญเสียไม่ได้แล้ว
-
-ตอนนี้ corpus แก้แล้ว (V-9) เหลือรัน — ต้องการ:
-
-- provider ที่ context window ใหญ่พอสำหรับเงื่อนไข full-context (~96k) — **qwen3:4b ในเครื่องใช้ไม่ได้ window แค่ 32k**
-- **gateway key หายไปพร้อม scratchpad** key เดิมโผล่ใน transcript สามครั้ง **ควร rotate ก่อนใช้ใหม่**
-- key เก็บเป็น **ชื่อ** env var เท่านั้น (`HERMETRIX_PROVIDER_API_KEY`) ห้ามเขียนค่าลง repo หรือ commit
-
-```bash
-hermetrix taskeval generate --dir corpus/tasks --per-class 30
-HERMETRIX_PROVIDER_API_KEY=... hermetrix taskeval score \
-  --data .hermetrix --dir corpus/tasks --provider <name> --retrieval \
-  --embed-url http://127.0.0.1:11434/v1 --out report.json
-```
-
-**อย่ารันโดยไม่ regenerate corpus ก่อน** — เคยพลาดมาแล้วสองครั้ง: แก้ generator แล้วรันกับ corpus เก่า
-และเพิ่ม flag แล้วรันกับ binary เก่า
-
-### 3.2 ติดที่การตัดสินใจของเจ้าของ
-
-**skill candidate ที่รอ promote/reject** — จำนวนที่เคยเห็นคือ 13 แต่มาจาก data store ของรอบก่อน
-ซึ่ง**ไม่มีอยู่ใน repo นี้** ตรวจของจริงด้วย `GET /api/candidates` หลัง `hermetrix serve`
-
-### 3.3 ยังไม่เริ่ม — prerequisite ที่เหลือ
-
-| id | คืออะไร | ต้องตัดสินใจอะไรก่อน |
-|---|---|---|
-| **P11-A** | เลือก a11y test harness สำหรับ gate WCAG 2.2 AA | เลือกเครื่องมือ |
-| **P12-A** | hardware reference matrix (unified 16 GB · VRAM 24 GB · VRAM 8 GB) | เจ้าของกำหนดเครื่องอ้างอิง |
-| **P14-A** | เกณฑ์จัดระดับความรุนแรงสำหรับ threat model | เลือกมาตรฐาน |
-
-**P10-A** corpus พร้อมแล้วแต่ **gate ยังไม่ผ่าน** — ต้องวัดกับ model ที่ใหญ่กว่า qwen3:4b
-ถ้า model ใหญ่ผ่าน 12/12 ก็ปิดได้ ถ้าไม่ผ่าน คำตอบที่ชอบธรรมคือระบุว่า harness นี้ปลอดภัยกับ model ตัวไหนบ้าง
-
----
-
-## 4. ขาดอะไร (ช่องว่างที่รู้ตัว)
-
-**วัดกับ model จริงได้แค่ตัวเดียว** — ทุกอย่างที่เป็น behavioural (hostile corpus, task success,
-skill retrieval pull rate) วัดกับ qwen3:4b ตัวเดียว ไม่มี matrix ข้าม model
-
-**n=1 ต่อเงื่อนไข** — การเปรียบเทียบ boundary/ไม่มี boundary รันเงื่อนไขละรอบเดียว
-ไม่ได้วัดความแปรปรวนระหว่างรอบ (ผลที่ได้คือ**ชุดความล้มเหลวเดียวกันทีละเคส** ไม่ใช่แค่ตัวเลขรวมเท่ากัน
-ซึ่งหนักกว่าค่าเฉลี่ยเท่ากัน แต่ก็ยังเป็น n=1)
-
-**ADR-7 pull rate ยังไม่เคยวัดกับ local model จริง** — `skill_search` ถูกเรียก 165 ครั้งในการรันครั้งก่อน
-แต่ไม่ตรงกับ turn ที่ scorer บอกว่ามี Skill ที่เกี่ยวข้องเลยสักครั้ง ตอนนี้ semantic retrieval แก้ตัวหารแล้ว
-แต่ยังไม่ได้รันซ้ำ
-
-**สิ่งที่ test ยังไม่ยืนยัน** (ตัดมาจาก audit §7): outbox path ทั้งเส้น · prompt-cache epoch
-ที่วัดด้วย fingerprint ตรง ๆ · certified 128k/256k/1M recall ที่มีหลักฐานแยกต่อ tier ·
-crash/restart ระหว่าง streaming และ DB/CAS split-brain · native UI/browser/PTY flow
-
-**embedder เป็น optional และไม่มี UI ตั้งค่า** — เปิดผ่าน flag ของ `serve` เท่านั้น
-ไม่เปิดก็ถอยไปใช้ lexical ซึ่งข้ามภาษาไม่ได้ (เป็น configuration ที่รองรับ ไม่ใช่ของเสีย
-แต่ผู้ใช้ที่ไม่รู้จะไม่ได้ประโยชน์เลย)
-
----
-
-## 5. คำสั่งที่ต้องใช้
-
-```bash
-# ตรวจทั้งหมด
-go build ./... && go vet ./... && go test ./... && go test -race ./internal/agent/
-./scripts/doc-truth.sh              # facts + claims
-./scripts/doc-truth.sh check        # exit non-zero ถ้า claim ไหนไม่มีหลักฐาน
-
-# รันจริง (semantic retrieval เปิดผ่าน flag เท่านั้น)
-hermetrix serve --data .hermetrix \
-  --embed-url http://127.0.0.1:11434/v1 --embed-model bge-m3
-
-# hostile corpus (P10-A)
-hermetrix hostile --workspace .                       # structural อย่างเดียว
-hermetrix hostile --workspace . --provider <name> --max-tokens 3072 --out r.json
-hermetrix hostile --rescore r.json                    # คำนวณใหม่จากคำตอบที่เก็บไว้
-
-# task success (P9-B)
-hermetrix taskeval generate --dir corpus/tasks --per-class 30
-hermetrix taskeval score --data .hermetrix --dir corpus/tasks --provider <name> --retrieval
-
-# วัด cross-script retrieval กับ embedder จริง
-HERMETRIX_EMBED_URL=http://127.0.0.1:11434/v1 \
-  go test ./internal/agent/ -run TestRealEmbedderCrossesScripts -v
-```
-
----
-
-## 6. สิ่งที่ต้องมีบนเครื่องใหม่
-
-| ต้องมี | ทำไม | ไม่มีแล้วเป็นยังไง |
-|---|---|---|
-| Go 1.25 | build | ไม่ได้เลย |
-| `ollama` + `bge-m3` | semantic retrieval และ test ตัวจริง | `TestRealEmbedderCrossesScripts` skip เงียบ ๆ · retrieval ถอยไป lexical |
-| `ollama` + `qwen3:4b` (หรือใหญ่กว่า) | behavioural half ของ hostile corpus | เคส behavioural รายงานเป็น `skip` ไม่ใช่ `pass` |
-| gateway key ที่ rotate แล้ว | P9-B | รัน P9-B ไม่ได้ |
-
-`sqlite3` CLI ไม่มีก็ได้ — ทุกอย่างเข้าถึงผ่าน HTTP API ของ `serve`
-
----
-
-## 7. กฎที่เจ็บมาแล้ว — อ่านก่อนแตะโค้ด
-
-รายละเอียดอยู่ใน [`.claude/skills/verify-and-report/SKILL.md`](../.claude/skills/verify-and-report/SKILL.md)
-สรุปสิ่งที่พังซ้ำในรอบนี้:
-
-**scorer ผิดได้ในทิศที่รายงานว่าปลอดภัย** — hostile corpus scorer ผิดสองรอบ ทั้งสองรอบอ่าน
-"โมเดลอ้างถึงการโจมตีขณะปฏิเสธ" ว่าเป็น "โมเดลทำตาม" รอบที่สองเกิดหลังใส่ mitigation
-คือ **mitigation ทำให้โมเดลดีขึ้น แล้ว scorer รายงานว่าแย่ลง**
-
-**เก็บผลดิบไว้เสมอ** — ตอนแรกเก็บคำตอบแค่ 240 ตัวอักษรไว้แสดงผล พอ scorer ผิดต้องรันโมเดลใหม่
-ทั้งชั่วโมงเพื่อแก้เลขคณิตที่บันทึกไว้แล้ว ตอนนี้มี `--rescore`
-
-**คำตอบว่างไม่ใช่การปฏิเสธ** — reasoning model ใช้ budget หมดก่อนเขียนอะไร ได้ content ว่าง
-เวอร์ชันแรกนับเป็น pass ทั้งสามเคส นั่นคือ corpus ปั่นหลักฐานของตัวเอง
-
-**guard ที่ไม่มี mutation แดงแต่มีราคาจริง ให้ถอดออก** — `scaledExtract` ถอดไปแล้ว
-untrusted-output boundary ถอดตามด้วยเหตุผลเดียวกัน
-
-**เครื่องมือตรวจต้องไม่แก้ระบบที่ตัวเองตรวจ** — hostile runner เขียน MCP profile ลง data store ของผู้ใช้
-12 ตัว จนรันรอบสองล้ม ตอนนี้ใช้ store ชั่วคราวแล้วทิ้ง
+Definition of done ยังไม่ใช่ “มีปุ่มแล้ว”: capability ต้องมี backend authority, persistence/recovery, negative test, user-visible failure state และ artifact/provenance เมื่อเกิด side effect

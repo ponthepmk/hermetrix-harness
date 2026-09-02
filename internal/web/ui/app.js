@@ -87,6 +87,11 @@ async function openProject(id) {
     state.projects = await api("/api/projects");
     state.selectedProject = id;
     showShell();
+    // The layout key is project and view scoped, so opening a project has to
+    // restore this project's memory of whichever view is already on screen --
+    // the same restore switchView performs on every later transition.
+    applyLayout();
+    if (state.view === "code") renderPanes();
     await load();
   } catch (error) { toast(error.message, true); }
 }
@@ -1049,7 +1054,14 @@ function switchView(name) {
   $("#zoneMain").innerHTML = VIEWS[view].main();
   const side = VIEWS[view].side();
   $("#zoneSide").innerHTML = side;
-  collapseZone("side", !side);
+  // Widths, panes and side-collapse are this project's memory of the view
+  // being entered, not a rule that forces the side pane open every time chat
+  // comes back -- that rule used to live here and it meant a side someone had
+  // deliberately collapsed reopened itself the moment they returned from
+  // another view. A view with nothing to put in its side pane still has
+  // nothing to show, so it stays collapsed regardless of what was saved.
+  applyLayout();
+  if (!side) collapseZone("side", true);
   if (view === "chat") {
     wireChatSkeleton();
     renderChat();
@@ -2824,9 +2836,43 @@ function setZoneWidth(zone, px) {
   return clamped;
 }
 
-// Task 10 persists these widths across a reload. Until it exists the drag
-// still has to end cleanly rather than throw when the pointer lifts.
-function saveLayout() {}
+// Layout is a preference of this screen, not data about the project: two
+// people opening the same project want their own arrangement, and a backup
+// export should not carry anyone's pane sizes. That is why this lives in
+// localStorage, keyed per project and per view, rather than in SQLite.
+function layoutKey() {
+  return `hermetrix.layout.${state.currentProject?.id || "none"}.${state.view || "chat"}`;
+}
+
+function saveLayout() {
+  try {
+    localStorage.setItem(layoutKey(), JSON.stringify({
+      zones: state.zoneWidths,
+      panes: state.panes,
+      maximised: state.maximisedPane,
+      railHidden: $("#zones")?.classList.contains("rail-hidden") || false,
+      sideHidden: $("#zones")?.classList.contains("side-hidden") || false
+    }));
+  } catch { /* private window, cleared storage: the app still works without it */ }
+}
+
+// applyLayout restores what it can and silently falls back for the rest. A
+// stored value that no longer parses, or storage a private window refuses to
+// read at all, must not be the thing that blanks the screen -- it just means
+// this view opens at its defaults, the same as the very first time anyone
+// opened it.
+function applyLayout() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(layoutKey()) || "null"); } catch { saved = null; }
+  const zones = saved?.zones || {};
+  setZoneWidth("rail", zones.rail || 220);
+  setZoneWidth("side", zones.side || 320);
+  state.panes = Array.isArray(saved?.panes) && saved.panes.length ? saved.panes.slice(0, MAX_PANES) : ["files"];
+  state.maximisedPane = Number.isInteger(saved?.maximised) && saved.maximised < state.panes.length
+    ? saved.maximised : null;
+  collapseZone("rail", Boolean(saved?.railHidden));
+  collapseZone("side", Boolean(saved?.sideHidden));
+}
 
 function startZoneDrag(handle, event) {
   const zone = handle.dataset.handle;
@@ -2868,11 +2914,15 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#closeConfig").addEventListener("click", closeConfig);
   $("#configSearch").addEventListener("input", renderConfigNav);
   $$(".zone-handle").forEach(handle => handle.addEventListener("pointerdown", event => startZoneDrag(handle, event)));
-  $("#toggleRail").addEventListener("click", () => collapseZone("rail", !$("#zones").classList.contains("rail-hidden")));
+  $("#toggleRail").addEventListener("click", () => {
+    collapseZone("rail", !$("#zones").classList.contains("rail-hidden"));
+    saveLayout();
+  });
   $("#toggleSide").addEventListener("click", () => {
     const collapsed = !$("#zones").classList.contains("side-hidden");
     collapseZone("side", collapsed);
     if (!collapsed) renderCurrentWorkbench();
+    saveLayout();
   });
   $("#refreshButton").addEventListener("click", load);
   $("#createButton").addEventListener("click", openCandidateDialog);

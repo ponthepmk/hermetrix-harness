@@ -305,6 +305,27 @@ func TestUnbuiltViewsSaySoRatherThanShowingNothing(t *testing.T) {
 	}
 }
 
+// TestLayoutIsRememberedPerProjectAndView pins where the layout lives and why.
+// It is a preference of this screen, not data about the project, so it must not
+// reach SQLite and must not travel in a backup.
+func TestLayoutIsRememberedPerProjectAndView(t *testing.T) {
+	javascript := mustUIFile(t, "ui/app.js")
+	for _, marker := range []string{"function saveLayout", "function applyLayout", "hermetrix.layout."} {
+		if !strings.Contains(javascript, marker) {
+			t.Errorf("layout persistence is missing %s", marker)
+		}
+	}
+	// Reading storage must never be the thing that blanks the screen.
+	if !strings.Contains(javascript, "catch") {
+		t.Error("layout code does not guard against unreadable storage")
+	}
+	for _, forbidden := range []string{"/api/layout", "layout_json"} {
+		if strings.Contains(javascript, forbidden) {
+			t.Errorf("layout is being sent to the server (%s); it is a per-screen preference", forbidden)
+		}
+	}
+}
+
 // TestPanesGiveTerminalAndBrowserRoom is the correction the spec opens with: a
 // terminal in a 320px rail is the same mistake as a file tree in one. Content
 // that needs room must be able to take it, up to a ceiling that stays testable.
