@@ -1062,6 +1062,18 @@ function captureComposer() {
 
 async function createAgentSession() {
   if (!state.draftProviderID || !state.draftProfileName) return;
+  // A session has to bind to a project -- Task 2's Inbox migration swept up
+  // every session that once didn't. Trusting every future caller to reach
+  // this function only after a project is open is exactly the assumption
+  // that already produced one silent orphan; check it here instead, at the
+  // one place the value is actually used, and fail on screen rather than
+  // throwing past the button that was pressed.
+  const projectID = state.draftProjectID || state.currentProject?.id;
+  if (!projectID) {
+    state.sessionError = "No project is open. Choose one from the project picker before starting a session.";
+    renderChat();
+    return;
+  }
   const provider = state.providers.find(item => item.id === state.draftProviderID);
   const profile = state.profiles.find(item => item.name === state.draftProfileName);
   const admission = profileAdmission(provider, profile);
@@ -1070,10 +1082,7 @@ async function createAgentSession() {
     state.sessionError = "";
     const body = {
       provider_id: state.draftProviderID,
-      // Never "": the picker guarantees a project is always open by the time
-      // this runs, and a session with no project has nowhere to live -- that
-      // is exactly the orphan Task 2's Inbox migration swept up once already.
-      project_id: state.draftProjectID || state.currentProject.id,
+      project_id: projectID,
       context_profile: state.draftProfileName,
       // Name the session after what it is bound to, so the list is readable
       // once more than one session exists.
