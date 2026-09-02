@@ -176,8 +176,18 @@ func (s *Service) EnsureWorkspaceProject(ctx context.Context, root string) (Proj
 	return s.SaveProject(ctx, ProjectInput{Name: name, RootPath: resolved})
 }
 
+// projectColumns is shared by ListProjects and GetProject so the two queries
+// can never drift into different column orders under scanProject's single Scan.
+const projectColumns = `p.id,p.name,p.root_path,p.state,p.pinned,p.last_opened_at,p.created_at,p.updated_at,
+    (SELECT COUNT(*) FROM agent_sessions s WHERE s.project_id=p.id)`
+
 func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,root_path,state,pinned,last_opened_at,created_at,updated_at FROM projects ORDER BY updated_at DESC`)
+	// The picker is ordered the way someone actually reaches for a project:
+	// pinned first, then whichever was opened most recently. A project never
+	// opened falls back to when it was created, so it still lands somewhere
+	// sensible instead of sorting as if it were infinitely old.
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT `+projectColumns+`
+    FROM projects p ORDER BY p.pinned DESC, COALESCE(p.last_opened_at,p.created_at) DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +204,37 @@ func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
 }
 
 func (s *Service) GetProject(ctx context.Context, id string) (Project, error) {
-	return scanProject(s.store.DB.QueryRowContext(ctx, `SELECT id,name,root_path,state,pinned,last_opened_at,created_at,updated_at FROM projects WHERE id=?`, id))
+	return scanProject(s.store.DB.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects p WHERE p.id=?`, id))
+}
+
+// PinProject keeps a project at the top of the picker. It is a per-machine
+// preference stored with the project because the picker is the same on every
+// screen this database serves.
+func (s *Service) PinProject(ctx context.Context, id string, pinned bool) (Project, error) {
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET pinned=?,updated_at=? WHERE id=?`,
+		boolInt(pinned), formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return Project{}, err
+	}
+	if count, _ := result.RowsAffected(); count != 1 {
+		return Project{}, sql.ErrNoRows
+	}
+	return s.GetProject(ctx, id)
+}
+
+// MarkProjectOpened records that someone worked here, which is what "recent"
+// in the picker is ordered by. Opening is not editing, so updated_at is left
+// alone: otherwise every project would look freshly changed.
+func (s *Service) MarkProjectOpened(ctx context.Context, id string) (Project, error) {
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET last_opened_at=? WHERE id=?`,
+		formatTime(time.Now().UTC()), id)
+	if err != nil {
+		return Project{}, err
+	}
+	if count, _ := result.RowsAffected(); count != 1 {
+		return Project{}, sql.ErrNoRows
+	}
+	return s.GetProject(ctx, id)
 }
 
 func (s *Service) BrowseProject(ctx context.Context, projectID, relative string) ([]FileEntry, error) {
@@ -519,7 +559,10 @@ func scanProject(row projectScanner) (Project, error) {
 	var pinned int
 	var lastOpened sql.NullString
 	var created, updated string
-	if err := row.Scan(&item.ID, &item.Name, &item.RootPath, &item.State, &pinned, &lastOpened, &created, &updated); err != nil {
+	// Every caller selects the session count alongside the rest of the row, so
+	// there is exactly one shape to scan and no risk of the two call sites
+	// (list and get) drifting apart on column order.
+	if err := row.Scan(&item.ID, &item.Name, &item.RootPath, &item.State, &pinned, &lastOpened, &created, &updated, &item.SessionCount); err != nil {
 		return Project{}, err
 	}
 	item.Pinned = pinned != 0
@@ -571,3 +614,12 @@ func nullIfEmpty(value string) any {
 
 func formatTime(value time.Time) string         { return value.UTC().Format(time.RFC3339Nano) }
 func parseTime(value string) (time.Time, error) { return time.Parse(time.RFC3339Nano, value) }
+
+// boolInt spells a bool out as the 0/1 that SQLite's INTEGER column actually
+// stores, rather than leaning on a driver's implicit conversion of a Go bool.
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}

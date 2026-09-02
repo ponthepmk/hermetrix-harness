@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,7 @@ import (
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/qualification"
 	"hermetrix-harness/internal/runtime"
+	"hermetrix-harness/internal/secrets"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
 	toolruntime "hermetrix-harness/internal/tools"
@@ -58,7 +60,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT] [--open]")
+	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT] [--open] [--desktop]")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus export --data PATH --out DIR")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus score  --data PATH --dir DIR [--provider NAME]")
 	fmt.Fprintln(os.Stderr, "  hermetrix taskeval generate --dir DIR [--per-class N] [--seed N]")
@@ -95,6 +97,9 @@ func runServe(args []string) {
 		"expected vector width; 0 accepts whatever the model returns, any other value rejects a mismatch")
 	autoOpen := flags.Bool("open", false,
 		"open the control center in the default browser once the listener is up")
+	desktopMode := flags.Bool("desktop", false,
+		"open the control center in its own application window using an installed "+
+			"Chromium-family browser; falls back to --open behaviour when none is found")
 	_ = flags.Parse(args)
 	if err := requireLoopbackListener(*listen); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -121,6 +126,7 @@ func runServe(args []string) {
 	learningService := learning.NewService(dataStore, skillService, gate, learning.StructuredReviewer{})
 	curatorService := curator.NewService(dataStore, skillService)
 	productService := product.NewService(dataStore, skillService)
+	defer productService.Close()
 	if recovered, recoverErr := productService.RecoverInterruptedJobs(ctx); recoverErr != nil {
 		logger.Error("recover background jobs", "error", recoverErr)
 		os.Exit(1)
@@ -133,16 +139,32 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 	logger.Info("workspace project ready", "project", workspaceProject.Name, "root", workspaceProject.RootPath)
+	// The project the process was started for belongs at the top of the picker.
+	// Pinning is a convenience, so a failure here is reported and stepped over:
+	// a server that refuses to start because a preference did not save would be
+	// trading the whole product for the ordering of one list.
+	if _, pinErr := productService.PinProject(ctx, workspaceProject.ID, true); pinErr != nil {
+		logger.Warn("pin workspace project", "error", pinErr, "project", workspaceProject.Name)
+	}
 	fidelityService := fidelity.NewService(dataStore, compiler)
 	if err := fidelityService.EnsureDefaultCorpus(ctx); err != nil {
 		logger.Error("seed context fidelity corpus", "error", err)
 		os.Exit(1)
 	}
-	providerService := providers.NewService(dataStore, nil)
+	// One vault for both provider and MCP credentials, so a token typed into
+	// the control center is usable without an environment variable or a
+	// restart. Environment variables still work and are still checked.
+	vault, err := secrets.Open(*dataRoot)
+	if err != nil {
+		logger.Error("open credential vault", "error", err)
+		os.Exit(1)
+	}
+	providerService := providers.NewService(dataStore, nil).WithVault(vault)
 	localProber := localmodel.NewProber()
 	qualificationService := qualification.NewService(dataStore, providerService, localProber, gate, estimator)
 	capabilityCatalog := capabilities.NewCatalog()
-	mcpService := mcp.NewService(dataStore, capabilityCatalog, nil)
+	mcpService := mcp.NewService(dataStore, capabilityCatalog, nil).WithVault(vault)
+	defer mcpService.Close()
 	if err := mcpService.ReloadCatalog(ctx); err != nil {
 		logger.Error("load MCP capability catalog", "error", err)
 		os.Exit(1)
@@ -186,6 +208,11 @@ func runServe(args []string) {
 	}
 	toolRegistry.SetCatalog(capabilityCatalog)
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).WithLearning(learningService)
+	productService.WithAgentRunner(agentService)
+	// An MCP server may ask the client to sample a model or to ask the user a
+	// question. Only the agent service can do either, so it answers those
+	// requests; the MCP client holds the interface, never the implementation.
+	mcpService.WithRequestHandler(agentService.NewMCPBridge())
 	if *embedBaseURL != "" {
 		agentService.SetEmbedder(embedding.NewOpenAIEmbedder(nil, *embedBaseURL, *embedModel,
 			os.Getenv(*embedAPIKeyEnv), *embedDimensions))
@@ -254,10 +281,27 @@ func runServe(args []string) {
 	}
 	url := "http://" + *listen
 	logger.Info("Hermetrix Skill Control Center", "url", url, "data", *dataRoot)
-	if *autoOpen {
+	if *desktopMode || *autoOpen {
 		// Only after the bind has succeeded, and never fatal: the server is the
 		// point, the browser is a convenience.
+		profileDir := filepath.Join(*dataRoot, "desktop-profile")
 		go func() {
+			if *desktopMode {
+				openErr := openDesktopWindow(url, profileDir)
+				if openErr == nil {
+					logger.Info("desktop window opened", "url", url, "profile", profileDir)
+					return
+				}
+				// A missing browser is the expected reason to fall through; any
+				// other failure is reported before the fallback so the user is
+				// not left wondering why the window looks like a browser tab.
+				if errors.Is(openErr, errNoDesktopBrowser) {
+					logger.Warn("desktop mode unavailable; opening the default browser instead",
+						"reason", openErr)
+				} else {
+					logger.Warn("open desktop window", "error", openErr, "url", url)
+				}
+			}
 			if openErr := openBrowser(url); openErr != nil {
 				logger.Warn("open browser", "error", openErr, "url", url)
 			}

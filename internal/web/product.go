@@ -47,6 +47,38 @@ func (s *Server) saveProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
+// pinProject and openProject are the two things the picker writes. Nothing else
+// about a project changes from that screen.
+func (s *Server) pinProject(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Pinned bool `json:"pinned"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.PinProject(r.Context(), r.PathValue("id"), input.Pinned)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) openProject(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.MarkProjectOpened(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) browseProject(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
@@ -104,6 +136,241 @@ func (s *Server) startProjectCommand(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, item)
 }
 
+func (s *Server) listTerminals(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	items, err := s.product.ListTerminals(r.Context(), 100)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) startTerminal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.StartTerminalInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.StartTerminal(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) terminalOutput(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
+	item, err := s.product.TerminalOutput(r.Context(), r.PathValue("id"), cursor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) writeTerminal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Input string `json:"input"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.product.WriteTerminal(r.Context(), r.PathValue("id"), input.Input); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) resizeTerminal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Columns uint16 `json:"columns"`
+		Rows    uint16 `json:"rows"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.product.ResizeTerminal(r.Context(), r.PathValue("id"), input.Columns, input.Rows); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) closeTerminal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.CloseTerminal(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) listBrowserTabs(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	items, err := s.product.ListBrowserTabs(r.Context(), 100)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) openBrowserTab(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.OpenBrowserTabInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.OpenBrowserTab(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) browserAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.BrowserActionInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.BrowserAction(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) listAgentTeams(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	items, err := s.product.ListAgentTeams(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) saveAgentTeam(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.AgentTeamInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.SaveAgentTeam(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) listTeamRuns(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := s.product.ListTeamRuns(r.Context(), limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) startTeamRun(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.StartTeamRunInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.StartTeamRun(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, item)
+}
+
+func (s *Server) getTeamRun(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.GetTeamRun(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) cancelTeamRun(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Actor string `json:"actor"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.CancelTeamRun(r.Context(), r.PathValue("id"), input.Actor)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) decideTeamTaskApproval(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.TeamApprovalDecisionInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.DecideTeamTaskApproval(r.Context(), r.PathValue("id"), r.PathValue("task"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
@@ -149,6 +416,22 @@ func (s *Server) createArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item, err := s.product.CreateArtifact(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) createDeliverable(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.DeliverableInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.CreateDeliverable(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
 		return

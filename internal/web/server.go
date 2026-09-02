@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -147,10 +148,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/qualifications", s.runQualification)
 	mux.HandleFunc("GET /api/providers", s.listProviders)
 	mux.HandleFunc("POST /api/providers", s.saveProvider)
+	mux.HandleFunc("PUT /api/providers/{id}/credential", s.setProviderCredential)
 	mux.HandleFunc("POST /api/providers/{id}/test", s.testProvider)
 	mux.HandleFunc("POST /api/providers/{id}/measure-overhead", s.measureProviderOverhead)
 	mux.HandleFunc("GET /api/mcp/servers", s.listMCPServers)
 	mux.HandleFunc("POST /api/mcp/servers", s.saveMCPServer)
+	mux.HandleFunc("PUT /api/mcp/servers/{id}/credential", s.setMCPCredential)
 	mux.HandleFunc("POST /api/mcp/servers/{id}/discover", s.discoverMCPServer)
 	mux.HandleFunc("GET /api/capabilities", s.listCapabilities)
 	mux.HandleFunc("GET /api/capabilities/{id}", s.getCapability)
@@ -159,16 +162,39 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	mux.HandleFunc("POST /api/sessions/{id}/turns", s.runTurn)
 	mux.HandleFunc("POST /api/approvals/{id}/decisions", s.decideApproval)
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
+	mux.HandleFunc("GET /api/filesystem/directories", s.browseDirectories)
+	mux.HandleFunc("GET /api/elicitations", s.listElicitations)
+	mux.HandleFunc("POST /api/elicitations/{id}/answer", s.answerElicitation)
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("POST /api/projects", s.saveProject)
+	mux.HandleFunc("PUT /api/projects/{id}/pin", s.pinProject)
+	mux.HandleFunc("POST /api/projects/{id}/open", s.openProject)
 	mux.HandleFunc("GET /api/projects/{id}/files", s.browseProject)
 	mux.HandleFunc("GET /api/projects/{id}/file", s.readProjectFile)
 	mux.HandleFunc("PUT /api/projects/{id}/file", s.writeProjectFile)
 	mux.HandleFunc("POST /api/projects/{id}/commands", s.startProjectCommand)
+	mux.HandleFunc("GET /api/terminals", s.listTerminals)
+	mux.HandleFunc("POST /api/terminals", s.startTerminal)
+	mux.HandleFunc("GET /api/terminals/{id}/output", s.terminalOutput)
+	mux.HandleFunc("POST /api/terminals/{id}/input", s.writeTerminal)
+	mux.HandleFunc("POST /api/terminals/{id}/resize", s.resizeTerminal)
+	mux.HandleFunc("POST /api/terminals/{id}/close", s.closeTerminal)
+	mux.HandleFunc("GET /api/browser/tabs", s.listBrowserTabs)
+	mux.HandleFunc("POST /api/browser/tabs", s.openBrowserTab)
+	mux.HandleFunc("POST /api/browser/tabs/{id}/actions", s.browserAction)
+	mux.HandleFunc("GET /api/teams", s.listAgentTeams)
+	mux.HandleFunc("POST /api/teams", s.saveAgentTeam)
+	mux.HandleFunc("GET /api/team-runs", s.listTeamRuns)
+	mux.HandleFunc("POST /api/team-runs", s.startTeamRun)
+	mux.HandleFunc("GET /api/team-runs/{id}", s.getTeamRun)
+	mux.HandleFunc("POST /api/team-runs/{id}/cancel", s.cancelTeamRun)
+	mux.HandleFunc("POST /api/team-runs/{id}/tasks/{task}/approval", s.decideTeamTaskApproval)
 	mux.HandleFunc("GET /api/jobs", s.listJobs)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("POST /api/artifacts", s.createArtifact)
+	mux.HandleFunc("POST /api/deliverables", s.createDeliverable)
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.getArtifactContent)
 	mux.HandleFunc("GET /api/settings", s.listSettings)
 	mux.HandleFunc("PUT /api/settings", s.saveSetting)
@@ -386,16 +412,49 @@ func (s *Server) saveMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "MCP service is unavailable"})
 		return
 	}
-	var input mcp.SaveInput
+	// Same shape as a provider: the bearer token is part of connecting, and it
+	// goes to the credential vault rather than into SQLite or this response.
+	var input struct {
+		mcp.SaveInput
+		APIKey string `json:"api_key"`
+	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.mcp.Save(r.Context(), input)
+	item, err := s.mcp.Save(r.Context(), input.SaveInput)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	if strings.TrimSpace(input.APIKey) != "" {
+		updated, credentialErr := s.mcp.SetCredential(r.Context(), item.ID, input.APIKey)
+		if credentialErr != nil {
+			writeError(w, credentialErr)
+			return
+		}
+		item = updated
+	}
 	writeJSON(w, http.StatusCreated, item)
+}
+
+// setMCPCredential stores or clears one server's bearer token.
+func (s *Server) setMCPCredential(w http.ResponseWriter, r *http.Request) {
+	if s.mcp == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "MCP service is unavailable"})
+		return
+	}
+	var input struct {
+		APIKey string `json:"api_key"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.mcp.SetCredential(r.Context(), r.PathValue("id"), input.APIKey)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) discoverMCPServer(w http.ResponseWriter, r *http.Request) {
@@ -945,16 +1004,51 @@ func (s *Server) saveProvider(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "provider service is unavailable"})
 		return
 	}
-	var input providers.SaveInput
+	// The API key rides along with the profile so connecting a provider is one
+	// action in the UI. It is stored in the credential vault and never written
+	// to SQLite, a log line or this response.
+	var input struct {
+		providers.SaveInput
+		APIKey string `json:"api_key"`
+	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.providers.Save(r.Context(), input)
+	item, err := s.providers.Save(r.Context(), input.SaveInput)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	if strings.TrimSpace(input.APIKey) != "" {
+		updated, credentialErr := s.providers.SetCredential(r.Context(), item.ID, input.APIKey)
+		if credentialErr != nil {
+			writeError(w, credentialErr)
+			return
+		}
+		item = updated
+	}
 	writeJSON(w, http.StatusCreated, item)
+}
+
+// setProviderCredential stores or clears one provider's API key. An empty
+// token clears it, which is the only way to remove a key from the UI.
+func (s *Server) setProviderCredential(w http.ResponseWriter, r *http.Request) {
+	if s.providers == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "provider service is unavailable"})
+		return
+	}
+	var input struct {
+		APIKey string `json:"api_key"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.providers.SetCredential(r.Context(), r.PathValue("id"), input.APIKey)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
@@ -968,6 +1062,71 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// deleteSession removes one conversation. What was learned from it stays: the
+// Skill activations, reviews and token observations it produced are evidence
+// about Skills and models, not about the chat, and its artifacts are detached
+// rather than destroyed.
+func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service is unavailable"})
+		return
+	}
+	if err := s.agent.DeleteSession(r.Context(), r.PathValue("id")); err != nil {
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, agent.ErrSessionRunning) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+// browseDirectories backs the folder picker on the Projects screen. A browser
+// will not hand a web page an absolute path, so registering a project root has
+// to walk the filesystem here. It answers directory names only, and the control
+// server refuses to listen anywhere but loopback.
+func (s *Server) browseDirectories(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	listing, err := s.product.BrowseDirectories(r.URL.Query().Get("path"))
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, listing)
+}
+
+// listElicitations returns the questions an MCP server is waiting on right now.
+// They live in memory rather than the database on purpose: a question is only
+// answerable while the server that asked it is still on the other end of the
+// call, and a restart ends that.
+func (s *Server) listElicitations(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusOK, []agent.PendingElicitation{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.agent.PendingElicitations(r.URL.Query().Get("session_id")))
+}
+
+// answerElicitation delivers the user's reply to the waiting server.
+func (s *Server) answerElicitation(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service is unavailable"})
+		return
+	}
+	var input agent.ElicitationAnswer
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.agent.AnswerElicitation(r.PathValue("id"), input); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"answered": true})
 }
 
 // skillRetrievalMetrics reports the ADR-7 exit criterion: whether models
@@ -1160,7 +1319,24 @@ func writeError(w http.ResponseWriter, err error) {
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	_ = json.NewEncoder(w).Encode(normalizeJSONList(value))
+}
+
+// normalizeJSONList encodes an empty list as [] rather than null. Go marshals a
+// nil slice as null, and every list endpoint here is read by the cockpit as an
+// array. On a fresh data directory /api/terminals, /api/browser/tabs,
+// /api/teams and /api/team-runs all returned null, which threw inside the
+// cockpit's initial load and left every panel unrendered -- the UI looked like
+// it had failed to start rather than like it had nothing to show.
+func normalizeJSONList(value any) any {
+	if value == nil {
+		return value
+	}
+	reflected := reflect.ValueOf(value)
+	if reflected.Kind() == reflect.Slice && reflected.IsNil() {
+		return reflect.MakeSlice(reflected.Type(), 0, 0).Interface()
+	}
+	return value
 }
 
 func spa(next http.Handler, assets fs.FS) http.Handler {

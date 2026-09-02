@@ -27,12 +27,37 @@ import (
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/qualification"
 	"hermetrix-harness/internal/runtime"
+	"hermetrix-harness/internal/secrets"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
 func testHTTPServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(testHandler(t))
+	t.Cleanup(server.Close)
+	return server
+}
+
+type webTeamAgent struct{}
+
+func (webTeamAgent) CreateSession(_ context.Context, input agent.CreateSessionInput) (agent.Session, error) {
+	return agent.Session{ID: "web-child-" + strings.ReplaceAll(input.Title, " ", "-"), Title: input.Title}, nil
+}
+
+func (webTeamAgent) RunTurn(_ context.Context, _ string, input agent.TurnInput, _ func(agent.StreamEvent) error) (agent.TurnResult, error) {
+	return agent.TurnResult{AssistantEvent: agent.Event{Content: "web handler result for " + input.Content},
+		Usage: providers.Usage{PromptTokens: 11, CompletionTokens: 7, TotalTokens: 18}}, nil
+}
+
+func (webTeamAgent) DecideApproval(_ context.Context, _ string, _ agent.ApprovalDecisionInput,
+	_ func(agent.StreamEvent) error) (agent.TurnResult, error) {
+	return agent.TurnResult{AssistantEvent: agent.Event{Content: "web approval resolved"},
+		Usage: providers.Usage{PromptTokens: 13, CompletionTokens: 8, TotalTokens: 21}}, nil
+}
+
+func testHandler(t *testing.T) http.Handler {
 	t.Helper()
 	dataStore, err := store.Open(context.Background(), t.TempDir())
 	if err != nil {
@@ -46,14 +71,19 @@ func testHTTPServer(t *testing.T) *httptest.Server {
 	gate := runtime.NewInferenceGate()
 	learningService := learning.NewService(dataStore, skillService, gate, learning.StructuredReviewer{})
 	curatorService := curator.NewService(dataStore, skillService)
-	productService := product.NewService(dataStore, skillService)
-	providerService := providers.NewService(dataStore, nil)
+	productService := product.NewService(dataStore, skillService).WithAgentRunner(webTeamAgent{})
+	t.Cleanup(productService.Close)
+	vault, err := secrets.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerService := providers.NewService(dataStore, nil).WithVault(vault)
 	toolRegistry, err := toolruntime.NewRegistry(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	capabilityCatalog := capabilities.NewCatalog()
-	mcpService := mcp.NewService(dataStore, capabilityCatalog, nil)
+	mcpService := mcp.NewService(dataStore, capabilityCatalog, nil).WithVault(vault)
 	toolRegistry.SetCatalog(capabilityCatalog)
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).WithLearning(learningService)
 	fidelityService := fidelity.NewService(dataStore, compiler)
@@ -61,11 +91,9 @@ func testHTTPServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	qualificationService := qualification.NewService(dataStore, providerService, localmodel.NewProber(), gate, estimator)
-	server := httptest.NewServer(New(skillService, learningService, curatorService, compiler, estimator,
+	return New(skillService, learningService, curatorService, compiler, estimator,
 		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
-		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).Handler())
-	t.Cleanup(server.Close)
-	return server
+		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).Handler()
 }
 
 func TestBootstrapCollectionsAreArraysAndUIHasSecurityHeaders(t *testing.T) {
@@ -107,6 +135,103 @@ func TestBootstrapCollectionsAreArraysAndUIHasSecurityHeaders(t *testing.T) {
 	}
 }
 
+func requestHandlerJSON(t *testing.T, handler http.Handler, path, method string, payload any, status int) []byte {
+	t.Helper()
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = bytes.NewReader(encoded)
+	}
+	request := httptest.NewRequest(method, path, body)
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != status {
+		t.Fatalf("%s %s: status=%d want=%d body=%s", method, path, recorder.Code, status, recorder.Body.String())
+	}
+	return recorder.Body.Bytes()
+}
+
+func TestWorkbenchRoutesReachRealStorageAndCustomTeamDAGWithoutAListener(t *testing.T) {
+	handler := testHandler(t)
+	root := t.TempDir()
+	createdProject := requestHandlerJSON(t, handler, "/api/projects", http.MethodPost,
+		map[string]any{"name": "No-listener workbench", "root_path": root}, http.StatusCreated)
+	var project product.Project
+	if err := json.Unmarshal(createdProject, &project); err != nil {
+		t.Fatal(err)
+	}
+	written := requestHandlerJSON(t, handler, "/api/projects/"+project.ID+"/file", http.MethodPut,
+		map[string]any{"path": "plan.md", "content": "verified through ServeMux", "actor": "test-user"}, http.StatusOK)
+	var fileResult product.WriteFileResult
+	if err := json.Unmarshal(written, &fileResult); err != nil {
+		t.Fatal(err)
+	}
+	if fileResult.Document.SHA256 == "" || fileResult.ReceiptArtifact.ID == "" {
+		t.Fatalf("file write lacks optimistic revision or receipt: %+v", fileResult)
+	}
+
+	deliverableBytes := requestHandlerJSON(t, handler, "/api/deliverables", http.MethodPost,
+		map[string]any{"project_id": project.ID, "format": "docx", "title": "Route proof", "actor": "test-user",
+			"paragraphs": []string{"Generated through the real router and CAS."}}, http.StatusCreated)
+	var deliverable product.Artifact
+	if err := json.Unmarshal(deliverableBytes, &deliverable); err != nil {
+		t.Fatal(err)
+	}
+	contentRequest := httptest.NewRequest(http.MethodGet, "/api/artifacts/"+deliverable.ID+"/content", nil)
+	contentRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(contentRecorder, contentRequest)
+	if contentRecorder.Code != http.StatusOK || !bytes.HasPrefix(contentRecorder.Body.Bytes(), []byte("PK")) {
+		t.Fatalf("DOCX route did not return a real OOXML package: status=%d prefix=%q", contentRecorder.Code, contentRecorder.Body.Bytes()[:min(8, contentRecorder.Body.Len())])
+	}
+
+	teamBytes := requestHandlerJSON(t, handler, "/api/teams", http.MethodPost, map[string]any{
+		"project_id": project.ID, "name": "Custom graph team", "instructions": "Keep evidence and authority isolated.", "actor": "test-user",
+		"members": []map[string]any{
+			{"name": "Scout", "role": "research", "instructions": "Gather evidence.", "is_lead": false},
+			{"name": "Lead", "role": "synthesis", "instructions": "Synthesize only labelled evidence.", "is_lead": true},
+		},
+	}, http.StatusCreated)
+	var team product.AgentTeam
+	if err := json.Unmarshal(teamBytes, &team); err != nil {
+		t.Fatal(err)
+	}
+	runBytes := requestHandlerJSON(t, handler, "/api/team-runs", http.MethodPost, map[string]any{
+		"team_id": team.ID, "project_id": project.ID, "objective": "Exercise a custom dependency graph", "provider_id": "fake-provider",
+		"context_profile": "certified-64k", "actor": "test-user", "max_parallel": 2,
+		"tasks": []map[string]any{
+			{"id": "evidence", "member_id": team.Members[0].ID, "title": "Evidence", "prompt": "Collect evidence."},
+			{"id": "synthesis", "member_id": team.Members[1].ID, "title": "Synthesis", "prompt": "Synthesize evidence.", "depends_on": []string{"evidence"}},
+		},
+	}, http.StatusAccepted)
+	var run product.TeamRun
+	if err := json.Unmarshal(runBytes, &run); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		runBytes = requestHandlerJSON(t, handler, "/api/team-runs/"+run.ID, http.MethodGet, nil, http.StatusOK)
+		if err := json.Unmarshal(runBytes, &run); err != nil {
+			t.Fatal(err)
+		}
+		if run.State == "completed" || run.State == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("custom DAG did not finish through HTTP handler: %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if run.State != "completed" || len(run.Tasks) != 2 || run.PromptTokens != 22 || run.CompletionTokens != 14 {
+		t.Fatalf("custom DAG result=%+v", run)
+	}
+}
+
 func TestHTTPMCPDiscoveryAndDeferredCatalog(t *testing.T) {
 	var calls int
 	mcpRuntime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +263,10 @@ func TestHTTPMCPDiscoveryAndDeferredCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	discovered := requestJSON(t, harness.URL+"/api/mcp/servers/"+profile.ID+"/discover", http.MethodPost, map[string]any{}, http.StatusOK)
-	if !bytes.Contains(discovered, []byte(`"tools":1`)) || calls != 1 {
+	// One discovery asks for all three catalogs a server can publish: tools,
+	// resources and prompts. A server that implements only tools answers the
+	// other two with "method not found", which is not a failure.
+	if !bytes.Contains(discovered, []byte(`"tools":1`)) || calls != 3 {
 		t.Fatalf("discovery=%s calls=%d", discovered, calls)
 	}
 	response, err := http.Get(harness.URL + "/api/capabilities?query=web_echo&limit=5")
@@ -338,7 +466,8 @@ func TestEndToEndAgentSearchDescribeAndCallRealMCPServer(t *testing.T) {
 		}
 		// The point of the deferred catalog is that a 1,500-tool catalog does
 		// not reach the prompt. Assert the ceiling, not today's exact number.
-		if len(request.Tools) > 10 {
+		// Raised to 11 when skill_manage joined the waist.
+		if len(request.Tools) > 11 {
 			t.Errorf("direct tool prompt grew with the catalog: %d tools", len(request.Tools))
 		}
 		for _, tool := range request.Tools {
@@ -798,5 +927,145 @@ func TestStoredArtifactContentCannotRunAsAPage(t *testing.T) {
 	}
 	if fetched.Header.Get("X-Frame-Options") != "DENY" {
 		t.Fatal("stored content can be framed by another page")
+	}
+}
+
+// TestEmptyListEndpointsAnswerAnArrayNotNull pins the JSON contract the cockpit
+// reads. A nil Go slice encodes as null, and on a fresh data directory
+// /api/terminals, /api/browser/tabs, /api/teams and /api/team-runs all did:
+// the cockpit's initial load threw on the first .length and every panel stayed
+// blank, which looked like the server had failed rather than like there was
+// nothing to list yet.
+func TestEmptyListEndpointsAnswerAnArrayNotNull(t *testing.T) {
+	server := testHTTPServer(t)
+	for _, path := range []string{
+		"/api/terminals", "/api/browser/tabs", "/api/teams", "/api/team-runs", "/api/jobs",
+		"/api/artifacts", "/api/projects", "/api/settings", "/api/memories", "/api/backups",
+		"/api/qualifications", "/api/fidelity/runs", "/api/maintenance/schedules", "/api/maintenance/gc",
+		"/api/skill-authority/actions",
+	} {
+		response, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200: %s", path, response.StatusCode, body)
+			continue
+		}
+		var decoded []json.RawMessage
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Errorf("GET %s did not answer a JSON array: %s", path, bytes.TrimSpace(body))
+		}
+	}
+}
+
+// TestSavingAProviderWithAnAPIKeyStoresItWithoutEchoingIt covers the reason the
+// vault exists: a token can be typed into the control center, it makes the
+// provider ready immediately with no environment variable and no restart, and
+// it never comes back out of the API.
+func TestSavingAProviderWithAnAPIKeyStoresItWithoutEchoingIt(t *testing.T) {
+	server := testHTTPServer(t)
+	const token = "sk-typed-into-the-ui-9f2c"
+	body := `{"name":"Typed key","adapter_kind":"openai-compatible","base_url":"https://host.example/v1",` +
+		`"model":"m-1","context_window":131072,"max_output_tokens":8192,"api_key":"` + token + `"}`
+	response, err := http.Post(server.URL+"/api/providers", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/providers = %d: %s", response.StatusCode, payload)
+	}
+	if bytes.Contains(payload, []byte(token)) {
+		t.Fatal("the provider response echoed the API key back to the browser")
+	}
+	var created struct {
+		ID               string `json:"id"`
+		CredentialReady  bool   `json:"credential_ready"`
+		CredentialStored bool   `json:"credential_stored"`
+	}
+	if err := json.Unmarshal(payload, &created); err != nil {
+		t.Fatal(err)
+	}
+	if !created.CredentialReady || !created.CredentialStored {
+		t.Fatalf("a saved API key did not make the provider ready: %+v", created)
+	}
+
+	// Listing must not leak it either, and clearing the key must take effect.
+	listed, err := http.Get(server.URL + "/api/providers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listing, _ := io.ReadAll(listed.Body)
+	listed.Body.Close()
+	if bytes.Contains(listing, []byte(token)) {
+		t.Fatal("the provider listing leaked the API key")
+	}
+	request, err := http.NewRequest(http.MethodPut,
+		server.URL+"/api/providers/"+created.ID+"/credential", strings.NewReader(`{"api_key":""}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	cleared, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clearedBody, _ := io.ReadAll(cleared.Body)
+	cleared.Body.Close()
+	if cleared.StatusCode != http.StatusOK {
+		t.Fatalf("PUT credential = %d: %s", cleared.StatusCode, clearedBody)
+	}
+	var afterClear struct {
+		CredentialStored bool `json:"credential_stored"`
+	}
+	if err := json.Unmarshal(clearedBody, &afterClear); err != nil {
+		t.Fatal(err)
+	}
+	if afterClear.CredentialStored {
+		t.Error("clearing the API key left a stored credential behind")
+	}
+}
+
+// TestPickerDataChangesAndTellsTheTruth covers what the picker orders itself by,
+// and the rule that it never shows a count for a subsystem that does not exist
+// yet: a zero next to "tasks" would be a claim that there are no tasks, when the
+// truth is that there is no task system.
+func TestPickerDataChangesAndTellsTheTruth(t *testing.T) {
+	server := testHTTPServer(t)
+	created := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Daily life"}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(created, &project); err != nil {
+		t.Fatal(err)
+	}
+
+	pinned := requestJSON(t, server.URL+"/api/projects/"+project.ID+"/pin", http.MethodPut,
+		map[string]any{"pinned": true}, http.StatusOK)
+	if !bytes.Contains(pinned, []byte(`"pinned":true`)) {
+		t.Fatalf("pin did not take: %s", pinned)
+	}
+	opened := requestJSON(t, server.URL+"/api/projects/"+project.ID+"/open", http.MethodPost,
+		map[string]any{}, http.StatusOK)
+	if !bytes.Contains(opened, []byte(`"last_opened_at"`)) {
+		t.Fatalf("open did not record a time: %s", opened)
+	}
+
+	listing := requestJSON(t, server.URL+"/api/projects", http.MethodGet, nil, http.StatusOK)
+	if !bytes.Contains(listing, []byte(`"session_count"`)) {
+		t.Error("listing does not carry the one count that has a system behind it")
+	}
+	for _, absent := range []string{"task_count", "note_count"} {
+		if bytes.Contains(listing, []byte(absent)) {
+			t.Errorf("listing reports %s although no such system exists yet", absent)
+		}
 	}
 }

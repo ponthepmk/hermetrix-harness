@@ -13,6 +13,10 @@ type Project struct {
 	LastOpenedAt *time.Time `json:"last_opened_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+	// SessionCount is the only per-project count the picker shows, because it is
+	// the only one with a store behind it. Tasks and notes have no table yet, so
+	// they carry no field here rather than a zero that would read as an answer.
+	SessionCount int `json:"session_count"`
 }
 
 type ProjectInput struct {
