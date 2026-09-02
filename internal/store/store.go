@@ -214,16 +214,6 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v29: %w", err)
 		}
 	}
-	// A session can end up without a project at any point in the database's
-	// life, not only during the one version bump that introduced Inbox -- the
-	// version gate above only ever fires once per database, but a project can
-	// still be deleted out from under a session afterward. So this sweep is not
-	// gated on version at all: it runs on every open and is cheap to repeat,
-	// since the INSERT is a no-op once Inbox exists and the UPDATE is a no-op
-	// once nothing points at a missing project.
-	if err := sweepOrphanSessionsIntoInbox(ctx, tx); err != nil {
-		return fmt.Errorf("move orphan sessions to inbox: %w", err)
-	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -1323,25 +1313,25 @@ func migrateV29(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if err == sql.ErrNoRows {
-		_, execErr := tx.ExecContext(ctx, schemaV29Create)
+		if _, execErr := tx.ExecContext(ctx, schemaV29Create); execErr != nil {
+			return execErr
+		}
+	} else if _, execErr := tx.ExecContext(ctx, schemaV29Rebuild); execErr != nil {
 		return execErr
 	}
-	_, execErr := tx.ExecContext(ctx, schemaV29Rebuild)
-	return execErr
-}
 
-// sweepOrphanSessionsIntoInbox gives a home to sessions that never had a
-// project, or lost the one they had. It is called on every migrate(), not
-// just when crossing into v29, because a session can be orphaned at any later
-// time (its project deleted, say) and this is the mechanism that catches that,
-// not a one-off backfill. The table-existence check exists for the same
-// reason the one in migrateV29 does: a fixture that pins straight to a schema
-// version without ever running schemaV3 has no agent_sessions to sweep, and
-// the INSERT below would fail on the missing table rather than finding
-// nothing to do.
-func sweepOrphanSessionsIntoInbox(ctx context.Context, tx *sql.Tx) error {
-	var name string
-	err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='agent_sessions'`).Scan(&name)
+	// A project became mandatory for every session at this version, so a
+	// session with none is a backlog left over from before that rule existed,
+	// not an event that can keep happening. This is therefore a one-time
+	// backfill and belongs inside the version gate like the rest of v29: once
+	// this has run, nothing in the schema lets project_id go missing again, so
+	// an orphan appearing afterward would be a bug worth seeing rather than a
+	// steady-state condition worth a full table scan on every open to heal.
+	// The table-existence check mirrors the one above projects -- a fixture
+	// pinned straight to a schema version without ever running schemaV3 has no
+	// agent_sessions to sweep, and the INSERT would fail on the missing table
+	// rather than finding nothing to do.
+	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='agent_sessions'`).Scan(&name)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}

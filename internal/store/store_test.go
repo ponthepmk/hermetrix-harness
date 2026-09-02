@@ -234,32 +234,52 @@ func TestSchemaV29AllowsProjectsWithoutCode(t *testing.T) {
 	}
 }
 
-// TestOrphanSessionsLandInInbox covers the migration's other half. Sessions may
-// have had no project at all ("chat only"); once a project is the root of
-// everything they would have nowhere to live. None of them may be hidden or
-// dropped, so they move to an ordinary project the user can rename or delete.
+// TestOrphanSessionsLandInInbox covers the migration's other half. Before v29,
+// a session could exist with no project at all ("chat only"); once a project
+// is the root of everything that session would have nowhere to live. None of
+// them may be hidden or dropped, so they move to an ordinary project the user
+// can rename or delete. The fixture is a hand-built pre-v29 database, the
+// same way TestMigrationV26BackfillsFrozenTeamAndMemberInstructions builds a
+// pre-v26 one, so the test exercises the real migration boundary rather than
+// asserting on behaviour the production code only performs after the fact.
 func TestOrphanSessionsLandInInbox(t *testing.T) {
 	root := t.TempDir()
-	store, err := Open(context.Background(), root)
+	db, err := sql.Open("sqlite", filepath.Join(root, "hermetrix.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.DB.Exec(`INSERT INTO provider_profiles
-    (id,name,adapter_kind,base_url,model,api_key_env,context_window,context_evidence,
-     max_output_tokens,enabled,created_at,updated_at)
-    VALUES('pr','P','openai-compatible','https://h.example/v1','m','',131072,'declared',4096,1,
-    '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`); err != nil {
+	for _, statement := range []string{
+		`CREATE TABLE provider_profiles (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, adapter_kind TEXT NOT NULL,
+      base_url TEXT NOT NULL, model TEXT NOT NULL, api_key_env TEXT NOT NULL DEFAULT '',
+      context_window INTEGER NOT NULL, context_evidence TEXT NOT NULL DEFAULT 'declared',
+      max_output_tokens INTEGER NOT NULL DEFAULT 4096, enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE agent_sessions (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, provider_id TEXT NOT NULL,
+      context_profile TEXT NOT NULL, state TEXT NOT NULL, project_id TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO provider_profiles
+      (id,name,adapter_kind,base_url,model,api_key_env,context_window,context_evidence,
+       max_output_tokens,enabled,created_at,updated_at)
+      VALUES('pr','P','openai-compatible','https://h.example/v1','m','',131072,'declared',4096,1,
+      '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+		`INSERT INTO agent_sessions
+      (id,title,provider_id,context_profile,state,project_id,created_at,updated_at)
+      VALUES('s1','Orphan','pr','compact-32k','idle',NULL,
+      '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+		`PRAGMA user_version=28`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.DB.Exec(`INSERT INTO agent_sessions
-    (id,title,provider_id,context_profile,state,project_id,created_at,updated_at)
-    VALUES('s1','Orphan','pr','compact-32k','idle',NULL,
-    '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	store.Close()
 
-	// Reopening runs the migration against a database that already has rows.
+	// Opening crosses the v28-to-v29 boundary, which is the one moment the
+	// backfill is allowed to run.
 	reopened, err := Open(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
@@ -273,5 +293,22 @@ func TestOrphanSessionsLandInInbox(t *testing.T) {
 	}
 	if name != "Inbox" || rootPath != "" {
 		t.Errorf("orphan landed in %q (root %q), want the rootless Inbox", name, rootPath)
+	}
+
+	// A database that never had an orphan session must never grow an Inbox
+	// row either -- an empty category must not be drawn, and that includes not
+	// being created.
+	clean, err := Open(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clean.Close()
+	var inboxRows int
+	if err := clean.DB.QueryRow(`SELECT COUNT(*) FROM projects WHERE id='project_inbox'`).
+		Scan(&inboxRows); err != nil {
+		t.Fatal(err)
+	}
+	if inboxRows != 0 {
+		t.Errorf("Inbox was created in a database with no orphan sessions")
 	}
 }
