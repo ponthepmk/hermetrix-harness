@@ -1,4 +1,4 @@
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", selectedSkill: null, selectedSession: null, selectedProject: null, sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"" };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0 };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -18,6 +18,7 @@ function formatDate(value) { return value ? new Intl.DateTimeFormat("th-TH", { d
 function pill(text, tone = "") { return `<span class="pill ${tone}">${escapeHTML(text)}</span>`; }
 
 let toastTimer;
+let capabilitySearchTimer;
 function toast(message, error = false) {
   const node = $("#toast");
   node.textContent = message;
@@ -30,10 +31,18 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
 }
 
-function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "", danger = false }) {
+function activateWorkbenchChrome(name) {
+  state.workbenchTab = name;
+  $$(".workbench-tab").forEach(node => node.classList.toggle("active", node.dataset.workbench === name));
+  $("#inspector").classList.add("open");
+  $(".shell").classList.remove("workbench-closed");
+}
+
+function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "", danger = false, eyebrow = "Review decision" }) {
   const dialog = $("#actionDialog");
   const form = $("#actionForm");
   const input = $("#actionInput");
+  $("#actionEyebrow").textContent = eyebrow;
   $("#actionTitle").textContent = title;
   $("#actionMessage").textContent = message;
   $("#actionConfirm").textContent = confirmLabel;
@@ -51,6 +60,11 @@ function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "",
       resolve(value);
     };
     form.onsubmit = event => { event.preventDefault(); finish(reasonLabel ? input.value.trim() : true); };
+    // The reason field is a textarea, so a bare Enter has to stay a newline.
+    // Without this the only way to confirm was to reach for the mouse.
+    input.onkeydown = event => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); form.requestSubmit(); }
+    };
     $("#actionCancel").onclick = () => finish(null);
     $("#actionClose").onclick = () => finish(null);
     dialog.oncancel = event => { event.preventDefault(); finish(null); };
@@ -61,15 +75,27 @@ function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "",
 
 async function load() {
   try {
-    const [data, projects, jobs, artifacts, settings, memories, backups, usage, fidelityCases, fidelityRuns, qualifications, curatorFindings, schedules, gcRuns, skillAuthority, authorityActions] = await Promise.all([
-      api("/api/bootstrap"), api("/api/projects"), api("/api/jobs"), api("/api/artifacts"), api("/api/settings"),
+    const [data, projects, jobs, artifacts, terminals, browserTabs, teams, teamRuns, settings, memories, backups, usage, fidelityCases, fidelityRuns, qualifications, curatorFindings, schedules, gcRuns, skillAuthority, authorityActions] = await Promise.all([
+      api("/api/bootstrap"), api("/api/projects"), api("/api/jobs"), api("/api/artifacts"),
+      api("/api/terminals"), api("/api/browser/tabs"), api("/api/teams"), api("/api/team-runs"), api("/api/settings"),
       api("/api/memories"), api("/api/backups"), api("/api/usage"), api("/api/fidelity/cases"), api("/api/fidelity/runs"),
       api("/api/qualifications"), api("/api/curator/findings"), api("/api/maintenance/schedules"), api("/api/maintenance/gc"),
       api("/api/skill-authority"), api("/api/skill-authority/actions")
     ]);
     Object.assign(state, data);
-    Object.assign(state, { projects, jobs, artifacts, settings, memories, backups, usage, fidelityCases, fidelityRuns, qualifications, curatorFindings, schedules, gcRuns, skillAuthority, authorityActions });
-    if (!state.selectedProject && projects.length) state.selectedProject = projects[0].id;
+    // Belt to the server's braces: one endpoint answering null instead of []
+    // used to throw here and leave every panel in the cockpit unrendered.
+    const list = value => (Array.isArray(value) ? value : []);
+    Object.assign(state, { projects: list(projects), jobs: list(jobs), artifacts: list(artifacts),
+      terminals: list(terminals), browserTabs: list(browserTabs), teams: list(teams), teamRuns: list(teamRuns),
+      settings: list(settings), memories: list(memories), backups: list(backups), usage: usage || {},
+      fidelityCases: list(fidelityCases), fidelityRuns: list(fidelityRuns), qualifications: list(qualifications),
+      curatorFindings: list(curatorFindings), schedules: list(schedules), gcRuns: list(gcRuns),
+      skillAuthority, authorityActions: list(authorityActions) });
+    if (!state.selectedProject && state.projects.length) state.selectedProject = state.projects[0].id;
+    if (!state.selectedTerminal && state.terminals.length) state.selectedTerminal = state.terminals.find(item => item.state === "running")?.id || state.terminals[0].id;
+    if (!state.selectedBrowserTab && state.browserTabs.length) state.selectedBrowserTab = state.browserTabs.find(item => item.state === "ready")?.id || state.browserTabs[0].id;
+    if (!state.selectedTeam && state.teams.length) state.selectedTeam = state.teams[0].id;
     if (state.selectedProject) state.projectFiles = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/files?path=`);
     renderAll();
   } catch (error) { toast(error.message, true); }
@@ -83,13 +109,17 @@ function renderAll() {
     renderProjects, renderOffice, renderArtifacts, renderFidelity, renderMaintenance]) {
     try { render(); } catch (error) { console.error(`${render.name} failed`, error); }
   }
-  const waiting = state.candidates.filter(item => ["needs_review", "quarantined"].includes(item.state)).length;
+  state.pendingProposals = state.candidates.filter(item => ["needs_review", "quarantined"].includes(item.state)).length;
+  state.pendingReviews = state.reviews.filter(item => item.state === "queued" || item.state === "running").length;
+  const waiting = state.pendingProposals + state.pendingReviews;
   $("#proposalBadge").hidden = waiting === 0;
   $("#proposalBadge").textContent = waiting;
-  $("#tabProposalCount").textContent = waiting;
-  const queuedReviews = state.reviews.filter(item => item.state === "queued" || item.state === "running").length;
-  $("#tabReviewCount").textContent = queuedReviews;
-  switchTab(state.activeTab, false);
+  // The rail's one settings row has to say why it is worth opening.
+  $("#settingsSubtitle").textContent = waiting
+    ? `${waiting} waiting on you`
+    : `${state.providers.filter(item => item.enabled).length} models · ${state.mcp_servers.length} tool servers`;
+  switchTab(state.activeTab);
+  if (!$(".shell").classList.contains("workbench-closed")) renderCurrentWorkbench();
 }
 
 function renderStats() {
@@ -110,18 +140,47 @@ function renderLibrary() {
   });
   const root = $("#view-library");
   const policy = state.skillAuthority;
-  const policyPanel = policy ? `<div class="panel authority-panel"><div class="proposal-head"><div><p class="eyebrow">Skill authority</p><h3>${policy.mode === "manual" ? "Manual review" : "Gated automation"}</h3><p>Automation can promote only trusted agent/reviewer candidates that pass checks, replay, scope and token gates. Capability widening always remains manual.</p></div>${pill(`policy r${policy.revision}`, policy.mode === "manual" ? "blue" : "amber")}</div><form id="authorityForm"><div class="form-grid"><label>Mode<select name="mode"><option value="manual" ${policy.mode === "manual" ? "selected" : ""}>Manual · safest default</option><option value="gated_automation" ${policy.mode === "gated_automation" ? "selected" : ""}>Gated automation</option></select></label><label>Candidate token ceiling<input name="max_candidate_tokens" type="number" min="256" max="16384" value="${policy.max_candidate_tokens}"></label></div><div class="authority-checks"><label class="check-label"><input name="auto_create" type="checkbox" ${policy.auto_promote_agent_create ? "checked" : ""}> Auto-promote trusted agent-created Skills</label><label class="check-label"><input name="auto_improve" type="checkbox" ${policy.auto_promote_agent_improve ? "checked" : ""}> Auto-promote no-regression improvements</label><label class="check-label"><input name="auto_archive" type="checkbox" ${policy.auto_archive_agent_skills ? "checked" : ""}> Let curator archive stale agent Skills with undo</label></div><fieldset><legend>Allowed scopes</legend>${["user","workspace","agent"].map(scope => `<label class="check-label"><input name="scope" value="${scope}" type="checkbox" ${(policy.allowed_scopes || []).includes(scope) ? "checked" : ""}> ${scope}</label>`).join("")}</fieldset><label>Change reason<input name="reason" required maxlength="1000" placeholder="Why this authority policy is appropriate"></label><div class="action-row"><button class="primary">Save authority policy</button><button class="ghost" type="button" id="runAuthorityButton">Evaluate pending candidates</button></div></form>${state.authorityActions.length ? `<div class="authority-actions"><h4>Recent automated decisions</h4>${state.authorityActions.slice(0,5).map(action => `<article><div>${pill(action.state,action.state === "completed" ? "green" : action.state === "failed" ? "red" : "amber")}<strong>${escapeHTML(action.action_kind)}</strong><small>policy r${action.policy_revision} · ${formatDate(action.created_at)}</small></div>${action.error ? `<p>${escapeHTML(action.error)}</p>` : ""}${action.state === "completed" && !action.rollback_candidate_id ? `<button class="ghost" data-authority-rollback="${escapeHTML(action.id)}">Create rollback</button>` : ""}</article>`).join("")}</div>` : ""}</div>` : "";
-  const list = items.length ? `<div class="skill-list">${items.map(item => `
-    <article class="skill-row ${state.selectedSkill === item.id ? "selected" : ""}" data-skill-id="${escapeHTML(item.id)}" tabindex="0">
-      <div><div class="row-title"><h3>${escapeHTML(item.canonical_name)}</h3>${pill(item.state, item.state === "active" ? "green" : "amber")}${item.pinned ? pill("pinned", "blue") : ""}</div>
+  const policyPanel = policy ? `<details class="panel authority-panel"><summary><div><p class="eyebrow">Skill authority</p><h3>${policy.mode === "manual" ? "Manual review" : "Gated automation"}</h3><p>Automation can promote only trusted agent/reviewer candidates that pass checks, replay, scope and token gates. Capability widening always remains manual.</p></div>${pill(`policy r${policy.revision}`, policy.mode === "manual" ? "blue" : "amber")}</summary><div class="authority-panel-body"><form id="authorityForm"><div class="form-grid"><label>Mode<select name="mode"><option value="manual" ${policy.mode === "manual" ? "selected" : ""}>Manual · safest default</option><option value="gated_automation" ${policy.mode === "gated_automation" ? "selected" : ""}>Gated automation</option></select></label><label>Candidate token ceiling<input name="max_candidate_tokens" type="number" min="256" max="16384" value="${policy.max_candidate_tokens}"></label></div><div class="authority-checks"><label class="check-label"><input name="auto_create" type="checkbox" ${policy.auto_promote_agent_create ? "checked" : ""}> Auto-promote trusted agent-created Skills</label><label class="check-label"><input name="auto_improve" type="checkbox" ${policy.auto_promote_agent_improve ? "checked" : ""}> Auto-promote no-regression improvements</label><label class="check-label"><input name="auto_archive" type="checkbox" ${policy.auto_archive_agent_skills ? "checked" : ""}> Let curator archive stale agent Skills with undo</label></div><fieldset><legend>Allowed scopes</legend>${["user","workspace","agent"].map(scope => `<label class="check-label"><input name="scope" value="${scope}" type="checkbox" ${(policy.allowed_scopes || []).includes(scope) ? "checked" : ""}> ${scope}</label>`).join("")}</fieldset><label>Change reason<input name="reason" required maxlength="1000" placeholder="Why this authority policy is appropriate"></label><div class="action-row"><button class="primary">Save authority policy</button><button class="ghost" type="button" id="runAuthorityButton">Evaluate pending candidates</button></div></form>${state.authorityActions.length ? `<div class="authority-actions"><h4>Recent automated decisions</h4>${state.authorityActions.slice(0,5).map(action => `<article><div>${pill(action.state,action.state === "completed" ? "green" : action.state === "failed" ? "red" : "amber")}<strong>${escapeHTML(action.action_kind)}</strong><small>policy r${action.policy_revision} · ${formatDate(action.created_at)}</small></div>${action.error ? `<p>${escapeHTML(action.error)}</p>` : ""}${action.state === "completed" && !action.rollback_candidate_id ? `<button class="ghost" data-authority-rollback="${escapeHTML(action.id)}">Create rollback</button>` : ""}</article>`).join("")}</div>` : ""}</div></details>` : "";
+  // A Skill the agent promoted on its own has to be findable and undoable, or
+  // "you can review it afterwards" is not a real offer. The action that
+  // promoted it is the thing that can be rolled back, so the row carries it.
+  const promotionBySkill = new Map();
+  for (const action of state.authorityActions) {
+    if (action.action_kind === "auto_promote" && action.state === "completed" && action.skill_id
+        && !action.rollback_candidate_id && !promotionBySkill.has(action.skill_id)) {
+      promotionBySkill.set(action.skill_id, action);
+    }
+  }
+  const list = items.length ? `<div class="skill-list">${items.map(item => {
+    const promotion = promotionBySkill.get(item.id);
+    return `<article class="skill-row ${state.selectedSkill === item.id ? "selected" : ""}" data-skill-id="${escapeHTML(item.id)}" tabindex="0">
+      <div><div class="row-title"><h3>${escapeHTML(item.canonical_name)}</h3>${pill(item.state, item.state === "active" ? "green" : "amber")}${item.pinned ? pill("pinned", "blue") : ""}${promotion ? pill("promoted by agent", "amber") : ""}</div>
       <p>${escapeHTML(item.summary || "No summary in the active manifest")}</p>
-      <div class="meta">${pill(item.scope_kind)}${pill(item.origin)}${pill(item.owner)}</div></div>
-      <div class="metric"><strong>${item.injected_count}</strong>injected · ${item.success_count} success</div>
-    </article>`).join("")}</div>` : `<div class="empty"><h3>${state.skills.length ? "No matching skills" : "No active skills yet"}</h3><p>Use + New proposal to create a custom Skill. It enters the candidate workspace first and never bypasses checks.</p></div>`;
-  root.innerHTML = `${policyPanel}${list}`;
+      <div class="meta">${pill(item.scope_kind)}${pill(item.origin)}${pill(item.owner)}</div>
+      ${promotion ? `<p class="skill-promotion">Hermetrix promoted this on ${escapeHTML(formatDate(promotion.completed_at || promotion.created_at))} under policy r${promotion.policy_revision}. Open it to edit, or undo it here.</p><div class="action-row"><button class="ghost" data-revert-promotion="${escapeHTML(promotion.id)}">Undo this promotion</button></div>` : ""}</div>
+      <div class="skill-row-actions"><div class="metric"><strong>${item.injected_count}</strong>injected · ${item.success_count} success</div><button class="ghost" type="button" data-mention-skill="${escapeHTML(item.id)}">Use in chat</button></div>
+    </article>`;
+  }).join("")}</div>` : `<div class="empty"><h3>${state.skills.length ? "No matching skills" : "No active skills yet"}</h3><p>Use + New Skill to write one yourself. Hermetrix also writes Skills as it works; those appear here marked as promoted by agent.</p></div>`;
+  // Skill Studio opens on what a person came to do -- read the library, add a
+  // Skill -- with the authority policy folded away behind its own summary
+  // rather than sitting above the list it governs.
+  const intro = `<section class="skill-studio-intro"><div><p class="eyebrow">Skill Studio</p><h3>${state.skills.filter(item => item.state === "active").length} active Skills, ${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length} waiting on you</h3><p>Agent and curator changes start as candidates. Manual mode requires your promotion; gated automation may promote only inside the policy below, records provenance, and always leaves a rollback path. Capability widening remains manual.</p></div><div class="action-row"><button class="ghost" type="button" id="studioReviewButton">Review proposals</button><button class="primary" type="button" id="studioCreateButton">+ New proposal</button></div></section>`;
+  root.innerHTML = `${intro}${policyPanel}${list}`;
+  $("#studioReviewButton")?.addEventListener("click", () => switchTab("proposals"));
+  $("#studioCreateButton")?.addEventListener("click", openCandidateDialog);
   $("#authorityForm")?.addEventListener("submit", saveAuthorityPolicy);
   $("#runAuthorityButton")?.addEventListener("click", runAuthorityPolicy);
   $$('[data-authority-rollback]', root).forEach(button => button.addEventListener("click", () => rollbackAuthorityAction(button.dataset.authorityRollback)));
+  $$('[data-mention-skill]', root).forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const skill = state.skills.find(item => item.id === button.dataset.mentionSkill);
+    if (skill) mentionSkill(skill);
+  }));
+  $$("[data-revert-promotion]", root).forEach(button => button.addEventListener("click", event => {
+    // The row itself opens the Skill, so an action inside it must not also.
+    event.stopPropagation();
+    rollbackAuthorityAction(button.dataset.revertPromotion);
+  }));
   $$("[data-skill-id]", root).forEach(node => {
     const open = () => inspectSkill(node.dataset.skillId);
     node.addEventListener("click", open);
@@ -135,21 +194,29 @@ async function inspectSkill(id) {
     state.selectedSkill = id;
     renderLibrary();
     const { skill, version } = data;
+    state.selectedSkillDetail = data;
+    activateWorkbenchChrome("review");
     const attempts = skill.success_count + skill.failure_count;
     const observed = attempts ? `${skill.success_count}/${attempts} observed success` : "No explicit outcomes yet";
-    $("#inspector").innerHTML = `
-      <div class="inspect-head"><p class="eyebrow">Active capability</p><h2>${escapeHTML(skill.canonical_name)}</h2><div class="meta">${pill(skill.state,"green")}${pill(skill.scope_kind)}${pill(skill.origin)}</div></div>
+    $("#workbenchContent").innerHTML = `
+      <div class="inspect-head"><div class="provider-head"><div><p class="eyebrow">Active capability</p><h2>${escapeHTML(skill.canonical_name)}</h2></div><button class="ghost" id="closeSkillInspect">Session review</button></div><div class="meta">${pill(skill.state,"green")}${pill(skill.scope_kind)}${pill(skill.origin)}</div></div>
       <section class="inspect-section"><h3>Provenance</h3><div class="kv"><span>Owner</span><strong>${escapeHTML(skill.owner)}</strong><span>Version</span><span class="hash">${escapeHTML(version.id)}</span><span>Content</span><span class="hash">${escapeHTML(version.content_hash)}</span><span>Author</span><span>${escapeHTML(version.author_actor)}</span><span>Changed</span><span>${formatDate(version.created_at)}</span></div></section>
       <section class="inspect-section"><h3>Usage evidence</h3><div class="kv"><span>Selected</span><strong>${skill.selected_count}</strong><span>Injected</span><strong>${skill.injected_count}</strong><span>Outcome</span><span>${observed}</span><span>Last used</span><span>${formatDate(skill.last_used_at)}</span></div></section>
       <section class="inspect-section"><h3>Current SKILL.md</h3><pre>${escapeHTML(version.markdown)}</pre></section>
-      <section class="inspect-section"><h3>Selection controls</h3><p>Changes affect new sessions only. Existing Session Contracts keep their exact Skill version and cache prefix.</p><div class="action-row"><button class="ghost" id="toggleEnabled">${skill.enabled ? "Disable for new sessions" : "Enable for new sessions"}</button><button class="ghost" id="togglePinned">${skill.pinned ? "Unpin" : "Pin"}</button></div></section>
+      <section class="inspect-section"><h3>Selection controls</h3><p>Changes affect new sessions only. Existing Session Contracts keep their exact Skill version and cache prefix.</p><div class="action-row"><button class="primary" id="mentionSelectedSkill">Use in chat</button><button class="ghost" id="toggleEnabled">${skill.enabled ? "Disable for new sessions" : "Enable for new sessions"}</button><button class="ghost" id="togglePinned">${skill.pinned ? "Unpin" : "Pin"}</button></div></section>
       <section class="inspect-section"><h3>Reversible actions</h3><p>Editing starts from this exact version as a proposal. Forking creates a user-owned custom Skill. Archiving preserves the snapshot and history.</p><div class="action-row"><button class="primary" id="improveSelected">Propose improvement</button><button class="ghost" id="forkSelected">Fork as custom</button><button class="danger" id="archiveSelected">Archive skill</button></div></section>`;
-    $("#inspector").classList.add("open");
     $("#improveSelected").addEventListener("click", () => proposeImprovement(skill));
     $("#forkSelected").addEventListener("click", () => forkSkill(skill));
     $("#archiveSelected").addEventListener("click", () => archiveSkill(skill));
     $("#toggleEnabled").addEventListener("click", () => updateSkillControl(skill, "enabled", !skill.enabled));
     $("#togglePinned").addEventListener("click", () => updateSkillControl(skill, "pinned", !skill.pinned));
+    $("#mentionSelectedSkill").addEventListener("click", () => mentionSkill(skill));
+    $("#closeSkillInspect").addEventListener("click", () => {
+      state.selectedSkillDetail = null;
+      state.selectedSkill = null;
+      renderLibrary();
+      renderWorkbenchReview();
+    });
   } catch (error) { toast(error.message, true); }
 }
 
@@ -171,7 +238,7 @@ async function archiveSkill(skill) {
   try {
     await api(`/api/skills/${encodeURIComponent(skill.id)}/archive`, { method: "POST", body: JSON.stringify({ actor: "user", reason }) });
     state.selectedSkill = null;
-    $("#inspector").innerHTML = `<div class="empty-inspector"><span class="orb">✓</span><h2>Archived safely</h2><p>The exact version remains available in Archive and restore creates a new proposal.</p></div>`;
+    $("#workbenchContent").innerHTML = `<div class="empty-inspector"><span class="orb">✓</span><h2>Archived safely</h2><p>The exact version remains available in Archive and restore creates a new proposal.</p></div>`;
     toast("Skill archived — snapshot retained");
     await load();
   } catch (error) { toast(error.message, true); }
@@ -295,12 +362,12 @@ async function inspectCandidate(id) {
     const [item, replays] = await Promise.all([api(`/api/candidates/${encodeURIComponent(id)}`), api(`/api/candidates/${encodeURIComponent(id)}/replays`)]);
     const replay = replays[0];
     const addedTools = replay?.summary?.added_tools || [];
-    $("#inspector").innerHTML = `<div class="inspect-head"><p class="eyebrow">Untrusted candidate</p><h2>${escapeHTML(item.canonical_name)}</h2><div class="meta">${pill(item.state,item.checks.passed ? "green" : "red")}${pill(`revision ${item.revision}`)}</div></div>
+    activateWorkbenchChrome("review");
+    $("#workbenchContent").innerHTML = `<div class="inspect-head"><p class="eyebrow">Untrusted candidate</p><h2>${escapeHTML(item.canonical_name)}</h2><div class="meta">${pill(item.state,item.checks.passed ? "green" : "red")}${pill(`revision ${item.revision}`)}</div></div>
       <section class="inspect-section"><h3>Evidence</h3><p>${escapeHTML(item.reason)}</p><div class="meta">${(item.evidence_refs || []).map(ref => pill(ref)).join("") || pill("manual")}</div></section>
       <section class="inspect-section"><h3>Candidate SKILL.md</h3><textarea id="candidateEditor" rows="18">${escapeHTML(item.markdown)}</textarea><div class="action-row"><button class="primary" id="saveCandidateEdit">Save & re-run checks</button></div></section>
       <section class="inspect-section"><h3>Checks</h3><div class="kv"><span>Lint</span><strong>${item.checks.lint_passed ? "pass" : "fail"}</strong><span>Security</span><strong>${item.checks.security_passed ? "pass" : "fail"}</strong><span>Replay</span><strong>${item.checks.replay_required ? (item.checks.replay_passed ? "pass" : "required") : "not required"}</strong><span>Footprint</span><span>${item.checks.token_estimate} tokens</span></div></section>
       <section class="inspect-section"><h3>Deterministic replay & bounded diff</h3>${replay ? `<div class="kv"><span>Runner</span><strong>${escapeHTML(replay.runner_revision)}</strong><span>Binding</span><span>r${replay.candidate_revision} · ${shortHash(replay.candidate_hash)}</span><span>Fixtures</span><strong>${replay.candidate_passed}/${replay.fixtures_total}</strong><span>Regressions</span><strong>${replay.regressions}</strong></div>${addedTools.length ? `<p class="form-note">Capability widening: ${addedTools.map(escapeHTML).join(", ")}</p>` : ""}<ul class="findings">${(replay.cases || []).map(test => `<li class="${test.candidate_passed ? "" : "error"}"><strong>${escapeHTML(test.id)}</strong> — baseline ${test.baseline_passed ? "pass" : "fail"}, candidate ${test.candidate_passed ? "pass" : "fail"}</li>`).join("")}</ul><pre>${escapeHTML(replay.diff || "No line changes")}</pre>` : `<p>No replay has been recorded for this revision.</p>`}<div class="action-row"><button class="ghost" id="runCandidateReplay">Run exact replay</button>${addedTools.length ? `<button class="primary" id="approveCandidateTools">Approve widened tools</button>` : ""}</div></section>`;
-    $("#inspector").classList.add("open");
     $("#saveCandidateEdit").addEventListener("click", () => saveCandidateEdit(item));
     $("#runCandidateReplay").addEventListener("click", () => runCandidateReplay(item));
     $("#approveCandidateTools")?.addEventListener("click", () => reviewCandidateTools(item));
@@ -467,27 +534,82 @@ function suggestedOverrideReason(provider, profile) {
   return parts.join("; ") + ".";
 }
 
+// A tool call and its receipt are one action, and reading them meant expanding
+// two separate rows that named the same tool. toolArgumentsPreview,
+// toolReceiptOf and toolOutputPreview are shared by the paired card below and
+// by the unpaired fallbacks above, which are what a call still in flight or a
+// receipt whose call has been compacted away renders as.
+function toolArgumentsPreview(event) {
+  let preview = String(event.content || "");
+  if (event.metadata?.tool_name === "workspace.write_file") {
+    // A whole file body in the transcript buries the path and the expected
+    // hash, which are the two things worth reading before an approval.
+    try {
+      const args = JSON.parse(preview);
+      preview = JSON.stringify({ path:args.path, content:`[${String(args.content || "").length} characters; inspect approval preview]`, expected_sha256:args.expected_sha256 });
+    } catch {}
+  } else if (preview.length > 900) {
+    preview = `${preview.slice(0,900)}…`;
+  }
+  return preview;
+}
+
+function toolReceiptOf(event) {
+  try { return JSON.parse(event.content); } catch { return {}; }
+}
+
+function toolOutputPreview(receipt) {
+  const preview = String(receipt.output || receipt.error || "No inline output");
+  return preview.length > 900 ? `${preview.slice(0,900)}…` : preview;
+}
+
+// groupTimeline pairs each tool_call with the tool_result carrying the same
+// tool_call_id. Events keep their original order, so an unpaired call still
+// appears exactly where it happened.
+function groupTimeline(events) {
+  const resultByCall = new Map();
+  for (const event of events) {
+    const callID = event.event_kind === "tool_result" ? event.metadata?.tool_call_id : "";
+    if (callID) resultByCall.set(callID, event);
+  }
+  const paired = new Set();
+  const items = [];
+  for (const event of events) {
+    if (event.event_kind === "tool_call") {
+      const callID = event.metadata?.tool_call_id;
+      const result = callID ? resultByCall.get(callID) : null;
+      if (result) {
+        paired.add(callID);
+        items.push({ kind:"tool_step", call:event, result });
+        continue;
+      }
+    } else if (event.event_kind === "tool_result" && paired.has(event.metadata?.tool_call_id)) {
+      continue;
+    }
+    items.push({ kind:"event", event });
+  }
+  return items;
+}
+
+function renderTimelineItem(item) {
+  if (item.kind !== "tool_step") return renderTimelineEvent(item.event);
+  const receipt = toolReceiptOf(item.result);
+  const status = receipt.status || item.result.metadata?.tool_status || "receipt";
+  const succeeded = status === "succeeded";
+  const name = receipt.name || item.call.metadata?.tool_name || "tool";
+  return `<details class="tool-receipt step"><summary>${pill(status, succeeded ? "green" : "red")}<strong>${escapeHTML(name)}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></summary><div class="tool-detail"><p class="tool-step-label">Arguments</p><code>${escapeHTML(toolArgumentsPreview(item.call))}</code><p class="tool-step-label">Result</p><pre>${escapeHTML(toolOutputPreview(receipt))}</pre><small>call ${escapeHTML(shortHash(item.result.metadata?.tool_call_id))} · bound ${escapeHTML(shortHash(item.call.metadata?.step_binding_id))}</small></div></details>`;
+}
+
 function renderTimelineEvent(event) {
   if (event.event_kind === "message" && ["user", "assistant"].includes(event.role)) {
     return `<article class="chat-message ${event.role}"><div class="message-role">${event.role === "user" ? "You" : "Hermetrix"}</div><div class="message-body">${escapeHTML(event.content)}</div>${event.role === "assistant" && event.metadata?.step_binding_id ? `<div class="message-proof">bound ${escapeHTML(shortHash(event.metadata.step_binding_id))} · ${event.metadata.usage?.total_tokens || 0} tokens</div>` : ""}</article>`;
   }
   if (event.event_kind === "tool_call") {
-    let argumentsPreview = String(event.content || "");
-    if (event.metadata?.tool_name === "workspace.write_file") {
-      try {
-        const args = JSON.parse(argumentsPreview);
-        argumentsPreview = JSON.stringify({ path:args.path, content:`[${String(args.content || "").length} characters; inspect approval preview]`, expected_sha256:args.expected_sha256 });
-      } catch {}
-    } else if (argumentsPreview.length > 900) {
-      argumentsPreview = `${argumentsPreview.slice(0,900)}…`;
-    }
-    return `<article class="tool-receipt request"><div>${pill("tool request","blue")}<strong>${escapeHTML(event.metadata?.tool_name || "unknown tool")}</strong></div><code>${escapeHTML(argumentsPreview)}</code><small>bound ${escapeHTML(shortHash(event.metadata?.step_binding_id))}</small></article>`;
+    return `<details class="tool-receipt request"><summary>${pill("tool request","blue")}<strong>${escapeHTML(event.metadata?.tool_name || "unknown tool")}</strong><span>running…</span></summary><div class="tool-detail"><p class="tool-step-label">Arguments</p><code>${escapeHTML(toolArgumentsPreview(event))}</code><small>bound ${escapeHTML(shortHash(event.metadata?.step_binding_id))}</small></div></details>`;
   }
   if (event.event_kind === "tool_result") {
-    let receipt = {};
-    try { receipt = JSON.parse(event.content); } catch {}
-    const preview = String(receipt.output || receipt.error || "No inline output");
-    return `<article class="tool-receipt result"><div>${pill(receipt.status || event.metadata?.tool_status || "receipt", receipt.status === "succeeded" ? "green" : "red")}<strong>${escapeHTML(receipt.name || event.metadata?.tool_name || "tool")}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></div><pre>${escapeHTML(preview.length > 900 ? `${preview.slice(0,900)}…` : preview)}</pre><small>call ${escapeHTML(shortHash(event.metadata?.tool_call_id))}</small></article>`;
+    const receipt = toolReceiptOf(event);
+    return `<details class="tool-receipt result"><summary>${pill(receipt.status || event.metadata?.tool_status || "receipt", receipt.status === "succeeded" ? "green" : "red")}<strong>${escapeHTML(receipt.name || event.metadata?.tool_name || "tool")}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></summary><div class="tool-detail"><p class="tool-step-label">Result</p><pre>${escapeHTML(toolOutputPreview(receipt))}</pre><small>call ${escapeHTML(shortHash(event.metadata?.tool_call_id))}</small></div></details>`;
   }
   if (event.event_kind === "approval_required") {
     const approval = (state.sessionDetail?.approvals || []).find(item => item.id === event.metadata?.approval_id);
@@ -502,9 +624,89 @@ function renderTimelineEvent(event) {
   return "";
 }
 
+// An elicitation is a remote server asking the person at the keyboard a
+// question, in the server's own words. Those words are untrusted content, so
+// the card says which server is speaking and never renders them as if they came
+// from Hermetrix. The schema the server asked for drives the fields; with no
+// schema it is one free-text answer.
+function elicitationCardHTML(item) {
+  let properties = {};
+  let required = [];
+  try {
+    const schema = item.schema ? JSON.parse(item.schema) : null;
+    if (schema && schema.type === "object" && schema.properties) {
+      properties = schema.properties;
+      required = Array.isArray(schema.required) ? schema.required : [];
+    }
+  } catch {}
+  const names = Object.keys(properties).slice(0, 12);
+  const fields = names.length
+    ? names.map(name => {
+        const field = properties[name] || {};
+        const label = escapeHTML(field.title || name);
+        const help = field.description ? `<small>${escapeHTML(field.description)}</small>` : "";
+        const need = required.includes(name) ? "required" : "";
+        if (Array.isArray(field.enum) && field.enum.length) {
+          return `<label>${label}${help}<select name="${escapeHTML(name)}" ${need}>${field.enum.slice(0, 40).map(value => `<option value="${escapeHTML(String(value))}">${escapeHTML(String(value))}</option>`).join("")}</select></label>`;
+        }
+        if (field.type === "boolean") {
+          return `<label class="check-label"><input type="checkbox" name="${escapeHTML(name)}"> ${label}</label>${help}`;
+        }
+        const kind = field.type === "number" || field.type === "integer" ? "number" : "text";
+        return `<label>${label}${help}<input type="${kind}" name="${escapeHTML(name)}" ${need}></label>`;
+      }).join("")
+    : `<label>Your answer<input type="text" name="answer" required></label>`;
+  return `<article class="elicitation-card">
+    <div class="elicitation-head">${pill("question from a tool server", "amber")}<strong>${escapeHTML(item.server_name)}</strong></div>
+    <p class="elicitation-message">${escapeHTML(item.message)}</p>
+    <form data-elicit-accept="${escapeHTML(item.id)}">${fields}
+      <div class="action-row"><button class="ghost" type="button" data-elicit-decline="${escapeHTML(item.id)}">Decline</button><button class="primary" type="submit">Send answer</button></div>
+    </form>
+    <small>Waiting since ${escapeHTML(formatDate(item.asked_at))}. Unanswered questions are cancelled automatically, and the server is told so.</small>
+  </article>`;
+}
+
+async function answerElicitation(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const content = {};
+  for (const [key, value] of new FormData(form).entries()) content[key] = value;
+  for (const box of $$('input[type="checkbox"]', form)) content[box.name] = box.checked;
+  await sendElicitationAnswer(form.dataset.elicitAccept, { accept: true, content });
+}
+
+async function declineElicitation(id) { await sendElicitationAnswer(id, { accept: false }); }
+
+async function sendElicitationAnswer(id, body) {
+  try {
+    await api(`/api/elicitations/${encodeURIComponent(id)}/answer`, { method:"POST", body:JSON.stringify(body) });
+    state.elicitations = state.elicitations.filter(item => item.id !== id);
+    toast(body.accept ? "Answer sent to the tool server" : "Declined; the server was told");
+    renderChat();
+  } catch (error) { toast(error.message, true); }
+}
+
+// pollElicitations runs only while a turn is in flight, because that is the
+// only time a server can be waiting on one.
+async function pollElicitations() {
+  if (!state.sending || !state.selectedSession) return;
+  try {
+    const items = await api(`/api/elicitations?session_id=${encodeURIComponent(state.selectedSession)}`);
+    const changed = JSON.stringify(items) !== JSON.stringify(state.elicitations);
+    state.elicitations = Array.isArray(items) ? items : [];
+    if (changed) renderChat();
+  } catch {}
+  if (state.sending) setTimeout(pollElicitations, 1200);
+}
+
 function renderChat() {
   const root = $("#view-chat");
   if (!root) return;
+  // Streaming re-renders this whole view on every delta. Take the composer's
+  // draft, caret and focus before the markup is replaced so they can be put
+  // back afterwards; without this, typing while a turn streams loses a
+  // character every time a token arrives.
+  captureComposer();
   const enabledProviders = state.providers.filter(provider => provider.enabled);
   if (!state.draftProviderID || !enabledProviders.some(provider => provider.id === state.draftProviderID)) {
     state.draftProviderID = enabledProviders[0]?.id || null;
@@ -525,53 +727,229 @@ function renderChat() {
     (admission.admitted || (needsOverride && overrideReason.length >= 8)));
   const selectedID = state.sessionDetail?.session?.id || state.selectedSession;
   const timeline = (state.sessionDetail?.events || []).filter(event => ["message", "tool_call", "tool_result", "approval_required", "approval_decision"].includes(event.event_kind));
+  // An MCP server can stop mid tool call to ask a question. It is waiting on
+  // the answer right now, so it is rendered after the transcript rather than
+  // inside it: it is not history yet.
+  const questions = state.elicitations.filter(item => item.session_id === selectedID);
   const session = state.sessionDetail?.session;
-  root.innerHTML = `<div class="chat-layout">
-    <aside class="session-panel">
-      <div class="session-create">
-        <p class="eyebrow">New session</p>
-        <label>Provider<select id="chatProviderSelect" ${enabledProviders.length ? "" : "disabled"}>${enabledProviders.length ? enabledProviders.map(provider => `<option value="${escapeHTML(provider.id)}" ${provider.id === state.draftProviderID ? "selected" : ""}>${escapeHTML(provider.name)} · ${escapeHTML(provider.model)}</option>`).join("") : `<option>No provider</option>`}</select></label>
-        <label>Project<select id="chatProjectSelect">${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}<option value="" ${state.draftProjectID ? "" : "selected"}>No project · chat only</option></select></label>
-        <label>Context<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => {
-          const status = profileAdmission(draftProvider, profile);
-          const note = status.blocking ? "too small for this model"
-            : status.mode === "qualified" ? "qualified"
-            : status.mode === "compatibility" ? "ready"
-            : "one-click override";
-          return `<option value="${profile.name}" ${profile.name === state.draftProfileName ? "selected" : ""} ${status.blocking ? "disabled" : ""}>${profileLabel(profile)} · ${status.budget.toLocaleString()} answer tokens · ${note}</option>`;
-        }).join("")}</select></label>
-        ${draftProfile ? `<div class="session-readiness ${admission.admitted ? "ready" : needsOverride ? "review" : "blocked"}">
-          <p class="readiness-line">${admission.admitted
-            ? (admission.mode === "qualified" ? `Bound to qualification ${escapeHTML(shortHash(admission.qualification.id))}.` : `Ready. ${admission.budget.toLocaleString()} tokens for the answer.`)
-            : needsOverride ? `No local qualification can exist for a remote endpoint, so this envelope opens under a reviewed 24-hour override. The reason below is recorded with the session.`
-            : `${escapeHTML(profileLabel(draftProfile))} leaves only ${admission.budget.toLocaleString()} answer tokens because ${escapeHTML(draftProvider.model)} spends about ${Math.round((draftProvider.reasoning_ratio || 0) * 100)}% of its output reasoning. The server refuses anything under ${MINIMUM_ANSWER_BUDGET}. Choose a larger envelope.`}</p>
-          ${needsOverride ? `<details class="override-details"><summary>Override reason (edit if you want)</summary><textarea id="chatQualificationReason" rows="4" minlength="8">${escapeHTML(overrideReason)}</textarea></details>` : ""}
-        </div>` : ""}
-        <button class="primary" id="newSessionButton" ${canStart ? "" : "disabled"}>${needsOverride ? "Start session with override" : "+ Start session"}</button>
+  const contract = session?.contract || {};
+  const skillCatalog = contract.skill_catalog || [];
+  const selectedSkills = contract.selected_skills || [];
+  const directTools = contract.tool_bindings || [];
+  const readyMCPTools = Number(state.capability_summary?.by_readiness?.ready || 0);
+  const projectName = state.projects.find(item => item.id === session?.project_id)?.name || "No project";
+  // Starting a session is one button. Provider, project and context are a
+  // remembered default shown as a single line, and the three selects that used
+  // to greet every new session live behind Options. Choosing a model is
+  // configuration, not something to redo before each conversation.
+  state.sessionReady = canStart;
+  const draftProjectName = state.projects.find(item => item.id === state.draftProjectID)?.name || "No project · chat only";
+  // Options stays shut unless the user opened it. It used to spring open
+  // whenever an override was needed, which is most remote endpoints, and the
+  // three selects plus a full explanation then filled the rail from the brand
+  // to the settings row. The summary line carries the fact; the explanation
+  // lives behind Options where someone can go and read it.
+  const optionsOpen = state.sessionOptionsOpen;
+  const dock = $("#sessionDock");
+  dock.innerHTML = `<div class="session-create">${enabledProviders.length ? `
+        <p class="session-summary" title="Change these under Options">${escapeHTML(draftProvider ? `${draftProvider.name} · ${draftProvider.model}` : "No model")}<span>${escapeHTML(draftProfile ? profileLabel(draftProfile) : "no envelope")} · ${escapeHTML(draftProjectName)}</span></p>
+        ${draftProvider && !draftProvider.credential_ready ? `<p class="session-error" role="alert">${escapeHTML(draftProvider.name)} has no API key. Open Models and paste one — it takes effect immediately.</p>` : ""}
+        ${draftProfile && !admission.admitted && !needsOverride ? `<p class="session-error" role="alert">Only ${admission.budget.toLocaleString()} answer tokens left. Choose a larger envelope under Options.</p>` : ""}
+        ${needsOverride ? `<p class="session-note">Opens under a reviewed 24-hour override. The reason is recorded with the session and editable under Options.</p>` : ""}
         ${state.sessionError ? `<p class="session-error" role="alert">${escapeHTML(state.sessionError)}</p>` : ""}
-        ${draftProvider && !draftProvider.credential_ready ? `<p class="form-note">Set server environment variable <code>${escapeHTML(draftProvider.api_key_env)}</code> before starting a session.</p>` : ""}
-      </div>
-      <div class="session-list">${state.sessions.length ? state.sessions.map(item => `<button class="session-item ${item.id === selectedID ? "active" : ""}" data-session-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.model)} · ${escapeHTML(item.context_profile)}</span></button>`).join("") : `<div class="session-empty">No sessions yet</div>`}</div>
-    </aside>
-    <section class="chat-stage">
-      ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
-        <div class="message-list" id="messageList">${timeline.length ? timeline.map(renderTimelineEvent).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
-        <form class="composer" id="chatForm"><textarea id="chatInput" rows="3" maxlength="1048576" placeholder="ส่งข้อความถึง Hermetrix…" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>${enabledProviders.length ? "Start an agent session" : "Configure a provider first"}</h3><p>${enabledProviders.length ? "Choose a provider and a context envelope. The selected envelope cannot exceed the provider declaration." : "Provider profiles keep endpoint and model metadata only. Credentials stay in server environment variables."}</p>${enabledProviders.length ? "" : `<button class="primary" id="openProvidersButton">Open providers</button>`}</div>`}
-    </section>
-  </div>`;
+        <details class="session-options" id="sessionOptions" ${optionsOpen ? "open" : ""}><summary>Options</summary><div class="session-options-body">
+          <label>Model<select id="chatProviderSelect">${enabledProviders.map(provider => `<option value="${escapeHTML(provider.id)}" ${provider.id === state.draftProviderID ? "selected" : ""}>${escapeHTML(provider.name)} · ${escapeHTML(provider.model)}</option>`).join("")}</select></label>
+          <label>Project<select id="chatProjectSelect">${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}<option value="" ${state.draftProjectID ? "" : "selected"}>No project · chat only</option></select></label>
+          <label>Context<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => {
+            const status = profileAdmission(draftProvider, profile);
+            const note = status.blocking ? "too small for this model"
+              : status.mode === "qualified" ? "qualified"
+              : status.mode === "compatibility" ? "ready"
+              : "one-click override";
+            return `<option value="${profile.name}" ${profile.name === state.draftProfileName ? "selected" : ""} ${status.blocking ? "disabled" : ""}>${profileLabel(profile)} · ${status.budget.toLocaleString()} answer tokens · ${note}</option>`;
+          }).join("")}</select></label>
+          ${draftProfile && admission.admitted ? `<p class="readiness-line">${admission.mode === "qualified" ? `Bound to qualification ${escapeHTML(shortHash(admission.qualification.id))}.` : `${admission.budget.toLocaleString()} tokens for the answer.`}</p>` : ""}
+          ${needsOverride ? `<div class="session-readiness review"><p class="readiness-line">No local qualification can exist for a remote endpoint, so this envelope opens under a reviewed 24-hour override.</p><textarea id="chatQualificationReason" rows="3" minlength="8">${escapeHTML(overrideReason)}</textarea></div>` : ""}
+        </div></details>` : `
+        <div class="session-needs-model"><p>No model connected yet. Connect one and every session picks it up — no environment variable, no restart.</p><button class="primary" id="openProvidersFromDock">Connect a model</button></div>`}
+      </div><div class="session-list">${state.sessions.length ? state.sessions.map((item, index) => {
+        // The model and envelope repeat down the whole list when every session
+        // uses the same ones, which is the common case. Drawing them once per
+        // run of identical sessions halves the height of the list and loses
+        // nothing: a row with no meta line has the same meta as the row above.
+        const meta = `${item.model} · ${item.context_profile}`;
+        const previous = state.sessions[index - 1];
+        const repeated = previous && `${previous.model} · ${previous.context_profile}` === meta;
+        return `<div class="session-row"><button class="session-item ${item.id === selectedID ? "active" : ""} ${repeated ? "terse" : ""}" data-session-id="${escapeHTML(item.id)}" title="${escapeHTML(`${item.title} — ${meta}`)}"><strong>${escapeHTML(item.title)}</strong>${repeated ? "" : `<span>${escapeHTML(meta)}</span>`}</button><button class="session-delete" data-delete-session="${escapeHTML(item.id)}" title="Delete this session" aria-label="Delete ${escapeHTML(item.title)}">×</button></div>`;
+      }).join("") : `<div class="session-empty">No sessions yet</div>`}</div>`;
+  const railStart = $("#railNewSession");
+  railStart.disabled = enabledProviders.length > 0 && !canStart;
+  // One short label on one line. Which envelope it opens under is the summary
+  // line's job, not the button's.
+  railStart.textContent = "＋ New session";
+  root.innerHTML = `<div class="chat-layout"><section class="chat-stage">
+      ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">Skills <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">Direct tools <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP ready <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
+        <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
+        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">＋ Skills & tools</button><button type="button" class="composer-tool-button" id="composerFilesButton">Files</button><button type="button" class="composer-tool-button" id="composerTerminalButton">Terminal</button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, Shift+Enter adds a line, @ picks a Skill or tool" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press ＋ New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p>${enabledProviders.length ? "" : `<button class="primary" id="openProvidersButton">Connect a model</button>`}</div>`}
+    </section></div>`;
   $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
   $("#chatProjectSelect")?.addEventListener("change", event => { state.draftProjectID = event.target.value; });
   $("#chatProfileSelect")?.addEventListener("change", event => { state.draftProfileName = event.target.value; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
   // Update state without re-rendering: the textarea lives inside an open
   // <details>, and a re-render would collapse it and take the caret with it.
-  $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; $("#newSessionButton").disabled=event.target.value.trim().length < 8; });
-  $("#newSessionButton")?.addEventListener("click", createAgentSession);
-  $$("[data-session-id]", root).forEach(button => button.addEventListener("click", () => selectSession(button.dataset.sessionId)));
+  $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; $("#railNewSession").disabled=event.target.value.trim().length < 8; });
+  // Remember whether Options is open across the re-render each select triggers.
+  $("#sessionOptions")?.addEventListener("toggle", event => { state.sessionOptionsOpen = event.target.open; });
+  $("#openProvidersFromDock")?.addEventListener("click", () => switchTab("providers"));
+  $$("[data-session-id]", dock).forEach(button => button.addEventListener("click", () => selectSession(button.dataset.sessionId)));
+  $$("[data-delete-session]", dock).forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    deleteSession(button.dataset.deleteSession);
+  }));
+  $$("[data-elicit-accept]", root).forEach(form => form.addEventListener("submit", answerElicitation));
+  $$("[data-elicit-decline]", root).forEach(button => button.addEventListener("click", () => declineElicitation(button.dataset.elicitDecline)));
   $$("[data-approve-tool]", root).forEach(button => button.addEventListener("click", () => decideToolApproval(button.dataset.approveTool, "approve")));
   $$("[data-deny-tool]", root).forEach(button => button.addEventListener("click", () => decideToolApproval(button.dataset.denyTool, "deny")));
+  $$("[data-open-capabilities]", root).forEach(button => button.addEventListener("click", () => openCapabilityPicker(button.dataset.openCapabilities)));
+  $("#composerCapabilityButton")?.addEventListener("click", () => openCapabilityPicker("all"));
+  $("#composerFilesButton")?.addEventListener("click", () => switchWorkbench("files"));
+  $("#composerTerminalButton")?.addEventListener("click", () => switchWorkbench("terminal"));
+  bindComposer();
   $("#chatForm")?.addEventListener("submit", sendTurn);
   $("#openProvidersButton")?.addEventListener("click", () => switchTab("providers"));
-  requestAnimationFrame(() => { const list = $("#messageList"); if (list) list.scrollTop = list.scrollHeight; });
+  requestAnimationFrame(() => {
+    const list = $("#messageList");
+    if (!list) return;
+    // A pending approval is the one thing the turn is waiting on, so put it on
+    // screen rather than the bottom of a transcript that has scrolled past it.
+    const pending = $(".approval-card [data-approve-tool]", list);
+    if (pending) pending.closest(".approval-card").scrollIntoView({ block: "nearest" });
+    else list.scrollTop = list.scrollHeight;
+  });
+}
+
+// Every action answers two questions and no others: did the press register,
+// and what is it doing now. The answer belongs on the control that was pressed
+// -- a toast is for something that happened somewhere else, and it is gone in
+// under three seconds, which is the wrong place for a failure.
+//
+// The label while working names the work. "Discovering this server's tools" is
+// an answer; "Loading" is a word that fills the same space and says nothing.
+async function runAction(button, { working, done, run }) {
+  if (!button || button.dataset.actionState === "working") return;
+  const idle = button.textContent;
+  const previousError = button.parentElement?.querySelector(".action-error");
+  previousError?.remove();
+  button.dataset.actionState = "working";
+  button.setAttribute("aria-busy", "true");
+  button.disabled = true;
+  button.textContent = working;
+  try {
+    const result = await run();
+    button.dataset.actionState = "done";
+    button.textContent = done;
+    // Work that finished says so and holds long enough to read, rather than
+    // snapping back as though nothing happened.
+    setTimeout(() => {
+      button.removeAttribute("data-action-state");
+      button.removeAttribute("aria-busy");
+      button.disabled = false;
+      button.textContent = idle;
+    }, motionMS("--dur-hold-done"));
+    return result;
+  } catch (error) {
+    button.dataset.actionState = "failed";
+    button.removeAttribute("aria-busy");
+    button.disabled = false;
+    button.textContent = idle;
+    // The failure stays next to the button until the next attempt.
+    const note = document.createElement("p");
+    note.className = "action-error";
+    note.textContent = error.message;
+    button.parentElement?.appendChild(note);
+    return undefined;
+  }
+}
+
+// motionMS reads a duration token so JavaScript timing and CSS timing cannot
+// drift apart. A number typed here would be the second answer this file spent
+// a whole rule avoiding.
+function motionMS(token) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  const value = parseFloat(raw) || 0;
+  return raw.endsWith("ms") ? value : value * 1000;
+}
+
+/* --- Composer keys ---------------------------------------------------------
+   Sending took Cmd-Enter and nothing else, which is not what a message box
+   does anywhere else: Enter sends, Shift-Enter writes a second line. The rest
+   of these exist because the box is re-rendered on every streamed token, and
+   an input that loses your draft or your cursor while you type into it is
+   worse than one with no shortcuts at all. */
+function bindComposer() {
+  const input = $("#chatInput");
+  if (!input) return;
+
+  // The draft survives the re-render that each streamed delta triggers.
+  input.value = state.draftMessage || "";
+  input.addEventListener("input", event => {
+    if (event.target.value.endsWith("@")) {
+      event.target.value = event.target.value.slice(0, -1);
+      state.draftMessage = event.target.value;
+      openCapabilityPicker("all");
+      return;
+    }
+    state.draftMessage = event.target.value;
+  });
+
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.isComposing) {
+      // Cmd/Ctrl-Enter keeps working: it was the only way to send for a while
+      // and fingers remember it.
+      event.preventDefault();
+      $("#chatForm")?.requestSubmit();
+      return;
+    }
+    if (event.key === "Escape" && event.target.value) {
+      // Clear the draft, keep the caret here. Escape with an empty box does
+      // nothing so it can still reach whatever is behind the composer.
+      event.preventDefault();
+      event.target.value = "";
+      state.draftMessage = "";
+      return;
+    }
+    if (event.key === "ArrowUp" && !event.target.value && !state.sending) {
+      // An empty box plus Up recalls what you last said, which is how you fix
+      // a typo in a message you have already sent without retyping it.
+      const previous = [...(state.sessionDetail?.events || [])]
+        .reverse().find(item => item.event_kind === "message" && item.role === "user");
+      if (!previous) return;
+      event.preventDefault();
+      event.target.value = previous.content;
+      state.draftMessage = previous.content;
+      event.target.setSelectionRange(previous.content.length, previous.content.length);
+    }
+  });
+
+  // Restore the caret and the focus the re-render just took away, but only if
+  // the person was already typing here.
+  if (state.composerFocused && !state.sending) {
+    input.focus();
+    const caret = Math.min(state.composerCaret ?? input.value.length, input.value.length);
+    input.setSelectionRange(caret, caret);
+  }
+}
+
+// captureComposer reads where the caret is and whether the box has focus, and
+// it runs before the re-render rather than from a blur handler: replacing the
+// element does not reliably fire blur, and by the time the new one is bound the
+// old one is already gone.
+function captureComposer() {
+  const input = $("#chatInput");
+  if (!input) return;
+  state.composerFocused = document.activeElement === input;
+  state.composerCaret = input.selectionStart;
+  state.draftMessage = input.value;
 }
 
 async function createAgentSession() {
@@ -608,11 +986,39 @@ async function createAgentSession() {
   }
 }
 
+// Deleting a session removes the conversation. The dialog says what survives,
+// because "delete" on a harness that keeps provenance means something narrower
+// than it does elsewhere, and a user who assumes otherwise is being misled.
+async function deleteSession(id) {
+  const session = state.sessions.find(item => item.id === id);
+  if (!session) return;
+  const approved = await askAction({
+    eyebrow: "Session",
+    title: `Delete "${session.title}"?`,
+    message: "The transcript, its context snapshots and any pending approvals are removed. What was learned stays: Skills, reviews and usage evidence are kept, and files this session produced are kept and detached from it.",
+    confirmLabel: "Delete session",
+    danger: true
+  });
+  if (!approved) return;
+  try {
+    await api(`/api/sessions/${encodeURIComponent(id)}`, { method:"DELETE" });
+    if (state.selectedSession === id) {
+      state.selectedSession = null;
+      state.sessionDetail = null;
+    }
+    toast("Session deleted");
+    await load();
+    switchTab("chat");
+  } catch (error) { toast(error.message, true); }
+}
+
 async function selectSession(id) {
   try {
     state.selectedSession = id;
+    state.selectedSkillDetail = null;
     state.sessionDetail = await api(`/api/sessions/${encodeURIComponent(id)}`);
     renderChat();
+    if (state.workbenchTab === "review" && !$(".shell").classList.contains("workbench-closed")) renderWorkbenchReview();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -622,8 +1028,12 @@ async function sendTurn(event) {
   const input = $("#chatInput");
   const content = input.value.trim();
   if (!content) return;
+  state.draftMessage = "";
+  state.composerCaret = 0;
+  state.composerFocused = true;
   state.sending = true;
   renderChat();
+  setTimeout(pollElicitations, 600);
   const sessionID = state.sessionDetail.session.id;
   try {
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionID)}/turns`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ content }) });
@@ -638,6 +1048,7 @@ async function sendTurn(event) {
     await selectSession(sessionID).catch(() => {});
   } finally {
     state.sending = false;
+    state.elicitations = [];
     renderChat();
   }
 }
@@ -724,22 +1135,71 @@ async function consumeAgentStream(response) {
   if (failedMessage) throw new Error(failedMessage);
 }
 
+// Connecting a model is four fields and a key, so those come first and the
+// registry's tuning knobs go behind Advanced. The API key is a plain field:
+// requiring an environment variable and a server restart to try a model was
+// the single biggest reason this page could not be used.
+const MODEL_FLOW = [
+  ["Connect", "Name the endpoint, paste the API key. It is saved to this machine only — never to the database, a backup or a log."],
+  ["Test", "One cheap request proves the endpoint, the model name and the key actually work together."],
+  ["Qualify", "A full run measures real capacity so a context envelope is admitted on evidence, not on a declared number."],
+  ["Use", "Start a session. Provider, model, context snapshot and policy are frozen for every turn."]
+];
+
 function renderProviders() {
   const root = $("#view-providers");
   if (!root) return;
-  root.innerHTML = `<div class="provider-grid"><div class="panel"><p class="eyebrow">Provider registry</p><h3>Add OpenAI-compatible provider</h3><form id="providerForm">
-      <label>Name<input name="name" required maxlength="80" placeholder="My local gateway"></label>
-      <label>Base URL<input name="base_url" required type="url" placeholder="https://host.example/v1"></label>
-      <label>Model<input name="model" required maxlength="240" placeholder="qwen model ID"></label>
-      <label>API key environment variable<input name="api_key_env" pattern="[A-Z][A-Z0-9_]{1,126}" placeholder="HERMETRIX_PROVIDER_API_KEY"></label>
-      <div class="form-grid"><label>Context window<input name="context_window" type="number" min="4096" max="2097152" value="131072" required></label><label>Max output<input name="max_output_tokens" type="number" min="128" value="8192" required></label></div>
-      <p class="form-note neutral">Hermetrix stores only the environment variable name. Secret values never enter the browser, API payload, SQLite or logs.</p>
-      <button class="primary">Save provider</button>
-    </form><section class="inspect-section"><h3>Qualification controls</h3><label>Requested profile<select id="qualificationProfile">${state.profiles.map(profile => `<option value="${profile.name}" ${profile.name === "certified-64k" ? "selected" : ""}>${profileLabel(profile)}</option>`).join("")}</select></label><label>Optional local runtime<select id="qualificationRuntime"><option value="">None · behavioral only</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="vllm">vLLM</option><option value="llamacpp">llama.cpp</option></select></label><label>Runtime endpoint<input id="qualificationEndpoint" value="http://127.0.0.1:11434"></label><p class="form-note neutral">Eligibility is never silently downgraded. Missing allocation evidence remains limited.</p></section></div>
-    <div><div class="card-list">${state.providers.length ? state.providers.map(provider => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(provider.name)}</h3>${pill(provider.enabled ? "enabled" : "disabled", provider.enabled ? "green" : "amber")}${pill(provider.context_evidence, provider.context_evidence === "qualified" ? "green" : "amber")}</div><p>${escapeHTML(provider.base_url)}</p></div>${pill(provider.credential_ready ? "credential ready" : "credential missing", provider.credential_ready ? "green" : "red")}</div><div class="kv"><span>Adapter</span><strong>${escapeHTML(provider.adapter_kind)}</strong><span>Model</span><span>${escapeHTML(provider.model)}</span><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><span>${provider.max_output_tokens.toLocaleString()}</span><span>Secret ref</span><code>${escapeHTML(provider.api_key_env || "none")}</code></div><div class="action-row"><button class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Connectivity</button><button class="primary" data-qualify-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Full qualification</button></div></article>`).join("") : `<div class="empty"><h3>No providers configured</h3><p>Add a local or remote HTTPS OpenAI-compatible endpoint. More adapter families can implement the same contract later.</p></div>`}</div><div class="card-list qualification-list">${state.qualifications.map(run => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(run.provider_name)} · ${escapeHTML(run.model)}</h3><p>${formatDate(run.completed_at || run.started_at)}</p></div>${pill(`grade ${run.capability_grade}`, run.capability_grade === "A" ? "green" : run.capability_grade === "B" ? "amber" : "red")}</div><div class="kv"><span>Context tier</span><strong>${escapeHTML(run.context_tier)}</strong><span>Allocated</span><strong>${Number(run.allocated_context || 0).toLocaleString()}</strong><span>Requested</span><span>${escapeHTML(run.requested_profile)}</span><span>Eligibility</span><strong>${run.eligible ? "eligible" : "explicit decision required"}</strong><span>TTFT</span><span>${run.results.ttft_milliseconds || 0} ms</span><span>Throughput</span><span>${Number(run.results.tokens_per_second || 0).toFixed(1)} tok/s</span></div>${(run.remediation || []).length ? `<ul class="findings">${run.remediation.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}</article>`).join("")}</div></div></div>`;
+  const list = state.providers;
+  const qualified = list.filter(item => item.context_evidence === "qualified").length;
+  const metrics = [
+    [list.length.toLocaleString(), "connected"],
+    [list.filter(item => item.credential_stored).length.toLocaleString(), "key saved"],
+    [qualified.toLocaleString(), "qualified"]
+  ];
+  const hero = `<section class="capability-hero"><div class="capability-hero-head"><div><p class="eyebrow">Models</p><h3>${list.length ? `${list.length} model${list.length === 1 ? "" : "s"} connected` : "No model connected yet"}</h3><p>Any OpenAI-compatible endpoint works — a hosted API or a local runtime. Paste the key here; there is nothing to put in your shell and nothing to restart.</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
+  const cards = list.length ? list.map(provider => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(provider.name)}</h3>${pill(provider.enabled ? "enabled" : "disabled", provider.enabled ? "green" : "amber")}${pill(provider.context_evidence, provider.context_evidence === "qualified" ? "green" : "amber")}</div><p>${escapeHTML(provider.base_url)}</p></div>${pill(provider.credential_stored ? "key saved" : provider.api_key_env ? "key from environment" : "no key set", provider.credential_stored || provider.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(provider.model)}</strong><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><span>${provider.max_output_tokens.toLocaleString()}</span><span>Key source</span><span>${provider.credential_stored ? "saved on this machine" : provider.api_key_env ? `environment · ${escapeHTML(provider.api_key_env)}` : "none required"}</span></div><div class="action-row"><button class="ghost" data-provider-key="${escapeHTML(provider.id)}">${provider.credential_stored ? "Replace API key" : "Set API key"}</button><button class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Test connection</button><button class="primary" data-qualify-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Full qualification</button></div></article>`).join("") : `<div class="empty"><h3>No model connected</h3><p>Open the Model registry panel and connect one. A hosted endpoint needs its API key; a local runtime usually needs none.</p></div>`;
+  const flow = `<div class="panel"><p class="eyebrow">How connecting works</p><div class="tool-flow">${MODEL_FLOW.map(([title, detail], index) => `<article><b>${index + 1}</b><div><strong>${escapeHTML(title)}</strong><small>${escapeHTML(detail)}</small></div></article>`).join("")}</div></div>`;
+  const setup = `<details class="panel connection-setup" ${list.length ? "" : "open"}><summary><div><p class="eyebrow">Model registry</p><h3>Connect a model</h3></div></summary><div class="connection-setup-body"><form id="providerForm">
+      <label>Name<input name="name" required maxlength="80" placeholder="OpenAI, my local gateway…"></label>
+      <label>Base URL<input name="base_url" required type="url" placeholder="https://api.openai.com/v1"></label>
+      <label>Model<input name="model" required maxlength="240" placeholder="model ID from your provider"></label>
+      <label>API key<input name="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key — leave empty for a local model"></label>
+      <p class="form-note neutral">The key is written to <code>secrets.json</code> in your data directory with owner-only permissions. It never enters the database, a backup export, a log line or any API response.</p>
+      <details class="advanced-fields"><summary>Advanced</summary><div class="advanced-fields-body">
+        <div class="form-grid"><label>Context window<input name="context_window" type="number" min="4096" max="2097152" value="131072" required></label><label>Max output<input name="max_output_tokens" type="number" min="128" value="8192" required></label></div>
+        <label>Read the key from an environment variable instead<input name="api_key_env" pattern="[A-Z][A-Z0-9_]{1,126}" placeholder="HERMETRIX_PROVIDER_API_KEY"></label>
+        <p class="form-note neutral">A saved key wins over the variable. Use the variable when a process manager or secret manager injects it.</p>
+      </div></details>
+      <button class="primary">Connect model</button>
+    </form></div></details>
+    <details class="panel connection-setup"><summary><div><p class="eyebrow">Qualification</p><h3>Measurement controls</h3></div></summary><div class="connection-setup-body"><label>Requested profile<select id="qualificationProfile">${state.profiles.map(profile => `<option value="${profile.name}" ${profile.name === "certified-64k" ? "selected" : ""}>${profileLabel(profile)}</option>`).join("")}</select></label><label>Optional local runtime<select id="qualificationRuntime"><option value="">None · behavioral only</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="vllm">vLLM</option><option value="llamacpp">llama.cpp</option></select></label><label>Runtime endpoint<input id="qualificationEndpoint" value="http://127.0.0.1:11434"></label><p class="form-note neutral">Eligibility is never silently downgraded. Missing allocation evidence remains limited.</p></div></details>`;
+  const runs = state.qualifications.length ? `<div class="mcp-connection-head"><h3>Qualification runs</h3>${pill(`${state.qualifications.length} recorded`, "blue")}</div><div class="card-list qualification-list">${state.qualifications.map(run => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(run.provider_name)} · ${escapeHTML(run.model)}</h3><p>${formatDate(run.completed_at || run.started_at)}</p></div>${pill(`grade ${run.capability_grade}`, run.capability_grade === "A" ? "green" : run.capability_grade === "B" ? "amber" : "red")}</div><div class="kv"><span>Context tier</span><strong>${escapeHTML(run.context_tier)}</strong><span>Allocated</span><strong>${Number(run.allocated_context || 0).toLocaleString()}</strong><span>Requested</span><span>${escapeHTML(run.requested_profile)}</span><span>Eligibility</span><strong>${run.eligible ? "eligible" : "explicit decision required"}</strong><span>TTFT</span><span>${run.results.ttft_milliseconds || 0} ms</span><span>Throughput</span><span>${Number(run.results.tokens_per_second || 0).toFixed(1)} tok/s</span></div>${(run.remediation || []).length ? `<ul class="findings">${run.remediation.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}</article>`).join("")}</div>` : "";
+  root.innerHTML = `${hero}<div class="tool-center-grid"><div><div class="card-list">${cards}</div>${runs}</div><div class="tool-center-aside">${flow}${setup}</div></div>`;
   $("#providerForm")?.addEventListener("submit", saveProvider);
   $$("[data-test-provider]", root).forEach(button => button.addEventListener("click", () => testProvider(button.dataset.testProvider)));
   $$("[data-qualify-provider]", root).forEach(button => button.addEventListener("click", () => qualifyProvider(button.dataset.qualifyProvider)));
+  $$("[data-provider-key]", root).forEach(button => button.addEventListener("click", () => setProviderCredential(button.dataset.providerKey)));
+}
+
+// setProviderCredential is the "I already connected this, the key changed"
+// path. An empty answer clears the key, which is the only way to remove one.
+async function setProviderCredential(id) {
+  const provider = state.providers.find(item => item.id === id);
+  if (!provider) return;
+  const token = await askAction({
+    eyebrow: "Credential",
+    title: `API key for ${provider.name}`,
+    message: "The key is written to this machine only — never to the database, a backup export, a log line or any API response. Leave it empty to remove the saved key.",
+    confirmLabel: "Save key",
+    reasonLabel: "API key"
+  });
+  if (token === null) return;
+  try {
+    await api(`/api/providers/${encodeURIComponent(id)}/credential`, { method:"PUT", body:JSON.stringify({ api_key: token }) });
+    toast(token.trim() ? "API key saved on this machine" : "Saved API key removed");
+    await load();
+    switchTab("providers");
+  } catch (error) { toast(error.message, true); }
 }
 
 async function qualifyProvider(id) {
@@ -761,9 +1221,10 @@ async function saveProvider(event) {
   const form = event.currentTarget;
   const values = new FormData(form);
   try {
-    await api("/api/providers", { method:"POST", body:JSON.stringify({ name:values.get("name"), adapter_kind:"openai-compatible", base_url:values.get("base_url"), model:values.get("model"), api_key_env:values.get("api_key_env"), context_window:Number(values.get("context_window")), context_evidence:"declared", max_output_tokens:Number(values.get("max_output_tokens")) }) });
+    const key = String(values.get("api_key") || "");
+    await api("/api/providers", { method:"POST", body:JSON.stringify({ name:values.get("name"), adapter_kind:"openai-compatible", base_url:values.get("base_url"), model:values.get("model"), api_key:key, api_key_env:values.get("api_key_env"), context_window:Number(values.get("context_window")), context_evidence:"declared", max_output_tokens:Number(values.get("max_output_tokens")) }) });
     form.reset();
-    toast("Provider profile saved without credential material");
+    toast(key.trim() ? "Model connected and API key saved on this machine" : "Model connected");
     await load();
     switchTab("providers");
   } catch (error) { toast(error.message, true); }
@@ -779,30 +1240,126 @@ async function testProvider(id) {
   finally { renderProviders(); }
 }
 
+// The Tool Center answers "what can this thing do, and how do I let it" before
+// it asks for an endpoint. The connection form used to be the first thing on
+// the page, which put the one step that needs a decision ahead of the four that
+// explain it.
+// A capability name carries its kind: resources and prompts share the catalog
+// with tools, and a row that does not say which is which reads as one list of
+// things that all behave the same way, which they do not.
+function capabilityKind(item) {
+  const name = String(item?.name || "");
+  if (name.startsWith("resource:")) return "resource";
+  if (name.startsWith("prompt:")) return "prompt";
+  return "tool";
+}
+
+// describeCatalog says what one server published, drawing only the kinds it
+// actually has: a "0 prompts" on every tools-only server is noise. Resource and
+// prompt counts come from whatever the current search has surfaced, because the
+// catalog is searched rather than listed whole.
+function describeCatalog(serverID) {
+  const server = state.mcp_servers.find(item => item.id === serverID);
+  const counts = { tool: Number(server?.tool_count || 0), resource: 0, prompt: 0 };
+  for (const item of state.capabilityResults) {
+    if (item.source_ref !== serverID) continue;
+    const kind = capabilityKind(item);
+    if (kind !== "tool") counts[kind] += 1;
+  }
+  const parts = [];
+  if (counts.tool) parts.push(`${counts.tool} tools`);
+  if (counts.resource) parts.push(`${counts.resource} resources`);
+  if (counts.prompt) parts.push(`${counts.prompt} prompts`);
+  return parts.length ? parts.join(" · ") : "nothing yet";
+}
+
+const TOOL_FLOW = [
+  ["Connect", "Point Hermetrix at a program on this machine or at a Streamable HTTP URL. A token you paste is saved to this machine only."],
+  ["Discover", "Hermetrix replaces that server's snapshot atomically and indexes every tool at an exact revision."],
+  ["Search", "The model asks by intent and finds tools, resources and prompt templates alike. Search returns bounded metadata; a full schema loads only when one is opened."],
+  ["Approve", "Remote calls are fail-closed. You see the exact arguments and their hash before anything runs."]
+];
+
 function renderMCP() {
   const root = $("#view-mcp");
   if (!root) return;
   const summary = state.capability_summary || { total:0, by_source:{}, by_readiness:{} };
-  const selected = state.selectedCapability ? `<article class="provider-card capability-detail"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(state.selectedCapability.title || state.selectedCapability.name)}</h3>${pill(state.selectedCapability.effect, state.selectedCapability.requires_approval ? "amber" : "green")}${pill(state.selectedCapability.readiness, state.selectedCapability.readiness === "ready" ? "green" : "red")}</div><p>${escapeHTML(state.selectedCapability.description || "No description supplied by MCP server")}</p></div>${pill(state.selectedCapability.source)}</div><div class="kv"><span>Capability ID</span><code>${escapeHTML(state.selectedCapability.id)}</code><span>Revision</span><code>${escapeHTML(state.selectedCapability.revision)}</code><span>Source ref</span><code>${escapeHTML(state.selectedCapability.source_ref)}</code><span>Approval</span><strong>${state.selectedCapability.requires_approval ? "required" : "not required"}</strong></div><section class="inspect-section"><h3>Exact input schema</h3><pre>${escapeHTML(JSON.stringify(state.selectedCapability.input_schema, null, 2))}</pre></section><p class="form-note neutral">This schema is loaded on demand. It is not part of the direct model prompt until tool_describe is called.</p></article>` : `<div class="probe-empty">Select a search result to inspect its exact revision and schema.</div>`;
-  root.innerHTML = `<div class="mcp-overview"><div class="panel"><p class="eyebrow">MCP connection registry</p><h3>Add Streamable HTTP server</h3><form id="mcpForm">
-      <label>Name<input name="name" required maxlength="80" placeholder="Local knowledge tools"></label>
-      <label>MCP endpoint<input name="endpoint" required type="url" placeholder="https://host.example/mcp"></label>
-      <label>Bearer token environment variable<input name="api_key_env" pattern="[A-Z][A-Z0-9_]{1,126}" placeholder="HERMETRIX_MCP_API_KEY"></label>
-      <div class="form-grid"><label>Protocol<select name="protocol_mode"><option value="auto">Auto · current then legacy</option><option value="2026-07-28">2026-07-28 · stateless</option><option value="2025-11-25">2025-11-25 · session</option></select></label><label>Timeout ms<input name="request_timeout_ms" type="number" min="1000" max="120000" value="15000" required></label></div>
-      <label class="check-label"><input name="trust_annotations" type="checkbox"> Trust this server's risk annotations</label>
-      <p class="form-note neutral">Default is fail-closed: annotations are untrusted and every remote call requires approval. Only the environment variable name is persisted.</p>
-      <button class="primary">Save connection</button>
-    </form></div>
-    <div class="panel"><div class="provider-head"><div><p class="eyebrow">Deferred capability graph</p><h3>${Number(summary.total || 0).toLocaleString()} indexed tools</h3><p>Direct prompt remains fixed at 6 schemas.</p></div>${pill(`${summary.by_readiness?.ready || 0} ready`, "green")}</div>
+  const servers = state.mcp_servers;
+  const directCount = Number(state.sessionDetail?.session?.contract?.tool_bindings?.length || 0);
+  const directSummary = directCount ? `${directCount} direct tools in this session` : "a bounded direct-tool set";
+  const untrusted = servers.filter(server => !server.trust_annotations).length;
+  const metrics = [
+    [Number(summary.total || 0).toLocaleString(), "indexed capabilities"],
+    [Number(summary.by_readiness?.ready || 0).toLocaleString(), "ready"],
+    [servers.length.toLocaleString(), "connections"],
+    [untrusted.toLocaleString(), "approval by default"]
+  ];
+  const hero = `<section class="capability-hero"><div class="capability-hero-head"><div><p class="eyebrow">Tool Center</p><h3>${Number(summary.total || 0).toLocaleString()} deferred capabilities reachable</h3><p>Hermetrix keeps ${escapeHTML(directSummary)} in the model prompt. Tools, resources and prompt templates published by MCP servers stay deferred: indexed here, searched on demand, and loaded only when the model describes one.</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
+  const selected = state.selectedCapability ? `<article class="provider-card capability-detail"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(state.selectedCapability.title || state.selectedCapability.name)}</h3>${pill(state.selectedCapability.effect, state.selectedCapability.requires_approval ? "amber" : "green")}${pill(state.selectedCapability.readiness, state.selectedCapability.readiness === "ready" ? "green" : "red")}</div><p>${escapeHTML(state.selectedCapability.description || "No description supplied by MCP server")}</p></div>${pill(state.selectedCapability.source)}</div><div class="kv"><span>Capability ID</span><code>${escapeHTML(state.selectedCapability.id)}</code><span>Revision</span><code>${escapeHTML(state.selectedCapability.revision)}</code><span>Source ref</span><code>${escapeHTML(state.selectedCapability.source_ref)}</code><span>Approval</span><strong>${state.selectedCapability.requires_approval ? "required" : "not required"}</strong></div><section class="inspect-section"><h3>Exact input schema</h3><pre>${escapeHTML(JSON.stringify(state.selectedCapability.input_schema, null, 2))}</pre></section><p class="form-note neutral">This schema is loaded on demand. It is not part of the direct model prompt until tool_describe is called.</p><div class="action-row"><button class="primary" type="button" data-use-capability="${escapeHTML(state.selectedCapability.id)}">Use in chat</button></div></article>` : `<div class="probe-empty">Search the catalog, then open a result to read its exact revision and schema.</div>`;
+  const search = `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Deferred capability graph</p><h3>Find a tool by what it does</h3></div>${pill(`${summary.by_readiness?.ready || 0} ready`, "green")}</div>
       <form id="capabilitySearchForm" class="capability-search"><label>Search catalog<input id="capabilityQuery" required placeholder="calendar, repository search, database…"></label><button class="ghost">Search</button></form>
-      <div id="capabilityResults">${state.capabilityResults.length ? state.capabilityResults.map(item => `<button class="capability-result" data-capability-id="${escapeHTML(item.id)}"><span><strong>${escapeHTML(item.title || item.name)}</strong><small>${escapeHTML(item.description || "No description")}</small></span><span>${pill(item.effect, item.requires_approval ? "amber" : "green")}${pill(item.readiness, item.readiness === "ready" ? "green" : "red")}</span></button>`).join("") : `<div class="probe-empty">Search returns bounded metadata only—never the complete catalog schemas.</div>`}</div>
-      ${selected}
-    </div></div>
-    <div class="card-list mcp-server-list">${state.mcp_servers.length ? state.mcp_servers.map(server => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(server.name)}</h3>${pill(server.status, server.status === "ready" ? "green" : server.status === "error" ? "red" : "amber")}${pill(server.last_protocol || server.protocol_mode, "blue")}</div><p>${escapeHTML(server.endpoint)}</p></div>${pill(server.credential_ready ? "credential ready" : "credential missing", server.credential_ready ? "green" : "red")}</div><div class="kv"><span>Transport</span><strong>${escapeHTML(server.transport_kind)}</strong><span>Tools</span><strong>${Number(server.tool_count).toLocaleString()}</strong><span>Timeout</span><span>${server.request_timeout_ms.toLocaleString()} ms</span><span>Risk hints</span><strong>${server.trust_annotations ? "trusted by user" : "untrusted · approval default"}</strong><span>Secret ref</span><code>${escapeHTML(server.api_key_env || "none")}</code><span>Discovered</span><span>${formatDate(server.last_discovered_at)}</span></div>${server.last_error ? `<ul class="findings"><li class="error">${escapeHTML(server.last_error)}</li></ul>` : ""}<div class="action-row"><button class="ghost" data-discover-mcp="${escapeHTML(server.id)}" ${server.enabled && server.credential_ready ? "" : "disabled"}>Discover atomically</button></div></article>`).join("") : `<div class="empty"><h3>No MCP connections</h3><p>Add a Streamable HTTP endpoint. Discovery is explicit and replaces each server snapshot atomically.</p></div>`}</div>`;
+      <div id="capabilityResults">${state.capabilityResults.length ? state.capabilityResults.map(item => `<button class="capability-result" data-capability-id="${escapeHTML(item.id)}"><span><strong>${escapeHTML(item.title || item.name)}</strong><small>${escapeHTML(item.description || "No description")}</small></span><span>${pill(capabilityKind(item), "blue")}${pill(item.effect, item.requires_approval ? "amber" : "green")}${pill(item.readiness, item.readiness === "ready" ? "green" : "red")}</span></button>`).join("") : `<div class="probe-empty">Search returns bounded metadata only—never the complete catalog schemas.</div>`}</div>
+      ${selected}</div>`;
+  const serverList = `<div class="mcp-connection-head"><h3>Connections</h3>${pill(`${servers.filter(server => server.status === "ready").length}/${servers.length} ready`, servers.length && servers.every(server => server.status === "ready") ? "green" : "amber")}</div>
+    <div class="card-list mcp-server-list">${servers.length ? servers.map(server => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(server.name)}</h3>${pill(server.status, server.status === "ready" ? "green" : server.status === "error" ? "red" : "amber")}${pill(server.last_protocol || server.protocol_mode, "blue")}</div><p><code>${escapeHTML(server.endpoint)}</code></p></div>${pill(server.credential_stored ? "token saved" : server.api_key_env ? "token from environment" : "no token set", server.credential_stored || server.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Runs as</span><strong>${server.transport_kind === "stdio" ? "local program" : "remote URL"}</strong><span>Publishes</span><strong>${escapeHTML(describeCatalog(server.id))}</strong><span>Timeout</span><span>${server.request_timeout_ms.toLocaleString()} ms</span><span>Risk hints</span><strong>${server.trust_annotations ? "trusted by user" : "untrusted · approval default"}</strong><span>Token source</span><span>${server.credential_stored ? "saved on this machine" : server.api_key_env ? `environment · ${escapeHTML(server.api_key_env)}` : "none required"}</span><span>Discovered</span><span>${formatDate(server.last_discovered_at)}</span></div>${server.last_error ? `<ul class="findings"><li class="error">${escapeHTML(server.last_error)}</li></ul>` : ""}<div class="action-row"><button class="ghost" data-mcp-key="${escapeHTML(server.id)}">${server.credential_stored ? "Replace token" : "Set token"}</button><button class="primary" data-discover-mcp="${escapeHTML(server.id)}" ${server.enabled && server.credential_ready ? "" : "disabled"}>Discover catalog</button></div></article>`).join("") : `<div class="empty"><h3>No MCP connections yet</h3><p>Connect one in the registry panel: most published MCP servers are a program you launch, such as <code>npx -y @modelcontextprotocol/server-everything</code>. Nothing reaches the model until you run discovery.</p></div>`}</div>`;
+  const flow = `<div class="panel"><p class="eyebrow">How a tool call happens</p><div class="tool-flow">${TOOL_FLOW.map(([title, detail], index) => `<article><b>${index + 1}</b><div><strong>${escapeHTML(title)}</strong><small>${escapeHTML(detail)}</small></div></article>`).join("")}</div></div>`;
+  const setup = `<details class="panel connection-setup" ${servers.length ? "" : "open"}><summary><div><p class="eyebrow">MCP connection registry</p><h3>Connect a tool server</h3></div></summary><div class="connection-setup-body"><form id="mcpForm">
+      <label>Name<input name="name" required maxlength="80" placeholder="Local knowledge tools"></label>
+      <label>How does this server run?<select name="transport_kind" id="mcpTransport"><option value="stdio">A program on this machine · stdio</option><option value="streamable-http">A URL · Streamable HTTP</option></select></label>
+      <label id="mcpEndpointLabel">Command that starts it<input name="endpoint" id="mcpEndpoint" required placeholder="npx -y @modelcontextprotocol/server-everything"></label>
+      <p class="form-note neutral" id="mcpEndpointNote">The program runs on this machine with only PATH, HOME and its own token in its environment, and it is started directly rather than through a shell. Allowed launchers: npx, node, bun, deno, uv, uvx, python, python3, docker, go.</p>
+      <label>Bearer token<input name="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the token — leave empty if the server needs none"></label>
+      <p class="form-note neutral">The token is written to <code>secrets.json</code> in your data directory with owner-only permissions. It never enters the database, a backup export, a log line or any API response.</p>
+      <label class="check-label"><input name="trust_annotations" type="checkbox"> Trust this server's risk annotations</label>
+      <p class="form-note neutral">Default is fail-closed: annotations are untrusted and every remote call requires your approval.</p>
+      <details class="advanced-fields"><summary>Advanced</summary><div class="advanced-fields-body">
+        <div class="form-grid"><label>Protocol<select name="protocol_mode"><option value="auto">Auto · current then legacy</option><option value="2026-07-28">2026-07-28 · stateless</option><option value="2025-11-25">2025-11-25 · session</option></select></label><label>Timeout ms<input name="request_timeout_ms" type="number" min="1000" max="120000" value="15000" required></label></div>
+        <label>Read the token from an environment variable instead<input name="api_key_env" pattern="[A-Z][A-Z0-9_]{1,126}" placeholder="HERMETRIX_MCP_API_KEY"></label>
+      </div></details>
+      <button class="primary">Connect server</button>
+    </form></div></details>`;
+  root.innerHTML = `${hero}<div class="tool-center-grid"><div>${search}${serverList}</div><div class="tool-center-aside">${flow}${setup}</div></div>`;
   $("#mcpForm")?.addEventListener("submit", saveMCPServer);
+  // One question at a time: the endpoint field is a command or a URL depending
+  // on the answer above it, so it renames itself rather than showing both.
+  $("#mcpTransport")?.addEventListener("change", event => {
+    const stdio = event.target.value === "stdio";
+    const field = $("#mcpEndpoint");
+    $("#mcpEndpointLabel").firstChild.textContent = stdio ? "Command that starts it" : "MCP endpoint";
+    field.placeholder = stdio ? "npx -y @modelcontextprotocol/server-everything" : "https://host.example/mcp";
+    field.type = stdio ? "text" : "url";
+    field.value = "";
+    $("#mcpEndpointNote").textContent = stdio
+      ? "The program runs on this machine with only PATH, HOME and its own token in its environment, and it is started directly rather than through a shell. Allowed launchers: npx, node, bun, deno, uv, uvx, python, python3, docker, go."
+      : "Remote endpoints must use https. Plain http is accepted only on loopback.";
+  });
   $("#capabilitySearchForm")?.addEventListener("submit", searchCapabilities);
   $$('[data-discover-mcp]', root).forEach(button => button.addEventListener("click", () => discoverMCPServer(button.dataset.discoverMcp)));
   $$('[data-capability-id]', root).forEach(button => button.addEventListener("click", () => inspectCapability(button.dataset.capabilityId)));
+  $$('[data-use-capability]', root).forEach(button => button.addEventListener("click", () => {
+    const capability = state.selectedCapability;
+    if (capability) mentionCapability({ kind:"mcp", name:capability.title || capability.name, id:capability.id });
+  }));
+  $$('[data-mcp-key]', root).forEach(button => button.addEventListener("click", () => setMCPCredential(button.dataset.mcpKey)));
+}
+
+async function setMCPCredential(id) {
+  const server = state.mcp_servers.find(item => item.id === id);
+  if (!server) return;
+  const token = await askAction({
+    eyebrow: "Credential",
+    title: `Bearer token for ${server.name}`,
+    message: "The token is written to this machine only — never to the database, a backup export, a log line or any API response. Leave it empty to remove the saved token.",
+    confirmLabel: "Save token",
+    reasonLabel: "Bearer token"
+  });
+  if (token === null) return;
+  try {
+    await api(`/api/mcp/servers/${encodeURIComponent(id)}/credential`, { method:"PUT", body:JSON.stringify({ api_key: token }) });
+    toast(token.trim() ? "Bearer token saved on this machine" : "Saved bearer token removed");
+    await load();
+    switchTab("mcp");
+  } catch (error) { toast(error.message, true); }
 }
 
 async function saveMCPServer(event) {
@@ -810,9 +1367,9 @@ async function saveMCPServer(event) {
   const form = event.currentTarget;
   const values = new FormData(form);
   try {
-    const saved = await api("/api/mcp/servers", { method:"POST", body:JSON.stringify({ name:values.get("name"), transport_kind:"streamable-http", endpoint:values.get("endpoint"), api_key_env:values.get("api_key_env"), protocol_mode:values.get("protocol_mode"), trust_annotations:values.get("trust_annotations") === "on", request_timeout_ms:Number(values.get("request_timeout_ms")) }) });
+    const saved = await api("/api/mcp/servers", { method:"POST", body:JSON.stringify({ name:values.get("name"), transport_kind:values.get("transport_kind") || "stdio", endpoint:values.get("endpoint"), api_key:String(values.get("api_key") || ""), api_key_env:values.get("api_key_env"), protocol_mode:values.get("protocol_mode"), trust_annotations:values.get("trust_annotations") === "on", request_timeout_ms:Number(values.get("request_timeout_ms")) }) });
     form.reset();
-    toast(`MCP connection ${saved.name} saved — run discovery next`);
+    toast(`Connected ${saved.name} — run discovery next`);
     await load();
     switchTab("mcp");
   } catch (error) { toast(error.message, true); }
@@ -823,7 +1380,10 @@ async function discoverMCPServer(id) {
   if (button) { button.disabled = true; button.textContent = "Discovering…"; }
   try {
     const result = await api(`/api/mcp/servers/${encodeURIComponent(id)}/discover`, { method:"POST", body:"{}" });
-    toast(`Indexed ${result.tools} tools via MCP ${result.protocol}${result.rejected ? ` · rejected ${result.rejected}` : ""}`);
+    const counted = [`${result.tools} tools`];
+    if (result.resources) counted.push(`${result.resources} resources`);
+    if (result.prompts) counted.push(`${result.prompts} prompts`);
+    toast(`Indexed ${counted.join(" · ")} via MCP ${result.protocol}${result.rejected ? ` · rejected ${result.rejected}` : ""}`);
     await load();
     switchTab("mcp");
   } catch (error) { toast(error.message, true); renderMCP(); }
@@ -861,10 +1421,9 @@ function renderContext() {
   applyDataFills(root);
 }
 
-// applyDataFills sizes every [data-fill] bar through CSSOM, which the Content
-// Security Policy permits, unlike the style attribute these used to carry.
+// Bucketed classes keep progress bars compatible with style-src 'self'.
 function applyDataFills(root) {
-  $$("[data-fill]", root).forEach(node => { node.style.width = `${node.dataset.fill}%`; });
+  $$("[data-fill]", root).forEach(node => node.classList.add(`fill-${Math.round(Number(node.dataset.fill || 0) / 5) * 5}`));
 }
 
 function renderProbeResult(result) {
@@ -920,15 +1479,73 @@ async function compileDiagnostic() {
   } catch (error) { toast(error.message, true); }
 }
 
+/* --- Folder picker ---------------------------------------------------------
+   A browser will not tell a web page where a folder is: a file input reports
+   names, never paths. So the walk happens on the server and this renders what
+   it answers. Typing a path by hand still works; this is the way that does not
+   require knowing it. */
+
+async function openFolderPicker(startPath = "") {
+  const dialog = $("#folderDialog");
+  if (!dialog) return;
+  if (!dialog.open) dialog.showModal();
+  await loadFolder(startPath);
+}
+
+async function loadFolder(path) {
+  const body = $("#folderBody");
+  if (!body) return;
+  body.innerHTML = `<p class="command-empty">Reading ${escapeHTML(path || "your home folder")}…</p>`;
+  try {
+    state.folderListing = await api(`/api/filesystem/directories?path=${encodeURIComponent(path || "")}`);
+  } catch (error) {
+    body.innerHTML = `<p class="command-empty">${escapeHTML(error.message)}</p>`;
+    return;
+  }
+  renderFolderPicker();
+}
+
+function renderFolderPicker() {
+  const listing = state.folderListing;
+  const body = $("#folderBody");
+  if (!listing || !body) return;
+  $("#folderPath").textContent = listing.path;
+  const rows = listing.entries.map(entry =>
+    `<button type="button" class="folder-row" data-folder="${escapeHTML(entry.path)}"><span>▸</span><span>${escapeHTML(entry.name)}</span></button>`).join("");
+  body.innerHTML = `${listing.parent ? `<button type="button" class="folder-row up" data-folder="${escapeHTML(listing.parent)}"><span>↑</span><span>Up to ${escapeHTML(listing.parent)}</span></button>` : ""}
+    ${listing.unreadable ? `<p class="command-empty">This folder cannot be read. Go back up and try another.</p>`
+      : rows || `<p class="command-empty">No folders inside this one. You can still choose it.</p>`}
+    ${listing.truncated ? `<p class="command-empty">Only the first 500 folders are listed. Type the path if the one you want is not here.</p>` : ""}`;
+  $$("[data-folder]", body).forEach(button => button.addEventListener("click", () => loadFolder(button.dataset.folder)));
+}
+
+function bindFolderPicker() {
+  $("#folderClose")?.addEventListener("click", () => $("#folderDialog").close());
+  $("#folderHome")?.addEventListener("click", () => loadFolder(state.folderListing?.home || ""));
+  $("#folderChoose")?.addEventListener("click", () => {
+    const chosen = state.folderListing?.path;
+    if (!chosen) return;
+    $("#folderDialog").close();
+    const field = $("#projectRoot");
+    if (!field) return;
+    field.value = chosen;
+    // Name the project after the folder unless the user already named it.
+    const name = $('#projectForm input[name="name"]');
+    if (name && !name.value.trim()) name.value = chosen.split("/").filter(Boolean).pop() || "";
+    field.focus();
+  });
+}
+
 function renderProjects() {
   const root = $("#view-projects");
   if (!root) return;
   const project = state.projects.find(item => item.id === state.selectedProject);
-  root.innerHTML = `<div class="workbench-grid"><div class="panel"><p class="eyebrow">Bounded workspace registry</p><h3>Add project</h3><form id="projectForm"><label>Name<input name="name" required maxlength="100" placeholder="My workspace"></label><label>Existing local root<input name="root_path" required placeholder="/absolute/path"></label><button class="primary">Register project</button></form><section class="inspect-section"><h3>Projects</h3><div class="project-list">${state.projects.map(item => `<button class="session-item ${item.id === state.selectedProject ? "active" : ""}" data-project-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.root_path)}</span></button>`).join("")}</div></section></div>
+  root.innerHTML = `<div class="workbench-grid"><div class="panel"><p class="eyebrow">Bounded workspace registry</p><h3>Add project</h3><form id="projectForm"><label>Name<input name="name" required maxlength="100" placeholder="My workspace"></label><label>Existing local root<span class="path-field"><input name="root_path" id="projectRoot" required placeholder="/absolute/path"><button type="button" class="ghost" id="browseRoot">Browse…</button></span></label><button class="primary">Register project</button></form><section class="inspect-section"><h3>Projects</h3><div class="project-list">${state.projects.map(item => `<button class="session-item ${item.id === state.selectedProject ? "active" : ""}" data-project-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.root_path)}</span></button>`).join("")}</div></section></div>
     <div class="panel"><div class="provider-head"><div><p class="eyebrow">Project workbench</p><h3>${escapeHTML(project?.name || "Select a project")}</h3><p>${escapeHTML(project?.root_path || "")}</p></div>${project ? pill(project.state,"green") : ""}</div>${project ? `<div class="file-browser"><div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="projectUpButton">Up</button>` : ""}</div>${state.projectFiles.map(item => `<button class="file-row" data-file-path="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${item.directory ? "◇" : "·"}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "directory" : `${Number(item.bytes).toLocaleString()} bytes`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div><section class="inspect-section"><h3>Direct background command</h3><form id="commandForm"><div class="form-grid"><label>Executable<select name="executable"><option>go</option><option>git</option><option>node</option><option>npm</option><option>python3</option><option>rg</option><option>ls</option></select></label><label>Timeout seconds<input name="timeout" type="number" min="1" max="120" value="30"></label></div><label>Arguments as JSON array<textarea name="arguments" rows="3">["test", "./..."]</textarea></label><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><p class="form-note neutral">No shell is involved. Executable allowlist, root boundary, minimal environment, timeout, output limit and process-group cancellation are enforced server-side.</p><button class="primary">Start background job</button></form></section>` : `<div class="empty"><h3>No project selected</h3><p>Register an existing local directory to create a bounded workbench.</p></div>`}</div></div>`;
   $("#projectForm")?.addEventListener("submit", createProject);
+  $("#browseRoot")?.addEventListener("click", () => openFolderPicker($("#projectRoot")?.value || ""));
   $$('[data-project-id]', root).forEach(button => button.addEventListener("click", () => selectProject(button.dataset.projectId, "")));
-  $$('[data-file-path]', root).forEach(button => button.addEventListener("click", () => { if (button.dataset.directory === "true") selectProject(state.selectedProject, button.dataset.filePath); }));
+  $$('[data-file-path]', root).forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? selectProject(state.selectedProject, button.dataset.filePath) : (activateWorkbenchChrome("files"), openWorkbenchFile(button.dataset.filePath))));
   $("#projectUpButton")?.addEventListener("click", () => selectProject(state.selectedProject, (state.projectPath || "").split("/").slice(0,-1).join("/")));
   $("#commandForm")?.addEventListener("submit", startCommand);
 }
@@ -947,6 +1564,7 @@ async function selectProject(id, path = "") {
     state.selectedProject = id; state.projectPath = path;
     state.projectFiles = await api(`/api/projects/${encodeURIComponent(id)}/files?path=${encodeURIComponent(path)}`);
     renderProjects();
+    if (state.workbenchTab === "files") renderWorkbenchFiles();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1032,44 +1650,340 @@ async function dryRunGC() { try { const run=await api("/api/maintenance/gc/dry-r
 async function applyGC(id) { const approved=await askAction({title:"Quarantine exact GC snapshot?",message:"The CAS set must still match the dry-run. Objects are moved to recoverable quarantine, never deleted.",confirmLabel:"Quarantine exact set",danger:true}); if(!approved)return; try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Exact snapshot moved to recoverable quarantine"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function restoreGC(id) { try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/restore`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Quarantined CAS objects restored after integrity verification"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 
-// TAB_GROUPS keeps the tab strip contextual. Every one of the fourteen views
-// used to be listed on every screen, next to a sidebar that already named ten of
-// them, so the strip carried no information about where you were. A view now
-// shows only its siblings, and a view with no siblings shows no strip at all.
-const TAB_GROUPS = [
-  ["library", "proposals", "learning", "insights", "archive"],
-  ["projects", "office", "artifacts"],
-  ["providers", "mcp"],
-  ["context", "fidelity"]
+let workbenchPollTimer;
+
+function switchWorkbench(tab) {
+  clearTimeout(workbenchPollTimer);
+  activateWorkbenchChrome(tab);
+  renderCurrentWorkbench();
+}
+
+function renderCurrentWorkbench() {
+  const tab = state.workbenchTab;
+  if (tab === "review") renderWorkbenchReview();
+  if (tab === "files") renderWorkbenchFiles();
+  if (tab === "terminal") renderWorkbenchTerminal();
+  if (tab === "browser") renderWorkbenchBrowser();
+  if (tab === "artifacts") renderWorkbenchArtifacts();
+  if (tab === "team") renderWorkbenchTeam();
+}
+
+function scheduleWorkbenchPoll(callback, delay = 700) {
+  clearTimeout(workbenchPollTimer);
+  if (state.workbenchTab === "terminal" || state.workbenchTab === "team") {
+    workbenchPollTimer = setTimeout(callback, delay);
+  }
+}
+
+function renderWorkbenchReview() {
+  if (state.selectedSkillDetail?.skill) {
+    inspectSkill(state.selectedSkillDetail.skill.id);
+    return;
+  }
+  const queued = state.reviews.filter(item => ["queued","running"].includes(item.state));
+  const session = state.sessionDetail?.session;
+  const contract = session?.contract || {};
+  const selectedSkills = contract.selected_skills || [];
+  const pendingApprovals = (state.sessionDetail?.approvals || []).filter(item => item.state === "pending");
+  const sessionPanel = session ? `<div class="panel session-contract-panel"><div class="provider-head"><div><p class="eyebrow">Current Session Contract</p><h3>${escapeHTML(session.title)}</h3></div>${pill(session.state, session.state === "active" ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(session.model)}</strong><span>Context</span><strong>${escapeHTML(session.context_profile)}</strong><span>Project</span><strong>${escapeHTML(state.projects.find(item => item.id === session.project_id)?.name || "chat only")}</strong><span>Skills in context</span><strong>${selectedSkills.length}</strong><span>Direct tools</span><strong>${(contract.tool_bindings || []).length}</strong><span>Pending approvals</span><strong>${pendingApprovals.length}</strong><span>Contract</span><code>${escapeHTML(shortHash(session.contract_revision))}</code><span>Capability revision</span><code>${escapeHTML(shortHash(contract.capability_revision))}</code></div>${selectedSkills.length ? `<div class="meta session-skill-list">${selectedSkills.map(item => pill(item.canonical_name,"blue")).join("")}</div>` : `<p class="form-note neutral">No Skill body is injected yet; the session can still retrieve a frozen Skill with skill_search and skill_view.</p>`}<div class="action-row"><button class="primary" id="reviewOpenCapabilities">Skills & tools</button><button class="ghost" id="reviewOpenTools">Tool Center</button></div></div>` : `<div class="panel"><p class="eyebrow">Session review</p><h3>Start or select a session</h3><p class="dialog-message">Its immutable model, context envelope, Skill catalog, direct tools and approval state will appear here beside the conversation.</p></div>`;
+  $("#workbenchContent").innerHTML = `${sessionPanel}<div class="panel"><p class="eyebrow">Authority & background work</p><h3>Evidence before authority</h3><p class="dialog-message">Skill candidates, write approvals, background reviews and command receipts stay inspectable here. Agents cannot widen authority through this room.</p><div class="kv"><span>Proposals</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>Review jobs</span><strong>${queued.length}</strong><span>Policy</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">Open Skill Studio</button><button class="ghost" id="reviewRunNext" ${queued.length ? "" : "disabled"}>Run next review</button></div></div>
+  <div class="card-list spaced">${state.jobs.slice(0,5).map(job => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(job.payload?.executable || job.kind)}</strong>${pill(job.state,job.state === "completed" ? "green" : job.state === "failed" ? "red" : "amber")}</div><small>${formatDate(job.created_at)} · ${escapeHTML(job.result?.artifact_id || "receipt pending")}</small></article>`).join("") || `<div class="probe-empty">No recent execution receipts.</div>`}</div>`;
+  $("#reviewOpenCapabilities")?.addEventListener("click", () => openCapabilityPicker("all"));
+  $("#reviewOpenTools")?.addEventListener("click", () => switchTab("mcp"));
+  $("#reviewOpenSkills")?.addEventListener("click", () => switchTab("library"));
+  $("#reviewRunNext")?.addEventListener("click", runNextReview);
+}
+
+function renderWorkbenchFiles() {
+  const project = state.projects.find(item => item.id === state.selectedProject);
+  const document = state.projectFile;
+  $("#workbenchContent").innerHTML = `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Bounded file room</p><h3>${escapeHTML(project?.name || "Select a project")}</h3></div><button class="ghost" id="newWorkbenchFile" ${project ? "" : "disabled"}>New file</button></div>
+    <label>Project<select id="workbenchProject">${state.projects.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === state.selectedProject ? "selected" : ""}>${escapeHTML(item.name)}</option>`).join("")}</select></label>
+    ${project ? `<div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="workbenchFileUp">Up</button>` : ""}</div><div class="file-browser">${state.projectFiles.map(item => `<button class="file-row" data-workbench-file="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${item.directory ? "◇" : "·"}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "folder" : `${Number(item.bytes).toLocaleString()} B`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div>` : `<div class="probe-empty">Register a project from Control Center → Projects.</div>`}
+    ${document ? `<form class="file-editor" id="workbenchFileForm"><div class="provider-head"><div><strong>${escapeHTML(document.path)}</strong><p>SHA ${escapeHTML(shortHash(document.sha256))} · optimistic save</p></div>${pill(document.mode || "new","blue")}</div><textarea id="workbenchFileContent" spellcheck="false">${escapeHTML(document.content)}</textarea><div class="action-row"><button class="primary">Save exact revision</button><button class="ghost" type="button" id="closeFileEditor">Close</button></div></form>${state.projectFileDiff ? `<section class="inspect-section"><h3>Committed diff</h3><pre class="diff-view">${escapeHTML(state.projectFileDiff)}</pre></section>` : ""}` : ""}
+  </div>`;
+  $("#workbenchProject")?.addEventListener("change", event => selectProject(event.target.value, ""));
+  $("#workbenchFileUp")?.addEventListener("click", () => selectProject(state.selectedProject, (state.projectPath || "").split("/").slice(0,-1).join("/")));
+  $$('[data-workbench-file]').forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? selectProject(state.selectedProject, button.dataset.workbenchFile) : openWorkbenchFile(button.dataset.workbenchFile)));
+  $("#workbenchFileForm")?.addEventListener("submit", saveWorkbenchFile);
+  $("#closeFileEditor")?.addEventListener("click", () => { state.projectFile=null; state.projectFileDiff=""; renderWorkbenchFiles(); });
+  $("#newWorkbenchFile")?.addEventListener("click", newWorkbenchFile);
+}
+
+async function openWorkbenchFile(path) {
+  try {
+    state.projectFile = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file?path=${encodeURIComponent(path)}`);
+    state.projectFileDiff = "";
+    renderWorkbenchFiles();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function newWorkbenchFile() {
+  const path = await askAction({title:"Create a project file",message:"Enter a path relative to the bounded project root. The server rejects symlinks and traversal.",confirmLabel:"Open editor",reasonLabel:"Relative path"});
+  if (!path) return;
+  state.projectFile = {path:path.trim(),content:"",sha256:"",mode:"0644",bytes:0};
+  state.projectFileDiff = "";
+  renderWorkbenchFiles();
+}
+
+async function saveWorkbenchFile(event) {
+  event.preventDefault();
+  try {
+    const result = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file`, {method:"PUT",body:JSON.stringify({path:state.projectFile.path,content:$("#workbenchFileContent").value,expected_sha256:state.projectFile.sha256 || "",actor:"local-user"})});
+    state.projectFile = result.document;
+    state.projectFileDiff = result.diff;
+    toast(`File committed · receipt ${shortHash(result.receipt_artifact.id)}`);
+    state.artifacts = await api("/api/artifacts");
+    renderWorkbenchFiles();
+  } catch (error) { toast(error.message, true); }
+}
+
+function stripANSI(value="") { return String(value).replace(/\x1B(?:[@-_][0-?]*[ -\/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, ""); }
+
+function renderWorkbenchTerminal() {
+  const terminal = state.terminals.find(item => item.id === state.selectedTerminal);
+  $("#workbenchContent").innerHTML = `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Real PTY room</p><h3>${terminal ? escapeHTML(`${terminal.shell} · ${terminal.working_dir}`) : "Start terminal"}</h3></div>${terminal ? pill(terminal.state,terminal.state === "running" ? "green" : "amber") : ""}</div>
+    <form id="terminalStartForm"><div class="form-grid"><label>Project<select name="project_id">${state.projects.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === state.selectedProject ? "selected" : ""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><label>Shell<select name="shell"><option>zsh</option><option>bash</option><option>sh</option></select></label></div><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><div class="form-grid"><label>Columns<input name="columns" type="number" min="20" max="400" value="100"></label><label>Rows<input name="rows" type="number" min="5" max="200" value="30"></label></div><button class="primary">New PTY tab</button></form>
+    <div class="meta">${state.terminals.map(item => `<button class="ghost" data-terminal-id="${escapeHTML(item.id)}">${escapeHTML(item.shell)} · ${escapeHTML(item.state)}</button>`).join("")}</div>
+    ${terminal ? `<pre class="terminal-screen" id="terminalScreen">${escapeHTML(stripANSI(state.terminalOutput || "waiting for output…"))}</pre>${terminal.state === "running" ? `<form class="terminal-command" id="terminalInputForm"><input name="input" autocomplete="off" placeholder="Command or interactive input"><button class="primary">Send ↵</button></form><form class="terminal-resize" id="terminalResizeForm"><input name="columns" type="number" min="20" max="400" value="100" aria-label="Terminal columns"><span>×</span><input name="rows" type="number" min="5" max="200" value="30" aria-label="Terminal rows"><button class="ghost">Resize PTY</button></form><div class="action-row"><button class="ghost" id="terminalInterrupt">Ctrl-C</button><button class="danger" id="terminalClose">Close PTY</button></div>` : `<p class="form-note neutral">Exit ${terminal.exit_code ?? "—"} · ${escapeHTML(terminal.error || "terminal is no longer live")}</p>`}` : `<div class="probe-empty">PTY output is streamed from a real shell process and bounded to a 1 MiB tail.</div>`}
+  </div>`;
+  $("#terminalStartForm")?.addEventListener("submit", startWorkbenchTerminal);
+  $$('[data-terminal-id]').forEach(button => button.addEventListener("click", () => { state.selectedTerminal=button.dataset.terminalId; state.terminalOutput=""; renderWorkbenchTerminal(); }));
+  $("#terminalInputForm")?.addEventListener("submit", sendTerminalInput);
+  $("#terminalResizeForm")?.addEventListener("submit", resizeWorkbenchTerminal);
+  $("#terminalInterrupt")?.addEventListener("click", () => sendRawTerminalInput("\x03"));
+  $("#terminalClose")?.addEventListener("click", closeWorkbenchTerminal);
+  if (terminal) pollTerminal();
+}
+
+async function startWorkbenchTerminal(event) {
+  event.preventDefault(); const form=new FormData(event.currentTarget);
+  try {
+    const terminal=await api("/api/terminals",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),shell:form.get("shell"),working_dir:form.get("working_dir"),actor:"local-user",columns:Number(form.get("columns")),rows:Number(form.get("rows"))})});
+    state.selectedProject=form.get("project_id"); state.selectedTerminal=terminal.id; state.terminalOutput=""; state.terminals=await api("/api/terminals"); renderWorkbenchTerminal();
+  } catch(error){toast(error.message,true);}
+}
+
+async function pollTerminal() {
+  const id=state.selectedTerminal;
+  if (!id || state.workbenchTab !== "terminal") return;
+  try {
+    const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=0`);
+    state.terminalOutput=output.output;
+    const terminal=state.terminals.find(item => item.id===id);
+    if (terminal) Object.assign(terminal,{state:output.state,exit_code:output.exit_code,error:output.error,cursor:output.cursor});
+    const screen=$("#terminalScreen"); if(screen){screen.textContent=stripANSI(state.terminalOutput);screen.scrollTop=screen.scrollHeight;}
+    scheduleWorkbenchPoll(pollTerminal,500);
+  } catch(error){toast(error.message,true);}
+}
+
+async function sendRawTerminalInput(input) { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/input`,{method:"POST",body:JSON.stringify({input})}); scheduleWorkbenchPoll(pollTerminal,80); } catch(error){toast(error.message,true);} }
+async function sendTerminalInput(event) { event.preventDefault(); const input=new FormData(event.currentTarget).get("input"); if(!input)return; event.currentTarget.reset(); await sendRawTerminalInput(input+"\n"); }
+async function resizeWorkbenchTerminal(event) { event.preventDefault(); const form=new FormData(event.currentTarget); try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/resize`,{method:"POST",body:JSON.stringify({columns:Number(form.get("columns")),rows:Number(form.get("rows"))})}); toast(`PTY resized to ${form.get("columns")} × ${form.get("rows")}`); } catch(error){toast(error.message,true);} }
+async function closeWorkbenchTerminal() { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/close`,{method:"POST",body:"{}"}); state.terminals=await api("/api/terminals"); renderWorkbenchTerminal(); } catch(error){toast(error.message,true);} }
+
+function renderWorkbenchBrowser() {
+  const tab=state.browserTabs.find(item => item.id===state.selectedBrowserTab);
+  $("#workbenchContent").innerHTML=`<div class="panel"><div class="provider-head"><div><p class="eyebrow">Managed browser · untrusted web</p><h3>${escapeHTML(tab?.title || "Open a browser tab")}</h3></div>${tab ? pill(tab.state,tab.state==="ready"?"green":"amber") : ""}</div>
+    <form id="browserOpenForm"><label>Address<input name="url" type="url" value="${escapeHTML(tab?.url || "https://")}" required></label><label>Bound project<select name="project_id"><option value="">None</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><label class="check-label"><input name="allow_private" type="checkbox" ${tab?.allow_private?"checked":""}> Allow local/private addresses for this tab</label><div class="action-row"><button class="primary">Open isolated tab</button>${tab?`<button class="ghost" type="button" data-browser-action="navigate">Navigate current tab</button><button class="ghost" type="button" data-browser-action="back">Back</button><button class="ghost" type="button" data-browser-action="capture">Capture</button><button class="danger" type="button" data-browser-action="close">Close</button>`:""}</div></form>
+    <div class="meta">${state.browserTabs.map(item=>`<button class="ghost" data-browser-id="${escapeHTML(item.id)}">${escapeHTML(item.title||item.url)} · ${escapeHTML(item.state)}</button>`).join("")}</div>
+    ${tab?`${tab.screenshot_artifact_id?`<img class="browser-shot" src="/api/artifacts/${encodeURIComponent(tab.screenshot_artifact_id)}/content" alt="Managed browser screenshot">`:""}<section class="inspect-section"><h3>Readable snapshot · untrusted content</h3><pre>${escapeHTML((tab.text_snapshot||"").slice(0,8000))}</pre></section><div class="browser-elements">${(tab.elements||[]).map(element=>`<article class="browser-element"><strong>${element.ref}</strong><span><strong>${escapeHTML(element.text||element.placeholder||element.tag)}</strong><small>${escapeHTML(element.tag)} ${escapeHTML(element.role||"")}</small></span><span><button class="ghost" data-browser-click="${element.ref}">Click</button>${["input","textarea"].includes(element.tag)?`<button class="ghost" data-browser-type="${element.ref}">Type</button>`:""}</span></article>`).join("")}</div>`:`<div class="probe-empty">This room drives Chrome through DevTools; it is not an iframe. Private URLs require an explicit per-tab opt-in.</div>`}
+  </div>`;
+  $("#browserOpenForm")?.addEventListener("submit",openWorkbenchBrowser);
+  $$('[data-browser-id]').forEach(button=>button.addEventListener("click",()=>{state.selectedBrowserTab=button.dataset.browserId;renderWorkbenchBrowser();}));
+  $$('[data-browser-action]').forEach(button=>button.addEventListener("click",()=>browserWorkbenchAction(button.dataset.browserAction)));
+  $$('[data-browser-click]').forEach(button=>button.addEventListener("click",()=>browserWorkbenchAction("click",Number(button.dataset.browserClick))));
+  $$('[data-browser-type]').forEach(button=>button.addEventListener("click",()=>typeBrowserElement(Number(button.dataset.browserType))));
+}
+
+async function openWorkbenchBrowser(event){event.preventDefault();const form=new FormData(event.currentTarget);try{const tab=await api("/api/browser/tabs",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),url:form.get("url"),allow_private:form.get("allow_private")==="on",actor:"local-user"})});state.browserTabs.unshift(tab);state.selectedBrowserTab=tab.id;renderWorkbenchBrowser();}catch(error){toast(error.message,true);}}
+async function browserWorkbenchAction(action,ref=0,text=""){const tab=state.browserTabs.find(item=>item.id===state.selectedBrowserTab);if(!tab)return;const url=action==="navigate"?new FormData($("#browserOpenForm")).get("url"):"";try{const updated=await api(`/api/browser/tabs/${encodeURIComponent(tab.id)}/actions`,{method:"POST",body:JSON.stringify({action,url,ref,text,actor:"local-user"})});state.browserTabs=state.browserTabs.map(item=>item.id===updated.id?updated:item);state.selectedBrowserTab=updated.id;renderWorkbenchBrowser();}catch(error){toast(error.message,true);}}
+async function typeBrowserElement(ref){const text=await askAction({title:`Type into browser element ${ref}`,message:"The value is sent only to this exact element reference on the active managed tab.",confirmLabel:"Type value",reasonLabel:"Text"});if(text===null)return;await browserWorkbenchAction("type",ref,text);}
+
+function renderWorkbenchArtifacts(){
+  $("#workbenchContent").innerHTML=`<div class="panel"><p class="eyebrow">Office deliverables</p><h3>Create a real editable file</h3><form id="deliverableForm"><label>Project<select name="project_id"><option value="">Global</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><div class="form-grid"><label>Format<select name="format"><option>docx</option><option>xlsx</option><option>pptx</option><option>pdf</option></select></label><label>Title<input name="title" required value="Hermetrix report"></label></div><label>Content<textarea name="content" rows="8" required placeholder="Paragraphs; use tab-separated rows for XLSX or --- between PPTX slides"></textarea></label><p class="form-note neutral">DOCX/XLSX/PPTX support Unicode. Native PDF currently fails closed for non-Basic-Latin text instead of generating missing glyphs.</p><button class="primary">Build immutable deliverable</button></form></div><section class="office-preview" id="deliverablePreview"></section><div class="card-list spaced">${state.artifacts.slice(0,30).map(item=>`<article class="artifact-mini"><div class="provider-head"><div><strong>${escapeHTML(item.name)}</strong><p>${escapeHTML(item.mime_type)} · ${Number(item.byte_size).toLocaleString()} B</p></div>${pill(item.kind,"blue")}</div><div class="action-row"><a class="button-link" href="/api/artifacts/${encodeURIComponent(item.id)}/content" target="_blank" rel="noreferrer">Open / download</a></div></article>`).join("")||`<div class="probe-empty">No artifacts yet.</div>`}</div>`;
+  $("#deliverableForm")?.addEventListener("submit",createDeliverable);
+  $("#deliverableForm")?.addEventListener("input",renderDeliverableDraftPreview);
+  renderDeliverableDraftPreview();
+}
+
+function renderDeliverableDraftPreview(){
+  const form=$("#deliverableForm"),root=$("#deliverablePreview");if(!form||!root)return;const data=new FormData(form),format=data.get("format"),title=String(data.get("title")||"Untitled"),content=String(data.get("content")||"");
+  if(format==="xlsx"){const rows=content.split("\n").filter(Boolean).slice(0,20).map(row=>`<tr>${row.split("\t").slice(0,10).map(cell=>`<td>${escapeHTML(cell)}</td>`).join("")}</tr>`).join("");root.innerHTML=`<p class="eyebrow">Structured preview · first 20 rows</p><div class="sheet-preview"><table>${rows||`<tr><td>Tab-separated cells appear here</td></tr>`}</table></div>`;return;}
+  if(format==="pptx"){const slides=content.split(/\n---\n/).slice(0,8);root.innerHTML=`<p class="eyebrow">Structured preview · first 8 slides</p><div class="slide-preview-list">${slides.map((block,index)=>{const lines=block.split("\n").filter(Boolean);return`<article class="slide-preview"><small>${index+1}</small><h4>${escapeHTML(lines.shift()||title)}</h4><ul>${lines.map(line=>`<li>${escapeHTML(line)}</li>`).join("")}</ul></article>`;}).join("")}</div>`;return;}
+  root.innerHTML=`<p class="eyebrow">Structured preview · ${escapeHTML(format.toUpperCase())}</p><article class="page-preview"><h4>${escapeHTML(title)}</h4>${content.split(/\n+/).filter(Boolean).slice(0,30).map(paragraph=>`<p>${escapeHTML(paragraph)}</p>`).join("")||`<p class="preview-placeholder">Document paragraphs appear here</p>`}</article>`;
+}
+
+async function createDeliverable(event){event.preventDefault();const form=new FormData(event.currentTarget);const format=form.get("format");const content=String(form.get("content")||"");const body={project_id:form.get("project_id"),format,title:form.get("title"),actor:"local-user",paragraphs:content.split(/\n+/).filter(Boolean)};if(format==="xlsx")body.rows=content.split("\n").map(row=>row.split("\t"));if(format==="pptx")body.slides=content.split(/\n---\n/).map(block=>{const lines=block.split("\n").filter(Boolean);return{title:lines.shift()||form.get("title"),bullets:lines};});try{const artifact=await api("/api/deliverables",{method:"POST",body:JSON.stringify(body)});state.artifacts=await api("/api/artifacts");toast(`Created ${artifact.name} · ${shortHash(artifact.checksum)}`);renderWorkbenchArtifacts();}catch(error){toast(error.message,true);}}
+
+function newTeamDraft(team=null){
+  return team ? {sourceID:team.id,id:team.id,expected_revision:team.revision,name:team.name,instructions:team.instructions,members:team.members.map(member=>({...member}))} :
+    {sourceID:"new",id:"",expected_revision:0,name:"Evidence Team",instructions:"Verify evidence, surface disagreement, and never widen another agent's authority.",members:[
+      {name:"Researcher",role:"research",instructions:"Collect primary evidence and note uncertainty.",is_lead:false},
+      {name:"Reviewer",role:"review",instructions:"Challenge unsupported claims and identify risk.",is_lead:false},
+      {name:"Lead",role:"synthesis",instructions:"Synthesize the final answer from labelled peer evidence.",is_lead:true}
+    ]};
+}
+
+function captureTeamDraft(){
+  const form=$("#teamCreateForm"); if(!form)return;
+  const data=new FormData(form); const lead=Number(data.get("lead_index"));
+  state.teamDraft={...(state.teamDraft||newTeamDraft()),name:data.get("name"),instructions:data.get("instructions"),members:$$('[data-team-member]',form).map((row,index)=>({id:row.dataset.memberId||"",name:data.get(`member_name_${index}`),role:data.get(`member_role_${index}`),instructions:data.get(`member_instructions_${index}`),is_lead:index===lead}))};
+}
+
+function renderTeamMemberRows(draft){
+  return draft.members.map((member,index)=>`<article class="team-member-editor" data-team-member data-member-id="${escapeHTML(member.id||"")}"><div class="form-grid"><label>Name<input name="member_name_${index}" required value="${escapeHTML(member.name||"")}"></label><label>Role<input name="member_role_${index}" required value="${escapeHTML(member.role||"")}"></label></div><label>Instructions<textarea name="member_instructions_${index}" rows="2" required>${escapeHTML(member.instructions||"")}</textarea></label><div class="action-row"><label class="check-label"><input type="radio" name="lead_index" value="${index}" ${member.is_lead?"checked":""} required> Team lead</label><button type="button" class="danger" data-remove-team-member="${index}" ${draft.members.length===1?"disabled":""}>Remove</button></div></article>`).join("");
+}
+
+function teamTaskRowHTML(team,index){
+  const id=`task-${Date.now().toString(36)}-${index+1}`;
+  return `<article class="team-task-editor" data-team-task><div class="form-grid"><label>Task ID<input data-task-field="id" required value="${id}"></label><label>Member<select data-task-field="member_id" required>${team.members.map(member=>`<option value="${escapeHTML(member.id)}">${escapeHTML(member.name)} · ${escapeHTML(member.role)}</option>`).join("")}</select></label></div><label>Title<input data-task-field="title" required placeholder="Independent review"></label><label>Depends on task IDs<input data-task-field="depends" placeholder="task-a, task-b"></label><label>Task prompt<textarea data-task-field="prompt" rows="2" required></textarea></label><button type="button" class="danger" data-remove-team-task>Remove task</button></article>`;
+}
+
+function renderWorkbenchTeam(){
+  const team=state.teams.find(item=>item.id===state.selectedTeam);
+  if(!state.teamDraft || state.teamDraft.sourceID!==(team?.id||"new"))state.teamDraft=newTeamDraft(team||null);
+  const draft=state.teamDraft;
+  const provider=state.providers.find(item=>item.enabled);
+  const profiles=availableProfiles(provider);
+  const profile=bestProfileFor(provider,profiles);
+  $("#workbenchContent").innerHTML=`<div class="panel"><div class="provider-head"><div><p class="eyebrow">Reusable roster · explicit authority</p><h3>${draft.id?"Edit":"Create"} Agent Team</h3></div>${draft.id?pill(`revision ${draft.expected_revision}`,"blue"):pill("new roster","green")}</div><label>Roster<select id="teamSelect"><option value="">＋ New team</option>${state.teams.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedTeam?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><form id="teamCreateForm"><label>Team name<input name="name" required value="${escapeHTML(draft.name)}"></label><label>Unit rules<textarea name="instructions" rows="3" required>${escapeHTML(draft.instructions)}</textarea></label><section class="team-editor-list">${renderTeamMemberRows(draft)}</section><div class="action-row"><button type="button" class="ghost" id="addTeamMember" ${draft.members.length>=12?"disabled":""}>＋ Add member</button><button class="primary">${draft.id?"Save exact revision":"Save reusable team"}</button></div></form></div>
+  <div class="panel spaced">${team?`<div class="meta">${team.members.map(member=>pill(`${member.is_lead?"lead · ":""}${member.name} / ${member.role}`,member.is_lead?"green":"blue")).join("")}</div><form id="teamRunForm"><label>Objective<textarea name="objective" rows="4" required placeholder="What should this team solve?"></textarea></label><div class="form-grid"><label>Provider<select name="provider_id" required>${state.providers.filter(item=>item.enabled).map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===provider?.id?"selected":""}>${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select></label><label>Context<select name="context_profile" required>${profiles.map(item=>`<option value="${escapeHTML(item.name)}" ${item.name===profile?.name?"selected":""}>${escapeHTML(profileLabel(item))}</option>`).join("")}</select></label></div><label>Remote qualification reason<input name="qualification_reason" value="User-approved team run against the configured remote provider"></label><label>Parallel children<input name="max_parallel" type="number" min="1" max="4" value="3"></label><details class="team-graph"><summary>Custom task DAG · optional</summary><p class="form-note neutral">Leave empty for automatic specialist fan-out and lead synthesis. Dependencies refer to exact Task IDs.</p><div id="teamTaskRows"></div><button class="ghost" type="button" id="addTeamTask">＋ Add task</button></details><button class="primary">Start team run</button></form>`:`<div class="probe-empty">Save or select a team before starting a run.</div>`}</div>
+  <div class="card-list spaced">${state.teamRuns.slice(0,20).map(run=>`<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(state.teams.find(item=>item.id===run.team_id)?.name||run.team_name||"Team run")}</h3><p>${escapeHTML(run.objective)} · ${formatDate(run.created_at)}</p></div>${pill(run.state,run.state==="completed"?"green":["failed","cancelled"].includes(run.state)?"red":"amber")}</div><div class="kv"><span>Parallel</span><strong>${run.max_parallel}</strong><span>Tokens</span><strong>${Number((run.prompt_tokens||0)+(run.completion_tokens||0)).toLocaleString()}</strong></div>${["queued","running","awaiting_approval"].includes(run.state)?`<div class="action-row"><button class="danger" data-cancel-team-run="${escapeHTML(run.id)}">Cancel team and children</button></div>`:""}${(run.tasks||[]).map(task=>`<section class="team-task"><div class="provider-head"><div><strong>${escapeHTML(task.title)}</strong><small>${escapeHTML(task.member_name||"")} · ${escapeHTML(task.member_role||"")}</small></div>${pill(task.state,task.state==="completed"?"green":["failed","cancelled"].includes(task.state)?"red":"amber")}</div>${task.state==="awaiting_approval"?`<article class="team-approval"><strong>${escapeHTML(task.approval_summary||"Child requests an exact effect")}</strong><p>${escapeHTML(task.approval_effect||"effect")}</p><pre>${escapeHTML(task.approval_preview||"No preview supplied")}</pre><div class="action-row"><button class="primary" data-team-approval="approve" data-run-id="${escapeHTML(run.id)}" data-task-id="${escapeHTML(task.id)}">Approve exact effect</button><button class="danger" data-team-approval="deny" data-run-id="${escapeHTML(run.id)}" data-task-id="${escapeHTML(task.id)}">Deny</button></div></article>`:""}${task.result?`<p>${escapeHTML(task.result.slice(0,900))}</p>`:""}${task.error?`<p class="form-note">${escapeHTML(task.error)}</p>`:""}${task.session_id?`<button class="ghost" data-team-session="${escapeHTML(task.session_id)}">Open child session</button>`:""}</section>`).join("")}</article>`).join("")||`<div class="probe-empty">No team runs yet. Default runs create parallel specialist tasks and a dependent lead synthesis.</div>`}</div>`;
+  $("#teamCreateForm")?.addEventListener("submit",saveWorkbenchTeam);
+  $("#teamSelect")?.addEventListener("change",event=>{state.selectedTeam=event.target.value||null;state.teamDraft=null;renderWorkbenchTeam();});
+  $("#addTeamMember")?.addEventListener("click",()=>{captureTeamDraft();state.teamDraft.members.push({name:"",role:"specialist",instructions:"",is_lead:false});renderWorkbenchTeam();});
+  $$('[data-remove-team-member]').forEach(button=>button.addEventListener("click",()=>{captureTeamDraft();state.teamDraft.members.splice(Number(button.dataset.removeTeamMember),1);if(!state.teamDraft.members.some(member=>member.is_lead))state.teamDraft.members[0].is_lead=true;renderWorkbenchTeam();}));
+  $("#teamRunForm")?.addEventListener("submit",startWorkbenchTeamRun);
+  $("#addTeamTask")?.addEventListener("click",()=>{$("#teamTaskRows").insertAdjacentHTML("beforeend",teamTaskRowHTML(team,$$('[data-team-task]').length));bindTeamTaskRemovers();});
+  bindTeamTaskRemovers();
+  $$('[data-cancel-team-run]').forEach(button=>button.addEventListener("click",()=>cancelWorkbenchTeamRun(button.dataset.cancelTeamRun)));
+  $$('[data-team-approval]').forEach(button=>button.addEventListener("click",()=>decideWorkbenchTeamApproval(button.dataset.runId,button.dataset.taskId,button.dataset.teamApproval)));
+  $$('[data-team-session]').forEach(button=>button.addEventListener("click",async()=>{await selectSession(button.dataset.teamSession);switchTab("chat");}));
+  if(state.teamRuns.some(run=>["queued","running"].includes(run.state)))scheduleWorkbenchPoll(pollTeamRuns,900);
+}
+
+function bindTeamTaskRemovers(){$$('[data-remove-team-task]').forEach(button=>button.onclick=()=>button.closest('[data-team-task]').remove());}
+
+async function saveWorkbenchTeam(event){event.preventDefault();captureTeamDraft();const draft=state.teamDraft;try{const team=await api("/api/teams",{method:"POST",body:JSON.stringify({id:draft.id||"",expected_revision:draft.expected_revision||0,project_id:state.selectedProject||"",name:draft.name,instructions:draft.instructions,actor:"local-user",members:draft.members})});state.teams=await api("/api/teams");state.selectedTeam=team.id;state.teamDraft=newTeamDraft(team);toast("Reusable team saved with one explicit lead");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function startWorkbenchTeamRun(event){event.preventDefault();const form=new FormData(event.currentTarget);const tasks=$$('[data-team-task]',event.currentTarget).map(row=>({id:row.querySelector('[data-task-field="id"]').value.trim(),member_id:row.querySelector('[data-task-field="member_id"]').value,title:row.querySelector('[data-task-field="title"]').value.trim(),prompt:row.querySelector('[data-task-field="prompt"]').value.trim(),depends_on:row.querySelector('[data-task-field="depends"]').value.split(",").map(value=>value.trim()).filter(Boolean)}));try{const run=await api("/api/team-runs",{method:"POST",body:JSON.stringify({team_id:state.selectedTeam,project_id:state.selectedProject||"",objective:form.get("objective"),provider_id:form.get("provider_id"),context_profile:form.get("context_profile"),qualification_reason:form.get("qualification_reason"),max_parallel:Number(form.get("max_parallel")),actor:"local-user",tasks})});state.teamRuns.unshift(run);toast("Team run started; child sessions keep independent provenance");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function cancelWorkbenchTeamRun(id){const approved=await askAction({title:"Cancel this team run?",message:"Hermetrix will cancel every active child context and mark queued/running tasks cancelled. Completed child effects are not undone or retried.",confirmLabel:"Cancel team",danger:true});if(!approved)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(id)}/cancel`,{method:"POST",body:JSON.stringify({actor:"local-user"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast("Team and active child contexts cancelled");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function decideWorkbenchTeamApproval(runId,taskId,decision){const response=await askAction({title:decision==="approve"?"Approve this child effect once?":"Deny this child effect?",message:"The decision is bound to the exact child approval and arguments hash. The child resumes its existing turn; Hermetrix does not replay its prompt or earlier effects.",confirmLabel:decision==="approve"?"Approve exact effect":"Deny effect",reasonLabel:decision==="deny"?"Reason":"",danger:decision==="deny"});if(!response)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/approval`,{method:"POST",body:JSON.stringify({actor:"local-user",decision,reason:decision==="deny"?response:"approved after team preview"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast(decision==="approve"?"Child effect approved; DAG resumes from its receipt":"Child effect denied; DAG resumes without mutation");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function pollTeamRuns(){if(state.workbenchTab!=="team")return;try{state.teamRuns=await api("/api/team-runs");if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+
+// CONFIG_SECTIONS is the settings room's navigation. Configuration used to sit
+// in the workspace as a fourteen-entry tab strip beside a five-entry sidebar,
+// which meant the screen asked "which of nineteen places?" before it asked
+// anything about the work. Settings is now one room with its own navigation,
+// its own search, and nothing from the session competing with it.
+//
+// `terms` is what the search box matches beyond the label: someone typing
+// "api key" is looking for Models, and a search that only matches page titles
+// is a search box that lies about what it can find.
+const CONFIG_SECTIONS = [
+  { group: "Models", items: [
+    { id:"providers", icon:"⌁", label:"Models", blurb:"Endpoints, API keys and qualification",
+      terms:"provider endpoint api key token openai compatible qualification context window local runtime ollama" }
+  ]},
+  { group: "Tools", items: [
+    { id:"mcp", icon:"⌘", label:"Tool Center", blurb:"MCP connections and the capability graph",
+      terms:"mcp server bearer token streamable http discovery capability tool schema approval" }
+  ]},
+  { group: "Skills", items: [
+    { id:"library", icon:"✦", label:"Skill Studio", blurb:"Active Skills and authority policy",
+      terms:"skill library active authority policy promote fork scope pinned" },
+    { id:"proposals", icon:"◔", label:"Proposals", blurb:"Candidates waiting for a decision",
+      terms:"candidate proposal review promote reject quarantine", badge:"proposals" },
+    { id:"learning", icon:"◵", label:"Learning", blurb:"Background reviews of real turns",
+      terms:"learning review queue reviewer evidence", badge:"reviews" },
+    { id:"insights", icon:"◇", label:"Insights", blurb:"Curator findings, report only",
+      terms:"curator finding stale duplicate consolidation relation" },
+    { id:"archive", icon:"▤", label:"Archive", blurb:"Restore archived Skills as candidates",
+      terms:"archive restore deleted reversible" }
+  ]},
+  { group: "Context", items: [
+    { id:"context", icon:"◫", label:"Context", blurb:"Compile a prompt and read the ledger",
+      terms:"context profile budget fragment compile ledger spill token estimate 32k 64k 128k 256k 1m" },
+    { id:"fidelity", icon:"◎", label:"Fidelity", blurb:"Evidence behind qualified capacity",
+      terms:"fidelity recall evidence corpus case run positional" }
+  ]},
+  { group: "System", items: [
+    { id:"projects", icon:"▦", label:"Projects", blurb:"Bounded workspaces and commands",
+      terms:"project workspace root command allowlist file tree" },
+    { id:"office", icon:"◷", label:"Background jobs", blurb:"Long-running work and its receipts",
+      terms:"job background queue cancel receipt" },
+    { id:"artifacts", icon:"◧", label:"Artifacts", blurb:"Content-addressed outputs",
+      terms:"artifact cas checksum deliverable docx xlsx pptx pdf" },
+    { id:"maintenance", icon:"⚙", label:"Maintenance", blurb:"Usage, memory, backup and recovery",
+      terms:"usage memory backup import export schedule garbage collection quarantine restore setting" }
+  ]}
 ];
 
-function switchTab(tab) {
-  state.activeTab = tab;
-  const group = TAB_GROUPS.find(names => names.includes(tab)) || [];
-  $$(".tab").forEach(node => {
-    node.classList.toggle("active", node.dataset.tab === tab);
-    node.hidden = !group.includes(node.dataset.tab);
-  });
-  $(".tabbar").hidden = group.length === 0;
-  $$(".nav-item[data-tab]").forEach(node => node.classList.toggle("active", node.dataset.tab === tab || (node.dataset.tab === "library" && ["proposals","learning","insights","archive"].includes(tab))));
-  $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${tab}`));
-  $("#libraryToolbar").hidden = tab !== "library";
-  const skillTabs = ["library", "proposals", "learning", "insights", "archive"];
-  $("#stats").hidden = !skillTabs.includes(tab);
-  $("#createButton").hidden = !skillTabs.includes(tab);
-  $(".shell").classList.toggle("focus-mode", !skillTabs.includes(tab));
-  const pages = {
-    chat:["Hermetrix Engine / Agent runtime", "Agent Workspace"], library:["Hermetrix Engine / Skills", "Skill Control Center"],
-    proposals:["Hermetrix Engine / Review gate", "Skill Proposals"], learning:["Hermetrix Engine / Background review", "Learning Queue"],
-    insights:["Hermetrix Engine / Curator", "Skill Insights"], archive:["Hermetrix Engine / Reversible state", "Skill Archive"],
-    context:["Hermetrix Engine / Context laboratory", "Context Diagnostics"], providers:["Hermetrix Engine / Model adapters", "Provider Registry"],
-    mcp:["Hermetrix Engine / Capability graph", "MCP Control Center"], projects:["Hermetrix Engine / Bounded workspaces", "Project Workbench"],
-    office:["Hermetrix Engine / Background execution", "Agent Office"], artifacts:["Hermetrix Engine / Content-addressed outputs", "Artifact Registry"],
-    fidelity:["Hermetrix Engine / Context evidence", "Fidelity Laboratory"], maintenance:["Hermetrix Engine / Recoverable operations", "Maintenance & Settings"]
+const CONFIG_PAGE_IDS = CONFIG_SECTIONS.flatMap(section => section.items.map(item => item.id));
+const SKILL_PAGES = ["library", "proposals", "learning", "insights", "archive"];
+
+function configItem(id) {
+  for (const section of CONFIG_SECTIONS) {
+    const found = section.items.find(item => item.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// renderConfigNav draws only the sections the search matches. An empty group is
+// not drawn at all: a heading with nothing under it reads as a place you can go.
+function renderConfigNav() {
+  const nav = $("#configNav");
+  if (!nav) return;
+  const query = ($("#configSearch")?.value || "").trim().toLowerCase();
+  const counts = { proposals: state.pendingProposals || 0, reviews: state.pendingReviews || 0 };
+  const navItemHTML = item => {
+    const badge = item.badge ? counts[item.badge] || 0 : 0;
+    const active = item.id === state.activeTab ? "active" : "";
+    return `<button type="button" class="config-nav-item ${active}" data-config-page="${escapeHTML(item.id)}"><span>${escapeHTML(item.icon)}</span><span><strong>${escapeHTML(item.label)}</strong><small>${escapeHTML(item.blurb)}</small></span>${badge ? `<b>${badge}</b>` : ""}</button>`;
   };
-  const page = pages[tab] || pages.library;
-  $("#pageEyebrow").textContent = page[0];
-  $("#pageTitle").textContent = page[1];
+  const groups = CONFIG_SECTIONS
+    .map(section => ({ group: section.group, items: section.items.filter(item =>
+      !query || `${item.label} ${item.blurb} ${item.terms}`.toLowerCase().includes(query)) }))
+    .filter(section => section.items.length);
+  nav.innerHTML = groups.length
+    ? groups.map(section => `<p class="config-nav-group">${escapeHTML(section.group)}</p>${section.items.map(navItemHTML).join("")}`).join("")
+    : `<p class="command-empty">Nothing in settings matches “${escapeHTML(query)}”.</p>`;
+  $$("[data-config-page]", nav).forEach(button =>
+    button.addEventListener("click", () => switchTab(button.dataset.configPage)));
+}
+
+function openConfig(page = "") {
+  const target = CONFIG_PAGE_IDS.includes(page) ? page
+    : CONFIG_PAGE_IDS.includes(state.activeTab) ? state.activeTab
+    : "providers";
+  switchTab(target);
+}
+
+function closeConfig() { switchTab("chat"); }
+
+// switchTab is the single place that decides whether you are looking at the
+// work or at the settings that shape it.
+function switchTab(tab) {
+  const isConfig = CONFIG_PAGE_IDS.includes(tab);
+  state.activeTab = isConfig ? tab : "chat";
+  const overlay = $("#configOverlay");
+  overlay.hidden = !isConfig;
+  document.documentElement.classList.toggle("config-open", isConfig);
+  $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${state.activeTab}`));
+  $(".shell").classList.remove("focus-mode");
+  if (!isConfig) {
+    $("#pageEyebrow").textContent = "Hermetrix Engine / Agent runtime";
+    $("#pageTitle").textContent = "Agent Workspace";
+    return;
+  }
+  const item = configItem(tab);
+  $("#configTitle").textContent = item.label;
+  const onSkillPage = SKILL_PAGES.includes(tab);
+  $("#stats").hidden = !onSkillPage;
+  $("#libraryToolbar").hidden = tab !== "library";
+  $("#configPane").scrollTop = 0;
+  renderConfigNav();
 }
 
 function openCandidateDialog() { $("#candidateDialog").showModal(); }
@@ -1091,12 +2005,398 @@ async function submitCandidate(event) {
   } catch (error) { toast(error.message, true); }
 }
 
+
+/* ---------------------------------------------------------------------------
+   Command palette, capability picker and density.
+
+   index.html has carried the markup and style.css the styling for all three
+   since the usability pass, but none of them had any behaviour: every entry
+   point -- the topbar button, Cmd-K, the composer's "Skills & tools", the
+   session capability chips and typing "@" -- called into nothing, and the
+   capability entry points threw ReferenceError because openCapabilityPicker
+   was never defined. This section is that behaviour.
+--------------------------------------------------------------------------- */
+
+// Every page reachable from the palette, in the order a person looks for them
+// rather than the order the views happen to appear in the document.
+const PALETTE_ROOMS = [
+  ["review", "Review room", "Pending approvals and decisions"],
+  ["files", "Files room", "Read and write inside the project root"],
+  ["terminal", "Terminal room", "Interactive PTY bound to the project"],
+  ["browser", "Browser room", "Managed browser with untrusted evidence"],
+  ["artifacts", "Office room", "Build DOCX, XLSX, PPTX and PDF"],
+  ["team", "Team room", "Agent team roster and runs"]
+];
+
+// buildCommands is rebuilt on every open so session-scoped entries reflect the
+// sessions that exist right now.
+function buildCommands() {
+  const commands = [];
+  commands.push({ group: "Go to", icon: "◈", title: "Agent Workspace",
+    subtitle: "Chat, tool calls and approvals", keywords: "chat session workspace home",
+    run: closeConfig });
+  for (const section of CONFIG_SECTIONS) {
+    for (const item of section.items) {
+      commands.push({ group: "Settings", icon: item.icon, title: item.label, subtitle: item.blurb,
+        keywords: `${section.group} ${item.terms}`, run: () => switchTab(item.id) });
+    }
+  }
+  for (const [room, title, subtitle] of PALETTE_ROOMS) {
+    commands.push({ group: "Workbench", icon: "▣", title, subtitle, keywords: `workbench ${room}`,
+      run: () => switchWorkbench(room) });
+  }
+  for (const session of state.sessions.slice(0, 6)) {
+    commands.push({ group: "Sessions", icon: "◈", title: session.title,
+      subtitle: `${session.model} · ${session.context_profile}`, keywords: `session ${session.model}`,
+      run: () => { switchTab("chat"); selectSession(session.id); } });
+  }
+  commands.push(
+    { group: "Actions", icon: "＋", title: "New agent session", subtitle: "Choose a provider and context envelope",
+      keywords: "new session start chat", run: () => $("#railNewSession").click() },
+    { group: "Actions", icon: "✦", title: "Propose a Skill", subtitle: "Creates a candidate; never an active Skill",
+      keywords: "new skill proposal candidate", run: openCandidateDialog },
+    { group: "Actions", icon: "⚙", title: "Open settings", subtitle: "Models, tools, skills, context and system",
+      keywords: "settings configuration preferences config", run: () => openConfig() },
+    { group: "Actions", icon: "@", title: "Mention a Skill or tool", subtitle: "Insert a capability into the composer",
+      keywords: "skills tools mcp mention capability", run: () => openCapabilityPicker("all") },
+    { group: "Actions", icon: "▣", title: "Toggle the workbench", subtitle: "Show or hide the evidence pane",
+      keywords: "workbench inspector toggle", run: () => $("#toggleWorkbench").click() },
+    { group: "Actions", icon: "⇔", title: "Toggle density", subtitle: "Compact for a laptop, comfortable for a desktop",
+      keywords: "density compact comfortable laptop desktop zoom", run: toggleDensity },
+    { group: "Actions", icon: "⟳", title: "Refresh everything", subtitle: "Reload every panel from the server",
+      keywords: "refresh reload", run: load }
+  );
+  return commands;
+}
+
+function matchingCommands(query) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return state.commandItems;
+  return state.commandItems.filter(command =>
+    `${command.title} ${command.subtitle} ${command.keywords || ""} ${command.group}`.toLowerCase().includes(needle));
+}
+
+function renderCommandList(query) {
+  const list = $("#commandList");
+  if (!list) return;
+  const matches = matchingCommands(query);
+  state.commandMatches = matches;
+  if (state.commandIndex >= matches.length) state.commandIndex = Math.max(0, matches.length - 1);
+  if (!matches.length) {
+    list.innerHTML = `<div class="command-empty">Nothing matches “${escapeHTML(query)}”.</div>`;
+    return;
+  }
+  let markup = "";
+  let currentGroup = "";
+  matches.forEach((command, index) => {
+    if (command.group !== currentGroup) {
+      currentGroup = command.group;
+      markup += `<p class="command-group-label">${escapeHTML(currentGroup)}</p>`;
+    }
+    markup += `<button type="button" class="command-item ${index === state.commandIndex ? "active" : ""}" data-command-index="${index}"><span>${escapeHTML(command.icon)}</span><span><strong>${escapeHTML(command.title)}</strong><small>${escapeHTML(command.subtitle)}</small></span>${command.keys ? `<kbd>${escapeHTML(command.keys)}</kbd>` : ""}</button>`;
+  });
+  list.innerHTML = markup;
+  $$("[data-command-index]", list).forEach(button =>
+    button.addEventListener("click", () => runCommand(Number(button.dataset.commandIndex))));
+}
+
+function moveCommandSelection(delta) {
+  const matches = state.commandMatches || [];
+  if (!matches.length) return;
+  state.commandIndex = (state.commandIndex + delta + matches.length) % matches.length;
+  const list = $("#commandList");
+  $$("[data-command-index]", list).forEach(button => {
+    const active = Number(button.dataset.commandIndex) === state.commandIndex;
+    button.classList.toggle("active", active);
+    if (active) button.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function runCommand(index) {
+  const command = (state.commandMatches || [])[index];
+  $("#commandDialog")?.close();
+  if (!command) return;
+  // Run after the dialog has closed so a command that focuses an input is not
+  // fighting the modal for focus. A macrotask, not requestAnimationFrame: a
+  // backgrounded tab stops painting, and the command would never run at all.
+  setTimeout(() => {
+    try { command.run(); } catch (error) { toast(error.message, true); }
+  }, 0);
+}
+
+function openCommandPalette() {
+  const dialog = $("#commandDialog");
+  if (!dialog || dialog.open) return;
+  state.commandItems = buildCommands();
+  state.commandIndex = 0;
+  const input = $("#commandInput");
+  input.value = "";
+  renderCommandList("");
+  dialog.showModal();
+  input.focus();
+}
+
+function bindCommandPalette() {
+  const dialog = $("#commandDialog");
+  const input = $("#commandInput");
+  if (!dialog || !input) return;
+  $("#commandButton")?.addEventListener("click", openCommandPalette);
+  input.addEventListener("input", () => { state.commandIndex = 0; renderCommandList(input.value); });
+  // The palette form is method="dialog", so an unhandled Enter would close the
+  // dialog and run nothing at all.
+  $("#commandForm")?.addEventListener("submit", event => { event.preventDefault(); runCommand(state.commandIndex); });
+  dialog.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown") { event.preventDefault(); moveCommandSelection(1); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); moveCommandSelection(-1); }
+    else if (event.key === "Enter") { event.preventDefault(); runCommand(state.commandIndex); }
+  });
+}
+
+/* --- Capability picker ---------------------------------------------------- */
+
+const CAPABILITY_FILTERS = [
+  ["all", "Everything"], ["skills", "Skills"], ["tools", "Direct tools"], ["mcp", "MCP catalog"]
+];
+
+function capabilityPickHTML(kind, icon, name, title, subtitle, badge, id = "", version = "") {
+  return `<button type="button" class="capability-pick" data-mention-kind="${escapeHTML(kind)}" data-mention-name="${escapeHTML(name)}" data-mention-id="${escapeHTML(id)}" data-mention-version="${escapeHTML(version)}"><span>${escapeHTML(icon)}</span><span><strong>${escapeHTML(title)}</strong><small>${escapeHTML(subtitle || "No description")}</small></span>${badge}</button>`;
+}
+
+function renderCapabilityPicker() {
+  const body = $("#capabilityPickerBody");
+  if (!body) return;
+  const filter = state.capabilityPickerFilter;
+  const query = ($("#capabilityPickerQuery")?.value || "").trim().toLowerCase();
+  const session = state.sessionDetail?.session;
+  const contract = session?.contract || {};
+  const selected = new Set((contract.selected_skills || []).map(item => item.canonical_name));
+  const matches = (haystack) => !query || haystack.toLowerCase().includes(query);
+  const chips = `<div class="capability-filter">${CAPABILITY_FILTERS.map(([value, label]) =>
+    `<button type="button" class="capability-chip ${value === filter ? "active" : ""}" data-picker-filter="${value}">${label}</button>`).join("")}</div>`;
+
+  let markup = chips;
+  if (filter === "all" || filter === "skills") {
+    const skills = (contract.skill_catalog || []).filter(item => matches(`${item.canonical_name} ${item.summary}`));
+    markup += `<section class="capability-picker-section"><header><span>Skills in this session</span><span>${skills.length}</span></header><div class="capability-picker-list">${skills.length
+      ? skills.map(item => capabilityPickHTML("skill", "✦", item.canonical_name, item.canonical_name, item.summary,
+          selected.has(item.canonical_name) ? pill("in context", "green") : (item.pinned ? pill("pinned", "blue") : ""), item.skill_id, item.version_id)).join("")
+      : `<p class="command-empty">${!session ? "Start a session first — a Skill catalog is frozen when the session opens."
+          : contract.skill_catalog?.length ? "No Skill matches that search."
+          : "This session's Skill catalog is empty. Promote a Skill in Skill Studio first."}</p>`}</div></section>`;
+  }
+  if (filter === "all" || filter === "tools") {
+    const tools = (contract.tool_bindings || []).filter(item => matches(`${item.name} ${item.description}`));
+    markup += `<section class="capability-picker-section"><header><span>Direct tools</span><span>${tools.length}</span></header><div class="capability-picker-list">${tools.length
+      ? tools.map(item => capabilityPickHTML("tool", "⌘", item.name, item.name, item.description,
+          pill(item.requires_approval ? "approval" : item.effect || "read", item.requires_approval ? "amber" : "green"))).join("")
+      : `<p class="command-empty">${!session ? "Start a session first — tool bindings are frozen into its Session Contract." : "No direct tool matches that search."}</p>`}</div></section>`;
+  }
+  if (filter === "all" || filter === "mcp") {
+    const indexed = Number(state.capability_summary?.total || 0);
+    const results = state.capabilityPickerResults;
+    markup += `<section class="capability-picker-section"><header><span>MCP catalog</span><span>${indexed.toLocaleString()} indexed</span></header><div class="capability-picker-list">${
+      !query ? `<p class="command-empty">Type to search ${indexed.toLocaleString()} deferred tools. Only the matches you open are ever loaded.</p>`
+      : state.capabilityPickerSearching ? `<p class="command-empty">Searching…</p>`
+      : results.length ? results.map(item => capabilityPickHTML("mcp", "◈", item.title || item.name, item.title || item.name, item.description,
+          `${pill(item.effect, item.requires_approval ? "amber" : "green")}${pill(item.readiness, item.readiness === "ready" ? "green" : "red")}`, item.id)).join("")
+      : `<p class="command-empty">No indexed tool matches “${escapeHTML(query)}”.</p>`}</div></section>`;
+  }
+  body.innerHTML = markup;
+  $$("[data-picker-filter]", body).forEach(button => button.addEventListener("click", () => {
+    state.capabilityPickerFilter = button.dataset.pickerFilter;
+    renderCapabilityPicker();
+  }));
+  $$("[data-mention-kind]", body).forEach(button => button.addEventListener("click", () => {
+    const item = { kind:button.dataset.mentionKind, name:button.dataset.mentionName,
+      id:button.dataset.mentionId, version:button.dataset.mentionVersion };
+    if (item.kind === "skill") mentionSkill(item);
+    else mentionCapability(item);
+  }));
+}
+
+function appendComposerInstruction(instruction) {
+  $("#capabilityDialog")?.close();
+  const input = $("#chatInput");
+  if (!input) {
+    toast("Start a session first, then mention a Skill or tool", true);
+    return;
+  }
+  const existing = input.value;
+  const separator = !existing || existing.endsWith(" ") || existing.endsWith("\n") ? "" : " ";
+  input.value = `${existing}${separator}${instruction} `;
+  state.draftMessage = input.value;
+  state.composerFocused = true;
+  state.composerCaret = input.value.length;
+  if (!$("#configOverlay").hidden) closeConfig();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+// Mentioning a Skill never mutates the frozen Session Contract. If the Skill
+// was promoted after the session opened, the honest operation is to ask for a
+// new session rather than imply that the running model can retrieve it.
+function mentionSkill(skill) {
+  const catalog = state.sessionDetail?.session?.contract?.skill_catalog || [];
+  const binding = catalog.find(item => item.skill_id === skill.id || item.canonical_name === skill.name || item.canonical_name === skill.canonical_name);
+  if (!binding) {
+    toast("That Skill is not in this session’s frozen catalog. Start a new session to use it.", true);
+    return;
+  }
+  appendComposerInstruction(`Use the session-bound Skill "${binding.canonical_name}". Load its exact frozen version with skill_view using skill_id "${binding.skill_id}" and version_id "${binding.version_id}" before acting.`);
+}
+
+// Direct tools and MCP capabilities get different instructions. The latter
+// must still pass through search/describe/call, revision checks and approval.
+function mentionCapability(capability) {
+  if (typeof capability === "string") capability = { kind:"tool", name:capability };
+  if (capability.kind === "mcp") {
+    appendComposerInstruction(`Use the deferred capability "${capability.name}" (catalog id "${capability.id}"). Verify it with tool_search, load its exact schema and revision with tool_describe, then use tool_call; do not bypass required approval.`);
+    return;
+  }
+  appendComposerInstruction(`Use the session-bound direct tool "${capability.name}" when needed. Inspect its arguments carefully and preserve every approval requirement.`);
+}
+
+async function searchPickerCapabilities() {
+  const query = ($("#capabilityPickerQuery")?.value || "").trim();
+  if (!query) { state.capabilityPickerResults = []; renderCapabilityPicker(); return; }
+  state.capabilityPickerSearching = true;
+  renderCapabilityPicker();
+  try {
+    const result = await api(`/api/capabilities?query=${encodeURIComponent(query)}&limit=12`);
+    // Discard a response that a newer keystroke has already superseded.
+    if (($("#capabilityPickerQuery")?.value || "").trim() !== query) return;
+    state.capabilityPickerResults = result.results || [];
+  } catch (error) {
+    state.capabilityPickerResults = [];
+    toast(error.message, true);
+  } finally {
+    state.capabilityPickerSearching = false;
+    renderCapabilityPicker();
+  }
+}
+
+function openCapabilityPicker(filter = "all") {
+  const dialog = $("#capabilityDialog");
+  if (!dialog) return;
+  state.capabilityPickerFilter = CAPABILITY_FILTERS.some(([value]) => value === filter) ? filter : "all";
+  state.capabilityPickerResults = [];
+  state.capabilityPickerSearching = false;
+  const query = $("#capabilityPickerQuery");
+  if (query) query.value = "";
+  renderCapabilityPicker();
+  if (!dialog.open) dialog.showModal();
+  query?.focus();
+}
+
+function bindCapabilityPicker() {
+  const query = $("#capabilityPickerQuery");
+  $("#capabilityClose")?.addEventListener("click", () => $("#capabilityDialog").close());
+  $("#openToolCenter")?.addEventListener("click", () => { $("#capabilityDialog").close(); switchTab("mcp"); });
+  $("#openSkillStudio")?.addEventListener("click", () => { $("#capabilityDialog").close(); switchTab("library"); });
+  query?.addEventListener("input", () => {
+    renderCapabilityPicker();
+    clearTimeout(capabilitySearchTimer);
+    capabilitySearchTimer = setTimeout(searchPickerCapabilities, 220);
+  });
+}
+
+/* --- Density -------------------------------------------------------------- */
+
+// Density is a data attribute rather than a stylesheet swap so the whole
+// cockpit re-flows from one token set, and so nothing here has to touch an
+// inline style: the server sends style-src 'self' and every inline style
+// assignment would be blocked.
+const DENSITY_STORAGE_KEY = "hermetrix.density";
+
+function storedDensity() {
+  try {
+    const stored = localStorage.getItem(DENSITY_STORAGE_KEY);
+    return stored === "compact" || stored === "comfortable" ? stored : "";
+  } catch { return ""; }
+}
+
+function viewportDensity() { return window.innerWidth < 1440 ? "compact" : "comfortable"; }
+
+function applyDensity(density) {
+  state.density = density;
+  document.documentElement.dataset.density = density;
+  const button = $("#densityToggle");
+  if (!button) return;
+  const compact = density === "compact";
+  button.textContent = compact ? "Compact" : "Comfortable";
+  button.setAttribute("aria-pressed", String(compact));
+  button.title = compact
+    ? "Compact spacing, sized for a laptop display. Click for comfortable."
+    : "Comfortable spacing, sized for a desktop display. Click for compact.";
+}
+
+function toggleDensity() {
+  const next = state.density === "compact" ? "comfortable" : "compact";
+  try { localStorage.setItem(DENSITY_STORAGE_KEY, next); } catch {}
+  applyDensity(next);
+}
+
+function bindDensity() {
+  applyDensity(storedDensity() || viewportDensity());
+  $("#densityToggle")?.addEventListener("click", toggleDensity);
+  // Follow the window only while the user has not made a choice of their own.
+  window.addEventListener("resize", () => {
+    if (storedDensity()) return;
+    const next = viewportDensity();
+    if (next !== state.density) applyDensity(next);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  $$(".tab, .nav-item[data-tab]").forEach(node => node.addEventListener("click", () => switchTab(node.dataset.tab)));
+  $$(".workbench-tab").forEach(node => node.addEventListener("click", () => switchWorkbench(node.dataset.workbench)));
+  $("#openConfig").addEventListener("click", () => openConfig());
+  $("#closeConfig").addEventListener("click", closeConfig);
+  $("#configSearch").addEventListener("input", renderConfigNav);
+  $$(".door").forEach(node => node.addEventListener("click", () => {
+    $$(".door").forEach(item => item.classList.toggle("active", item === node));
+    // A door is a way of working, not a settings page: each one lands on the
+    // conversation and opens the room that door is about.
+    switchTab("chat");
+    if (node.dataset.door === "assistant") switchWorkbench("review");
+    if (node.dataset.door === "code") switchWorkbench("files");
+    if (node.dataset.door === "team") switchWorkbench("team");
+  }));
+  $("#closeWorkbench").addEventListener("click", () => { clearTimeout(workbenchPollTimer); $(".shell").classList.add("workbench-closed"); $("#inspector").classList.remove("open"); });
+  $("#toggleWorkbench").addEventListener("click", () => { const closed=$(".shell").classList.toggle("workbench-closed"); $("#inspector").classList.toggle("open",!closed); if(!closed) renderCurrentWorkbench(); });
+  // The rail button starts a session outright. It used to only clear the
+  // selection and drop focus into a provider dropdown, which meant "new
+  // session" was three more decisions before anything happened.
+  $("#railNewSession").addEventListener("click", () => {
+    switchTab("chat");
+    if (!state.providers.some(provider => provider.enabled)) { switchTab("providers"); return; }
+    if (state.sessionReady) { createAgentSession(); return; }
+    state.sessionOptionsOpen = true;
+    state.sessionDetail = null;
+    state.selectedSession = null;
+    renderChat();
+    $("#chatProviderSelect")?.focus();
+  });
   $("#refreshButton").addEventListener("click", load);
   $("#createButton").addEventListener("click", openCandidateDialog);
   $("#candidateForm").addEventListener("submit", submitCandidate);
   $("#searchInput").addEventListener("input", renderLibrary);
   $("#stateFilter").addEventListener("change", renderLibrary);
+  bindDensity();
+  bindCommandPalette();
+  bindCapabilityPicker();
+  bindFolderPicker();
+  // One global accelerator rather than one per view: the palette is the single
+  // way into every page, room and action, which is what lets the tab strip and
+  // the rail stay short.
+  document.addEventListener("keydown", event => {
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openCommandPalette();
+      return;
+    }
+    // Escape leaves settings the way it leaves a dialog. A <dialog> that is
+    // open handles its own Escape, so this only fires for the overlay.
+    if (event.key === "Escape" && !$("#configOverlay").hidden && !$("dialog[open]")) closeConfig();
+  });
   load();
 });
