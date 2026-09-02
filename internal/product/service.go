@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"hermetrix-harness/internal/agent"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
@@ -28,14 +29,41 @@ const maxArtifactBytes = 16 << 20
 var settingKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,80}$`)
 
 type Service struct {
-	store   *store.Store
-	skills  *skills.Service
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
+	store       *store.Store
+	skills      *skills.Service
+	mu          sync.Mutex
+	cancels     map[string]context.CancelFunc
+	terminals   map[string]*terminalRuntime
+	browser     *browserRuntime
+	browserTabs map[string]*browserTabRuntime
+	agent       teamAgentRunner
+	teamCtx     context.Context
+	teamCancel  context.CancelFunc
+	teamRuns    map[string]teamRunHandle
+	teamWG      sync.WaitGroup
+}
+
+type teamAgentRunner interface {
+	CreateSession(context.Context, agent.CreateSessionInput) (agent.Session, error)
+	RunTurn(context.Context, string, agent.TurnInput, func(agent.StreamEvent) error) (agent.TurnResult, error)
+	DecideApproval(context.Context, string, agent.ApprovalDecisionInput, func(agent.StreamEvent) error) (agent.TurnResult, error)
+}
+
+type teamRunHandle struct {
+	Generation string
+	Cancel     context.CancelFunc
 }
 
 func NewService(dataStore *store.Store, skillService *skills.Service) *Service {
-	return &Service{store: dataStore, skills: skillService, cancels: map[string]context.CancelFunc{}}
+	teamCtx, teamCancel := context.WithCancel(context.Background())
+	return &Service{store: dataStore, skills: skillService, cancels: map[string]context.CancelFunc{},
+		terminals: map[string]*terminalRuntime{}, browserTabs: map[string]*browserTabRuntime{},
+		teamCtx: teamCtx, teamCancel: teamCancel, teamRuns: map[string]teamRunHandle{}}
+}
+
+func (s *Service) WithAgentRunner(runner teamAgentRunner) *Service {
+	s.agent = runner
+	return s
 }
 
 func (s *Service) RecoverInterruptedJobs(ctx context.Context) (int64, error) {
@@ -44,7 +72,60 @@ func (s *Service) RecoverInterruptedJobs(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	jobs, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	terminals, err := s.store.DB.ExecContext(ctx, `UPDATE terminal_sessions SET state='interrupted',
+		error='terminal process ended when Hermetrix stopped',updated_at=?,completed_at=? WHERE state='running'`,
+		formatTime(time.Now().UTC()), formatTime(time.Now().UTC()))
+	if err != nil {
+		return jobs, err
+	}
+	terminalCount, err := terminals.RowsAffected()
+	if err != nil {
+		return jobs + terminalCount, err
+	}
+	browserTabs, err := s.store.DB.ExecContext(ctx, `UPDATE browser_tabs SET state='interrupted',
+		error='browser tab ended when Hermetrix stopped',updated_at=? WHERE state IN ('starting','ready','navigating')`,
+		formatTime(time.Now().UTC()))
+	if err != nil {
+		return jobs + terminalCount, err
+	}
+	browserCount, err := browserTabs.RowsAffected()
+	if err != nil {
+		return jobs + terminalCount, err
+	}
+	teamTasks, err := s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET state='interrupted',
+		error='team task interrupted; model/tool effects were not retried',completed_at=?
+		WHERE state IN ('running','resolving_approval') OR (state='queued' AND EXISTS (
+			SELECT 1 FROM agent_team_runs WHERE agent_team_runs.id=agent_team_tasks.run_id
+			AND agent_team_runs.state IN ('queued','running')))`,
+		formatTime(time.Now().UTC()))
+	if err != nil {
+		return jobs + terminalCount + browserCount, err
+	}
+	taskCount, err := teamTasks.RowsAffected()
+	if err != nil {
+		return jobs + terminalCount + browserCount, err
+	}
+	teamRuns, err := s.store.DB.ExecContext(ctx, `UPDATE agent_team_runs SET state='interrupted',
+		error='team run interrupted; inspect child sessions before starting a new run',completed_at=?
+		WHERE state IN ('queued','running') OR (state='awaiting_approval' AND EXISTS (
+			SELECT 1 FROM agent_team_tasks WHERE agent_team_tasks.run_id=agent_team_runs.id AND agent_team_tasks.state='interrupted'))`,
+		formatTime(time.Now().UTC()))
+	if err != nil {
+		return jobs + terminalCount + browserCount + taskCount, err
+	}
+	runCount, err := teamRuns.RowsAffected()
+	return jobs + terminalCount + browserCount + taskCount + runCount, err
+}
+
+func (s *Service) Close() {
+	s.teamCancel()
+	s.teamWG.Wait()
+	s.closeTerminals()
+	s.closeBrowser()
 }
 
 func (s *Service) SaveProject(ctx context.Context, input ProjectInput) (Project, error) {
@@ -96,7 +177,7 @@ func (s *Service) EnsureWorkspaceProject(ctx context.Context, root string) (Proj
 }
 
 func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,root_path,state,created_at,updated_at FROM projects ORDER BY updated_at DESC`)
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,root_path,state,pinned,last_opened_at,created_at,updated_at FROM projects ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +194,7 @@ func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
 }
 
 func (s *Service) GetProject(ctx context.Context, id string) (Project, error) {
-	return scanProject(s.store.DB.QueryRowContext(ctx, `SELECT id,name,root_path,state,created_at,updated_at FROM projects WHERE id=?`, id))
+	return scanProject(s.store.DB.QueryRowContext(ctx, `SELECT id,name,root_path,state,pinned,last_opened_at,created_at,updated_at FROM projects WHERE id=?`, id))
 }
 
 func (s *Service) BrowseProject(ctx context.Context, projectID, relative string) ([]FileEntry, error) {
@@ -365,7 +446,12 @@ func (s *Service) Usage(ctx context.Context) (UsageSummary, error) {
 }
 
 func resolveProjectRoot(raw string) (string, error) {
-	abs, err := filepath.Abs(strings.TrimSpace(raw))
+	trimmed := strings.TrimSpace(raw)
+	// Empty is a project with no code, which is an ordinary kind of project.
+	if trimmed == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(trimmed)
 	if err != nil {
 		return "", err
 	}
@@ -430,9 +516,16 @@ type projectScanner interface{ Scan(...any) error }
 
 func scanProject(row projectScanner) (Project, error) {
 	var item Project
+	var pinned int
+	var lastOpened sql.NullString
 	var created, updated string
-	if err := row.Scan(&item.ID, &item.Name, &item.RootPath, &item.State, &created, &updated); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.RootPath, &item.State, &pinned, &lastOpened, &created, &updated); err != nil {
 		return Project{}, err
+	}
+	item.Pinned = pinned != 0
+	if lastOpened.Valid {
+		value, _ := parseTime(lastOpened.String)
+		item.LastOpenedAt = &value
 	}
 	item.CreatedAt, _ = parseTime(created)
 	item.UpdatedAt, _ = parseTime(updated)

@@ -1,15 +1,22 @@
 package product
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"hermetrix-harness/internal/agent"
+	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
 )
@@ -22,7 +29,9 @@ func testProductService(t *testing.T) (*Service, *skills.Service, *store.Store) 
 	}
 	t.Cleanup(func() { _ = dataStore.Close() })
 	skillService := skills.NewService(dataStore)
-	return NewService(dataStore, skillService), skillService, dataStore
+	service := NewService(dataStore, skillService)
+	t.Cleanup(service.Close)
+	return service, skillService, dataStore
 }
 
 func TestProjectArtifactSettingsAndExplicitMemorySafety(t *testing.T) {
@@ -152,6 +161,643 @@ func TestBackgroundCommandIsDirectBoundedAuditableAndCancelable(t *testing.T) {
 	}
 }
 
+func TestInteractivePTYAcceptsInputStreamsOutputAndCloses(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "PTY", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: project.ID, Shell: "sh", WorkingDir: ".",
+		Actor: "test-user", Columns: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WriteTerminal(ctx, terminal.ID, "printf 'HERMETRIX_PTY_OK\\n'\n"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		output, readErr := service.TerminalOutput(ctx, terminal.ID, 0)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if strings.Contains(output.Output, "HERMETRIX_PTY_OK") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("terminal output never arrived: %+v", output)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := service.ResizeTerminal(ctx, terminal.ID, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CloseTerminal(ctx, terminal.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagedBrowserInteractsWithProjectPageAndCapturesEvidence(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	pagePath := filepath.Join(root, "browser-fixture.html")
+	page := `<!doctype html><html><head><title>Hermetrix Browser Fixture</title></head><body>
+<label>Name <input id="name" placeholder="Name"></label>
+<button id="apply" onclick="document.querySelector('#result').textContent='Hello '+document.querySelector('#name').value">Apply</button>
+<p id="result">Waiting</p></body></html>`
+	if err := os.WriteFile(pagePath, []byte(page), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Browser", RootPath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL := (&url.URL{Scheme: "file", Path: pagePath}).String()
+	tab, err := service.OpenBrowserTab(ctx, OpenBrowserTabInput{ProjectID: project.ID, URL: pageURL, Actor: "test-user"})
+	if err != nil {
+		if strings.Contains(err.Error(), "Chrome or Chromium is required") {
+			t.Skip(err)
+		}
+		if strings.Contains(err.Error(), "signal: abort trap") {
+			t.Skipf("test host sandbox prevented Chrome from starting: %v", err)
+		}
+		t.Fatal(err)
+	}
+	if tab.Title != "Hermetrix Browser Fixture" || !strings.Contains(tab.TextSnapshot, "Waiting") || tab.ScreenshotArtifactID == "" {
+		t.Fatalf("initial browser tab=%+v", tab)
+	}
+	var inputRef, buttonRef int
+	for _, element := range tab.Elements {
+		if element.Placeholder == "Name" {
+			inputRef = element.Ref
+		}
+		if element.Text == "Apply" {
+			buttonRef = element.Ref
+		}
+	}
+	if inputRef == 0 || buttonRef == 0 {
+		t.Fatalf("interactive element references missing: %+v", tab.Elements)
+	}
+	if _, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: inputRef, Text: "Neurix", Actor: "test-user"}); err != nil {
+		t.Fatal(err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "click", Ref: buttonRef, Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(tab.TextSnapshot, "Hello Neurix") {
+		t.Fatalf("browser action did not update the page: %q", tab.TextSnapshot)
+	}
+	artifact, image, err := service.GetArtifact(ctx, tab.ScreenshotArtifactID)
+	if err != nil || artifact.MIMEType != "image/png" || len(image) < 100 {
+		t.Fatalf("screenshot artifact=%+v bytes=%d err=%v", artifact, len(image), err)
+	}
+	closed, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "close", Actor: "test-user"})
+	if err != nil || closed.State != "closed" {
+		t.Fatalf("closed tab=%+v err=%v", closed, err)
+	}
+}
+
+func TestManagedBrowserURLPolicy(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	if _, err := service.validateBrowserURL(ctx, "", "http://127.0.0.1:9/", false); err == nil || !strings.Contains(err.Error(), "allow_private") {
+		t.Fatalf("private browser URL was not refused explicitly: %v", err)
+	}
+	if _, err := service.validateBrowserURL(ctx, "", "https://user:secret@example.com/", false); err == nil || !strings.Contains(err.Error(), "credentials") {
+		t.Fatalf("credential-bearing browser URL was not refused: %v", err)
+	}
+	if _, err := service.validateBrowserURL(ctx, "", "javascript:alert(1)", false); err == nil || !strings.Contains(err.Error(), "only http") {
+		t.Fatalf("active browser URL scheme was not refused: %v", err)
+	}
+}
+
+func TestNativeOfficeDeliverablesAreRealAuditablePackages(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Deliverables", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		format   string
+		required []string
+	}{
+		{format: "docx", required: []string{"[Content_Types].xml", "word/document.xml"}},
+		{format: "xlsx", required: []string{"[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml"}},
+		{format: "pptx", required: []string{"[Content_Types].xml", "ppt/presentation.xml", "ppt/slides/slide1.xml"}},
+	}
+	for _, test := range tests {
+		t.Run(test.format, func(t *testing.T) {
+			artifact, createErr := service.CreateDeliverable(ctx, DeliverableInput{ProjectID: project.ID, Format: test.format,
+				Title: "Hermetrix สรุป", Actor: "test-user", Paragraphs: []string{"รองรับข้อความ Unicode"},
+				Rows: [][]string{{"หัวข้อ", "ค่า"}, {"ภาษา", "ไทย"}}, Slides: []DeliverableSlide{{Title: "Hermetrix", Bullets: []string{"ภาษาไทย"}}}})
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			stored, data, readErr := service.GetArtifact(ctx, artifact.ID)
+			if readErr != nil || stored.Checksum == "" || stored.Metadata["created_by"] != "test-user" {
+				t.Fatalf("artifact=%+v err=%v", stored, readErr)
+			}
+			archive, openErr := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+			if openErr != nil {
+				t.Fatalf("%s is not a ZIP-based Office package: %v", test.format, openErr)
+			}
+			present := map[string]bool{}
+			for _, file := range archive.File {
+				present[file.Name] = true
+			}
+			for _, name := range test.required {
+				if !present[name] {
+					t.Fatalf("%s package is missing %s", test.format, name)
+				}
+			}
+		})
+	}
+	pdf, err := service.CreateDeliverable(ctx, DeliverableInput{ProjectID: project.ID, Format: "pdf", Title: "Hermetrix report",
+		Actor: "test-user", Paragraphs: []string{"Verified output"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pdfData, err := service.GetArtifact(ctx, pdf.ID)
+	if err != nil || !bytes.HasPrefix(pdfData, []byte("%PDF-1.7")) || !bytes.HasSuffix(pdfData, []byte("%%EOF\n")) {
+		t.Fatalf("invalid PDF bytes=%d err=%v", len(pdfData), err)
+	}
+	if _, err := service.CreateDeliverable(ctx, DeliverableInput{Format: "pdf", Title: "รายงาน", Actor: "test-user"}); err == nil || !strings.Contains(err.Error(), "Unicode") {
+		t.Fatalf("PDF Unicode limitation was not reported truthfully: %v", err)
+	}
+}
+
+type fakeTeamAgent struct {
+	mu               sync.Mutex
+	next             int
+	active           int
+	maxActive        int
+	titles           map[string]string
+	prompts          []string
+	started          chan struct{}
+	stopped          chan struct{}
+	block            chan struct{}
+	approvalOnFirst  bool
+	approvalIssued   bool
+	approvalCalls    int
+	approvalDecision agent.ApprovalDecisionInput
+	approvalStarted  chan struct{}
+	approvalStopped  chan struct{}
+	approvalBlock    chan struct{}
+}
+
+func (f *fakeTeamAgent) CreateSession(_ context.Context, input agent.CreateSessionInput) (agent.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.next++
+	id := fmt.Sprintf("fake-session-%d", f.next)
+	if f.titles == nil {
+		f.titles = map[string]string{}
+	}
+	f.titles[id] = input.Title
+	return agent.Session{ID: id, Title: input.Title}, nil
+}
+
+func (f *fakeTeamAgent) RunTurn(ctx context.Context, sessionID string, input agent.TurnInput, _ func(agent.StreamEvent) error) (agent.TurnResult, error) {
+	f.mu.Lock()
+	f.active++
+	if f.active > f.maxActive {
+		f.maxActive = f.active
+	}
+	title := f.titles[sessionID]
+	f.prompts = append(f.prompts, input.Content)
+	f.mu.Unlock()
+	if f.started != nil {
+		select {
+		case f.started <- struct{}{}:
+		default:
+		}
+	}
+	defer func() {
+		f.mu.Lock()
+		f.active--
+		f.mu.Unlock()
+	}()
+	if f.block != nil {
+		select {
+		case <-ctx.Done():
+			if f.stopped != nil {
+				select {
+				case f.stopped <- struct{}{}:
+				default:
+				}
+			}
+			return agent.TurnResult{}, ctx.Err()
+		case <-f.block:
+		}
+	}
+	select {
+	case <-ctx.Done():
+		return agent.TurnResult{}, ctx.Err()
+	case <-time.After(40 * time.Millisecond):
+	}
+	f.mu.Lock()
+	issueApproval := f.approvalOnFirst && !f.approvalIssued
+	if issueApproval {
+		f.approvalIssued = true
+	}
+	f.mu.Unlock()
+	if issueApproval {
+		return agent.TurnResult{FinishReason: "approval_required", Approval: &agent.ToolApproval{ID: "approval-team-1",
+			SessionID: sessionID, State: "pending", Summary: "Write reviewed evidence", Preview: "plan.md\n+verified",
+			Effect: "workspace_mutation"}, Usage: providers.Usage{PromptTokens: 90, CompletionTokens: 10, TotalTokens: 100}}, nil
+	}
+	return agent.TurnResult{AssistantEvent: agent.Event{Content: "verified result from " + title},
+		Usage: providers.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120}}, nil
+}
+
+func (f *fakeTeamAgent) DecideApproval(ctx context.Context, _ string, input agent.ApprovalDecisionInput,
+	_ func(agent.StreamEvent) error) (agent.TurnResult, error) {
+	f.mu.Lock()
+	f.approvalCalls++
+	f.approvalDecision = input
+	f.mu.Unlock()
+	if f.approvalStarted != nil {
+		select {
+		case f.approvalStarted <- struct{}{}:
+		default:
+		}
+	}
+	if f.approvalBlock != nil {
+		select {
+		case <-ctx.Done():
+			if f.approvalStopped != nil {
+				select {
+				case f.approvalStopped <- struct{}{}:
+				default:
+				}
+			}
+			return agent.TurnResult{}, ctx.Err()
+		case <-f.approvalBlock:
+		}
+	}
+	return agent.TurnResult{AssistantEvent: agent.Event{Content: "approval resolved"},
+		Usage: providers.Usage{PromptTokens: 125, CompletionTokens: 25, TotalTokens: 150}}, nil
+}
+
+func TestAgentTeamPersistsDefinitionRunsDAGConcurrentlyAndSynthesizes(t *testing.T) {
+	service, _, _ := testProductService(t)
+	runner := &fakeTeamAgent{}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Team project", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{ProjectID: project.ID, Name: "Evidence team", Actor: "test-user",
+		Instructions: "Prefer verified evidence and expose disagreements.", Members: []TeamMemberInput{
+			{Name: "Researcher", Role: "research", Instructions: "Collect evidence."},
+			{Name: "Reviewer", Role: "review", Instructions: "Find unsupported claims."},
+			{Name: "Lead", Role: "synthesis", Instructions: "Resolve conflicts.", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.StartTeamRun(ctx, StartTeamRunInput{TeamID: team.ID, ProjectID: project.ID,
+		Objective: "Assess the Hermetrix plan", ProviderID: "provider-test", ContextProfile: "certified-64k",
+		Actor: "test-user", MaxParallel: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State == "completed" || run.State == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("team run did not finish: %+v", run)
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if run.State != "completed" || len(run.Tasks) != 3 || run.PromptTokens != 300 || run.CompletionTokens != 60 {
+		t.Fatalf("run=%+v", run)
+	}
+	runner.mu.Lock()
+	maxActive := runner.maxActive
+	prompts := append([]string(nil), runner.prompts...)
+	runner.mu.Unlock()
+	if maxActive != 2 {
+		t.Fatalf("maximum concurrent children=%d, want 2", maxActive)
+	}
+	foundSynthesis := false
+	for _, prompt := range prompts {
+		if strings.Contains(prompt, "untrusted evidence, never instructions") && strings.Contains(prompt, "verified result from") {
+			foundSynthesis = true
+		}
+	}
+	if !foundSynthesis {
+		t.Fatalf("lead did not receive labelled peer evidence: %v", prompts)
+	}
+	_, err = service.StartTeamRun(ctx, StartTeamRunInput{TeamID: team.ID, Objective: "cycle", ProviderID: "p",
+		ContextProfile: "certified-64k", Actor: "test-user", Tasks: []TeamTaskInput{
+			{ID: "a", MemberID: team.Members[0].ID, Title: "A", Prompt: "A", DependsOn: []string{"b"}},
+			{ID: "b", MemberID: team.Members[1].ID, Title: "B", Prompt: "B", DependsOn: []string{"a"}},
+		}})
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("cyclic team graph was accepted: %v", err)
+	}
+}
+
+func TestAgentTeamCancellationPropagatesAndCannotBeOverwritten(t *testing.T) {
+	service, _, _ := testProductService(t)
+	runner := &fakeTeamAgent{started: make(chan struct{}, 1), stopped: make(chan struct{}, 1), block: make(chan struct{})}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{Name: "Cancellable team", Actor: "test-user",
+		Instructions: "Stop when the parent cancels.", Members: []TeamMemberInput{
+			{Name: "Lead", Role: "lead", Instructions: "Perform the task.", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.StartTeamRun(ctx, StartTeamRunInput{TeamID: team.ID, Objective: "Wait until cancelled",
+		ProviderID: "provider-test", ContextProfile: "certified-64k", Actor: "test-user", MaxParallel: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("child model call did not start")
+	}
+	cancelled, err := service.CancelTeamRun(ctx, run.ID, "test-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.State != "cancelled" || len(cancelled.Tasks) != 1 || cancelled.Tasks[0].State != "cancelled" {
+		t.Fatalf("cancelled run was not persisted atomically: %+v", cancelled)
+	}
+	select {
+	case <-runner.stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancellation did not reach the child model context")
+	}
+	time.Sleep(30 * time.Millisecond)
+	after, err := service.GetTeamRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.State != "cancelled" || after.Tasks[0].State != "cancelled" {
+		t.Fatalf("late child completion overwrote cancellation: %+v", after)
+	}
+	if _, err := service.CancelTeamRun(ctx, run.ID, "test-user"); err == nil || !strings.Contains(err.Error(), "state cancelled") {
+		t.Fatalf("completed cancellation was accepted twice: %v", err)
+	}
+}
+
+func TestAgentTeamRunKeepsFrozenRosterAcrossDefinitionEdit(t *testing.T) {
+	service, _, _ := testProductService(t)
+	block := make(chan struct{})
+	runner := &fakeTeamAgent{started: make(chan struct{}, 2), block: block}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{Name: "Snapshot team", Actor: "test-user",
+		Instructions: "ORIGINAL UNIT RULES", Members: []TeamMemberInput{
+			{Name: "Researcher", Role: "research", Instructions: "ORIGINAL RESEARCH INSTRUCTIONS"},
+			{Name: "Lead", Role: "synthesis", Instructions: "ORIGINAL LEAD INSTRUCTIONS", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.StartTeamRun(ctx, StartTeamRunInput{TeamID: team.ID, Objective: "Prove frozen roles",
+		ProviderID: "provider-test", ContextProfile: "certified-64k", Actor: "test-user", MaxParallel: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first frozen task did not start")
+	}
+	var lead TeamMember
+	for _, member := range team.Members {
+		if member.IsLead {
+			lead = member
+		}
+	}
+	updated, err := service.SaveAgentTeam(ctx, AgentTeamInput{ID: team.ID, ExpectedRevision: team.Revision,
+		Name: "Mutated team", Actor: "test-user", Instructions: "MUTATED UNIT RULES", Members: []TeamMemberInput{
+			{ID: lead.ID, Name: "Lead renamed", Role: "changed-role", Instructions: "MUTATED LEAD INSTRUCTIONS", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatalf("historical task foreign key blocked a safe roster edit: %v", err)
+	}
+	if len(updated.Members) != 1 || updated.Members[0].Name != "Lead renamed" {
+		t.Fatalf("team definition was not updated independently: %+v", updated)
+	}
+	close(block)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State == "completed" || run.State == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("frozen run did not finish: %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if run.State != "completed" || run.TeamName != "Snapshot team" || run.TeamInstructions != "ORIGINAL UNIT RULES" {
+		t.Fatalf("run-level team snapshot drifted: %+v", run)
+	}
+	runner.mu.Lock()
+	prompts := append([]string(nil), runner.prompts...)
+	runner.mu.Unlock()
+	joined := strings.Join(prompts, "\n---\n")
+	if !strings.Contains(joined, "ORIGINAL UNIT RULES") || !strings.Contains(joined, "ORIGINAL LEAD INSTRUCTIONS") ||
+		strings.Contains(joined, "MUTATED UNIT RULES") || strings.Contains(joined, "MUTATED LEAD INSTRUCTIONS") {
+		t.Fatalf("run read mutable roster instructions after it started: %s", joined)
+	}
+	if len(run.Tasks) != 2 || run.Tasks[0].MemberName == "" || run.Tasks[1].MemberRole == "" {
+		t.Fatalf("task provenance lacks frozen member snapshots: %+v", run.Tasks)
+	}
+}
+
+func TestAgentTeamApprovalSurvivesRecoveryAndResumesSameDAGWithoutReplay(t *testing.T) {
+	service, _, _ := testProductService(t)
+	runner := &fakeTeamAgent{approvalOnFirst: true}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{Name: "Approval team", Actor: "test-user",
+		Instructions: "Require exact approval receipts.", Members: []TeamMemberInput{
+			{Name: "Writer", Role: "writer", Instructions: "Propose the exact write."},
+			{Name: "Lead", Role: "synthesis", Instructions: "Continue after the receipt.", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.StartTeamRun(ctx, StartTeamRunInput{TeamID: team.ID, Objective: "Create reviewed evidence",
+		ProviderID: "provider-test", ContextProfile: "certified-64k", Actor: "test-user", MaxParallel: 1,
+		QualificationReason: "test override snapshot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State == "awaiting_approval" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("team did not pause for child approval: %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var waitingTask, queuedTask TeamTask
+	for _, task := range run.Tasks {
+		if task.State == "awaiting_approval" {
+			waitingTask = task
+		} else if task.State == "queued" {
+			queuedTask = task
+		}
+	}
+	if run.QualificationReason != "test override snapshot" || waitingTask.ApprovalID != "approval-team-1" ||
+		waitingTask.ApprovalPreview == "" || queuedTask.ID == "" {
+		t.Fatalf("approval pause lacks persisted resume evidence: %+v", run)
+	}
+	if _, err := service.RecoverInterruptedJobs(ctx); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := service.GetTeamRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, task := range recovered.Tasks {
+		states[task.ID] = task.State
+	}
+	if recovered.State != "awaiting_approval" || states[waitingTask.ID] != "awaiting_approval" || states[queuedTask.ID] != "queued" {
+		t.Fatalf("durable pending approval was destroyed by restart recovery: %+v", recovered)
+	}
+	if _, err := service.DecideTeamTaskApproval(ctx, run.ID, waitingTask.ID,
+		TeamApprovalDecisionInput{Actor: "test-user", Decision: "approve", Reason: "preview verified"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State == "completed" || run.State == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("team did not resume after approval: %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var resolvedTask TeamTask
+	for _, task := range run.Tasks {
+		if task.ID == waitingTask.ID {
+			resolvedTask = task
+		}
+	}
+	if run.State != "completed" || resolvedTask.Result != "approval resolved" ||
+		run.PromptTokens != 225 || run.CompletionTokens != 45 {
+		t.Fatalf("approval did not resume the exact DAG: %+v", run)
+	}
+	runner.mu.Lock()
+	prompts := append([]string(nil), runner.prompts...)
+	approvalCalls, decision := runner.approvalCalls, runner.approvalDecision
+	runner.mu.Unlock()
+	if len(prompts) != 2 || approvalCalls != 1 || decision.Decision != "approve" || decision.Reason != "preview verified" {
+		t.Fatalf("child prompt/effect was replayed or decision provenance lost: prompts=%d calls=%d decision=%+v", len(prompts), approvalCalls, decision)
+	}
+	if _, err := service.DecideTeamTaskApproval(ctx, run.ID, waitingTask.ID,
+		TeamApprovalDecisionInput{Actor: "test-user", Decision: "approve"}); err == nil {
+		t.Fatal("resolved team approval was accepted twice")
+	}
+}
+
+func TestAgentTeamCancellationWinsWhileApprovalIsResolving(t *testing.T) {
+	service, _, _ := testProductService(t)
+	runner := &fakeTeamAgent{approvalOnFirst: true, approvalStarted: make(chan struct{}, 1),
+		approvalStopped: make(chan struct{}, 1), approvalBlock: make(chan struct{})}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{Name: "Approval cancellation team", Actor: "test-user",
+		Instructions: "Cancellation remains authoritative.", Members: []TeamMemberInput{
+			{Name: "Lead", Role: "lead", Instructions: "Request one reviewed effect.", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.StartTeamRun(ctx, StartTeamRunInput{TeamID: team.ID, Objective: "Cancel during approval",
+		ProviderID: "provider-test", ContextProfile: "certified-64k", Actor: "test-user", MaxParallel: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.State == "awaiting_approval" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("team did not pause for approval: %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	decisionDone := make(chan error, 1)
+	go func() {
+		_, decisionErr := service.DecideTeamTaskApproval(ctx, run.ID, run.Tasks[0].ID,
+			TeamApprovalDecisionInput{Actor: "test-user", Decision: "approve", Reason: "reviewed"})
+		decisionDone <- decisionErr
+	}()
+	select {
+	case <-runner.approvalStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("approval resolution did not start")
+	}
+	cancelled, err := service.CancelTeamRun(ctx, run.ID, "test-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.State != "cancelled" || cancelled.Tasks[0].State != "cancelled" {
+		t.Fatalf("cancellation was not persisted while approval resolved: %+v", cancelled)
+	}
+	select {
+	case <-runner.approvalStopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancellation did not reach the approval resolution context")
+	}
+	select {
+	case <-decisionDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("approval decision did not return after cancellation")
+	}
+	after, err := service.GetTeamRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.State != "cancelled" || after.Tasks[0].State != "cancelled" {
+		t.Fatalf("late approval result overwrote cancellation: %+v", after)
+	}
+}
+
 func TestMinimalEnvironmentProvidesGoCachesWithoutLeakingCredentials(t *testing.T) {
 	t.Setenv("HERMETRIX_TEST_SECRET", "must-not-leak")
 	environment := minimalEnvironment()
@@ -266,5 +912,39 @@ func TestImportReportsTheTablesItDidNotRestore(t *testing.T) {
 	}
 	if tablesNotRestored(map[string][]map[string]any{"skills": {{"canonical_name": "a"}}}) != nil {
 		t.Fatal("a file holding only restorable tables should report nothing dropped")
+	}
+}
+
+// TestProjectWithoutCodeIsOrdinaryButHonest covers both halves of the rule: a
+// project may have no code, and every tool that needs code must say that is why
+// it refused rather than reporting a bad path.
+func TestProjectWithoutCodeIsOrdinaryButHonest(t *testing.T) {
+	ctx := context.Background()
+	service, _, _ := testProductService(t)
+
+	life, err := service.SaveProject(ctx, ProjectInput{Name: "Daily life"})
+	if err != nil {
+		t.Fatalf("a project with no code folder was refused: %v", err)
+	}
+	if life.RootPath != "" {
+		t.Errorf("root = %q, want empty", life.RootPath)
+	}
+	if _, err := service.RequireRoot(ctx, life.ID); !errors.Is(err, ErrProjectHasNoCode) {
+		t.Errorf("RequireRoot said %v, want ErrProjectHasNoCode", err)
+	}
+
+	code, err := service.SaveProject(ctx, ProjectInput{Name: "Code", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RequireRoot(ctx, code.ID); err != nil {
+		t.Errorf("RequireRoot refused a project that has a root: %v", err)
+	}
+
+	// A path that was typed and is wrong is still an error, and a different one.
+	if _, err := service.SaveProject(ctx, ProjectInput{Name: "Missing", RootPath: "/no/such/place"}); err == nil {
+		t.Error("a root that does not exist was accepted")
+	} else if errors.Is(err, ErrProjectHasNoCode) {
+		t.Error("a wrong path was reported as a project with no code folder")
 	}
 }
