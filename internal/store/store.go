@@ -214,6 +214,16 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v29: %w", err)
 		}
 	}
+	// A session can end up without a project at any point in the database's
+	// life, not only during the one version bump that introduced Inbox -- the
+	// version gate above only ever fires once per database, but a project can
+	// still be deleted out from under a session afterward. So this sweep is not
+	// gated on version at all: it runs on every open and is cheap to repeat,
+	// since the INSERT is a no-op once Inbox exists and the UPDATE is a no-op
+	// once nothing points at a missing project.
+	if err := sweepOrphanSessionsIntoInbox(ctx, tx); err != nil {
+		return fmt.Errorf("move orphan sessions to inbox: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -1320,6 +1330,28 @@ func migrateV29(ctx context.Context, tx *sql.Tx) error {
 	return execErr
 }
 
+// sweepOrphanSessionsIntoInbox gives a home to sessions that never had a
+// project, or lost the one they had. It is called on every migrate(), not
+// just when crossing into v29, because a session can be orphaned at any later
+// time (its project deleted, say) and this is the mechanism that catches that,
+// not a one-off backfill. The table-existence check exists for the same
+// reason the one in migrateV29 does: a fixture that pins straight to a schema
+// version without ever running schemaV3 has no agent_sessions to sweep, and
+// the INSERT below would fail on the missing table rather than finding
+// nothing to do.
+func sweepOrphanSessionsIntoInbox(ctx context.Context, tx *sql.Tx) error {
+	var name string
+	err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='agent_sessions'`).Scan(&name)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	_, execErr := tx.ExecContext(ctx, schemaV29Inbox)
+	return execErr
+}
+
 const schemaV29Create = `
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -1350,4 +1382,21 @@ INSERT INTO projects_v29(id,name,root_path,state,created_at,updated_at)
 DROP TABLE projects;
 ALTER TABLE projects_v29 RENAME TO projects;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root ON projects(root_path) WHERE root_path <> '';
+`
+
+// schemaV29Inbox is the other half of making a project the root of everything:
+// a session could always exist with no project at all ("chat only"), and once
+// the picker is organized by project that session would have nowhere to show
+// up. It must not be hidden or silently dropped, so it moves into an ordinary
+// project named Inbox that the user can rename, pin or delete once it is
+// empty. The WHERE EXISTS guard means Inbox is never created in a database
+// that has no orphan session to receive it -- an empty category must not be
+// drawn, and that includes not being created.
+const schemaV29Inbox = `
+INSERT OR IGNORE INTO projects(id,name,root_path,state,created_at,updated_at)
+  SELECT 'project_inbox','Inbox','','active',
+         strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  WHERE EXISTS(SELECT 1 FROM agent_sessions WHERE project_id IS NULL OR project_id='');
+UPDATE agent_sessions SET project_id='project_inbox'
+  WHERE project_id IS NULL OR project_id='';
 `

@@ -233,3 +233,45 @@ func TestSchemaV29AllowsProjectsWithoutCode(t *testing.T) {
 		t.Fatalf("picker columns are missing: %v", err)
 	}
 }
+
+// TestOrphanSessionsLandInInbox covers the migration's other half. Sessions may
+// have had no project at all ("chat only"); once a project is the root of
+// everything they would have nowhere to live. None of them may be hidden or
+// dropped, so they move to an ordinary project the user can rename or delete.
+func TestOrphanSessionsLandInInbox(t *testing.T) {
+	root := t.TempDir()
+	store, err := Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`INSERT INTO provider_profiles
+    (id,name,adapter_kind,base_url,model,api_key_env,context_window,context_evidence,
+     max_output_tokens,enabled,created_at,updated_at)
+    VALUES('pr','P','openai-compatible','https://h.example/v1','m','',131072,'declared',4096,1,
+    '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`INSERT INTO agent_sessions
+    (id,title,provider_id,context_profile,state,project_id,created_at,updated_at)
+    VALUES('s1','Orphan','pr','compact-32k','idle',NULL,
+    '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	// Reopening runs the migration against a database that already has rows.
+	reopened, err := Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	var project, name, rootPath string
+	if err := reopened.DB.QueryRow(`SELECT s.project_id,p.name,p.root_path
+    FROM agent_sessions s JOIN projects p ON p.id=s.project_id WHERE s.id='s1'`).
+		Scan(&project, &name, &rootPath); err != nil {
+		t.Fatalf("the orphan session has no project: %v", err)
+	}
+	if name != "Inbox" || rootPath != "" {
+		t.Errorf("orphan landed in %q (root %q), want the rootless Inbox", name, rootPath)
+	}
+}
