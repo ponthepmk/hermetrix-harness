@@ -1,4 +1,4 @@
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {} };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {} };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -39,13 +39,101 @@ function activateWorkbenchChrome(name) {
   collapseZone("side", false);
 }
 
-// Task 7 turns the project chip into a switcher; for now it just names the
-// project the workbench rooms are already bound to, so the chip is never
-// blank beside real project data.
+// The chip names whichever project the picker opened -- currentProject, not
+// selectedProject, because selectedProject also drifts to whatever the
+// workbench is browsing (a different project's files can be opened from the
+// Projects room). The chip's click handler, wired in DOMContentLoaded, is what
+// turns it into a switcher back to the picker.
 function renderProjectChip() {
-  const project = state.projects.find(item => item.id === state.selectedProject);
+  const project = state.currentProject;
   $("#projectName").textContent = project ? project.name : "No project";
-  $("#projectChip").title = project ? project.root_path : "No project registered yet";
+  $("#projectChip").title = project ? (project.root_path || "No code folder") : "No project registered yet";
+}
+
+// The picker is the first screen because a project is the root of everything:
+// work, notes, chat and code all hang off one. It draws only the groups that
+// have something in them -- an empty heading reads as a place you can go.
+function renderPicker() {
+  const query = ($("#pickerSearch")?.value || "").trim().toLowerCase();
+  const matches = state.projects.filter(item =>
+    !query || `${item.name} ${item.root_path}`.toLowerCase().includes(query));
+  const card = item => {
+    const where = item.root_path
+      ? `<div class="picker-path">${escapeHTML(item.root_path)}</div>`
+      : `<div class="picker-path none">ไม่มีโฟลเดอร์โค้ด</div>`;
+    // Only the count that has a system behind it. Tasks and notes arrive with
+    // their own specs; a zero here would be a claim, not a fact.
+    return `<button class="picker-card" data-open-project="${escapeHTML(item.id)}">
+      <strong>${escapeHTML(item.name)}</strong>${where}
+      <span class="picker-stat">${Number(item.session_count || 0).toLocaleString()} แชท</span></button>`;
+  };
+  const group = (title, items) => items.length
+    ? `<p class="picker-group">${title}</p><div class="picker-grid">${items.map(card).join("")}</div>` : "";
+  $("#pickerPinned").innerHTML = group("ปักหมุด", matches.filter(item => item.pinned));
+  $("#pickerRecent").innerHTML = group("ล่าสุด", matches.filter(item => !item.pinned));
+  const exact = state.projects.some(item => item.name.toLowerCase() === query);
+  const create = $("#pickerCreate");
+  create.hidden = !query || exact;
+  create.textContent = `สร้างโปรเจค “${query}”`;
+  $$("[data-open-project]").forEach(button =>
+    button.addEventListener("click", () => openProject(button.dataset.openProject)));
+}
+
+// Opening records that someone worked here, which is what "recent" is ordered
+// by, and then hands the screen to the shell.
+async function openProject(id) {
+  try {
+    state.currentProject = await api(`/api/projects/${encodeURIComponent(id)}/open`, { method:"POST", body:"{}" });
+    state.projects = await api("/api/projects");
+    state.selectedProject = id;
+    showShell();
+    await load();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function createProjectFromPicker() {
+  const name = ($("#pickerSearch")?.value || "").trim();
+  if (!name) return;
+  await runAction($("#pickerCreate"), {
+    working: `กำลังสร้าง “${name}”`,
+    done: "สร้างแล้ว",
+    run: async () => {
+      // A project created from the picker has no code folder yet. Adding one is
+      // a separate, deliberate step: guessing a path here would bind a scope to
+      // a directory the user never named.
+      const created = await api("/api/projects", { method:"POST", body:JSON.stringify({ name, root_path:"" }) });
+      state.projects = await api("/api/projects");
+      $("#pickerSearch").value = "";
+      renderPicker();
+      await openProject(created.id);
+    }
+  });
+}
+
+// showShell and showPicker are the only two things that decide which of the two
+// top-level screens is on.
+function showShell() {
+  $("#projectPicker").hidden = true;
+  $("#appShell").hidden = false;
+  $("#projectName").textContent = state.currentProject?.name || "—";
+}
+
+function showPicker() {
+  $("#appShell").hidden = true;
+  $("#projectPicker").hidden = false;
+  renderPicker();
+  $("#pickerSearch")?.focus();
+}
+
+// The app opens on the picker rather than the workspace bootstrap: a project
+// is the root of everything, so nothing else is worth fetching until one is
+// chosen. Opening or creating a project (see openProject) is what triggers the
+// full load().
+async function initPicker() {
+  try {
+    state.projects = await api("/api/projects");
+  } catch (error) { toast(error.message, true); }
+  showPicker();
 }
 
 function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "", danger = false, eyebrow = "Review decision" }) {
@@ -723,9 +811,10 @@ function renderChat() {
   if (!compatibleProfiles.some(profile => profile.name === state.draftProfileName)) {
     state.draftProfileName = bestProfileFor(draftProvider, compatibleProfiles)?.name || "";
   }
-  // Bind to the workspace project by default. An unbound session cannot read a
-  // file, which is what most sessions here are opened to do.
-  if (state.draftProjectID === undefined) state.draftProjectID = state.projects[0]?.id || "";
+  // Bind to the open project by default, not merely the first one in the
+  // list: the picker is what put you here, and a session started from this
+  // rail belongs where you actually are.
+  if (state.draftProjectID === undefined) state.draftProjectID = state.currentProject?.id || state.projects[0]?.id || "";
   const draftProfile = compatibleProfiles.find(profile => profile.name === state.draftProfileName);
   const admission = profileAdmission(draftProvider, draftProfile);
   const needsOverride = admission.mode === "override_required";
@@ -750,7 +839,7 @@ function renderChat() {
   // to greet every new session live behind Options. Choosing a model is
   // configuration, not something to redo before each conversation.
   state.sessionReady = canStart;
-  const draftProjectName = state.projects.find(item => item.id === state.draftProjectID)?.name || "No project · chat only";
+  const draftProjectName = state.projects.find(item => item.id === state.draftProjectID)?.name || "No project";
   // Options stays shut unless the user opened it. It used to spring open
   // whenever an override was needed, which is most remote endpoints, and the
   // three selects plus a full explanation then filled the rail from the brand
@@ -766,7 +855,10 @@ function renderChat() {
         ${state.sessionError ? `<p class="session-error" role="alert">${escapeHTML(state.sessionError)}</p>` : ""}
         <details class="session-options" id="sessionOptions" ${optionsOpen ? "open" : ""}><summary>Options</summary><div class="session-options-body">
           <label>Model<select id="chatProviderSelect">${enabledProviders.map(provider => `<option value="${escapeHTML(provider.id)}" ${provider.id === state.draftProviderID ? "selected" : ""}>${escapeHTML(provider.name)} · ${escapeHTML(provider.model)}</option>`).join("")}</select></label>
-          <label>Project<select id="chatProjectSelect">${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}<option value="" ${state.draftProjectID ? "" : "selected"}>No project · chat only</option></select></label>
+          <!-- No "no project" option: a project is the root of everything now, so
+               every session belongs to one. This picks which project among the
+               known ones, never none. -->
+          <label>Project<select id="chatProjectSelect">${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}</select></label>
           <label>Context<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => {
             const status = profileAdmission(draftProvider, profile);
             const note = status.blocking ? "too small for this model"
@@ -978,7 +1070,10 @@ async function createAgentSession() {
     state.sessionError = "";
     const body = {
       provider_id: state.draftProviderID,
-      project_id: state.draftProjectID || "",
+      // Never "": the picker guarantees a project is always open by the time
+      // this runs, and a session with no project has nowhere to live -- that
+      // is exactly the orphan Task 2's Inbox migration swept up once already.
+      project_id: state.draftProjectID || state.currentProject.id,
       context_profile: state.draftProfileName,
       // Name the session after what it is bound to, so the list is readable
       // once more than one session exists.
@@ -2467,12 +2562,18 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", event => {
     if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
       event.preventDefault();
-      openCommandPalette();
+      // Every command here (new session, refresh, mention a Skill…) reaches
+      // into a workspace that only exists once a project is open. Before that,
+      // the picker's own search box is the only search there is.
+      if (!$("#appShell").hidden) openCommandPalette();
       return;
     }
     // Escape leaves settings the way it leaves a dialog. A <dialog> that is
     // open handles its own Escape, so this only fires for the overlay.
     if (event.key === "Escape" && !$("#configOverlay").hidden && !$("dialog[open]")) closeConfig();
   });
-  load();
+  $("#pickerSearch").addEventListener("input", renderPicker);
+  $("#pickerCreate").addEventListener("click", createProjectFromPicker);
+  $("#projectChip").addEventListener("click", showPicker);
+  initPicker();
 });

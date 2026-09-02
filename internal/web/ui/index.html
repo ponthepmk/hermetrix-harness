@@ -11,10 +11,24 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <!-- A project is the root of everything -- work, notes, chat and code all
+       hang off one -- so the picker is what the app opens on. The shell below
+       starts hidden and only appears once showShell() has something to show. -->
+  <div class="picker" id="projectPicker">
+    <div class="picker-inner">
+      <h2>เลือกโปรเจค</h2>
+      <p>ทุกอย่างเกาะกับโปรเจค — งาน โน้ต แชท โค้ด · โปรเจคไม่จำเป็นต้องมีโฟลเดอร์โค้ด</p>
+      <label class="picker-search"><span>⌕</span><input id="pickerSearch" type="search" autocomplete="off" placeholder="ค้นหาโปรเจค หรือพิมพ์ชื่อใหม่เพื่อสร้าง…"></label>
+      <div id="pickerPinned"></div>
+      <div id="pickerRecent"></div>
+      <button class="primary" id="pickerCreate" hidden>สร้างโปรเจคใหม่</button>
+    </div>
+  </div>
+
   <!-- The workspace holds only what a session needs. Everything that configures
        Hermetrix lives in the settings overlay below, so this shell never asks a
        question that is not about the work in front of you. -->
-  <div class="app-shell">
+  <div class="app-shell" id="appShell" hidden>
     <header class="app-header" id="appHeader">
       <button class="project-chip" id="projectChip"><span class="project-dot"></span><strong id="projectName">—</strong><span>▾</span></button>
       <nav class="view-switch" id="viewSwitch" aria-label="Views">

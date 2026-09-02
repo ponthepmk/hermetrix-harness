@@ -257,3 +257,28 @@ func TestActionsReportOnThemselves(t *testing.T) {
 		}
 	}
 }
+
+// TestPickerIsTheFirstScreen covers the decision that a project is the root of
+// everything: the app opens on the choice, and the picker never draws a group
+// or a count that has nothing behind it.
+func TestPickerIsTheFirstScreen(t *testing.T) {
+	index := mustUIFile(t, "ui/index.html")
+	javascript := mustUIFile(t, "ui/app.js")
+	for _, marker := range []string{`id="projectPicker"`, `id="pickerSearch"`, `id="pickerPinned"`, `id="pickerRecent"`} {
+		if !strings.Contains(index, marker) {
+			t.Errorf("picker HTML is missing %s", marker)
+		}
+	}
+	for _, marker := range []string{"function renderPicker", "/open", "session_count", "currentProject"} {
+		if !strings.Contains(javascript, marker) {
+			t.Errorf("picker JavaScript is missing %s", marker)
+		}
+	}
+	// A count for a subsystem that does not exist is a claim about data that
+	// has no store behind it.
+	for _, absent := range []string{"task_count", "note_count"} {
+		if strings.Contains(javascript, absent) {
+			t.Errorf("picker renders %s although no such system exists yet", absent)
+		}
+	}
+}

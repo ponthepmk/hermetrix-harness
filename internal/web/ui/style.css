@@ -678,6 +678,30 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   border-top: 1px solid var(--line);
   background: rgba(11,14,21,.94);
 }
+/* The picker is the app's first screen: a project is the root of everything,
+   so nothing else can render until one is chosen. It borrows the settings
+   overlay's arrive animation and hidden-attribute pattern rather than
+   inventing a second answer to "how does a full-screen room appear". */
+.picker { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; overflow: auto;
+  padding: 24px; background: var(--bg); animation: config-arrive var(--dur-arrive) ease-out; }
+.picker[hidden] { display: none; }
+.picker-inner { width: min(760px, 100%); }
+.picker-inner h2 { margin: 0 0 5px; font-size: 22px; text-align: center; }
+.picker-inner > p { margin: 0 0 20px; text-align: center; color: var(--muted); font-size: 11px; }
+.picker-search { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 9px;
+  border: 1px solid var(--line); border-radius: 11px; padding: 11px 14px; background: #0b0f15; margin-bottom: 20px; }
+.picker-search input { width: 100%; border: 0; padding: 0; background: transparent; box-shadow: none; font-size: 12px; }
+.picker-group { margin: 0 0 8px; color: #667180; font-size: 9px; letter-spacing: .13em; text-transform: uppercase; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(228px,1fr)); gap: 10px; margin-bottom: 18px; }
+.picker-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 13px;
+  color: var(--text); text-align: left; cursor: pointer; transition: border-color var(--dur-press); }
+.picker-card:hover { border-color: rgba(69,232,232,.35); }
+.picker-card strong { display: block; font-size: 12px; margin-bottom: 6px; }
+.picker-path { color: var(--dim, #5b6673); font: 9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-path.none { font-family: inherit; font-style: italic; }
+.picker-stat { display: block; margin-top: 9px; color: var(--muted); font-size: 9px; }
+@media (prefers-reduced-motion: reduce) { .picker { animation: none; } .picker-card { transition: none; } }
 .config {
   position: fixed;
   inset: 0;
