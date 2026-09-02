@@ -282,3 +282,25 @@ func TestPickerIsTheFirstScreen(t *testing.T) {
 		}
 	}
 }
+
+// TestUnbuiltViewsSaySoRatherThanShowingNothing keeps the shell honest while
+// three of its four views are still specs. A tab that opens onto a blank panel
+// is a dead end wearing the clothes of a feature.
+func TestUnbuiltViewsSaySoRatherThanShowingNothing(t *testing.T) {
+	javascript := mustUIFile(t, "ui/app.js")
+	for _, marker := range []string{"function switchView", "const VIEWS", "state.view"} {
+		if !strings.Contains(javascript, marker) {
+			t.Errorf("view switching is missing %s", marker)
+		}
+	}
+	for _, spec := range []string{"spec 2", "spec 3", "spec 4"} {
+		if !strings.Contains(javascript, spec) {
+			t.Errorf("an unbuilt view does not name the spec it is waiting on (%s)", spec)
+		}
+	}
+	// The doors were three ways of switching one inspector room, not three ways
+	// of working. They are gone.
+	if strings.Contains(mustUIFile(t, "ui/index.html"), `data-door=`) {
+		t.Error("the old door switch survived the redesign")
+	}
+}

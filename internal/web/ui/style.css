@@ -163,6 +163,13 @@ pre { border: 1px solid var(--line); background: #090b0e; border-radius: 9px; pa
 .model-grid input, .model-grid select { width: 100%; min-width: 0; }
 .probe-empty { border: 1px dashed var(--line); color: var(--muted); border-radius: 9px; padding: 12px; margin-top: 12px; font-size: 11px; }
 .probe-result { border: 1px solid var(--line); border-radius: 9px; padding: 12px; margin-top: 12px; background: #0d1014; }
+/* A view still waiting on its spec says so in the same dashed-border language
+   the rest of the shell uses for "nothing here yet", rather than looking like
+   a finished panel that happens to be blank. */
+.unbuilt { border: 1px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center; }
+.unbuilt h3 { margin: 0 0 6px; font-size: 13px; }
+.unbuilt p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.zone.main .unbuilt { margin-top: 20vh; }
 .probe-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 11px; }
 .form-note.neutral { color: var(--muted); }
 .chat-layout { display: grid; grid-template-columns: 248px minmax(0,1fr); min-height: calc(100vh - 190px); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #0b0e12; }

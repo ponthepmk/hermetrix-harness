@@ -1,4 +1,4 @@
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {} };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {} };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -925,6 +925,127 @@ function renderChat() {
     if (pending) pending.closest(".approval-card").scrollIntoView({ block: "nearest" });
     else list.scrollTop = list.scrollHeight;
   });
+}
+
+// renderChatRail/Main/Side are the static shell those three zones carry in
+// index.html at first paint -- the dock, the transcript section, the
+// workbench strip -- reproduced here so switchView can put it back after
+// showing one of the other views. They hand back an empty session dock, an
+// empty transcript section and an empty workbench pane on purpose: filling
+// them is renderChat's and renderCurrentWorkbench's job, not this one's, so
+// chat's live markup is computed in exactly the one place it always was.
+function renderChatRail() {
+  return `<button class="new-chat" id="railNewSession">＋ New session</button>
+    <div class="session-dock" id="sessionDock" aria-label="Agent sessions"></div>
+    <div class="rail-footer">
+      <div class="runtime-card">
+        <img class="runtime-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt="">
+        <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> Local-first · authority gated</small></div>
+      </div>
+    </div>`;
+}
+
+function renderChatMain() {
+  return `<section class="view active" id="view-chat"></section>`;
+}
+
+// The active class comes from state rather than being hard-coded to "review"
+// so that leaving chat for another view and coming back does not silently
+// snap the workbench back to the first tab.
+function renderChatSide() {
+  const rooms = [["review", "Review"], ["files", "Files"], ["terminal", "Terminal"],
+    ["browser", "Browser"], ["artifacts", "Office"], ["team", "Team"]];
+  return `<nav class="workbench-tabs" aria-label="Workbench rooms">${rooms.map(([id, label]) =>
+    `<button class="workbench-tab ${state.workbenchTab === id ? "active" : ""}" data-workbench="${id}">${escapeHTML(label)}</button>`).join("")}</nav>
+    <div class="workbench-content" id="workbenchContent"></div>`;
+}
+
+// Each view fills the same three zones. What changes is the content; what
+// each zone means does not, which is what makes moving between them
+// predictable.
+//
+// Three of the four are specs, not code, yet. They say so and name the spec:
+// a view that opens onto nothing is worse than one that explains itself.
+const VIEWS = {
+  chat: {
+    label: "Chat",
+    rail: () => renderChatRail(),
+    main: () => renderChatMain(),
+    side: () => renderChatSide()
+  },
+  work: {
+    label: "Work",
+    rail: () => unbuilt("Boards and tasks", "spec 3"),
+    main: () => unbuilt("Work — kanban, backlog, linking work to chat", "spec 3"),
+    side: () => ""
+  },
+  code: {
+    label: "Code",
+    rail: () => unbuilt("Files and diffs", "spec 2"),
+    main: () => unbuilt("Code — editor, syntax highlighting, diff view", "spec 2"),
+    side: () => ""
+  },
+  knowledge: {
+    label: "Knowledge",
+    rail: () => unbuilt("Library and sources", "spec 4"),
+    main: () => unbuilt("Knowledge — notes, semantic search", "spec 4"),
+    side: () => ""
+  }
+};
+
+function unbuilt(what, spec) {
+  return `<div class="unbuilt"><h3>${escapeHTML(what)}</h3>
+    <p>Not built yet. Waiting on <strong>${escapeHTML(spec)}</strong> of the redesign.</p></div>`;
+}
+
+// The rail's New session button and the workbench tab strip are recreated
+// every time switchView rebuilds chat's skeleton, so a listener bound to them
+// once at load time would not survive a trip through another view. Wiring
+// lives here, called at startup and again on every return to chat, so both
+// stay exactly as functional as the first paint.
+function wireChatSkeleton() {
+  $("#railNewSession").addEventListener("click", () => {
+    switchTab("chat");
+    if (!state.providers.some(provider => provider.enabled)) { switchTab("providers"); return; }
+    if (state.sessionReady) { createAgentSession(); return; }
+    state.sessionOptionsOpen = true;
+    state.sessionDetail = null;
+    state.selectedSession = null;
+    renderChat();
+    $("#chatProviderSelect")?.focus();
+  });
+  $$(".workbench-tab").forEach(node => node.addEventListener("click", () => switchWorkbench(node.dataset.workbench)));
+}
+
+// switchView is the one place a top-level view becomes visible. Chat is the
+// only one with real state behind it -- sessions, polling, a composer that
+// has to keep its caret across renders -- so its zones are rebuilt from the
+// skeleton above and handed straight back to the renderChat/renderCurrentWorkbench
+// pipeline that already knows how to keep that state alive; duplicating
+// chat's live markup into this registry would give the transcript two places
+// to be computed; the one that ran second would win. The other three views
+// have no such state yet, so their rail and main just say what they will be,
+// and a side with nothing to put in it is hidden rather than drawn empty.
+function switchView(name) {
+  const view = VIEWS[name] ? name : "chat";
+  $$("#viewSwitch [data-view]").forEach(button => button.classList.toggle("on", button.dataset.view === view));
+  if (view === state.view) return;
+  state.view = view;
+  // A terminal or team run polls on its own timer independent of any render
+  // call. Leaving chat tears down the workbench pane those polls write into,
+  // so the timer is cancelled here rather than left to throw on a pane that
+  // no longer exists.
+  clearTimeout(workbenchPollTimer);
+  $("#zoneRail").innerHTML = VIEWS[view].rail();
+  $("#zoneMain").innerHTML = VIEWS[view].main();
+  const side = VIEWS[view].side();
+  $("#zoneSide").innerHTML = side;
+  collapseZone("side", !side);
+  if (view === "chat") {
+    wireChatSkeleton();
+    renderChat();
+    if (!$("#zones").classList.contains("side-hidden")) renderCurrentWorkbench();
+  }
 }
 
 // Every action answers two questions and no others: did the press register,
@@ -2528,7 +2649,11 @@ function collapseZone(zone, collapsed) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  $$(".workbench-tab").forEach(node => node.addEventListener("click", () => switchWorkbench(node.dataset.workbench)));
+  // The rail button and the workbench tabs start wired here because chat is
+  // already on screen at first paint; switchView repeats this same wiring
+  // every time a trip through another view recreates those nodes.
+  wireChatSkeleton();
+  $$("#viewSwitch [data-view]").forEach(button => button.addEventListener("click", () => switchView(button.dataset.view)));
   $("#openConfig").addEventListener("click", () => openConfig());
   $("#closeConfig").addEventListener("click", closeConfig);
   $("#configSearch").addEventListener("input", renderConfigNav);
@@ -2538,23 +2663,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const collapsed = !$("#zones").classList.contains("side-hidden");
     collapseZone("side", collapsed);
     if (!collapsed) renderCurrentWorkbench();
-  });
-  // Only Chat has a room behind it until Task 8 wires the other views. A
-  // button that looks clickable but does nothing is worse than one that says
-  // plainly it is not available yet.
-  $$("#viewSwitch [data-view]:not(.on)").forEach(button => { button.disabled = true; button.title = "Not built yet"; });
-  // The rail button starts a session outright. It used to only clear the
-  // selection and drop focus into a provider dropdown, which meant "new
-  // session" was three more decisions before anything happened.
-  $("#railNewSession").addEventListener("click", () => {
-    switchTab("chat");
-    if (!state.providers.some(provider => provider.enabled)) { switchTab("providers"); return; }
-    if (state.sessionReady) { createAgentSession(); return; }
-    state.sessionOptionsOpen = true;
-    state.sessionDetail = null;
-    state.selectedSession = null;
-    renderChat();
-    $("#chatProviderSelect")?.focus();
   });
   $("#refreshButton").addEventListener("click", load);
   $("#createButton").addEventListener("click", openCandidateDialog);
