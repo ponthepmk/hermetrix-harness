@@ -185,6 +185,35 @@ func NewRegistry(root string) (*Registry, error) {
 	return &Registry{root: real, definitions: byName}, nil
 }
 
+// For returns a registry that resolves workspace paths against root instead of
+// the root this registry was built with. Definitions and the deferred catalogue
+// are shared, so a scoped registry offers exactly the same tools; only the tree
+// they can reach changes.
+//
+// The registry is built once at startup around a single directory, but a
+// session belongs to a project and the file tools have to follow that project.
+// Without this, opening project B and asking the agent to read a file reads
+// project A, because the startup root never moved.
+func (r *Registry) For(root string) (*Registry, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, fmt.Errorf("workspace root is required")
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace root: %w", err)
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace root symlinks: %w", err)
+	}
+	scoped := *r
+	scoped.root = real
+	return &scoped, nil
+}
+
+// Root is the directory this registry resolves workspace paths against.
+func (r *Registry) Root() string { return r.root }
+
 func (r *Registry) SetCatalog(catalog *capabilities.Catalog) { r.catalog = catalog }
 
 func (r *Registry) Definitions() []Definition {

@@ -19,6 +19,7 @@ import (
 
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
+	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/runtime"
@@ -372,7 +373,8 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 	}))
 	service, provider, cleanup := testAgentService(t, server)
 	defer cleanup()
-	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+	projectID := createTestProject(t, service, t.TempDir())
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
@@ -440,7 +442,8 @@ func TestWriteToolPausesForPersistedApprovalThenResumes(t *testing.T) {
 	workspace := t.TempDir()
 	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
 	defer cleanup()
-	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+	projectID := createTestProject(t, service, workspace)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
@@ -809,6 +812,21 @@ func testAgentServiceAtRoot(t *testing.T, server *httptest.Server, workspaceRoot
 	learningService := learning.NewService(dataStore, skillService, gate, learning.StructuredReviewer{})
 	service := NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).WithLearning(learningService)
 	return service, profile, func() { dataStore.Close(); server.Close() }
+}
+
+// createTestProject inserts an active project row rooted at root and returns
+// its ID. scopedTools resolves workspace.* calls against a session's project,
+// not the registry's startup root, so any test whose session needs those
+// tools to work has to give it a project to belong to.
+func createTestProject(t *testing.T, service *Service, root string) string {
+	t.Helper()
+	projectID := identity.New("prj")
+	if _, err := service.store.DB.ExecContext(context.Background(),
+		`INSERT INTO projects(id,name,root_path,state,created_at,updated_at)
+		 VALUES(?,?,?,'active',datetime('now'),datetime('now'))`, projectID, projectID, root); err != nil {
+		t.Fatal(err)
+	}
+	return projectID
 }
 
 // --- V-3: TaskBudget and loop detector ---

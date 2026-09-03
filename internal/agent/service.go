@@ -808,7 +808,7 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			// session's own event log, which the registry has no handle on.
 			receipt = s.executeContextSearch(toolCtx, session, call, definition)
 		default:
-			receipt = s.tools.Execute(toolCtx, call)
+			receipt = s.executeRegistryTool(toolCtx, session, call)
 		}
 		cancel()
 		untrack()
@@ -828,6 +828,21 @@ func toolCallBudget(name string) time.Duration {
 		return elicitationWait + time.Minute
 	}
 	return 10 * time.Second
+}
+
+// executeRegistryTool sends a call to the registry, scoped to the session's
+// project when the call touches the filesystem. Deferred MCP tools go through
+// the unscoped registry: they reach a server, not a directory, so a session
+// with no code folder can still use them.
+func (s *Service) executeRegistryTool(ctx context.Context, session Session, call providers.ToolCall) toolruntime.Receipt {
+	if !strings.HasPrefix(call.Name, "workspace.") {
+		return s.tools.Execute(ctx, call)
+	}
+	scoped, err := s.scopedTools(ctx, session)
+	if err != nil {
+		return toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Status: "failed", Error: err.Error()}
+	}
+	return scoped.Execute(ctx, call)
 }
 
 func boundDefinition(binding StepBinding, name string) (toolruntime.Definition, bool) {
@@ -962,9 +977,24 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 			Effect: approval.Effect, Status: "denied", Error: "user denied the requested effect"}
 	} else {
 		call := providers.ToolCall{ID: approval.ToolCallID, Type: "function", Name: approval.ToolName, Arguments: approval.ArgumentsJSON}
+		grant := toolruntime.ApprovalGrant{ToolCallID: approval.ToolCallID, Name: approval.ToolName,
+			Revision: approval.ToolRevision, Effect: approval.Effect, ArgumentsHash: approval.ArgumentsHash}
 		toolCtx, cancel := context.WithTimeout(durableCtx, 10*time.Second)
-		receipt = s.tools.ExecuteApproved(toolCtx, call, toolruntime.ApprovalGrant{ToolCallID: approval.ToolCallID,
-			Name: approval.ToolName, Revision: approval.ToolRevision, Effect: approval.Effect, ArgumentsHash: approval.ArgumentsHash})
+		if strings.HasPrefix(approval.ToolName, "workspace.") {
+			session, sessionErr := s.GetSession(toolCtx, approval.SessionID)
+			var scoped *toolruntime.Registry
+			if sessionErr == nil {
+				scoped, sessionErr = s.scopedTools(toolCtx, session)
+			}
+			if sessionErr != nil {
+				receipt = toolruntime.Receipt{ToolCallID: approval.ToolCallID, Name: approval.ToolName,
+					Revision: approval.ToolRevision, Effect: approval.Effect, Status: "failed", Error: sessionErr.Error()}
+			} else {
+				receipt = scoped.ExecuteApproved(toolCtx, call, grant)
+			}
+		} else {
+			receipt = s.tools.ExecuteApproved(toolCtx, call, grant)
+		}
 		cancel()
 	}
 	resultEvent, finalApproval, err := s.persistApprovalReceipt(durableCtx, approval, input.Decision, receipt)

@@ -1288,7 +1288,7 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusUnprocessableEntity
 	case errors.Is(err, learning.ErrNoQueuedReview):
 		status = http.StatusConflict
-	case errors.Is(err, product.ErrProjectHasNoCode):
+	case errors.Is(err, product.ErrProjectHasNoCode), errors.Is(err, agent.ErrSessionHasNoRoot):
 		// The request itself was fine; the project it named just has nothing on
 		// disk to act on. That is a client-fixable precondition, not a server
 		// fault, so it belongs with the other 422s rather than falling through
