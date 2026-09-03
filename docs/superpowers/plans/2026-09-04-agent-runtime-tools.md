@@ -33,8 +33,9 @@
 | --- | --- |
 | `internal/tools/registry.go` (modify) | Gains `For(root)` and `Root()`. The root becomes a per-execution choice rather than a startup constant. Nothing else in the file changes. |
 | `internal/agent/workspaceroot.go` (create) | `ErrSessionHasNoRoot` and the session-to-project-root lookup. Reads the `projects` table directly with SQL, which is how `internal/agent` already checks project existence, so no import of `internal/product` appears. |
-| `internal/agent/runtimebridge.go` (create) | The two interfaces the agent needs from the product runtime — `WorkspaceRunner` and `BrowserDriver` — plus `WithRuntime`. Declared here so the dependency direction stays one way. Types are agent-owned structs, never `product` types. |
-| `internal/product/agentruntime.go` (create) | The adapter methods on `*product.Service` that satisfy those interfaces, translating `Job` and `BrowserTab` into the agent's structs. Lives beside the runtime it wraps. |
+| `internal/agentruntime` (create) | One definition of the types the two sides exchange — `RunRequest`, `RunResult`, `BrowserOpenRequest`, `BrowserActRequest`, `BrowserPage`, `BrowserPageElement`. A leaf package importing neither side, so it cannot create a cycle. It exists because Go matches interfaces on method signatures: two field-for-field identical structs in different packages are still different types, and mirroring them would mean maintaining every field in three places. |
+| `internal/agent/runtimebridge.go` (create) | The two interfaces the agent needs from the product runtime — `WorkspaceRunner` and `BrowserDriver` — plus `WithRuntime`. Declared here so the dependency direction stays one way; the types they name come from `internal/agentruntime`, aliased so callers can keep writing `agent.RunResult`. |
+| `internal/product/agentruntime.go` (create) | The adapter methods on `*product.Service` that satisfy those interfaces, translating `Job` and `BrowserTab` into the shared types. Lives beside the runtime it wraps. |
 | `internal/agent/runtool.go` (create) | The `workspace.run` tool: argument decoding, the per-session concurrency cap, the long poll, and receipt shaping. |
 | `internal/agent/browsertool.go` (create) | The `browser` tool: argument decoding, approval routing, and receipt shaping with the untrusted-evidence label. |
 | `internal/tools/definitions_runtime.go` (create) | The two new `Definition` values. Kept out of `registry.go`, whose `NewRegistry` literal is already long. |
@@ -379,9 +380,12 @@ refuses outright instead of falling back somewhere the user did not open."
 
 ### Task 2: The runtime bridge
 
-`internal/agent` has zero references to `internal/product` and must keep it that way. This task adds the interfaces the agent needs, the adapter on `*product.Service` that satisfies them, and the wiring in `main.go`. No tool is exposed yet — the boundary lands first so tasks 3 and 5 have something to call.
+`internal/agent` has zero references to `internal/product` and must keep it that way. This task adds the shared types both sides name, the interfaces the agent needs, the adapter on `*product.Service` that satisfies them, and the wiring in `main.go`. No tool is exposed yet — the boundary lands first so tasks 3 and 5 have something to call.
+
+The types live in their own leaf package rather than being mirrored on each side. Go matches an interface on method signatures, so two structs with identical fields in different packages do not satisfy the same interface — mirroring would force a converter as well, putting every field in three places where forgetting one drops it silently at runtime.
 
 **Files:**
+- Create: `internal/agentruntime/types.go`
 - Create: `internal/agent/runtimebridge.go`
 - Create: `internal/product/agentruntime.go`
 - Modify: `internal/product/commands.go:43` (the timeout ceiling)
@@ -390,7 +394,9 @@ refuses outright instead of falling back somewhere the user did not open."
 
 **Interfaces:**
 - Consumes: nothing from task 1.
-- Produces: `agent.RunRequest`, `agent.RunResult`, `agent.WorkspaceRunner`, `agent.BrowserOpenRequest`, `agent.BrowserActRequest`, `agent.BrowserPage`, `agent.BrowserPageElement`, `agent.BrowserDriver`, `func (s *Service) WithRuntime(runner WorkspaceRunner, driver BrowserDriver) *Service`, and on `*product.Service`: `StartRun`, `LookupRun`, `CancelRun`, `OpenPage`, `ActOnPage`.
+- Produces: `agentruntime.RunRequest`, `agentruntime.RunResult`, `agentruntime.BrowserOpenRequest`, `agentruntime.BrowserActRequest`, `agentruntime.BrowserPage`, `agentruntime.BrowserPageElement`, each aliased in `internal/agent` (`type RunResult = agentruntime.RunResult`, and so on) so later tasks can keep writing `agent.RunResult`; `agent.WorkspaceRunner`, `agent.BrowserDriver`, `func (s *Service) WithRuntime(runner WorkspaceRunner, driver BrowserDriver) *Service`; and on `*product.Service`: `StartRun`, `LookupRun`, `CancelRun`, `OpenPage`, `ActOnPage` taking and returning the shared types directly.
+
+The aliases must be aliases (`=`), never new named types — a named type would recreate exactly the mismatch this package removes.
 
 - [ ] **Step 1: Write `internal/agent/runtimebridge.go`**
 
@@ -597,7 +603,7 @@ func waitForRun(t *testing.T, service *Service, jobID string) RunResult {
 }
 ```
 
-`RunRequest`, `RunResult` and `Done` here are `product`'s own — the adapter cannot name `agent` types either, or the cycle reappears in the other direction. Declare them in `internal/product/agentruntime.go` with the same field names and let Go's structural typing do the matching. If `node` is not on PATH in the test environment, switch the fixture to `go` with `Arguments: []string{"version"}` and assert on `go` in the output instead.
+`RunRequest` and `RunResult` here are `agentruntime`'s, imported by the test's own package. The adapter cannot name `agent` types — that would reintroduce the cycle — and it must not declare its own copies either: Go matches an interface on method signatures, so a `product.RunResult` that merely looks like an `agent.RunResult` satisfies nothing. If `node` is not on PATH in the test environment, switch the fixture to `go` with `Arguments: []string{"version"}` and assert on `go` in the output instead.
 
 - [ ] **Step 3: Run it and watch it fail**
 
