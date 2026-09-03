@@ -70,7 +70,9 @@ Hermetrix คือ local-first AI workbench ที่:
 
 งานที่ตามมาจากข้อนี้คือ V-1 ถึง V-6 ซึ่งเป็น **งานเขียน test ทั้งหมด ไม่ใช่งานแก้ logic**
 
-## Findings ที่ยังเปิดอยู่จริง
+## Findings ที่เคยเปิดจาก baseline audit
+
+> **Historical baseline:** O-1 ถึง O-7 ด้านล่างปิดแล้วตามตาราง “สถานะของ batch นี้” ท้ายหมวด เก็บรายละเอียดเดิมไว้เพื่อให้ตรวจย้อนกลับได้ ไม่ใช่รายการงานค้างปัจจุบัน
 
 จัดลำดับตาม risk-reduction ต่อหน่วยงานที่ต้องลง
 
@@ -131,7 +133,7 @@ ADR-5 ในเอกสารฉบับนี้เขียนไว้เ�
 
 - audit/plan/roadmap ระบุ P0 ค้างสี่ข้อทั้งที่ปิดไปแล้วสามข้อครึ่ง
 - test evidence เขียนว่า 89 tests; ค่าจริงคือ 96 test functions
-- UI ยังใช้ label `Office` ทั้งที่ audit สั่งเปลี่ยนเป็น Background Jobs เอง — `internal/web/ui/index.html:21`, `:62`
+- **ปิดแล้ว 2026-08-30:** Office เป็น deliverable workspace จริงที่สร้าง DOCX/XLSX/PPTX/PDF artifact; background jobs แยกเป็นคนละ surface
 - ROADMAP Phase 3 ยังระบุว่า runtime ไม่ enqueue trigger ซึ่งไม่จริงแล้ว
 
 ทั้งหมดนี้เกิดเพราะเอกสารเขียนด้วยมือและไม่มี gate บังคับให้แก้พร้อมโค้ด
@@ -347,7 +349,7 @@ skill_view(skill_id, version_id)
 4. Skill slice ใน budget profile ลดลงเหลือเฉพาะ metadata index ที่ bounded; token ที่คืนมาไปอยู่กับ active history
 5. `skill_search` เป็น `effect: read` ไม่ต้อง approval; `skill_view` เช่นกัน — ทั้งคู่ไม่ mutate อะไร
 
-**ผลต่อ tool waist:** direct primitives จาก 6 เป็น 8 ยังต่ำกว่า Aetox ที่ส่ง 40 tools ต่อ fresh install อย่างมีนัยสำคัญ แต่ **ห้าม implement ก่อนปิด O-3** เพราะการเพิ่ม schema สองตัวโดยที่ token accounting ยังต่ำกว่าจริง คือการเพิ่มความเสี่ยง overflow ที่วัดไม่ได้
+**ผลที่ implement แล้ว:** หลังเพิ่ม retrieval, `context_search`, `skill_manage` และ bounded workspace search ปัจจุบันมี direct primitives 11 ตัว โดย exact serialization ใช้ 1,959 จาก budget 3,584 ของ compact-32k; deferred catalog ไม่ทำให้จำนวนนี้โต
 
 **ทางเลือกที่พิจารณาแล้วไม่เอา:** re-select Skill ทุก turn จาก catalog ที่ freeze ไว้ — ทางนี้ยังทำ prompt prefix เปลี่ยนกลาง session ซึ่งขัด ADR-1 และ Hermes byte-stable invariant โดยตรง
 
@@ -450,7 +452,7 @@ Native shell / Web / CLI / future gateways
 
 1. **`git init` + commit แรกของ working tree ทั้งก้อน** พร้อม `.gitignore` เดิม (`.hermetrix/`, `tmp-*-data/`, `hermetrix`, `coverage.out`) จากนั้นตั้ง remote สำรองอย่างน้อยหนึ่งที่
 2. ลบ binary `hermetrix` ขนาด 28 MB ออกจาก working tree (ถูก ignore อยู่แล้ว แต่เป็น stale artifact) และให้ `scripts/` เป็นทางเดียวที่ build
-3. Documentation truth pass ครอบ audit, roadmap, README, ARCHITECTURE ให้ตรงกับ runtime: สถานะ P0/P1, test count, label `Office → Background Jobs`, ข้อความ Phase 3 เรื่อง runtime producer
+3. Documentation truth pass ครอบ audit, roadmap, README, ARCHITECTURE ให้ตรงกับ runtime: สถานะ P0/P1, test count, Office deliverable capability และข้อความ Phase 3 เรื่อง runtime producer
 4. เขียน `scripts/doc-truth.sh` **สองชั้น** ตาม P-1 ไม่ใช่ script ตัวเลขอย่างเดียว
    - ชั้นที่ 1 generate ตัวเลขที่ drift บ่อย: จำนวน test functions, direct primitives + revision, context profile + slice totals, API route, SQLite table
    - ชั้นที่ 2 **claim registry** — ข้อความเชิงสถานะทุกข้อมี ID และผูก evidence anchor ที่ตรวจด้วยเครื่องได้ (symbol/test/table/route) script fail เมื่อ anchor หาย
@@ -482,7 +484,7 @@ Exit gates:
 2. **เพิ่ม outbox test suite** (ปิด O-4) — turn commit สร้าง staged trigger, rollback ไม่ทิ้ง trigger ค้าง, `DrainPending` idempotent เมื่อเรียกซ้ำ, restart ระหว่าง `processing` กลับเป็น `pending` ได้, digest ที่ decode ไม่ได้ไป `failed` โดยไม่ block คิว
 3. **ลบ `selectSkills` dead code** (ปิด O-5) และเพิ่ม static check ที่ทำให้ unused method ในแพ็กเกจ agent fail ใน CI
 4. **แยกหลักฐาน recall ต่อ tier** (ปิด O-6) — เปลี่ยน `LongContextRecall bool` เป็น per-tier evidence ที่มี depth/position/chunk count ต่อชั้น และให้ `contextTier` ยกระดับได้เฉพาะชั้นที่มีหลักฐานตรงชั้นนั้น
-5. **Documentation label pass** (ส่วนที่เหลือจาก O-7) — `Office → Background Jobs` ใน UI, README และ ARCHITECTURE
+5. **Documentation capability pass** (ปิด O-7) — Office ต้องแสดงต่อเมื่อ native deliverable backend พร้อม; background jobs ใช้ชื่อแยกชัด
 6. **Turn-lease race test** (ปิด V-1) — ยิง `RunTurn` จาก N goroutine พร้อมกันบน session เดียวโดยไม่ block เทียม รันซ้ำ 100 รอบใต้ `-race` แล้ว assert user event หนึ่งเดียว, lease ปลดเมื่อจบ, provider request เท่ากับหนึ่ง — เก็บ test เดิมไว้ด้วย
 7. **TaskBudget test suite** (ปิด V-3) — ครบห้าเคส: model step exhaustion, tool call cap, cumulative token cap, wall-time cancel ที่ต้องปลด lease ไม่ค้าง `running`, loop detector หยุด identical call ครั้งที่สามและไม่นับ signature ที่ต่างกันรวมกัน
 8. **Qualification override test suite** (ปิด V-4) — ครบหกเคส: override ไม่มี actor/reason ถูก reject, actor/reason ยาวเกินถูก reject, override ที่ถูกต้อง freeze `explicit_override` + `expires_at`, override หมดอายุเปิด session ไม่ได้, tier 128k/256k/1M ถูก block เมื่อ qualification ต่ำกว่าชั้น, qualification ที่ `provider_revision` ไม่ตรงถือเป็น stale
@@ -522,7 +524,7 @@ Exit gates:
 - session ที่เปลี่ยนหัวข้อกลางทางเรียก `skill_search` แล้วได้ Skill ที่ตรง โดย prompt fingerprint ไม่เปลี่ยน
 - `skill_view` ที่ขอ version นอก catalog ถูก reject ใน test
 - Skill body ที่ใหญ่เกิน slice ถูก spill เป็น artifact receipt เหมือน tool output อื่น
-- direct primitives 8 ตัวยังต่ำกว่า schema ceiling ของทุก profile ด้วยตัวเลขจาก exact serialization
+- direct primitives ทั้ง 11 ตัวยังต่ำกว่า schema ceiling ของทุก profileด้วย exact serialization และ scale test ยืนยันว่า deferred catalog ไม่ขยาย waist
 - token ที่ Skill slice คืนมาปรากฏใน active history จริง วัดจาก integrity report
 
 ## Phase 8 — Skill Learning OS 2.0
@@ -615,11 +617,13 @@ Exit gates:
 
 เป้าหมาย: ให้ Aetox เป็น Main ในระดับ function/UX โดยไม่ copy implementation
 
-**สถานะ: phase เต็ม อยู่ในแผน** เจ้าของโครงการยืนยันว่าไม่ตัด เอกสารรอบก่อนเคยเสนอให้ demote เป็น optional track ด้วยเหตุผลเรื่องต้นทุน — ข้อเสนอนั้นถูกพิจารณาและ**ปฏิเสธ** ต้นทุนยังบันทึกไว้ใน [Effort model](#effort-model-ปิด-r-16) และ R-6 เพื่อให้ตัดสินใจซ้ำได้เมื่อสถานการณ์เปลี่ยน ไม่ใช่เพื่อค้านซ้ำ
+**สถานะ 2026-08-31: `vertical_slice` บน web shell** — cockpit สาม pane, Assistant/Code/Team doors, session dock, Skill/Provider/MCP/Context control surfaces และ workbench Files/PTY/Browser/Office/Team เชื่อม backend จริงแล้ว ทั้งหมดเป็น clean-room implementation ไม่ใช้ source/assets ของ Aetox
+
+ยังไม่เรียกว่า native parity หรือ `qualified`: ต้องมี signed desktop packaging, typed native bridge, accessibility/Thai IME, restart/reconnect, Windows ConPTY, embedded live browser view และ packaged-app E2E บน target matrix ก่อน
 
 ลำดับยังคงเดิมตาม dependency: เริ่มหลัง 8/9/10 ถึงระดับ `qualified` เพราะ shell เป็นหน้าต่างของ kernel ถ้า kernel ยังขยับ shell จะต้องรื้อตาม
 
-Spike ที่ต้องทำก่อน commit สถาปัตยกรรม (ไม่ใช่ก่อนตัดสินใจว่าจะทำ):
+Spike/qualification ที่ยังต้องทำก่อนเลือก native shell ระยะยาว:
 
 - PTY behavior บนสาม platform
 - managed browser embedding + download/artifact policy
@@ -656,6 +660,10 @@ Exit gates:
 ## Phase 12 — Multi-agent and durable background runtime
 
 เป้าหมาย: งานยาวทำต่อได้และขยายทีม agent โดยไม่ปน context/authority
+
+**สถานะ 2026-08-31: `vertical_slice` สำหรับ Agent Team** — persistent/editable roster, UI custom DAG, frozen team/member execution snapshots, child SessionContract แยก, concurrency cap 4, parent cancellation propagation, exact-effect approval pause/resume ที่ persist และไม่ replay child prompt/tool effect, lead synthesis ผ่าน labelled untrusted peer evidence, usage roll-up และ interrupted-without-retry recovery มีแล้ว
+
+งาน qualification ที่เหลือ: per-task capability/model/budget editor, durable checkpoint/resume กลาง sampling, artifact-only handoff และ hardware pressure matrix
 
 งานหลัก:
 
@@ -864,7 +872,7 @@ Required continuous suites:
 - Skill baseline/candidate eval corpus
 - MCP/plugin hostile server/package fixtures
 - outbox/turn-lease concurrency suite
-- packaged desktop accessibility/PTY/browser/install/upgrade E2E *(เฉพาะเมื่อ Phase 11 ถูก commit)*
+- packaged desktop accessibility/PTY/browser/install/upgrade E2E
 
 การทดสอบ external endpoint ต้องแยก `protocol pass` ออกจาก `context certified`; final text หนึ่งครั้งบน 128k envelope ไม่ใช่หลักฐานว่า long-context recall 128k ผ่าน
 

@@ -56,10 +56,10 @@ Exit gate:
 
 - catalog แบบ source-aware เริ่มด้วย MCP และรองรับ atomic snapshot ต่อ server; plugin/dynamic source adapters ยังเหลือ
 - readiness/credential/risk/approval state ทำแล้วสำหรับ MCP; dependency graph ทั่วไปยังเหลือ
-- direct primitives มี 6 ตัว: workspace 3 + deferred `tool_search/describe/call` 3
+- direct primitives มี 11 ตัว: workspace 4 + session/context/Skill 4 + deferred `tool_search/describe/call` 3; catalog ขนาดใหญ่ไม่เพิ่มจำนวน schema ใน prompt
 - exact schema/handler revision binding ทำแล้วสำหรับ core และ MCP target revision; call ที่ revision drift ถูก reject
 - Skill metadata selection — ทำแล้วแบบ deterministic selector รุ่นแรก; resource loading ยังขาด
-- **คำว่า “lazy body loading” ในบรรทัดเดิมไม่ตรงพฤติกรรมจริง** — body ถูก inject เข้า prompt ล่วงหน้าโดยเลือกจาก goal ของ turn แรก ไม่ใช่โหลดตามต้องการ ดู finding O-2 และ ADR-7 ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
+- Skill body ที่ pre-selected ยังเข้า prompt ตาม goal แรก แต่ Skill นอกชุดนั้นดึงตามต้องการผ่าน `skill_search`/`skill_view` และถูกจำกัดด้วย exact version ใน Session Contract ดู ADR-7 ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
 - activation receipt และ turn outcome เขียนจาก runtime จริงแบบ exposure-only; causal effectiveness attribution ยังขาด
 - MCP connection secrets แยกจาก model-visible metadataและเก็บเฉพาะ environment reference
 - MCP `2026-07-28` stateless Streamable HTTP + JSON/SSE/pagination/headers และ fallback `2025-11-25` initialize/session ทำแล้ว

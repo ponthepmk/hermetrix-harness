@@ -389,3 +389,39 @@ arguments ถูก decode โดยรักษาชนิดตัวเล�
 - scheduled maintenance อาจรันตอนผู้ใช้ทำงาน/ใช้แบตเตอรี่ → conservative idle/AC detector
 - mark-and-sweep ที่ delete ทันทีย้อนกลับไม่ได้ → dry-run snapshot, stale guard, run-specific quarantine และ checksum restore
 - `gc_runs.candidates_json` อาจทำให้ object ที่กำลังตรวจถูก mark reachable เอง → exclude GC report table จาก reference scan
+
+## Review 18 — Clean-room Aetox-style cockpit and native workbench contracts
+
+### Pass A — Surface truth
+
+เปลี่ยน control center เป็น cockpit สาม pane โดยคง Hermetrix identity: rail ซ้ายเป็น Assistant/Code/Team และ session dock, พื้นที่กลางเป็นงานหลัก, inspector ขวาเป็น Review/Files/Terminal/Browser/Office/Team ทุกห้องต้องมี backend contract และ persistence จริงจึงจะแสดงเป็น capability ไม่ใช้ source, component หรือ asset ของ Aetox
+
+### Pass B — Authority and failure semantics
+
+- Files จำกัดอยู่ใน project root, กัน symlink escape, save ด้วย expected SHA และออก immutable receipt
+- Terminal ใช้ POSIX PTY จริง, เก็บ output tail แบบ bounded, restart แล้ว mark interrupted; Windows ประกาศ unsupported จนมี ConPTY
+- Browser ใช้ Chrome profile แยกและ CDP; DOM เป็น untrusted evidence, private/local URL ต้อง opt-in, capture เป็น immutable artifact และไม่ replay action หลัง crash
+- Office สร้าง OOXML package จริงแบบ deterministic พร้อม provenance; PDF ปฏิเสธ Unicode ที่ font pipeline ปัจจุบันแสดงไม่ได้
+- Agent Team freeze DAG ก่อน run, child session แยก contract, cap concurrency ที่ 4, peer result ถูก label เป็น untrusted evidence และไม่มี auto-retry หลัง interruption
+
+### Pass C — Test reality
+
+product/store tests, race suite, vet, JavaScript syntax, UI contract และ Linux/Windows cross-compile ผ่าน Browser integration test เปิด Chrome/CDP จริงเมื่อ host อนุญาต แต่ sandbox ของรอบนี้ทำให้ Chrome abort และห้าม TCP bind จึงบันทึก packaged visual E2E เป็น blocked-by-environment ไม่แปลงเป็น pass
+
+สถานะสุดท้ายของ pass นี้คือ `vertical_slice`: function หลักใช้งานได้จริงผ่าน web cockpit แต่ signed native packaging, accessibility, Windows ConPTY, browser egress proxy, rich Office rendering และ Agent Team checkpoint/per-task policy ยังเป็น qualification gates
+
+### Pass D — Team edit/cancel race review (2026-08-31)
+
+พบว่า task graph เดิม freeze เฉพาะ IDs แต่ executor ยังอ่าน team/member instructions ล่าสุด ทำให้ roster edit กลาง run เปลี่ยน prompt และการลบ member ถูก historical foreign key ขวาง แก้ด้วย schema V26 ที่ snapshot team/member execution fields ลง run/task, retire member identity แทน delete, UI roster + custom DAG editor และ cancellation ที่ persist ก่อน propagate context Test แก้ rosterระหว่าง specialist/lead แล้วพิสูจน์ว่า prompt ใช้ snapshot เดิม และ test cancellation ใต้ race detector พิสูจน์ว่า late child failure เขียนทับ `cancelled` ไม่ได้
+
+### Pass E — Durable child approval review (2026-08-31)
+
+เดิม Agent Team มอง child approval เป็น task failure ทำให้ผู้ใช้ต้องออกจาก team flow และเสี่ยงเริ่ม prompt ใหม่ รอบนี้เพิ่ม schema V27 และ state machine `awaiting_approval → resolving_approval → completed/awaiting_approval` ที่เก็บ approval ID, bounded preview, effect และ qualification reason ไว้ใน run/task ผู้ใช้ approve/deny ผ่าน Team workbench ได้โดยเรียก `agent.DecideApproval` บน approval เดิม จึง resume turn lease เดิมและไม่ replay prompt/tool effect Recovery คง approval ที่ยังรอผู้ใช้กับ dependent task ที่ queued ไว้ แต่ fail closed เป็น interrupted หาก process หยุดระหว่าง sampling หรือกำลัง resolve effect Test ใต้ race detector ยืนยัน pause/recovery/resume, one-shot decision, token roll-up, จำนวน child prompt ไม่เพิ่ม และ cancellation ระหว่างกำลัง resolve approval ยังคงชนะ late result
+
+### Pass F — Codex-style usability and capability truth (2026-08-31)
+
+ปรับ information architecture ให้เริ่มจากงานแทน configuration: rail เป็น session list, workspace กลางเป็น conversation, Workbench ขวาเก็บ evidence/Files/Terminal/Browser/Office/Team, ส่วน Models/Context/Skills/Tools/System อยู่ใน settings room เดียว เพิ่ม command palette, responsive density, session capability chips และ composer picker เพื่อเข้าถึง Skill/direct tool/MCP โดยไม่ต้องออกจากงาน
+
+จุดสำคัญไม่ใช่เพียงหน้าตา: Skill picker ใช้ exact `skill_id`/`version_id` จาก Skill catalog ที่ freeze ใน Session Contract และปฏิเสธ Skill ที่ promote หลังเปิด session; direct-tool mention ไม่เปลี่ยน authority; MCP mention บังคับเส้นทาง `tool_search → tool_describe → tool_call` และไม่ข้าม exact revision/approval Tool receipt จับ call/result เป็นการ์ดเดียวที่พับได้ และ Review room แสดง model/context/project/Skill/tool/approval/contract revision ข้างบทสนทนา Skill Studio เปิดให้สร้าง แก้ fork archive/restore ตรวจ provenance/usage และ rollback auto-promotion โดยพับ authority policy ที่ซับซ้อนไว้หลัง summary
+
+Regression contract ตรวจว่า command/capability dialogs มี behavior จริง, ทุก static element ID ถูก wire, ไม่มี inline style ที่ขัด CSP, ทุก native room ยังมี API path และ UI ไม่ปน Aetox branding JavaScript syntax และ no-listener UI contract ผ่าน การทดสอบทั้ง suite ที่ต้องเปิด `httptest` listener ถูก sandbox ปฏิเสธ `listen tcp` จึงบันทึกเป็น blocked-by-environment ไม่ใช่ pass และการเปิด `127.0.0.1:17331` ใน in-app browser ได้ `ERR_CONNECTION_REFUSED` เพราะไม่มี server เดิมกำลังทำงานและ sandbox นี้เปิด listener ใหม่ไม่ได้

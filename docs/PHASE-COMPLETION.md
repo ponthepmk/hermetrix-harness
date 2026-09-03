@@ -73,7 +73,8 @@ The local web product now has working navigation and APIs for:
 
 - Chat with provider, exact context envelope and optional Project binding;
 - Projects with canonical root, bounded file browsing and symlink/path escape rejection;
-- background command jobs (labelled `Office` in the current UI) with persisted direct commands, progress/state, cancel and restart interruption recovery;
+- background command jobs แยกจาก Office deliverables พร้อม persisted direct commands, progress/state, cancel และ restart interruption recovery;
+- three-pane workbench มี optimistic Files, resizable POSIX PTY, managed browser, real Office packages และ editable/cancellable Agent Team custom DAG พร้อม durable exact-effect approval pause/resume;
 - Artifacts backed by CAS checksums, including terminal logs;
 - Providers/MCP/Skills/Context/Fidelity control centers;
 - non-secret JSON settings, explicit user/project memory and event-derived usage;
@@ -106,7 +107,7 @@ No GC path hard-deletes user data.
 
 The vertical slices are complete, but the following remain future breadth rather than hidden placeholders:
 
-- native desktop packaging/signing and managed browser workbench;
+- native desktop packaging/signing และ composited live browser view (headless managed browser workbench มีแล้ว);
 - OS-level process sandbox, network policy and generalized effect idempotency;
 - live interjection and crash-resume during an in-flight model sample;
 - MCP stdio, OAuth, resources, prompts, subscriptions and MRTR;

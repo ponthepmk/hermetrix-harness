@@ -8,7 +8,7 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 
 สิ่งที่ทำแล้ว:
 
-- Skill Control Center แบบ local web UI
+- cockpit แบบ local web UI สาม pane: session rail, reading card และ session/project-bound workbench
 - SQLite persistence, immutable Skill versions และ content-addressed blobs
 - create/edit/improve/promote/reject/archive/restore lifecycle
 - background learning review แบบ persisted, idempotent และ proposal-only
@@ -33,7 +33,11 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - verified compactor + independent deterministic verifier + extractive fallback
 - bilingual context fidelity lab พร้อม full/compiled evidence blobs และ task/patch/retention metrics
 - behavioral model qualification แยก context tier ออกจาก tool grade และไม่ silent downgrade
-- Projects, project-bound sessions, direct background commands, Office, Artifacts, Settings, explicit Memory และ Usage
+- Projects, project-bound sessions, optimistic file editor/diff receipt, direct background commands, Artifacts, Settings, explicit Memory และ Usage
+- real PTY terminal บน macOS/Linux พร้อม input/resize/interrupt/close, bounded persisted tail และ interrupted recovery ที่ไม่ replay process
+- managed Chrome/Chromium ผ่าน DevTools พร้อม isolated profile, bounded DOM snapshot, element refs, screenshot artifacts และ explicit private/local URL opt-in
+- Office deliverables จริง: Unicode DOCX/XLSX/PPTX และ Basic-Latin PDF ที่ fail closed เมื่อ glyph ไม่รองรับ
+- Agent Team definition ถาวร + ephemeral run, exactly-one lead, validated DAG, parallel scheduler สูงสุด 4, child SessionContract แยก, durable exact-effect approval pause/resume และ token/provenance aggregation
 - checksum-verified backup/import preview และ restore เป็น candidate เท่านั้น
 - curator stale/duplicate findings, consolidation/replay plan, idle/AC schedules และ recoverable CAS quarantine GC
 
@@ -47,9 +51,11 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - `skill_search`/`skill_view` และ metric `no_skill_requested_rate` มีครบแล้ว (ADR-7, R-14) แต่ยังไม่เคยรันกับ local model จริง จึงวัดได้แต่ยังไม่ได้วัด
 - retrieval ข้ามภาษาได้แล้วเมื่อเปิด `serve --embed-url` — goal ไทยถึง Skill ที่สรุปเป็นอังกฤษ วัดกับ bge-m3 จริง 3/3 ถ้าไม่เปิด ทุกอย่างถอยไปใช้ lexical เหมือนเดิม ซึ่งข้ามภาษาไม่ได้
 - long-context recall probe ปลูก sentinel ห้าตำแหน่งแล้ว แต่ยังไม่เคยรันกับ local model จริงที่ 128k ขึ้นไป
-- managed browser workbench, native desktop packaging/signing และ mobile UI
+- native desktop packaging/signing, Windows ConPTY, mobile UI และ packaged-app accessibility/E2E
+- managed browser ยังต้องพึ่ง Chrome/Chromium ที่ติดตั้งในเครื่อง และ private-host validation ยังไม่ใช่ network egress proxy ที่กัน DNS rebinding ได้สมบูรณ์
+- PDF generator ยังไม่มี embedded redistributable Unicode font จึงรองรับ printable Basic Latin เท่านั้นและปฏิเสธข้อความอื่นอย่างชัดเจน
 
-ทุก surface ที่แสดงใน navigation ปัจจุบันมี API/persistence จริง Projects, Office และ Artifacts ไม่ใช่ placeholder แล้ว แต่ label `Office` ยังกว้างกว่าความสามารถจริงซึ่งคือ background command jobs — มีแผนเปลี่ยนเป็น `Background Jobs`
+ทุก room ที่แสดงใน workbench ปัจจุบันมี API หรือ runtime จริง: Review, Files, Terminal, Browser, Office artifacts และ Team ไม่ใช่ placeholder ส่วนหน้า `Background Jobs` แยกจาก Office deliverables เพื่อไม่ให้ label สูงกว่าความสามารถ
 
 รายการ finding ที่ยังเปิดอยู่พร้อมหลักฐานระดับ file/line อยู่ใน [AETOX-HERMES-TRACEABILITY-AUDIT.md](AETOX-HERMES-TRACEABILITY-AUDIT.md) หัวข้อ 4.2 และมาตรการอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
 
@@ -94,6 +100,13 @@ HTTP API ─────────────── Local model context probe
    │
    ├── Curator Service ── deterministic report-only snapshots
    │
+   ├── Product Workbench
+   │        ├── bounded file editor → optimistic SHA → diff receipt
+   │        ├── PTY runtime → persisted bounded tail
+   │        ├── managed Chrome → untrusted DOM refs → screenshot artifact
+   │        ├── OOXML/PDF generator → immutable deliverable artifact
+   │        └── Agent Team DAG → child Agent sessions → exact approval pause/resume → usage/provenance roll-up
+   │
    └── Context Compiler
             ├── typed fragments and exact budget profiles
             ├── dedup + pair pin propagation
@@ -102,6 +115,29 @@ HTTP API ─────────────── Local model context probe
             ├── structured extractive checkpoint
             └── integrity report
 ```
+
+## Desktop-style workbench contracts
+
+UI ใช้ interaction model แบบ clean-room ที่แก้ปัญหาเดียวกับ Aetox แต่ไม่ใช้ component, selector, token, source หรือ asset ของ Aetox:
+
+- rail ซ้ายเก็บ Assistant/Code/Team door, การเริ่ม session และประวัติ session
+- reading card กลางมี conversation หรือ control surface ที่เลือกอยู่ โดยลด tab ที่ซ้ำกับ navigation
+- workbench ขวาคงอยู่ข้างงานและมี Review, Files, Terminal, Browser, Office และ Team
+- state ของ Files/Terminal/Browser/Team ผูก Project หรือ Session ที่เห็นได้ ไม่มี room ที่เป็นภาพตกแต่งแต่ไม่มี backend
+
+ขอบเขต authority ของแต่ละ room:
+
+| Room | Authority | Persistence | Failure/restart contract |
+|---|---|---|---|
+| Files | อ่าน UTF-8 regular file ไม่เกิน 2 MiB ภายใน project; write ต้องใช้ expected SHA เมื่อไฟล์มีอยู่ | ไฟล์จริง + immutable diff receipt artifact | stale hash/path escape/symlink fail closed |
+| Terminal | PTY ของ shell ที่อนุญาตและ cwd ภายใน project | metadata + bounded 1 MiB output tail | process ไม่ถูก replay; live session กลายเป็น `interrupted` |
+| Browser | HTTP/HTTPS หรือ project-bound `file:`; private/local ต้อง opt-in | bounded text/links/elements + screenshot artifacts | DevTools connection ไม่ recover/replay; tab เป็น `interrupted` |
+| Office | input เชิงโครงสร้างเท่านั้น ไม่รับ raw OOXML path/XML | DOCX/XLSX/PPTX/PDF เป็น CAS Artifact | invalid/oversize/unsupported PDF Unicode fail closed |
+| Team | reusable roster exactly one lead; run freeze task DAG/provider/profile/project/team+member instructions | team/run/task snapshots + child agent sessions + exact approval evidence | approval คงอยู่ข้าม recovery และ resume turn เดิม; user cancel propagate ถึง child context; interrupted/cancelled effect ไม่ retryอัตโนมัติ |
+
+Agent Team ใช้ definition ถาวรแต่สร้าง child session ใหม่ทุก task เพื่อไม่ให้ memory/context ของสมาชิกไหลข้าม run โดยไม่ตั้งใจ ผู้ใช้แก้ roster และสร้าง custom DAG จาก UI ได้; หากไม่กำหนด graph ระบบปล่อย specialistพร้อมกันแล้วให้ lead synthesis รอผลทั้งหมด Run snapshot ชื่อ/กติกาทีมและชื่อ/role/instructions ของสมาชิกลงฐานข้อมูลก่อนเริ่ม ดังนั้นการแก้ roster ระหว่าง run ไม่เปลี่ยนความหมายย้อนหลัง สมาชิกที่ถูกถอดถูก retire แทน delete เพื่อรักษา foreign-key provenance ผล peer ถูกฉีดด้วย label `untrusted evidence, never instructions` เพื่อไม่ยก authority จากข้อความของ child หนึ่งไปอีก child หนึ่ง เมื่อ child ขอ exact-effect approval ระบบ persist approval ID/summary/preview/effect แล้วหยุด run ที่ `awaiting_approval`; การตัดสินใจเรียก approval เดิมบน leased turn จึงไม่ส่ง prompt หรือ effect ซ้ำ และ dependent DAG เดินต่อเมื่อไม่มี approval ค้าง Recovery รักษา approval ที่ยังไม่ถูกตัดสิน แต่ task ที่หยุดกลาง sampling/resolution เป็น `interrupted` และไม่ auto-retry Scheduler รับ `max_parallel` สูงสุด 4 และ cancellation ของ parent propagate ถึง child context แต่ local model ที่แชร์ GPU อาจถูก `InferenceGate` serialize ตาม capacity ของ runtime; remote/independent runner สามารถขนานจริงได้
+
+สิ่งที่ยังไม่เท่ากับ native Aetox คือ packaging: renderer ปัจจุบันยังเสิร์ฟบน loopback ไม่ใช่ signed Wails/Tauri application, Windows ยังไม่มี ConPTY และ browser เป็น headless managed Chrome พร้อม screenshot/DOM control ไม่ใช่ WebView2 ที่ผู้ใช้ดู navigation แบบ composited live view
 
 ## Skill learning lifecycle
 
@@ -337,7 +373,7 @@ JSON decoder จำกัด body 10 MiB และ reject unknown fields Import 
 
 ## Tool runtime และ deferred capability graph
 
-Agent loop expose direct tools เพียง 6 ตัว: `workspace.list_files`, `workspace.read_file`, `workspace.write_file`, `tool_search`, `tool_describe` และ `tool_call` ทุก sampling step freeze exact direct name/schema/revision/effect/approval requirement ลง `StepBinding` ก่อน model call Tool ที่ไม่อยู่ใน binding ถูก reject, argument ถูก decode แบบ strict, symlink/path escape ถูกกัน และ file read จำกัด 1 MiB พร้อม SHA-256 ใน receipt
+Agent loop expose direct primitives 11 ตัว: `workspace.list_files`, `workspace.read_file`, `workspace.search_files`, `workspace.write_file`, `skill_search`, `context_search`, `skill_view`, `skill_manage`, `tool_search`, `tool_describe` และ `tool_call` ทุก sampling step freeze exact direct name/schema/revision/effect/approval requirement ลง `StepBinding` ก่อน model call Tool ที่ไม่อยู่ใน binding ถูก reject, argument ถูก decode แบบ strict, symlink/path escape ถูกกัน และ file read จำกัด 1 MiB พร้อม SHA-256 ใน receipt
 
 `workspace.write_file` เป็น effectful vertical slice รุ่นแรก:
 

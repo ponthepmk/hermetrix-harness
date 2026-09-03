@@ -2,6 +2,7 @@
 
 วันที่ตรวจครั้งแรก: 2026-08-22  
 วันที่ตรวจซ้ำกับ source จริง: 2026-08-22 (verification pass)  
+วันที่ตรวจ product parity ซ้ำ: 2026-08-31 (clean-room workbench + team race pass)
 ขอบเขต: source, tests, product surface และเอกสารใน workspace เดียวกัน
 
 > **สถานะเอกสาร:** audit รอบแรกเขียนก่อนที่ implementation จะตามแก้เสร็จ ทำให้ระบุ P0 ค้างสี่ข้อทั้งที่โค้ดปิดไปแล้วสามข้อครึ่ง ฉบับนี้ผ่าน verification pass กับ runtime แล้ว หัวข้อ 4 แยกเป็น “ปิดแล้ว” และ “ยังเปิดอยู่” ชัดเจน
@@ -12,23 +13,23 @@
 |---|---|---|
 | Aetox | `7d9ca19f29845a2a3266aa77202785aa96233a8e` | Aetox EULA v1.0 สำหรับ v1.3+; อ่าน/ตรวจ/เรียนรู้ได้ แต่ห้าม reuse source หรือทำ derivative |
 | Hermes Agent | `2584b7c4eca82ada05f16eba08936d157b483329` | MIT |
-| Hermetrix Harness | working tree ปัจจุบัน; **ยังไม่มี Git metadata ใน directory นี้** จึงอ้าง commit ไม่ได้ (finding O-1) | original clean-room implementation |
+| Hermetrix Harness | working tree ปัจจุบันใน Git repository; audit รอบนี้อ้างไฟล์และ symbol เพราะยังเป็น uncommitted product pass | original clean-room implementation |
 
 เอกสารนี้เป็น architecture audit ไม่ใช่คำรับรองความเท่าเทียมทาง feature และไม่ถือชื่อ package, README หรือ UI label เป็นหลักฐานว่าระบบทำงานครบ หลักฐานเรียงน้ำหนักจาก runtime path → integration test → unit test → documentation → UI copy
 
 ## Executive verdict
 
-**สรุปสั้น:** Hermetrix นำแกนความคิดที่สำคัญมาใช้ได้ถูกทาง โดยเฉพาะ authority boundary, deferred capability, reversible Skill lifecycle, provenance และ typed context compiler หลัง verification pass พบว่า P0 ทั้งสี่ข้อของรอบแรกถูกปิดในโค้ดแล้ว เหลือช่องว่างเชิงสถาปัตยกรรมหนึ่งข้อและงาน correctness ที่วัดได้อีกชุดหนึ่ง
+**สรุปสั้น:** Hermetrix นำแกนความคิดที่สำคัญมาใช้ได้ถูกทาง โดยเฉพาะ authority boundary, deferred capability, reversible Skill lifecycle, provenance และ typed context compiler P0 และ finding เดิมปิดในโค้ดแล้ว ส่วน clean-room product cockpit ถึงระดับ vertical slice แต่ยังมี native/production qualification gates
 
-สถานะที่แม่นยำคือ **kernel correctness ปิดครบพร้อมหลักฐานเกรด A ทุกข้อ** finding ทั้งหกที่เคยประกาศปิดตอนนี้มี test ที่ mutation-verified แล้วจริง เหลือ contradiction เชิงสถาปัตยกรรมข้อเดียว:
+สถานะที่แม่นยำคือ **kernel correctness ปิดครบพร้อมหลักฐานเกรด A ทุกข้อ** finding ทั้งหกที่เคยประกาศปิดตอนนี้มี test ที่ mutation-verified แล้วจริง และ O-2 ถูกปิดด้วย hybrid Skill retrieval:
 
 - แกน clean-room และ license boundary: **Correct**
 - Skill lifecycle แบบปลอดภัยกว่า Hermes: **Adapted, stronger authority**
-- token-efficient narrow tool waist: **Correct**; แต่ token accounting ยังต่ำกว่าจริง (O-3)
-- context profile 32k/64k/128k/256k/1M: **Correct**; qualification ครบทุก tier แล้ว แต่หลักฐาน recall ยังเป็น flag เดียว (O-6)
+- token-efficient narrow tool waist: **Correct**; billable definition รวม provider-facing wrapper/description แล้ว (O-3 ปิด)
+- context profile 32k/64k/128k/256k/1M: **Correct**; qualification เก็บ positional recall evidence และ fail closed เมื่อไม่ครบ (O-6 ปิด)
 - prompt-cache/session stability: **Correct**; SessionContract + TurnLease + CacheEpoch มีจริงและมี test
-- Skill retrieval ตอน runtime: **Contradiction** — ต่างจากทั้ง Aetox และ Hermes ในทางที่เสียประโยชน์ (O-2)
-- Aetox product UX/workbench: **Mostly missing** (โดยตั้งใจ ตาม ADR-8)
+- Skill retrieval ตอน runtime: **Correct hybrid** — frozen pre-selection เป็น floor และ `skill_search`/`skill_view` เป็น pull ceiling; semantic scoring ข้ามภาษาเป็น optional path (O-2 ปิดแล้ว)
+- Aetox product UX/workbench: **Vertical slice** — cockpit สาม pane, Assistant/Code/Team, Files, PTY, managed browser, Office และ Agent Team ใช้งานผ่าน backend จริงแล้ว แต่ยังไม่ใช่ signed native desktop parity
 - Hermes background learning/curator/MCP breadth: **Partial**
 - local-model harness ที่พร้อมใช้ต่อเนื่อง: **Not yet production-ready**
 
@@ -93,7 +94,7 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | Concern | Aetox pattern | Hermes pattern | Hermetrix ปัจจุบัน | Verdict |
 |---|---|---|---|---|
 | License/source boundary | current source ห้าม reuse | MIT reuse ได้ | original Go implementation; docs ระบุ clean-room | **Correct** |
-| Product information architecture | Assistant/Code, rooms, workbench | Desktop/TUI/gateways | มี tabs Chat/Projects/Office/Artifacts/Skills/Providers/MCP/Context | **Partial** — map ชื่อได้ แต่ยังไม่ใช่ UX/function parity |
+| Product information architecture | Assistant/Code, rooms, workbench | Desktop/TUI/gateways | cockpit สาม pane, Assistant/Code/Team doors, session dock และ workbench 6 ห้อง | **Vertical slice** — behavior หลักเชื่อม backend จริง; visual/native parity ยังไม่ครบ |
 | Session capability | desk fixed for session | capability/session scoped | `SessionContract` freeze provider/model/profile/policy/capability/skill catalog + `TaskBudget`; `StepBinding` freeze ต่อ sampling step | **Correct** — desk/surface ceiling ยังรอ product shell |
 | Prompt caching | prompt bootstrap-only; learning next session | byte-stable conversation | Skill เลือกครั้งเดียวต่อ session แล้ว freeze ใน contract; `compileTurn` อ่านเฉพาะ contract | **Correct** — มี `TestSessionUsesFrozenSkillVersionAfterLaterPromotion` |
 | Direct tool budget | desk-narrowed 40 tools, enforced ceiling | narrow waist/toolsets/plugins/MCP | 6 direct tools; catalog defer เป็น search/describe/call | **Correct**, แต่ token accounting ยังไม่ครบ provider serialization |
@@ -108,11 +109,11 @@ Hermes มีฐานกว้างกว่าในด้าน harness แ�
 | Context profiles | provider/desk aware | detected window + compression | exact 32k/64k/128k/256k/1M envelopes; qualification tier ครบถึง `ultra-1m` | **Correct**, แต่หลักฐาน recall ยังเป็น bool เดียวทุก tier (O-6) |
 | Provider qualification | provider UX | many providers/profiles | OpenAI-compatible adapter + behavioral suite + `resolveQualification` ที่บังคับ exact eligibility หรือ expiring override ที่มี actor/reason | **Correct** — มี `TestSessionRequiresExactQualificationOrReviewedOverride` |
 | MCP | stdio + HTTP, per desk/agent | broad protocol lifecycle | Streamable HTTP tools only, modern+legacy, safe revision binding | **Correct narrow slice**, breadth missing |
-| Multi-agent | chairs + task fan-out | delegate/subagents | ไม่มี parent-child agent runtime | **Missing** |
+| Multi-agent | chairs + task fan-out | delegate/subagents | editable team definitions + UI custom DAG; frozen team/member snapshots; child session แยก contract; fan-out สูงสุด 4; exact-effect approval pause/resume; cancellation propagate; lead รับ peer evidence แบบ untrusted | **Partial** — per-task policy/model budget และ durable sampling checkpoint ยังขาด |
 | Background work | task/automation/work rooms | background terminal/cron/reviewer | allowlisted command jobs + maintenance scheduler | **Partial** — learning jobs ไม่ถูก schedule/produce อัตโนมัติ |
-| Native workbench | browser/terminal/files/Office | Electron panes/browser/projects | local web control center | **Missing as Aetox-main UX** |
+| Native workbench | browser/terminal/files/Office | Electron panes/browser/projects | local web cockpit มี optimistic Files/diff, POSIX PTY, isolated managed Chrome/CDP, real DOCX/XLSX/PPTX/PDF artifacts และ Agent Team | **Vertical slice** — ยังเป็น web renderer; ไม่มี signed native package, Windows ConPTY และ embedded live browser view |
 | Security boundary | approvals/safety chokepoint | tool guards/permissions | exact revision/args grants, no auto-retry, loopback | **Strong partial** — no OS sandbox, remote auth, actor identity or keychain |
-| Tests | large platform-specific suite | wrapper-enforced Python suite + E2E policy | 96 Go test functions ใน 17 packages, race/vet/build/static JS pass | **Good foundation**, ขาด outbox suite และ real UX/local-model/restart concurrency E2E |
+| Tests | large platform-specific suite | wrapper-enforced Python suite + E2E policy | product integration, race/vet/cross-compile, UI contract และ real-Chrome integration test มีแล้ว | **Good foundation** — host sandbox นี้ห้าม bind/Chrome launch จึงยังขาด packaged visual E2E และ live local-model matrix |
 
 ## 4. Findings in Hermetrix
 
@@ -1157,25 +1158,25 @@ system prompt บอกอยู่แล้วว่าให้ถือ tool 
 6. **Report-only curator.** เหมาะกับช่วงที่ attribution/eval ยังไม่พอ; auto-archive ควรเป็น policy opt-in หลังมี undo snapshot เท่านั้น
 7. **Restore-as-candidate.** archive/import ไม่สามารถลัด review gate กลับมา active
 
-## 6. ช่องว่างของ Aetox-main UX
+## 6. สถานะ Aetox-main UX หลัง clean-room workbench pass
 
-tab names ปัจจุบันไม่เท่ากับ function parity:
+ชื่อห้องทุกห้องด้านล่างต้องผูกกับ backend contract จริง การมี tab อย่างเดียวไม่ถูกนับเป็น parity:
 
 | Surface เป้าหมาย | Hermetrix ปัจจุบัน | Definition of done ที่ต้องการ |
 |---|---|---|
-| Native shell | loopback web app | signed cross-platform desktop, typed bridge, backend เป็น state authority |
-| Assistant/Code doors | ไม่มี fixed surface contract | session template/desk แยก navigation, tool ceiling, project semantics และ prompt revision |
-| Files | bounded list/read/write APIs | tree, editor, diff, diagnostics, optimistic saves, artifact handoff |
-| Terminal | background allowlisted jobs | interactive PTY, foreground/background, cancel, durable receipt, sandbox profile |
-| Browser | ไม่มี | managed tabs, observe/action receipts, download/artifact policy, session capability gate |
-| Office | label ใช้กับ command jobs | real document/spreadsheet/slides deliverables, preview, export, provenance |
-| Agent team | ไม่มี | parent-child task graph, budgets, isolated context/memory/tool ceilings, result artifact handoff |
+| Native shell | responsive loopback web cockpit; backend เป็น state authority | signed cross-platform desktop, typed bridge, reconnect/install/upgrade E2E |
+| Assistant/Code/Team doors | doors และ session dock ใช้งานได้; session contract อยู่ที่ backend | desk-specific navigation/tool ceiling ต้องแสดงและตรวจได้ครบใน UI |
+| Files | project tree, bounded read, optimistic SHA save, diff และ immutable receipt | diagnostics, multi-file patch, editor language services และ conflict merge UX |
+| Terminal | interactive POSIX PTY, input/resize/cancel, bounded tail และ interrupted recovery | Windows ConPTY, OS sandbox profile, detachable durable process และ packaged E2E |
+| Browser | isolated headless Chrome profile, CDP observe/click/type/navigate/back/capture และ receipts | embedded live view, download UX, proxy-level egress/DNS-rebinding enforcement และ packaged E2E |
+| Office | real DOCX/XLSX/PPTX/PDF packages เป็น immutable artifacts พร้อม provenance | rich editor/preview, PDF Unicode font embedding และ template/render visual QA |
+| Agent team | editable roster, custom DAG UI, frozen run/member snapshots, isolated child sessions, parallel specialists, durable exact-effect approval pause/resume, parent cancellation, lead synthesis และ token roll-up | checkpoint/resume กลาง sampling, artifact-only handoff และ per-task policy/model/budget editor |
 | Automation | maintenance schedules เท่านั้น | durable user workflows, restart recovery, approval/effect policy, observable runs |
 | Skill Control Center | มี vertical slice | diff/replay/eval/duplicate merge/provenance graph/usage cohorts/rollback UX ครบ |
 
-คำว่า “Office” ใน UI ปัจจุบันควรเปลี่ยนเป็น “Background Jobs” จนกว่าจะมี deliverable workspace จริง เพื่อไม่ให้ product claim สูงกว่าความสามารถ — **ยังไม่ได้แก้** ณ รอบ verification pass (`internal/web/ui/index.html:21`, `:62`) จัดเป็นส่วนหนึ่งของ O-7
+คำว่า “Office” ใช้ได้แล้วเพราะ UI สร้าง package จริงผ่าน `CreateDeliverable`; background command jobs ยังคงเป็นคนละ surface และไม่ถูกเรียก Office อีกต่อไป
 
-หมายเหตุลำดับความสำคัญ: ตาราง gap นี้เป็น *product parity* ซึ่งอยู่ใน Phase 11 เต็มรูปแบบ แต่ตาม dependency ต้องทำหลัง kernel (8/9/10) ถึงระดับ  ก่อน
+สถานะนี้คือ `vertical_slice` ไม่ใช่ `qualified` หรือ `production`: เส้นทางหลักใช้งานจริงแล้ว แต่ native packaging, fault injection, accessibility, security isolation และสาม-platform E2E ยังเป็น gate ถัดไป
 
 ## 7. Test evidence
 
@@ -1186,10 +1187,12 @@ tab names ปัจจุบันไม่เท่ากับ function parity
 ```text
 go build ./...               passed
 go vet ./...                 passed
-go test ./...                122 test functions, 0 failed
-go test -race ./...          passed
+go test ./internal/product ./internal/store   passed
+go test -race ./internal/product ./internal/store ./internal/skills ./internal/context   passed
+go vet ./internal/product ./internal/store ./internal/web ./cmd/hermetrix   passed
+GOOS=linux/windows go test -c (product/web/cmd)   passed
 node --check internal/web/ui/app.js   passed
-./scripts/doc-truth.sh check passed
+git diff --check             passed
 ```
 
 ตัวเลขทั้งหมดในเอกสารนี้ generate จาก `./scripts/doc-truth.sh` ไม่ได้พิมพ์มือ
@@ -1201,14 +1204,20 @@ node --check internal/web/ui/app.js   passed
 - qualification gate ต่อ profile และ reviewed override — `TestSessionRequiresExactQualificationOrReviewedOverride`
 - interrupted effect กลายเป็น `uncertain` โดยไม่ retry — `TestInterruptedWriteEffectRecoversAsUncertainWithoutRetry`
 
-สิ่งที่ยัง **ไม่ยืนยัน**:
+สิ่งที่ workbench test **ยืนยันแล้ว**:
 
-- outbox path ทั้งเส้น: turn commit → staged trigger → drain → idempotent job (O-4)
+- optimistic file save + audit receipt — `TestWorkbenchFileOptimisticWriteAndAuditReceipt`
+- real POSIX PTY input/output/resize/close — `TestInteractivePTYExecutesCommandsAndPersistsBoundedOutput`
+- browser URL policy และ real Chrome/CDP interaction/capture test — integration test จะ skip เฉพาะเมื่อ host ห้าม launch browser
+- DOCX/XLSX/PPTX/PDF เป็น package จริงและอยู่ใน CAS พร้อม provenance — `TestNativeOfficeDeliverablesAreRealAuditablePackages`
+- Agent Team DAG, concurrent specialists, isolated child sessions, lead evidence และ token roll-up — `TestAgentTeamPersistsDefinitionRunsDAGConcurrentlyAndSynthesizes`
+- cockpit มีทุก room และไม่มี Aetox branding/assets — `TestHermetrixCockpitExposesEveryNativeWorkbenchRoom`
+
+สิ่งที่ยัง **ไม่ยืนยันหรือยังถูก environment block**:
+
 - prompt-cache epoch stability วัดด้วย prompt fingerprint ตรง ๆ
-- certified 128k/256k/1M recall/allocation ที่มีหลักฐานแยกต่อ tier (O-6)
-- direct-tool budget ที่นับจาก exact provider serialization (O-3)
 - crash/restart ระหว่าง model streaming และ DB/CAS split-brain
-- native UI/browser/PTY flows
+- packaged native UI/browser/PTY flow บน macOS/Windows/Linux; host sandbox รอบนี้ห้าม TCP bind และ Chrome abort จึงรัน visual HTTP E2E ไม่ได้
 - real local-model end-to-end matrix
 - prompt-injection resistance ของ model ที่ใหญ่กว่า qwen3:4b — corpus พร้อมแล้ว (`hermetrix hostile --provider`) แต่ยังวัดได้ตัวเดียว
 
@@ -1228,9 +1237,9 @@ Hermetrix ไม่ควรย้อนกลับไป copy architecture ท
 - ใช้ **Hermes เป็น harness contract** สำหรับ prompt-cache invariant, session-scoped capability, background review, progressive Skills, plugins/MCP และ multi-surface operational maturity
 - ใช้ **Hermetrix authority model** เป็นตัวตัดสินเมื่อ reference ขัดกัน: candidate-first, exact revision, reversible mutation, typed context และ measured qualification
 
-ดังนั้นคำตอบหลัง verification pass คือ **“โครงหลักถูกทิศ, P0 ของรอบแรกปิดครบแล้ว, เหลือ contradiction เชิงสถาปัตยกรรมหนึ่งจุดคือ Skill retrieval และงาน correctness ที่วัดได้อีกชุดหนึ่ง”**
+ดังนั้นคำตอบหลัง product parity pass คือ **“kernel และ Skill authority ถูกทิศ, finding เดิมปิดครบ, Aetox-style workbench และ Agent Team ถึง vertical slice แล้ว แต่ยังต้อง qualification ด้าน native packaging, isolation, accessibility และ restart/fault E2E”**
 
-ความเสี่ยงอันดับหนึ่งของโครงการ ณ ตอนนี้ไม่ใช่เรื่องสถาปัตยกรรม แต่คือ **ไม่มี version control** (O-1) ซึ่งทำให้ผลงานทั้งหมดหายได้ในเหตุการณ์เดียว
+ความเสี่ยงอันดับหนึ่งของโครงการ ณ ตอนนี้คือการเข้าใจ `vertical_slice` ว่าเท่ากับ native/production parity ทั้งที่ Windows ConPTY, signed installers, browser egress proxy, rich Office rendering และ Team pause/resume ยังไม่ผ่าน gate
 
 แผนแก้และ phase ถัดไปอยู่ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)
 
@@ -1266,17 +1275,21 @@ Hermetrix ไม่ควรย้อนกลับไป copy architecture ท
 - `internal/agent/service.go:144-176` — `buildSessionContract`, `TaskBudget`, skill catalog freeze
 - `internal/agent/service.go:324-360` — `acquireTurn` CAS lease
 - `internal/agent/service.go:363-386` — `initializeSessionSkills` one-shot selection
-- `internal/agent/service.go:387` — `selectSkillBindings` lexical scorer (O-2)
+- `internal/agent/service.go:389`, `:427` — frozen selection และ hybrid `rankSkillBindings`; `skillsemantic.go` เป็น semantic cross-script path (O-2 ปิดแล้ว)
 - `internal/agent/service.go:1066-1120` — orphaned turn recovery
 - `internal/agent/service.go:1148-1162` — `compileTurn` อ่านเฉพาะ frozen contract
-- `internal/agent/service.go:1243-1300` — `selectSkills` dead code (O-5)
-- `internal/agent/service.go:1431`, `:1480` — `StageTrigger` ใน turn-commit transaction
-- `internal/learning/service.go:55-86` — outbox stage/drain (O-4)
-- `internal/qualification/service.go:341-378` — `contextTier` / `contextCapacity` และ recall flag เดียว (O-6)
-- `internal/tools/registry.go:150-165` — `ProviderDefinitions` เทียบ `ContextSpecs` (O-3)
+- `internal/agent/service.go:1657`, `:1706` — `StageTrigger` ใน turn-commit transaction
+- `internal/learning/service.go:71` — transactional outbox stage/drain (O-4 ปิดแล้ว)
+- `internal/qualification/service.go:208-222` — positional recall evidence; `contextTier` ใช้ผลรวมที่ตรวจครบตำแหน่ง (O-6 ปิดแล้ว)
+- `internal/context/types.go:63` — exact billable tool text สำหรับ budget accounting (O-3 ปิดแล้ว)
 - `internal/curator/maintenance.go:160-215` — GC quarantine/partial restore transitions
 - `internal/store/store.go:759-786` — migration ของ lease/contract/outbox
-- `internal/web/ui/index.html:21`, `:62` — label `Office` ที่ยังไม่เปลี่ยน (O-7)
+- `internal/product/workbench.go` — project-bound read/write/diff และ optimistic revision
+- `internal/product/terminal.go` — POSIX PTY lifecycle; `terminal_windows.go` ระบุ unsupported อย่างตรงไปตรงมา
+- `internal/product/browser.go` — managed Chrome/CDP, URL policy และ evidence capture
+- `internal/product/deliverables.go` — DOCX/XLSX/PPTX/PDF artifact generators
+- `internal/product/team.go` — persistent team definitions และ frozen DAG executor
+- `internal/web/ui/index.html`, `style.css`, `app.js` — clean-room three-pane cockpit และ workbench rooms
 - `internal/context/` — profiles, compiler, compactor, spill, estimator และ verified fallback
 - `internal/skills/` — candidates, versions, replay, provenance, activations, archive/restore และ curator evidence
 - `internal/mcp/` — Streamable HTTP, schema/revision/risk binding และ redaction

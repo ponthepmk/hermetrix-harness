@@ -23,8 +23,8 @@ section() { printf '\n%s\n%s\n' "$1" "$(printf '%*s' "${#1}" '' | tr ' ' '-')"; 
 # ---------------------------------------------------------------- layer 1
 section "Facts"
 
-test_functions=$(grep -rhoE '^func Test[A-Za-z0-9_]+' --include='*_test.go' internal | wc -l | tr -d ' ')
-test_packages=$(go list ./... 2>/dev/null | wc -l | tr -d ' ')
+test_functions=$(rg -g '*_test.go' '^func Test[A-Za-z0-9_]+' internal | wc -l | tr -d ' ')
+test_packages=$(GOCACHE="${GOCACHE:-/tmp/hermetrix-doc-truth-go-cache}" GOPROXY=off GOSUMDB=off go list ./... 2>/dev/null | wc -l | tr -d ' ')
 printf 'test functions:        %s\n' "$test_functions"
 printf 'packages:              %s\n' "$test_packages"
 
@@ -82,6 +82,15 @@ claims=$(cat <<'CLAIMS'
 turn-lease-cas|WHERE id=\? AND state='active' AND active_turn_id=''|internal/agent/service.go
 session-contract-freeze|func \(s \*Service\) buildSessionContract|internal/agent/service.go
 skills-frozen-once|SkillsInitialized|internal/agent/service.go
+workbench-optimistic-file|func \(s \*Service\) WriteProjectFile|internal/product/workbench.go
+real-pty|func \(s \*Service\) StartTerminal|internal/product/terminal.go
+managed-browser|func \(s \*Service\) OpenBrowserTab|internal/product/browser.go
+native-deliverables|func \(s \*Service\) CreateDeliverable|internal/product/deliverables.go
+team-dag|func validateTeamTaskGraph|internal/product/team.go
+team-run-snapshots-roster|team_name,team_instructions|internal/product/team.go
+team-cancel-propagates|func \(s \*Service\) CancelTeamRun|internal/product/team.go
+team-member-history-retired|state='retired'|internal/product/team.go
+cockpit-ui-contract|func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom|internal/web/ui_contract_test.go
 learning-producer|func \(s \*Service\) StageTrigger|internal/learning/service.go
 learning-drain|func \(s \*Service\) DrainPending|internal/learning/service.go
 task-budget|MaxCumulativeTokens|internal/agent/service.go
@@ -141,6 +150,9 @@ causal-pairs-held-or-refused|func TestCausalPairsSurviveTogetherOrTheCompileRefu
 pair-split-refuses-compile|causal pair %s was split|internal/context/compiler.go
 field-census-exists|NEVER PRODUCED|scripts/fragment-census.py
 approvals-become-decisions|Kind: ctxcompiler.KindDecision|internal/agent/service.go
+team-approval-pause|state='awaiting_approval'|internal/product/team.go
+team-approval-resume|func \(s \*Service\) DecideTeamTaskApproval|internal/product/team.go
+team-approval-no-replay|DecideApproval\(decisionCtx|internal/product/team.go
 open-task-has-no-reachable-producer|func TestNoCompileRunsWhileAnApprovalIsOutstanding|internal/agent/service_test.go
 derived-not-user-speech|func isTranscriptKind|internal/agent/service.go
 corpus-carries-real-shapes|func approvalCase|internal/fidelity/service.go
@@ -204,7 +216,7 @@ compliance-is-scored-by-position|ShapeEndsWith|internal/hostile/corpus.go
 empty-reply-is-not-a-refusal|Inconclusive bool|internal/hostile/structural.go
 quoting-an-attack-is-not-obeying|func withoutQuotedInjection|internal/hostile/behavioral.go
 answers-are-rescorable-offline|func Rescore|internal/hostile/rescore.go
-windows-has-its-own-process-handling|func isolateProcessGroup|internal/product/commands_windows.go
+windows-has-its-own-process-handling|func configureProcessTermination|internal/product/commands_windows.go
 corpus-measures-withdrawn-facts|RevisionSuperseded|internal/taskeval/generate.go
 withdrawn-answer-is-its-own-count|StaleAnswersCompiled|internal/taskeval/models.go
 corpus-still-has-loss-to-measure|func TestSupersededFactsGiveTheCorpusSomethingLeftToLose|internal/taskeval/runner_test.go
