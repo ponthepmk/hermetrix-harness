@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"hermetrix-harness/internal/agentruntime"
 )
 
 func newProductTestServiceWithProject(t *testing.T) (*Service, Project, func()) {
@@ -64,12 +66,12 @@ func TestStartRunAcceptsATenMinuteCeiling(t *testing.T) {
 	}
 }
 
-func agentRunRequest(projectID string) RunRequest {
-	return RunRequest{ProjectID: projectID, Actor: "agent:ses_test", Executable: "node",
+func agentRunRequest(projectID string) agentruntime.RunRequest {
+	return agentruntime.RunRequest{ProjectID: projectID, Actor: "agent:ses_test", Executable: "node",
 		Arguments: []string{"-e", "console.log('hermetrix')"}, TimeoutSeconds: 30}
 }
 
-func waitForRun(t *testing.T, service *Service, jobID string) RunResult {
+func waitForRun(t *testing.T, service *Service, jobID string) agentruntime.RunResult {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
@@ -83,5 +85,5 @@ func waitForRun(t *testing.T, service *Service, jobID string) RunResult {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("job %s never finished", jobID)
-	return RunResult{}
+	return agentruntime.RunResult{}
 }

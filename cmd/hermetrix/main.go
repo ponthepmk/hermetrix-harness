@@ -207,9 +207,8 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 	toolRegistry.SetCatalog(capabilityCatalog)
-	runtimeBridge := agentRuntimeBridge{product: productService}
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).
-		WithLearning(learningService).WithRuntime(runtimeBridge, runtimeBridge)
+		WithLearning(learningService).WithRuntime(productService, productService)
 	productService.WithAgentRunner(agentService)
 	// An MCP server may ask the client to sample a model or to ask the user a
 	// question. Only the agent service can do either, so it answers those

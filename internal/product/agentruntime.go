@@ -3,60 +3,39 @@ package product
 import (
 	"context"
 	"fmt"
+
+	"hermetrix-harness/internal/agentruntime"
 )
 
-// The agent cannot import this package, so it declares the interfaces it needs
-// and these methods answer them field-for-field. Go still treats agent.RunResult
-// and product.RunResult as different types even though every field matches, so
-// cmd/hermetrix/runtimebridge.go converts between the two at the one place that
-// is allowed to import both. Keep the types below in step with the agent's.
-
-type RunRequest struct {
-	ProjectID      string
-	Actor          string
-	Executable     string
-	Arguments      []string
-	WorkingDir     string
-	TimeoutSeconds int
-}
-
-type RunResult struct {
-	JobID      string
-	State      string
-	ExitCode   int
-	Output     string
-	Truncated  bool
-	DurationMS int64
-	ArtifactID string
-	Error      string
-}
-
-func (r RunResult) Done() bool {
-	return r.State == "completed" || r.State == "failed" || r.State == "canceled"
-}
+// internal/agent declares WorkspaceRunner and BrowserDriver against the types
+// in internal/agentruntime rather than importing this package -- an import
+// from agent to product would close a cycle, since product already imports
+// agent for its own teamAgentRunner interface. These methods implement those
+// interfaces by using agentruntime's types directly, so there is no second,
+// hand-mirrored copy of the request/result shapes to keep in step by hand.
 
 // StartRun queues a command and returns as soon as it is accepted. Every bound
 // StartCommand enforces -- the executable allowlist, no shell, a minimal
 // environment, a working directory inside the project, the output ceiling and
 // process-group termination -- applies unchanged, because this is that call.
-func (s *Service) StartRun(ctx context.Context, request RunRequest) (RunResult, error) {
+func (s *Service) StartRun(ctx context.Context, request agentruntime.RunRequest) (agentruntime.RunResult, error) {
 	job, err := s.StartCommand(ctx, CommandInput{ProjectID: request.ProjectID, Actor: request.Actor,
 		Executable: request.Executable, Arguments: request.Arguments, WorkingDir: request.WorkingDir,
 		TimeoutSeconds: request.TimeoutSeconds})
 	if err != nil {
-		return RunResult{}, err
+		return agentruntime.RunResult{}, err
 	}
 	return runResultFromJob(job), nil
 }
 
 // LookupRun reads a command's current state.
-func (s *Service) LookupRun(ctx context.Context, jobID string) (RunResult, error) {
+func (s *Service) LookupRun(ctx context.Context, jobID string) (agentruntime.RunResult, error) {
 	job, err := s.GetJob(ctx, jobID)
 	if err != nil {
-		return RunResult{}, err
+		return agentruntime.RunResult{}, err
 	}
 	if job.Kind != "command" {
-		return RunResult{}, fmt.Errorf("job %s is not a command", jobID)
+		return agentruntime.RunResult{}, fmt.Errorf("job %s is not a command", jobID)
 	}
 	return runResultFromJob(job), nil
 }
@@ -75,47 +54,13 @@ func (s *Service) CancelRun(ctx context.Context, jobID string) error {
 	return err
 }
 
-type BrowserOpenRequest struct {
-	ProjectID    string
-	URL          string
-	AllowPrivate bool
-	Actor        string
-}
-
-type BrowserActRequest struct {
-	Action string
-	URL    string
-	Ref    int
-	Text   string
-	Actor  string
-}
-
-type BrowserPageElement struct {
-	Ref         int
-	Tag         string
-	Role        string
-	Text        string
-	Placeholder string
-}
-
-type BrowserPage struct {
-	TabID                string
-	URL                  string
-	Title                string
-	State                string
-	Text                 string
-	Elements             []BrowserPageElement
-	ScreenshotArtifactID string
-	Error                string
-}
-
 // OpenPage opens a tab for the agent. URL validation, the private-host rule and
 // the project binding are all OpenBrowserTab's, unchanged.
-func (s *Service) OpenPage(ctx context.Context, request BrowserOpenRequest) (BrowserPage, error) {
+func (s *Service) OpenPage(ctx context.Context, request agentruntime.BrowserOpenRequest) (agentruntime.BrowserPage, error) {
 	tab, err := s.OpenBrowserTab(ctx, OpenBrowserTabInput{ProjectID: request.ProjectID, URL: request.URL,
 		AllowPrivate: request.AllowPrivate, Actor: request.Actor})
 	if err != nil {
-		return BrowserPage{}, err
+		return agentruntime.BrowserPage{}, err
 	}
 	return browserPageFromTab(tab), nil
 }
@@ -123,28 +68,28 @@ func (s *Service) OpenPage(ctx context.Context, request BrowserOpenRequest) (Bro
 // ActOnPage drives an open tab. The element's CSS selector never leaves this
 // package: the agent addresses elements by ref, so a model cannot hand the page
 // a selector of its own.
-func (s *Service) ActOnPage(ctx context.Context, tabID string, request BrowserActRequest) (BrowserPage, error) {
+func (s *Service) ActOnPage(ctx context.Context, tabID string, request agentruntime.BrowserActRequest) (agentruntime.BrowserPage, error) {
 	tab, err := s.BrowserAction(ctx, tabID, BrowserActionInput{Action: request.Action, URL: request.URL,
 		Ref: request.Ref, Text: request.Text, Actor: request.Actor})
 	if err != nil {
-		return BrowserPage{}, err
+		return agentruntime.BrowserPage{}, err
 	}
 	return browserPageFromTab(tab), nil
 }
 
-func browserPageFromTab(tab BrowserTab) BrowserPage {
-	page := BrowserPage{TabID: tab.ID, URL: tab.URL, Title: tab.Title, State: tab.State,
+func browserPageFromTab(tab BrowserTab) agentruntime.BrowserPage {
+	page := agentruntime.BrowserPage{TabID: tab.ID, URL: tab.URL, Title: tab.Title, State: tab.State,
 		Text: tab.TextSnapshot, ScreenshotArtifactID: tab.ScreenshotArtifactID, Error: tab.Error,
-		Elements: make([]BrowserPageElement, 0, len(tab.Elements))}
+		Elements: make([]agentruntime.BrowserPageElement, 0, len(tab.Elements))}
 	for _, element := range tab.Elements {
-		page.Elements = append(page.Elements, BrowserPageElement{Ref: element.Ref, Tag: element.Tag,
+		page.Elements = append(page.Elements, agentruntime.BrowserPageElement{Ref: element.Ref, Tag: element.Tag,
 			Role: element.Role, Text: element.Text, Placeholder: element.Placeholder})
 	}
 	return page
 }
 
-func runResultFromJob(job Job) RunResult {
-	result := RunResult{JobID: job.ID, State: job.State, Error: job.Error}
+func runResultFromJob(job Job) agentruntime.RunResult {
+	result := agentruntime.RunResult{JobID: job.ID, State: job.State, Error: job.Error}
 	if value, ok := job.Result["exit_code"].(float64); ok {
 		result.ExitCode = int(value)
 	}
