@@ -63,6 +63,43 @@ PTY ยังเป็นของผู้ใช้เหมือนเดิ�
 และมันเป็นเพดานที่ทดสอบได้ ไม่ใช่การเดาว่าเครื่องรับไหวเท่าไหร่ agent ที่วนลูป
 จึงติดที่สองงาน ไม่ใช่จุดไฟทั้งเครื่อง
 
+## 4.5 รากเดียวต่อ session ไม่ใช่รากเดียวต่อโปรเซส
+
+`toolruntime.NewRegistry(*workspace)` ที่ `cmd/hermetrix/main.go:204` ตั้ง root ครั้งเดียว
+ตอน start และ `workspace.list_files`, `read_file`, `search_files`, `write_file` ทุกตัว
+ใช้ `r.root` นั้นเสมอ ไม่ได้ดูว่า session ผูกกับโปรเจคไหน
+
+เดิมไม่เจ็บเพราะ `EnsureWorkspaceProject` ลงทะเบียน `--workspace` เป็นโปรเจคและ pin ไว้
+session ส่วนใหญ่จึงบังเอิญตรงกัน **spec 1 ทำให้ picker เป็นประตูหน้า** การเปิดโปรเจคอื่น
+กลายเป็นเรื่องปกติ และตั้งแต่นั้นการเปิดโปรเจค B แล้วให้ agent อ่านไฟล์ จะอ่านจากรากของ
+โปรเจค A
+
+สเปคนี้ชนกับข้อนั้นโดยตรง หัวข้อ 5.1 บอกว่า working directory ผูกกับ project root
+ถ้าทำตามนั้นโดยไม่แก้อะไร `workspace.run` จะรันในรากหนึ่งขณะที่ `workspace.read_file`
+อ่านจากอีกราก **ใน session เดียวกัน** agent จะแก้ไฟล์ที่หนึ่งแล้วรันเทสต์อีกที่หนึ่ง
+
+**ตัดสิน: สเปคนี้แก้รากของ `workspace.*` ทั้งหมดให้เป็นของ session**
+
+- `Registry.Execute`, `ExecuteApproved` และ `PlanApproval` รับ root เป็นพารามิเตอร์
+  ต่อการเรียก แทนที่จะอ่านจากฟิลด์ที่ตั้งไว้ตอนสร้าง
+- ผู้เรียกคือ agent service ซึ่งมี `session` อยู่ในมือแล้ว จึง resolve จาก
+  `session.Contract.ProjectID`
+- โปรเจคที่ไม่มีโฟลเดอร์โค้ด ทำให้ `workspace.*` ปฏิเสธด้วยเหตุผลเดียวกับที่ spec 1
+  กำหนดไว้ ไม่ใช่ fallback ไปที่รากอื่น session ที่เปิดใน Inbox จึงอ่านไฟล์ไม่ได้
+  ซึ่งถูกต้อง เพราะ Inbox ไม่มีโฟลเดอร์โค้ด
+
+`--workspace` ยังทำงานเหมือนเดิมในฐานะโปรเจคที่ลงทะเบียนและ pin ตอน start
+สิ่งที่เปลี่ยนคือมันไม่ใช่รากลับที่ทุก session ใช้ร่วมกันอีกต่อไป
+
+### 4.6 agent ไม่รู้จัก product
+
+`grep -rn "product\." internal/agent` ไม่คืนอะไร แพ็กเกจ agent ไม่ import product เลย
+tool ใหม่ทั้งสองต้องผ่าน interface ที่ประกาศฝั่งผู้เรียก และ `product.Service` เป็นผู้
+implement โดย `cmd/hermetrix/main.go` เป็นที่ประกอบ
+
+นี่คือ pattern เดียวกับ `mcp.ServerRequestHandler` ที่ใช้อยู่แล้วสำหรับ sampling และ
+elicitation ไม่ใช่โครงสร้างใหม่
+
 ## 5. Authority
 
 ตกลงไว้แล้วใน spec 1 §9.3 คัดมาที่นี่เพื่อไม่ให้ถูกตัดสินใหม่ตอนเขียนโค้ด
@@ -149,7 +186,10 @@ spec 1 เปลี่ยน default ให้ agent promote Skill ที่ม�
 - เพดาน 10 นาทีฆ่า process จริง ทดสอบด้วยคำสั่งที่จงใจไม่จบ
 - executable นอก allowlist ถูกปฏิเสธ และ argument ที่มี `;` หรือ `|` ไม่ทำให้เกิด shell
   เพราะไม่มี shell ให้เกิด
-- โปรเจคไม่มี root ถูกปฏิเสธด้วย `ErrProjectHasNoCode`
+- โปรเจคไม่มี root ถูกปฏิเสธด้วย `ErrProjectHasNoCode` ทั้ง `workspace.run` และ
+  `workspace.*` ที่อ่านเขียนไฟล์
+- session ที่ผูกกับโปรเจค B อ่านไฟล์ของโปรเจค B ไม่ใช่ของ `--workspace` เทสต์นี้จับ
+  พฤติกรรมเดิมโดยตรง
 - `working_dir` ที่พยายามหนีออกนอก root ถูกปฏิเสธ ทดสอบด้วย `../`, absolute path
   และ symlink ที่ชี้ออกนอก
 - job ที่สามในหนึ่ง session ถูกปฏิเสธพร้อมบอกว่ามีอะไรค้าง
