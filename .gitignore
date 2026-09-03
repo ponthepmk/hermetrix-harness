@@ -24,3 +24,7 @@ coverage.out
 # corpus/tasks/README.md.
 /corpus/tasks/*.json
 tmp-mockup-data/
+
+# Subagent-driven development scratch: ledgers, briefs and review packages.
+# The git history is the record; these are the notes taken while making it.
+.superpowers/
