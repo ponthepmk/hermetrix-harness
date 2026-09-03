@@ -1221,29 +1221,50 @@ func (s *Service) RecoverInterruptedApprovals(ctx context.Context) (int, error) 
 	if len(items) == 0 {
 		return 0, nil
 	}
+	// Before declaring the outcome unknown, look. A workspace write carries
+	// the hash the file had before and the exact bytes it meant to write, so
+	// the file itself says whether the effect landed -- the one effect in
+	// this system that is content-addressed at both ends. Reporting
+	// "uncertain, go and inspect" when the answer is one hash comparison
+	// away stops the work for nothing.
+	//
+	// Looking means looking in the right tree, though. The approval belongs
+	// to a session, and the session belongs to a project, so the reconcile is
+	// scoped to that project's root rather than whatever root the process
+	// happened to start with -- the same defect this task exists to close,
+	// here on a durable effect instead of a live call. When the session or
+	// its project root cannot be resolved, this stays indeterminate: a
+	// verdict read from the wrong tree is worse than no verdict.
+	//
+	// This has to run before the transaction below opens: the store allows
+	// exactly one open connection, GetSession and scopedTools each need their
+	// own query against it, and a transaction already holding that one
+	// connection would leave them waiting on it forever.
+	states := make([]toolruntime.WriteState, len(items))
+	for i, item := range items {
+		state := toolruntime.WriteIndeterminate
+		if s.tools != nil {
+			if session, sessionErr := s.GetSession(ctx, item.sessionID); sessionErr == nil {
+				if scoped, scopedErr := s.scopedTools(ctx, session); scopedErr == nil {
+					if resolved, resolveErr := scoped.ReconcileWrite(item.name, item.arguments); resolveErr == nil {
+						state = resolved
+					}
+				}
+			}
+		}
+		states[i] = state
+	}
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	for _, item := range items {
-		// Before declaring the outcome unknown, look. A workspace write carries
-		// the hash the file had before and the exact bytes it meant to write, so
-		// the file itself says whether the effect landed -- the one effect in
-		// this system that is content-addressed at both ends. Reporting
-		// "uncertain, go and inspect" when the answer is one hash comparison
-		// away stops the work for nothing.
-		//
+	for i, item := range items {
 		// Anything else stays uncertain. A message that may already have been
 		// sent leaves nothing to re-read, and a verdict inferred from something
 		// adjacent would be a guess wearing a receipt's clothes.
-		state := toolruntime.WriteIndeterminate
-		if s.tools != nil {
-			if resolved, resolveErr := s.tools.ReconcileWrite(item.name, item.arguments); resolveErr == nil {
-				state = resolved
-			}
-		}
+		state := states[i]
 		receipt := toolruntime.Receipt{ToolCallID: item.callID, Name: item.name, Revision: item.revision,
 			Effect: item.effect, Status: "uncertain", Error: "Hermetrix restarted while the effect lock was held; inspect the affected system before proposing another call"}
 		approvalState := "uncertain"

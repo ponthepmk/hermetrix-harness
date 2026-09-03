@@ -513,7 +513,8 @@ func interruptedWriteFixture(t *testing.T) (*Service, string, Session, TurnResul
 	workspace := t.TempDir()
 	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
 	t.Cleanup(cleanup)
-	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+	projectID := createTestProject(t, service, workspace)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
@@ -539,7 +540,8 @@ func TestInterruptedWriteEffectRecoversAsUncertainWithoutRetry(t *testing.T) {
 	workspace := t.TempDir()
 	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
 	defer cleanup()
-	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+	projectID := createTestProject(t, service, workspace)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
@@ -609,6 +611,61 @@ func TestRecoveryReportsAWriteThatDidLandAsExecuted(t *testing.T) {
 	last := detail.Events[len(detail.Events)-1]
 	if !strings.Contains(last.Content, `"status":"succeeded"`) {
 		t.Fatalf("receipt does not report the effect as done: %+v", last)
+	}
+}
+
+// TestRecoveryReconcilesAgainstTheApprovalsProjectNotTheStartupRoot pins the
+// fix for the same defect this task closes on a live call, but here on a
+// durable one: recovery has to reconcile a write against the tree the
+// approval's own session was scoped to, not whatever root the process
+// happened to start with. The startup root and the project root are two
+// different directories, and the file only exists in the project's -- if
+// reconcile fell back to the startup tree, it would find nothing there and
+// report the write as never having landed.
+func TestRecoveryReconcilesAgainstTheApprovalsProjectNotTheStartupRoot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-interrupted\",\"type\":\"function\",\"function\":{\"name\":\"workspace.write_file\",\"arguments\":\"{\\\"path\\\":\\\"uncertain.txt\\\",\\\"content\\\":\\\"maybe written\\\",\\\"expected_sha256\\\":\\\"absent\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+	startupRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	service, provider, cleanup := testAgentServiceAtRoot(t, server, startupRoot)
+	defer cleanup()
+	projectID := createTestProject(t, service, projectRoot)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "write uncertain.txt"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The effect landed in the project's own tree, never in the tree the
+	// process happened to start in.
+	if err := os.WriteFile(filepath.Join(projectRoot, "uncertain.txt"), []byte("maybe written"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB.Exec(`UPDATE tool_approvals SET state='executing' WHERE id=?`, paused.Approval.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecoverInterruptedApprovals(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.GetSessionDetail(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Approvals[0].State != "executed" {
+		t.Fatalf("recovery did not find the write in the approval's own project tree: %+v", detail.Approvals[0])
+	}
+	last := detail.Events[len(detail.Events)-1]
+	if !strings.Contains(last.Content, `"status":"succeeded"`) {
+		t.Fatalf("receipt does not report the effect as done: %+v", last)
+	}
+	if _, err := os.Stat(filepath.Join(startupRoot, "uncertain.txt")); !os.IsNotExist(err) {
+		t.Fatalf("recovery should never touch the startup tree: %v", err)
 	}
 }
 
