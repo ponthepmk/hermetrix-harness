@@ -47,6 +47,11 @@ type Service struct {
 	// configuration: an embedder is a second model to run and Hermetrix is
 	// local-first.
 	embedder embedding.Embedder
+	// runner and browser are optional. Nil means the runtime tools refuse with
+	// a reason instead of executing, which keeps a headless or test build of the
+	// agent service usable without the product runtime attached.
+	runner  WorkspaceRunner
+	browser BrowserDriver
 }
 
 func NewService(dataStore *store.Store, providerService *providers.Service, compiler *ctxcompiler.Compiler,

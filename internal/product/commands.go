@@ -19,6 +19,12 @@ import (
 
 const maxCommandOutput = 2 << 20
 
+// maxCommandTimeoutSeconds is ten minutes. The old ceiling was two, which is
+// under the time a full build or test suite takes on a real project, and the
+// agent is expected to run exactly those. The default stays at 30 seconds, so
+// nothing that did not ask for a longer wait gets one.
+const maxCommandTimeoutSeconds = 600
+
 var allowedExecutables = map[string]bool{
 	"go": true, "git": true, "node": true, "npm": true, "python3": true, "rg": true, "ls": true,
 }
@@ -40,8 +46,8 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	if input.TimeoutSeconds == 0 {
 		input.TimeoutSeconds = 30
 	}
-	if input.TimeoutSeconds < 1 || input.TimeoutSeconds > 120 {
-		return Job{}, fmt.Errorf("timeout_seconds must be between 1 and 120")
+	if input.TimeoutSeconds < 1 || input.TimeoutSeconds > maxCommandTimeoutSeconds {
+		return Job{}, fmt.Errorf("timeout_seconds must be between 1 and %d", maxCommandTimeoutSeconds)
 	}
 	project, err := s.GetProject(ctx, input.ProjectID)
 	if err != nil {
