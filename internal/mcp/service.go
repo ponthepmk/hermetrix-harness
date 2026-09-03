@@ -38,9 +38,23 @@ type Service struct {
 	store       *store.Store
 	catalog     *capabilities.Catalog
 	client      *Client
+	vault       CredentialVault
 	validatorMu sync.RWMutex
 	validators  map[string]*jsonschema.Schema
 }
+
+// CredentialVault is the local store an MCP bearer token typed into the control
+// center is written to. Optional: with none configured every server falls back
+// to its environment variable.
+type CredentialVault interface {
+	Get(ref string) (string, bool)
+	Has(ref string) bool
+	Set(ref, token string) error
+}
+
+// CredentialRef is the vault key for a server, keyed by ID so renaming a
+// connection or moving its endpoint keeps the credential attached.
+func CredentialRef(serverID string) string { return "mcp:" + serverID }
 
 func NewService(dataStore *store.Store, catalog *capabilities.Catalog, client *Client) *Service {
 	if catalog == nil {
@@ -52,6 +66,49 @@ func NewService(dataStore *store.Store, catalog *capabilities.Catalog, client *C
 	service := &Service{store: dataStore, catalog: catalog, client: client, validators: map[string]*jsonschema.Schema{}}
 	catalog.SetExecutor(capabilities.SourceMCP, service)
 	return service
+}
+
+// WithVault attaches the credential store. A stored token takes precedence over
+// the environment variable.
+// Close stops every MCP server process this service started. Without it a
+// Hermetrix that exits leaves its stdio servers running with a closed stdin.
+func (s *Service) Close() {
+	if s.client != nil {
+		s.client.Close()
+	}
+}
+
+// WithRequestHandler attaches the answerer for server-to-client requests.
+// Without one, Hermetrix declares no sampling or elicitation capability at
+// initialize, and refuses either if a server asks anyway.
+func (s *Service) WithRequestHandler(handler ServerRequestHandler) *Service {
+	if s.client != nil {
+		s.client.WithHandler(handler)
+	}
+	return s
+}
+
+func (s *Service) WithVault(vault CredentialVault) *Service {
+	s.vault = vault
+	return s
+}
+
+// SetCredential stores or clears the bearer token for one server. Changing a
+// credential does not invalidate the discovered snapshot: the tools indexed
+// from that server are still the tools it published.
+func (s *Service) SetCredential(ctx context.Context, serverID, token string) (Server, error) {
+	server, err := s.Get(ctx, serverID)
+	if err != nil {
+		return Server{}, err
+	}
+	if s.vault == nil {
+		return Server{}, &Error{Kind: ErrorNotReady, Operation: "credential", ServerID: serverID,
+			Message: "no credential store is configured; set the environment variable instead"}
+	}
+	if err := s.vault.Set(CredentialRef(server.ID), token); err != nil {
+		return Server{}, err
+	}
+	return s.Get(ctx, serverID)
 }
 
 func (s *Service) Save(ctx context.Context, input SaveInput) (Server, error) {
@@ -99,6 +156,9 @@ func (s *Service) Save(ctx context.Context, input SaveInput) (Server, error) {
 		if err == nil {
 			_, err = tx.ExecContext(ctx, `DELETE FROM mcp_tools WHERE server_id=?`, input.ID)
 		}
+		if err == nil {
+			err = replaceCatalogKinds(ctx, tx, input.ID, nil, nil, now)
+		}
 	}
 	if err != nil {
 		return Server{}, fmt.Errorf("save MCP server: %w", err)
@@ -106,6 +166,9 @@ func (s *Service) Save(ctx context.Context, input SaveInput) (Server, error) {
 	if err := tx.Commit(); err != nil {
 		return Server{}, err
 	}
+	// New settings mean a new process: a server still running under the command
+	// and token it was saved with before would answer as if nothing changed.
+	s.client.CloseServer(input.ID)
 	s.clearValidators()
 	if err := s.reloadServerCatalog(ctx, input.ID); err != nil {
 		return Server{}, err
@@ -123,7 +186,7 @@ func (s *Service) List(ctx context.Context) ([]Server, error) {
 	defer rows.Close()
 	items := []Server{}
 	for rows.Next() {
-		item, err := scanServer(rows)
+		item, err := scanServer(rows, s.vault)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +199,7 @@ func (s *Service) Get(ctx context.Context, id string) (Server, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,transport_kind,endpoint,api_key_env,protocol_mode,
     trust_annotations,enabled,request_timeout_ms,status,last_error,last_protocol,tool_count,last_discovered_at,created_at,updated_at
     FROM mcp_servers WHERE id=?`, id)
-	return scanServer(row)
+	return scanServer(row, s.vault)
 }
 
 func (s *Service) ReloadCatalog(ctx context.Context) error {
@@ -160,23 +223,61 @@ func (s *Service) Discover(ctx context.Context, serverID string) (DiscoveryResul
 	if !server.Enabled {
 		return DiscoveryResult{}, &Error{Kind: ErrorNotReady, Operation: "discover", ServerID: server.ID, Message: "MCP server is disabled"}
 	}
-	credential, err := serverCredential(server)
+	credential, err := s.serverCredential(server)
 	if err != nil {
 		_ = s.recordDiscoveryFailure(context.WithoutCancel(ctx), server.ID, err)
 		_ = s.reloadServerCatalog(context.WithoutCancel(ctx), server.ID)
 		return DiscoveryResult{}, err
 	}
-	discoveryCtx, cancel := context.WithTimeout(ctx, time.Duration(server.RequestTimeoutMS)*time.Millisecond)
-	defer cancel()
-	remoteTools, protocol, err := s.client.ListTools(discoveryCtx, server, credential)
+	// A stdio server owns its own deadline: launching the process is part of
+	// the work, and charging a package download to the per-request budget made
+	// every first discovery look like a timeout.
+	var remoteTools []RemoteTool
+	var protocol string
+	if server.TransportKind == TransportStdio {
+		remoteTools, protocol, err = s.client.ListToolsStdio(ctx, server, credential)
+	} else {
+		discoveryCtx, cancel := context.WithTimeout(ctx, time.Duration(server.RequestTimeoutMS)*time.Millisecond)
+		defer cancel()
+		remoteTools, protocol, err = s.client.ListTools(discoveryCtx, server, credential)
+	}
 	if err != nil {
 		err = redactError(err, credential)
 		_ = s.recordDiscoveryFailure(context.WithoutCancel(ctx), server.ID, err)
 		_ = s.reloadServerCatalog(context.WithoutCancel(ctx), server.ID)
 		return DiscoveryResult{}, err
 	}
+	// Resources and prompts are optional: a server that implements neither must
+	// still discover its tools successfully, so a failure here is counted as a
+	// rejection rather than failing the whole discovery.
+	remoteResources, resourceErr := s.client.ListResources(ctx, server, credential)
+	remotePrompts, promptErr := s.client.ListPrompts(ctx, server, credential)
 	accepted := make([]storedTool, 0, len(remoteTools))
 	rejected := 0
+	if resourceErr != nil {
+		remoteResources, rejected = nil, rejected+1
+	}
+	if promptErr != nil {
+		remotePrompts, rejected = nil, rejected+1
+	}
+	resources := make([]storedResource, 0, len(remoteResources))
+	for _, remote := range remoteResources {
+		item, err := prepareResource(server, remote)
+		if err != nil {
+			rejected++
+			continue
+		}
+		resources = append(resources, item)
+	}
+	prompts := make([]storedPrompt, 0, len(remotePrompts))
+	for _, remote := range remotePrompts {
+		item, err := preparePrompt(server, remote)
+		if err != nil {
+			rejected++
+			continue
+		}
+		prompts = append(prompts, item)
+	}
 	for _, remote := range remoteTools {
 		tool, validateErr := prepareTool(server, protocol, remote)
 		if validateErr != nil {
@@ -203,6 +304,9 @@ func (s *Service) Discover(ctx context.Context, serverID string) (DiscoveryResul
 			return DiscoveryResult{}, err
 		}
 	}
+	if err := replaceCatalogKinds(ctx, tx, server.ID, resources, prompts, now); err != nil {
+		return DiscoveryResult{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE mcp_servers SET status='ready',last_error='',last_protocol=?,tool_count=?,
     last_discovered_at=?,updated_at=? WHERE id=?`, protocol, len(accepted), formatTime(now), formatTime(now), server.ID); err != nil {
 		return DiscoveryResult{}, err
@@ -215,7 +319,7 @@ func (s *Service) Discover(ctx context.Context, serverID string) (DiscoveryResul
 		return DiscoveryResult{}, err
 	}
 	return DiscoveryResult{ServerID: server.ID, Protocol: protocol, Tools: len(accepted), Rejected: rejected,
-		Revision: snapshotRevision(accepted)}, nil
+		Resources: len(resources), Prompts: len(prompts), Revision: snapshotRevision(accepted)}, nil
 }
 
 func (s *Service) ExecuteCapability(ctx context.Context, entry capabilities.Entry, arguments json.RawMessage) (capabilities.CallResult, error) {
@@ -229,6 +333,15 @@ func (s *Service) ExecuteCapability(ctx context.Context, entry capabilities.Entr
 	if !server.Enabled || server.Status != "ready" {
 		return capabilities.CallResult{}, &Error{Kind: ErrorNotReady, Operation: "tools/call", ServerID: server.ID, Message: "MCP server is not ready"}
 	}
+	// A resource and a prompt are answered by their own MCP methods. They share
+	// the revision check with tools -- a capability described at one revision
+	// cannot be fetched at another -- but nothing else about a tool call.
+	switch kindOf(entry) {
+	case KindResource:
+		return s.executeResource(ctx, server, entry)
+	case KindPrompt:
+		return s.executePrompt(ctx, server, entry, arguments)
+	}
 	var currentRevision, inputSchema, outputSchema string
 	err = s.store.DB.QueryRowContext(ctx, `SELECT revision,input_schema_json,output_schema_json FROM mcp_tools WHERE server_id=? AND remote_name=?`,
 		server.ID, entry.Name).Scan(&currentRevision, &inputSchema, &outputSchema)
@@ -239,7 +352,7 @@ func (s *Service) ExecuteCapability(ctx context.Context, entry capabilities.Entr
 		return capabilities.CallResult{}, &Error{Kind: ErrorRevision, Operation: "tools/call", ServerID: server.ID,
 			Message: "MCP tool revision changed after it was described"}
 	}
-	credential, err := serverCredential(server)
+	credential, err := s.serverCredential(server)
 	if err != nil {
 		return capabilities.CallResult{}, err
 	}
@@ -255,9 +368,14 @@ func (s *Service) ExecuteCapability(ctx context.Context, entry capabilities.Entr
 		return capabilities.CallResult{}, &Error{Kind: ErrorProtocol, Operation: "validate arguments", ServerID: server.ID,
 			Message: "arguments do not match described input schema: " + err.Error()}
 	}
-	callCtx, cancel := context.WithTimeout(ctx, time.Duration(server.RequestTimeoutMS)*time.Millisecond)
-	defer cancel()
-	response, err := s.client.CallTool(callCtx, server, credential, server.LastProtocol, entry.Name, arguments, json.RawMessage(inputSchema))
+	var response callResponse
+	if server.TransportKind == TransportStdio {
+		response, err = s.client.CallToolStdio(ctx, server, credential, entry.Name, arguments)
+	} else {
+		callCtx, cancel := context.WithTimeout(ctx, time.Duration(server.RequestTimeoutMS)*time.Millisecond)
+		defer cancel()
+		response, err = s.client.CallTool(callCtx, server, credential, server.LastProtocol, entry.Name, arguments, json.RawMessage(inputSchema))
+	}
 	if err != nil {
 		return capabilities.CallResult{}, redactError(err, credential)
 	}
@@ -413,12 +531,20 @@ func (s *Service) reloadServerCatalog(ctx context.Context, serverID string) erro
 			Readiness: readiness, RequiresApproval: approval != 0, InputSchema: json.RawMessage(inputSchema),
 			OutputSchema: json.RawMessage(outputSchema), Annotations: json.RawMessage(annotations), Metadata: map[string]any{
 				"server_name": server.Name, "protocol": server.LastProtocol, "annotations_trusted": server.TrustAnnotations,
-				"untrusted_output": true,
+				"untrusted_output": true, "kind": KindTool,
 			}})
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	// Resources and prompts join the same catalog rather than getting their own
+	// search surface: the model already knows how to find a capability, and a
+	// second discovery path would be a second thing to keep in step.
+	extra, err := s.nonToolEntries(ctx, server, readiness)
+	if err != nil {
+		return err
+	}
+	entries = append(entries, extra...)
 	return s.catalog.ReplaceSourceRef(capabilities.SourceMCP, server.ID, entries)
 }
 
@@ -548,6 +674,14 @@ func validateServerInput(input SaveInput) error {
 	if input.Name == "" || len(input.Name) > 80 {
 		return fmt.Errorf("MCP server name is required and must be at most 80 characters")
 	}
+	// A stdio server's "endpoint" is the command line that starts it, so it is
+	// validated as a command rather than as a URL.
+	if input.TransportKind == TransportStdio {
+		if _, _, err := StdioCommand(input.Endpoint); err != nil {
+			return err
+		}
+		return validateServerLimits(input)
+	}
 	if input.TransportKind != TransportStreamableHTTP {
 		return fmt.Errorf("unsupported MCP transport %q", input.TransportKind)
 	}
@@ -558,6 +692,13 @@ func validateServerInput(input SaveInput) error {
 	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname())) {
 		return fmt.Errorf("MCP endpoint must use https; http is allowed only on loopback")
 	}
+	return validateServerLimits(input)
+}
+
+// validateServerLimits holds the rules both transports share: how a credential
+// may be named, which protocol versions are spoken, and how long one request
+// may take.
+func validateServerLimits(input SaveInput) error {
 	if input.APIKeyEnv != "" && !envNamePattern.MatchString(input.APIKeyEnv) {
 		return fmt.Errorf("MCP API key environment variable must use uppercase letters, digits, and underscores")
 	}
@@ -570,21 +711,27 @@ func validateServerInput(input SaveInput) error {
 	return nil
 }
 
-func serverCredential(server Server) (string, error) {
+func (s *Service) serverCredential(server Server) (string, error) {
+	if s.vault != nil {
+		if value, ok := s.vault.Get(CredentialRef(server.ID)); ok {
+			return value, nil
+		}
+	}
 	if server.APIKeyEnv == "" {
 		return "", nil
 	}
 	value, ok := os.LookupEnv(server.APIKeyEnv)
 	if !ok || strings.TrimSpace(value) == "" {
 		return "", &Error{Kind: ErrorNotReady, Operation: "credential", ServerID: server.ID,
-			Message: "credential environment variable " + server.APIKeyEnv + " is not set"}
+			Message: "no bearer token is saved for " + server.Name +
+				", and the environment variable " + server.APIKeyEnv + " is not set"}
 	}
 	return value, nil
 }
 
 type scanner interface{ Scan(...any) error }
 
-func scanServer(row scanner) (Server, error) {
+func scanServer(row scanner, vault CredentialVault) (Server, error) {
 	var item Server
 	var trusted, enabled int
 	var lastDiscovered sql.NullString
@@ -602,7 +749,8 @@ func scanServer(row scanner) (Server, error) {
 		value, _ := time.Parse(time.RFC3339Nano, lastDiscovered.String)
 		item.LastDiscoveredAt = &value
 	}
-	if item.APIKeyEnv == "" {
+	item.CredentialStored = vault != nil && vault.Has(CredentialRef(item.ID))
+	if item.CredentialStored || item.APIKeyEnv == "" {
 		item.CredentialReady = true
 	} else if value, ok := os.LookupEnv(item.APIKeyEnv); ok && strings.TrimSpace(value) != "" {
 		item.CredentialReady = true

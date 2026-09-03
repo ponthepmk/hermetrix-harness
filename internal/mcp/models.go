@@ -7,9 +7,12 @@ import (
 
 const (
 	TransportStreamableHTTP = "streamable-http"
-	ProtocolAuto            = "auto"
-	ProtocolCurrent         = "2026-07-28"
-	ProtocolLegacy          = "2025-11-25"
+	// TransportStdio is a local program speaking JSON-RPC over stdin/stdout.
+	// Its Endpoint holds the command line that starts it, not a URL.
+	TransportStdio  = "stdio"
+	ProtocolAuto    = "auto"
+	ProtocolCurrent = "2026-07-28"
+	ProtocolLegacy  = "2025-11-25"
 )
 
 type Server struct {
@@ -19,6 +22,7 @@ type Server struct {
 	Endpoint         string     `json:"endpoint"`
 	APIKeyEnv        string     `json:"api_key_env,omitempty"`
 	CredentialReady  bool       `json:"credential_ready"`
+	CredentialStored bool       `json:"credential_stored"`
 	ProtocolMode     string     `json:"protocol_mode"`
 	TrustAnnotations bool       `json:"trust_annotations"`
 	Enabled          bool       `json:"enabled"`
@@ -45,11 +49,13 @@ type SaveInput struct {
 }
 
 type DiscoveryResult struct {
-	ServerID string `json:"server_id"`
-	Protocol string `json:"protocol"`
-	Tools    int    `json:"tools"`
-	Rejected int    `json:"rejected"`
-	Revision string `json:"catalog_revision"`
+	ServerID  string `json:"server_id"`
+	Protocol  string `json:"protocol"`
+	Tools     int    `json:"tools"`
+	Resources int    `json:"resources"`
+	Prompts   int    `json:"prompts"`
+	Rejected  int    `json:"rejected"`
+	Revision  string `json:"catalog_revision"`
 }
 
 type RemoteTool struct {

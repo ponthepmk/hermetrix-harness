@@ -24,6 +24,8 @@ const (
 type Client struct {
 	httpClient *http.Client
 	nextID     atomic.Int64
+	pool       *sessionPool
+	handler    ServerRequestHandler
 }
 
 func NewClient(client *http.Client) *Client {
@@ -32,7 +34,7 @@ func NewClient(client *http.Client) *Client {
 			return http.ErrUseLastResponse
 		}}
 	}
-	return &Client{httpClient: client}
+	return &Client{httpClient: client, pool: newSessionPool()}
 }
 
 type rpcRequest struct {
