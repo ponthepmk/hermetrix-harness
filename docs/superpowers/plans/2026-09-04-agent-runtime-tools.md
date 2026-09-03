@@ -516,8 +516,11 @@ package product
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStartRunAndLookupRunReportTheCommandOutcome(t *testing.T) {
@@ -568,7 +571,7 @@ func TestStartRunAcceptsATenMinuteCeiling(t *testing.T) {
 }
 ```
 
-Write the two helpers in the same file:
+Write the two helpers in the same file (`os` and `path/filepath` are unused until task 4 adds its tests; add them then rather than leaving an unused import now):
 
 ```go
 func agentRunRequest(projectID string) RunRequest {
