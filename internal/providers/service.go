@@ -40,9 +40,20 @@ func Revision(profile Profile) string {
 
 var envNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,126}$`)
 
+// CredentialVault is the local store a token typed into the control center is
+// written to. It is optional: with no vault configured every profile falls back
+// to its environment variable, which is how Hermetrix worked before a token
+// could be entered from the UI at all.
+type CredentialVault interface {
+	Get(ref string) (string, bool)
+	Has(ref string) bool
+	Set(ref, token string) error
+}
+
 type Service struct {
 	store   *store.Store
 	adapter *OpenAIAdapter
+	vault   CredentialVault
 }
 
 func NewService(dataStore *store.Store, adapter *OpenAIAdapter) *Service {
@@ -50,6 +61,34 @@ func NewService(dataStore *store.Store, adapter *OpenAIAdapter) *Service {
 		adapter = NewOpenAIAdapter(nil)
 	}
 	return &Service{store: dataStore, adapter: adapter}
+}
+
+// WithVault attaches the credential store. A stored token takes precedence over
+// the environment variable: it is the one the user set most recently, and from
+// the surface that shows whether it worked.
+func (s *Service) WithVault(vault CredentialVault) *Service {
+	s.vault = vault
+	return s
+}
+
+// CredentialRef is the vault key for a profile. It is the profile ID, so
+// renaming a provider or changing its endpoint keeps the credential attached.
+func CredentialRef(profileID string) string { return "provider:" + profileID }
+
+// SetCredential stores or clears the token for a profile. The value is written
+// only to the vault; nothing returns it, and no caller logs it.
+func (s *Service) SetCredential(ctx context.Context, profileID, token string) (Profile, error) {
+	profile, err := s.Get(ctx, profileID)
+	if err != nil {
+		return Profile{}, err
+	}
+	if s.vault == nil {
+		return Profile{}, errors.New("no credential store is configured; set the environment variable instead")
+	}
+	if err := s.vault.Set(CredentialRef(profile.ID), token); err != nil {
+		return Profile{}, err
+	}
+	return s.Get(ctx, profileID)
 }
 
 func (s *Service) Save(ctx context.Context, input SaveInput) (Profile, error) {
@@ -123,7 +162,7 @@ func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	defer rows.Close()
 	items := []Profile{}
 	for rows.Next() {
-		item, err := scanProfile(rows)
+		item, err := s.scanProfile(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -152,14 +191,14 @@ func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
     context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,created_at,updated_at
     FROM provider_profiles WHERE id=?`, id)
-	return scanProfile(row)
+	return s.scanProfile(row)
 }
 
 func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatRequest, emit func(Delta) error) (Completion, error) {
 	if !profile.Enabled {
 		return Completion{}, fmt.Errorf("provider profile is disabled")
 	}
-	key, err := credential(profile)
+	key, err := s.credential(profile)
 	if err != nil {
 		return Completion{}, err
 	}
@@ -193,7 +232,7 @@ func (s *Service) Test(ctx context.Context, id string) (TestResult, error) {
 
 type scanner interface{ Scan(...any) error }
 
-func scanProfile(row scanner) (Profile, error) {
+func (s *Service) scanProfile(row scanner) (Profile, error) {
 	var item Profile
 	var enabled int
 	var created, updated string
@@ -207,10 +246,12 @@ func scanProfile(row scanner) (Profile, error) {
 	item.Enabled = enabled != 0
 	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
 	item.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
-	_, item.CredentialReady = os.LookupEnv(item.APIKeyEnv)
-	if item.APIKeyEnv == "" {
-		item.CredentialReady = true
-	}
+	// A saved token wins, then the environment variable, then "this endpoint
+	// needs no credential at all" -- which is what an empty variable name has
+	// always meant and is how a local runtime is configured.
+	item.CredentialStored = s.vault != nil && s.vault.Has(CredentialRef(item.ID))
+	_, fromEnvironment := os.LookupEnv(item.APIKeyEnv)
+	item.CredentialReady = item.CredentialStored || fromEnvironment || item.APIKeyEnv == ""
 	item.Revision = Revision(item)
 	return item, nil
 }
@@ -247,13 +288,19 @@ func validateInput(input SaveInput) error {
 	return nil
 }
 
-func credential(profile Profile) (string, error) {
+func (s *Service) credential(profile Profile) (string, error) {
+	if s.vault != nil {
+		if value, ok := s.vault.Get(CredentialRef(profile.ID)); ok {
+			return value, nil
+		}
+	}
 	if profile.APIKeyEnv == "" {
 		return "", nil
 	}
 	value, ok := os.LookupEnv(profile.APIKeyEnv)
 	if !ok || strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("credential environment variable %s is not set", profile.APIKeyEnv)
+		return "", fmt.Errorf("no API key is saved for %s, and the environment variable %s is not set",
+			profile.Name, profile.APIKeyEnv)
 	}
 	return value, nil
 }

@@ -12,9 +12,13 @@ type Profile struct {
 	Model           string `json:"model"`
 	APIKeyEnv       string `json:"api_key_env,omitempty"`
 	CredentialReady bool   `json:"credential_ready"`
-	ContextWindow   int    `json:"context_window"`
-	ContextEvidence string `json:"context_evidence"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
+	// CredentialStored says a token was saved through the control center, as
+	// opposed to coming from the environment or not being needed. It never
+	// carries the token itself.
+	CredentialStored bool   `json:"credential_stored"`
+	ContextWindow    int    `json:"context_window"`
+	ContextEvidence  string `json:"context_evidence"`
+	MaxOutputTokens  int    `json:"max_output_tokens"`
 	// ReasoningRatio is the share of completion tokens this model spends
 	// thinking, measured from its own responses. Reasoning bills as completion,
 	// so a model at 0.8 leaves a fifth of the output budget for the answer --
