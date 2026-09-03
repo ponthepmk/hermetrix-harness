@@ -337,7 +337,12 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 			// The waist may grow deliberately; what must not happen is the
 			// deferred catalog leaking into it. Assert the ceiling and the
 			// shape, not today's exact count.
-			if len(request.Tools) > 10 {
+			//
+			// Raised from 10 to 11 for skill_manage: writing a Skill is the
+			// other half of a learning loop whose reading half (skill_search,
+			// skill_view) was already in the waist, and a procedural memory the
+			// agent can read but never write is a loop that never closes.
+			if len(request.Tools) > 11 {
 				t.Errorf("direct tool waist grew past its ceiling: %d", len(request.Tools))
 			}
 			for _, tool := range request.Tools {

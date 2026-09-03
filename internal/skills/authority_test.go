@@ -21,18 +21,30 @@ func TestAuthorityManualDefaultGatedPromotionAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if action, err := service.TryAutomatedPromotion(ctx, candidate.ID); err != nil || action != nil {
-		t.Fatalf("manual policy action=%+v err=%v", action, err)
+	// The shipped default lets the agent promote what it writes, so this
+	// candidate is promoted without anyone changing a setting first. What makes
+	// that safe is the rest of this test: the promotion is an authority action,
+	// and the action can be rolled back.
+	action, err := service.TryAutomatedPromotion(ctx, candidate.ID)
+	if err != nil || action == nil || action.State != "completed" || action.SkillID == "" {
+		t.Fatalf("default policy action=%+v err=%v", action, err)
 	}
-	policy, err := service.SaveAuthorityPolicy(ctx, SaveAuthorityPolicyInput{Mode: AuthorityGated,
-		AutoPromoteAgentCreate: true, AllowedScopes: []string{"user"}, MaxCandidateTokens: 4096,
-		Actor: "test-user", Reason: "test exact gates", ExpectedRevision: 1})
+
+	// Switching to manual has to actually stop the next one.
+	policy, err := service.SaveAuthorityPolicy(ctx, SaveAuthorityPolicyInput{Mode: AuthorityManual,
+		AllowedScopes: []string{"user"}, MaxCandidateTokens: 4096,
+		Actor: "test-user", Reason: "hold every promotion for review", ExpectedRevision: 1})
 	if err != nil || policy.Revision != 2 {
 		t.Fatalf("policy=%+v err=%v", policy, err)
 	}
-	action, err := service.TryAutomatedPromotion(ctx, candidate.ID)
-	if err != nil || action == nil || action.State != "completed" || action.SkillID == "" {
-		t.Fatalf("action=%+v err=%v", action, err)
+	held, err := service.CreateCandidate(ctx, CreateCandidateInput{CanonicalName: "agent-held-create", ScopeKind: "user",
+		Origin: "agent_candidate", Owner: "agent", ChangeKind: "create", CreatedBy: "background_reviewer",
+		TriggerKind: "successful_milestone", Reason: "second verified workflow", Markdown: authorityMarkdown("agent-held-create")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if heldAction, err := service.TryAutomatedPromotion(ctx, held.ID); err != nil || heldAction != nil {
+		t.Fatalf("manual policy promoted anyway: action=%+v err=%v", heldAction, err)
 	}
 	if _, err := service.CreateAuthorityRollback(ctx, action.ID, "test-user", "undo generated capability"); err != nil {
 		t.Fatal(err)

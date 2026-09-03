@@ -73,6 +73,7 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 	want := []string{
 		"context_search",             // session-scoped history retrieval
 		"skill_search", "skill_view", // session-scoped Skill retrieval
+		"skill_manage",                              // and the write half of the same loop
 		"tool_call", "tool_describe", "tool_search", // deferred capability catalog
 		"workspace.list_files", "workspace.read_file", "workspace.search_files", "workspace.write_file",
 	}

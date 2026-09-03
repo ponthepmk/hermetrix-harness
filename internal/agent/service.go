@@ -35,6 +35,7 @@ const (
 type Service struct {
 	store     *store.Store
 	providers *providers.Service
+	mcp       *mcpBridge
 	compiler  *ctxcompiler.Compiler
 	estimator *ctxcompiler.AdaptiveEstimator
 	gate      *runtime.InferenceGate
@@ -791,10 +792,14 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			}
 			return &approval, nil
 		}
-		toolCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		// A server request arriving mid-call belongs to this session. Recorded
+		// before the call so an elicitation can be attributed the moment it
+		// arrives, not after the call it interrupted has finished.
+		untrack := s.trackMCPSession(session.ID)
+		toolCtx, cancel := context.WithTimeout(ctx, toolCallBudget(call.Name))
 		var receipt toolruntime.Receipt
 		switch {
-		case call.Name == "skill_search" || call.Name == "skill_view":
+		case call.Name == "skill_search" || call.Name == "skill_view" || call.Name == "skill_manage":
 			// Session-scoped: the frozen contract decides what is visible, so
 			// the registry cannot answer these on its own.
 			receipt = s.executeSkillTool(toolCtx, session, turnID, call, definition)
@@ -806,11 +811,23 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			receipt = s.tools.Execute(toolCtx, call)
 		}
 		cancel()
+		untrack()
 		if err := s.persistToolResult(ctx, session, provider, turnID, binding, receipt, emit); err != nil {
 			return nil, err
 		}
 	}
 	return nil, nil
+}
+
+// toolCallBudget is how long one tool may take. A local read is quick and a ten
+// second ceiling catches a hung one. A deferred MCP call is different: the
+// server may legitimately stop to ask the user a question, and the answer has
+// to arrive before the call can finish, so its budget covers that wait.
+func toolCallBudget(name string) time.Duration {
+	if name == "tool_call" {
+		return elicitationWait + time.Minute
+	}
+	return 10 * time.Second
 }
 
 func boundDefinition(binding StepBinding, name string) (toolruntime.Definition, bool) {
@@ -2001,6 +2018,9 @@ func (s *Service) executeSkillTool(ctx context.Context, session Session, turnID 
 		receipt.Error = "no Skill service is configured"
 		return finish()
 	}
+	if call.Name == "skill_manage" {
+		return s.executeSkillManage(ctx, session, call, definition)
+	}
 	if call.Name == "skill_search" {
 		var arguments struct {
 			Query string `json:"query"`
@@ -2092,6 +2112,131 @@ func (s *Service) executeSkillTool(ctx context.Context, session Session, turnID 
 	receipt.Metadata = map[string]any{"skill_id": match.SkillID, "version_id": match.VersionID,
 		"selection_reason": "model_requested"}
 	return finish()
+}
+
+// executeSkillManage is how the agent writes down a procedure worth repeating.
+//
+// The write is always a candidate first, and the authority policy then decides
+// whether it becomes active immediately. That ordering is what makes an
+// automatic promotion reviewable rather than silent: every promotion the policy
+// performs is recorded as an authority action, appears in Skill Studio marked
+// as promoted by automation, and can be edited or rolled back afterwards.
+//
+// Improving a Skill requires the exact version the model loaded with skill_view
+// in this session. A model that has not read the current text cannot overwrite
+// it, and a version promoted after this session opened is not in the frozen
+// catalog, so a stale improvement cannot clobber it either.
+func (s *Service) executeSkillManage(ctx context.Context, session Session, call providers.ToolCall,
+	definition toolruntime.Definition) toolruntime.Receipt {
+	started := time.Now()
+	receipt := toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision,
+		Effect: definition.Effect, Status: "failed"}
+	finish := func() toolruntime.Receipt {
+		receipt.DurationMS = time.Since(started).Milliseconds()
+		return receipt
+	}
+	if s.skills == nil {
+		receipt.Error = "no Skill service is configured"
+		return finish()
+	}
+	var arguments struct {
+		Action      string `json:"action"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Body        string `json:"body"`
+		Reason      string `json:"reason"`
+		SkillID     string `json:"skill_id"`
+		VersionID   string `json:"version_id"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(call.Arguments))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&arguments); err != nil {
+		receipt.Error = "decode skill_manage arguments: " + err.Error()
+		return finish()
+	}
+	arguments.Action = strings.TrimSpace(arguments.Action)
+	arguments.Description = strings.TrimSpace(arguments.Description)
+	arguments.Body = strings.TrimSpace(arguments.Body)
+	arguments.Reason = strings.TrimSpace(arguments.Reason)
+	if arguments.Description == "" || arguments.Body == "" || arguments.Reason == "" {
+		receipt.Error = "skill_manage needs a description, a body and a reason"
+		return finish()
+	}
+	input := skills.CreateCandidateInput{
+		ScopeKind: "user", Origin: "agent", Owner: "agent", CreatedBy: "agent",
+		TriggerKind: "model_requested", Reason: arguments.Reason,
+		EvidenceRefs: []string{"session:" + session.ID},
+	}
+	switch arguments.Action {
+	case "create":
+		name := strings.TrimSpace(arguments.Name)
+		if name == "" {
+			receipt.Error = "creating a Skill needs a name"
+			return finish()
+		}
+		input.ChangeKind = "create"
+		input.CanonicalName = name
+	case "improve":
+		// The read-before-write guard, and the same catalog rule skill_view uses.
+		var match *SessionSkillBinding
+		for index := range session.Contract.SkillCatalog {
+			binding := &session.Contract.SkillCatalog[index]
+			if binding.SkillID == arguments.SkillID && binding.VersionID == arguments.VersionID {
+				match = binding
+				break
+			}
+		}
+		if match == nil {
+			receipt.Error = "improve needs the exact skill_id and version_id you loaded with skill_view in this session"
+			return finish()
+		}
+		input.ChangeKind = "improve"
+		input.CanonicalName = match.CanonicalName
+		input.TargetSkillID = match.SkillID
+		input.BaseVersionID = match.VersionID
+	default:
+		receipt.Error = `skill_manage action must be "create" or "improve"`
+		return finish()
+	}
+	input.Markdown = skillManifest(input.CanonicalName, arguments.Description, arguments.Body)
+	candidate, err := s.skills.CreateCandidate(ctx, input)
+	if err != nil {
+		receipt.Error = "write skill candidate: " + err.Error()
+		return finish()
+	}
+	// Ask the policy. A nil action is not a failure: it is the policy saying
+	// this one waits for a person, which is the shipped default.
+	action, promoteErr := s.skills.TryAutomatedPromotion(ctx, candidate.ID)
+	promoted := promoteErr == nil && action != nil && action.State == "completed"
+	outcome := "saved as a proposal for the user to review in Skill Studio"
+	if promoted {
+		outcome = "promoted and active from the next session; the user can edit or roll it back in Skill Studio"
+	} else if promoteErr != nil {
+		outcome = "saved as a proposal; automatic promotion was not applied: " + promoteErr.Error()
+	}
+	encoded, err := json.Marshal(map[string]any{
+		"candidate_id": candidate.ID, "name": input.CanonicalName, "change_kind": input.ChangeKind,
+		"state": candidate.State, "promoted": promoted, "outcome": outcome,
+	})
+	if err != nil {
+		receipt.Error = err.Error()
+		return finish()
+	}
+	receipt.Status, receipt.Output = "succeeded", string(encoded)
+	receipt.Metadata = map[string]any{"candidate_id": candidate.ID, "change_kind": input.ChangeKind,
+		"promoted": promoted}
+	if action != nil {
+		receipt.Metadata["authority_action_id"] = action.ID
+	}
+	return finish()
+}
+
+// skillManifest builds the frontmatter a Skill version carries, matching what
+// the Skill Studio dialog writes: a Skill the agent wrote and one a person
+// wrote are the same kind of document.
+func skillManifest(name, description, body string) string {
+	safe := strings.ReplaceAll(description, `"`, "'")
+	return "---\nname: " + name + "\ndescription: \"" + safe + "\"\ntags: []\ntools: []\n---\n\n" + body + "\n"
 }
 
 // SkillRetrievalMetrics computes the ADR-7 exit criterion from committed events

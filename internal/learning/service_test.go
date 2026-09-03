@@ -48,7 +48,7 @@ func TestReviewQueueIsIdempotentAndNoChangeIsValid(t *testing.T) {
 	}
 }
 
-func TestBackgroundReviewCreatesCandidateOnly(t *testing.T) {
+func TestBackgroundReviewPromotesWithAgentProvenance(t *testing.T) {
 	service, skillService, _ := setupLearning(t, StructuredReviewer{})
 	ctx := context.Background()
 	markdown := "---\nname: learned-review\ndescription: \"Review a learned workflow\"\ntags: [learned]\ntools: []\n---\n\n# Procedure\n\n1. Read evidence.\n"
@@ -70,19 +70,18 @@ func TestBackgroundReviewCreatesCandidateOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidate.CreatedBy != "background_reviewer" || candidate.SourceReviewID != job.ID || candidate.State != skills.CandidateNeedsReview {
+	if candidate.CreatedBy != "background_reviewer" || candidate.SourceReviewID != job.ID {
 		t.Fatalf("candidate provenance = %+v", candidate)
 	}
-	active, _ := skillService.ListSkills(ctx, false)
-	if len(active) != 0 {
-		t.Fatal("background review bypassed promotion")
-	}
-	promoted, err := skillService.PromoteCandidate(ctx, candidate.ID, "user", candidate.Revision)
+	// The shipped policy promotes it already, so the origin has to say who did:
+	// a Skill that reached the active store through automation must never be
+	// indistinguishable from one a person wrote.
+	active, err := skillService.ListSkills(ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if promoted.Origin != "agent_promoted" {
-		t.Fatalf("promoted origin = %q", promoted.Origin)
+	if len(active) != 1 || active[0].Origin != "agent_promoted" {
+		t.Fatalf("active skills = %+v, want one marked agent_promoted", active)
 	}
 }
 
@@ -215,13 +214,56 @@ func TestReviewerProposalBecomesACandidateAndNothingMore(t *testing.T) {
 	if candidate.CreatedBy != "background_reviewer" {
 		t.Fatalf("created_by is %q, want background_reviewer", candidate.CreatedBy)
 	}
-	// The whole point of the authority ladder: nothing became active.
+	// Under the shipped policy the reviewer's proposal becomes active without
+	// anyone approving it, and what makes that reviewable rather than silent is
+	// the authority action it leaves behind.
+	active, err := skillService.ListSkills(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 {
+		t.Fatalf("the shipped policy did not promote a reviewer proposal: %+v", active)
+	}
+	actions, err := skillService.ListAuthorityActions(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].State != "completed" || actions[0].SkillID != active[0].ID {
+		t.Fatalf("the promotion is not undoable: %+v", actions)
+	}
+	if _, err := skillService.CreateAuthorityRollback(ctx, actions[0].ID, "user", "not wanted"); err != nil {
+		t.Fatalf("rollback refused: %v", err)
+	}
+}
+
+// TestManualAuthorityHoldsEveryReviewerProposal keeps the ladder available for
+// anyone who wants it: switching to Manual must stop promotion entirely.
+func TestManualAuthorityHoldsEveryReviewerProposal(t *testing.T) {
+	proposal := Decision{Kind: "create", Reason: "the same correction came up twice",
+		SuggestedSkill: &SuggestedSkill{CanonicalName: "satang-rounding", ScopeKind: "user", Owner: "user",
+			ChangeKind: "create", Reason: "observed in completed work",
+			Markdown: "---\nname: satang-rounding\ndescription: \"Round Thai money half up in satang\"\ntags: []\ntools: []\n---\n\n# Procedure\n\n1. Keep amounts as integers.\n"}}
+	service, skillService, _ := setupLearning(t, stubReviewer{decision: proposal})
+	ctx := context.Background()
+	if _, err := skillService.SaveAuthorityPolicy(ctx, skills.SaveAuthorityPolicyInput{
+		Mode: skills.AuthorityManual, AllowedScopes: []string{"user"}, MaxCandidateTokens: 4096,
+		Actor: "test-user", Reason: "hold every promotion", ExpectedRevision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.Enqueue(ctx, EnqueueInput{SessionID: "session-1", MilestoneID: "turn-1",
+		TriggerKind: "repeated_correction", Digest: Digest{GoalAndConstraints: "fix the rounding",
+			Outcome: "success", UserCorrections: []string{"event:a", "event:b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunNext(ctx); err != nil {
+		t.Fatal(err)
+	}
 	active, err := skillService.ListSkills(ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(active) != 0 {
-		t.Fatalf("a reviewer proposal reached the active store: %+v", active)
+		t.Fatalf("manual authority let a reviewer proposal reach the active store: %+v", active)
 	}
 }
 
