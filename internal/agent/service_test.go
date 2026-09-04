@@ -347,7 +347,11 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 			// Raised from 11 to 12 for workspace.run: the agent can read the
 			// workspace but could not act on it, and running a build or a test
 			// closes that loop the same way skill_manage closed the learning one.
-			if len(request.Tools) > 12 {
+			//
+			// Raised from 12 to 13 for browser: the agent could read and act on
+			// its own workspace but had no way to look at a rendered page, and a
+			// dev server it was asked to check needs a real tab, not a file read.
+			if len(request.Tools) > 13 {
 				t.Errorf("direct tool waist grew past its ceiling: %d", len(request.Tools))
 			}
 			for _, tool := range request.Tools {
@@ -355,9 +359,10 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 				// Each prefix is a store the model can read: the workspace, the
 				// deferred capability catalog, the Skill catalog, and -- since
 				// compaction started setting things aside -- the session's own
-				// history. Anything outside them is the catalog leaking in.
+				// history. context_search and browser are exact names rather than
+				// prefixes because each is the only tool of its kind.
 				if !strings.HasPrefix(name, "workspace.") && !strings.HasPrefix(name, "tool_") &&
-					!strings.HasPrefix(name, "skill_") && name != "context_search" {
+					!strings.HasPrefix(name, "skill_") && name != "context_search" && name != "browser" {
 					t.Errorf("unexpected tool in the direct waist: %s", name)
 				}
 			}

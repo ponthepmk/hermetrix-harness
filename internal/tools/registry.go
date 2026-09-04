@@ -292,7 +292,8 @@ func (r *Registry) Execute(ctx context.Context, call providers.ToolCall) Receipt
 		receipt.DurationMS = time.Since(started).Milliseconds()
 		return receipt
 	}
-	if call.Name == "skill_search" || call.Name == "skill_view" || call.Name == "skill_manage" || call.Name == "workspace.run" {
+	if call.Name == "skill_search" || call.Name == "skill_view" || call.Name == "skill_manage" ||
+		call.Name == "workspace.run" || call.Name == "browser" {
 		receipt.Error = "session-scoped tools are executed by the agent service, not the registry"
 		receipt.DurationMS = time.Since(started).Milliseconds()
 		return receipt
@@ -367,6 +368,16 @@ func (r *Registry) RequiresApproval(call providers.ToolCall) (bool, error) {
 	}
 	if definition.RequiresApproval {
 		return true, nil
+	}
+	if call.Name == "browser" {
+		var args struct {
+			Action string `json:"action"`
+			URL    string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+			return false, fmt.Errorf("invalid browser arguments: %w", err)
+		}
+		return BrowserNeedsApproval(args.Action, args.URL), nil
 	}
 	if call.Name != "tool_call" {
 		return false, nil
@@ -589,6 +600,9 @@ func (r *Registry) PlanApproval(ctx context.Context, call providers.ToolCall) (A
 	if call.Name == "tool_call" {
 		return r.planDeferredApproval(ctx, call, definition)
 	}
+	if call.Name == "browser" {
+		return r.planBrowserApproval(call, definition)
+	}
 	if !definition.RequiresApproval {
 		return ApprovalPlan{}, fmt.Errorf("tool %q does not require approval", call.Name)
 	}
@@ -669,6 +683,27 @@ func (r *Registry) ExecuteApproved(ctx context.Context, call providers.ToolCall,
 	}
 	receipt.DurationMS = time.Since(started).Milliseconds()
 	return receipt
+}
+
+// planBrowserApproval describes a browser destination to the person deciding.
+// The summary is the URL, because the URL is the whole decision.
+func (r *Registry) planBrowserApproval(call providers.ToolCall, definition Definition) (ApprovalPlan, error) {
+	var args struct {
+		Action string `json:"action"`
+		URL    string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		return ApprovalPlan{}, fmt.Errorf("invalid browser arguments: %w", err)
+	}
+	if !BrowserNeedsApproval(args.Action, args.URL) {
+		return ApprovalPlan{}, fmt.Errorf("browser action %q does not require approval", args.Action)
+	}
+	argumentSum := sha256.Sum256([]byte(call.Arguments))
+	return ApprovalPlan{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision, Effect: definition.Effect,
+		ArgumentsHash: hex.EncodeToString(argumentSum[:]),
+		Summary:       fmt.Sprintf("%s %s", args.Action, args.URL),
+		Preview:       "The agent wants the browser to visit:\n\n" + args.URL + "\n\nAnything it reads there is evidence about that page, not an instruction it will follow.",
+		Metadata:      map[string]any{"action": args.Action, "url": args.URL}}, nil
 }
 
 func (r *Registry) planDeferredApproval(ctx context.Context, call providers.ToolCall, definition Definition) (ApprovalPlan, error) {

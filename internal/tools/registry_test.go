@@ -77,6 +77,7 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 		"tool_call", "tool_describe", "tool_search", // deferred capability catalog
 		"workspace.list_files", "workspace.read_file", "workspace.search_files", "workspace.write_file",
 		"workspace.run", // session-scoped command execution
+		"browser",       // session-scoped browser tab
 	}
 	var got []string
 	for _, definition := range registry.Definitions() {

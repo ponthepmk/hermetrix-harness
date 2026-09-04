@@ -823,6 +823,8 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			receipt = s.executeContextSearch(toolCtx, session, call, definition)
 		case call.Name == "workspace.run":
 			receipt = s.executeRunTool(toolCtx, session, call, definition)
+		case call.Name == "browser":
+			receipt = s.executeBrowserTool(toolCtx, session, call, definition)
 		default:
 			receipt = s.executeRegistryTool(toolCtx, session, call)
 		}
@@ -850,6 +852,10 @@ func toolCallBudget(name string) time.Duration {
 		// test may have set on a particular Service, because the budget is
 		// computed before a Service is in scope.
 		return defaultRunStatusPoll + 10*time.Second
+	case "browser":
+		// A page load, a screenshot and the text extraction that follows are all
+		// real network and rendering time.
+		return 60 * time.Second
 	default:
 		return 10 * time.Second
 	}
@@ -1005,7 +1011,24 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 		grant := toolruntime.ApprovalGrant{ToolCallID: approval.ToolCallID, Name: approval.ToolName,
 			Revision: approval.ToolRevision, Effect: approval.Effect, ArgumentsHash: approval.ArgumentsHash}
 		toolCtx, cancel := context.WithTimeout(durableCtx, 10*time.Second)
-		if strings.HasPrefix(approval.ToolName, "workspace.") {
+		switch {
+		case approval.ToolName == "browser":
+			// browser cannot go to s.tools.ExecuteApproved -- the registry
+			// refuses session-scoped tools outright -- so an approved call
+			// routes back to the same executor a first-time call uses, and grant
+			// is unused here. That is not a gap: claimApprovalDecision already
+			// proved this is the stored approval for this exact call, and call's
+			// arguments came from the stored row, not from the model, so there is
+			// nothing left for a second check against grant to catch.
+			session, sessionErr := s.GetSession(toolCtx, approval.SessionID)
+			if sessionErr != nil {
+				receipt = toolruntime.Receipt{ToolCallID: approval.ToolCallID, Name: approval.ToolName,
+					Revision: approval.ToolRevision, Effect: approval.Effect, Status: "failed", Error: sessionErr.Error()}
+			} else {
+				receipt = s.executeBrowserTool(toolCtx, session, call,
+					toolruntime.Definition{Name: approval.ToolName, Revision: approval.ToolRevision, Effect: approval.Effect})
+			}
+		case strings.HasPrefix(approval.ToolName, "workspace."):
 			session, sessionErr := s.GetSession(toolCtx, approval.SessionID)
 			var scoped *toolruntime.Registry
 			if sessionErr == nil {
@@ -1017,7 +1040,7 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 			} else {
 				receipt = scoped.ExecuteApproved(toolCtx, call, grant)
 			}
-		} else {
+		default:
 			receipt = s.tools.ExecuteApproved(toolCtx, call, grant)
 		}
 		cancel()
