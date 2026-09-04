@@ -1625,7 +1625,13 @@ The waist grows from 12 to 13. One action-based tool: `open`, `navigate`, `back`
 
 Approval is conditional on the URL. A loopback address is the developer's own dev server and needs no prompt. Every other destination is the open internet, so `open` and `navigate` require an approval grant. The check is on the literal URL only — no DNS lookup, so a hostname that happens to resolve to loopback still asks. Being stricter than necessary is the right way to be wrong here.
 
-Everything read off a page is untrusted evidence. Every receipt says so in its own output, because the model reads the receipt, not this plan.
+Everything read off a page is untrusted evidence. Every receipt says so in its own output, because the model reads the receipt, not this plan — and that includes the failure receipt. A page's own exception message reaches the driver's error, so returning `err.Error()` bare hands the model attacker-authored text with none of the framing. Local argument errors need no label; driver errors do.
+
+The action name is validated against the eight-value enum before any driver call. Without that, the approval gate's rule — everything that is not `open` or `navigate` carries no destination — is enforced only by a case-sensitive comparison in one package agreeing with a `default:` case in another. `Navigate` with a capital N is approval-free to the gate and refused by the driver, and the only reason that is safe is that the driver happens to fail closed.
+
+`AllowPrivate` follows the *grant*, not the check. Setting it from `!BrowserNeedsApproval(...)` makes it true exactly where nothing was asked and false where the user did approve, so approving a private address produces a prompt that cannot be satisfied — the product layer refuses the very destination the user just allowed. It is true when the URL is literally loopback, or when the call arrived through an approval grant.
+
+The approved path uses the same budget as the direct one. It is by definition the open-internet call, the slow one, and a timeout there finalizes the approval — burning the grant and making the user approve again.
 
 **Files:**
 - Modify: `internal/tools/definitions_runtime.go`
