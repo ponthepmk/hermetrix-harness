@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -27,16 +29,33 @@ const defaultRunStatusPoll = 30 * time.Second
 // the machine rather than waiting for an answer.
 const runsPerSession = 2
 
-// runTracker remembers which jobs a session started. It answers two questions:
-// how many of this session's jobs are in flight, for the per-session cap, and
-// whether a given job belongs to this session at all, which status and cancel
-// both have to know before they hand a job id to the runner -- the runner
-// itself scopes lookups and cancellation by job id alone, with no session or
-// project check, so this tracker is the only thing standing between one
-// session and another session's command output.
+// runTracker remembers which jobs a session started, and whether each one
+// still counts against the session's concurrency cap. Ownership and slot
+// occupancy are two different facts once a job finishes: a session keeps
+// being able to ask status or cancel about a job it started long after that
+// job stops counting against the cap, because that is the only route back to
+// a command's output once nobody polled it before its slot was reclaimed for
+// a new one -- which is precisely what the sweep in startRun does. Entries are
+// marked finished rather than removed, so this map grows for as long as a
+// session keeps running commands; that is bounded by what the session
+// actually does and is not worth adding eviction for.
 type runTracker struct {
-	mu   sync.Mutex
+	mu sync.Mutex
+	// jobs maps sessionID -> jobID -> stillActive. A present key is
+	// ownership: this session started that job, whatever the bool says. The
+	// bool is slot occupancy: true counts against the cap, false is a job
+	// this tracker has already been told is finished.
 	jobs map[string]map[string]bool
+}
+
+func activeCount(entries map[string]bool) int {
+	count := 0
+	for _, active := range entries {
+		if active {
+			count++
+		}
+	}
+	return count
 }
 
 func (t *runTracker) claim(sessionID, jobID string, limit int) bool {
@@ -46,7 +65,7 @@ func (t *runTracker) claim(sessionID, jobID string, limit int) bool {
 		t.jobs = map[string]map[string]bool{}
 	}
 	current := t.jobs[sessionID]
-	if len(current) >= limit {
+	if activeCount(current) >= limit {
 		return false
 	}
 	if current == nil {
@@ -60,41 +79,64 @@ func (t *runTracker) claim(sessionID, jobID string, limit int) bool {
 func (t *runTracker) inFlight(sessionID string) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return len(t.jobs[sessionID])
+	return activeCount(t.jobs[sessionID])
 }
 
-// owns reports whether sessionID started jobID. status and cancel both gate on
-// this before touching the runner, so a job id from one session can never be
-// used to read or stop another session's command -- or the UI's, or another
-// session entirely, none of which the runner itself distinguishes.
+// owns reports whether sessionID ever started jobID, active or already
+// finished. status and cancel both gate on this before touching the runner,
+// so a job id from one session can never be used to read or stop another
+// session's command -- or the UI's, or another session entirely, none of
+// which the runner itself distinguishes.
 func (t *runTracker) owns(sessionID, jobID string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.jobs[sessionID][jobID]
+	_, ok := t.jobs[sessionID][jobID]
+	return ok
 }
 
-// ids lists the jobs sessionID currently has claimed, sorted for a
-// deterministic refusal message.
-func (t *runTracker) ids(sessionID string) []string {
+// activeIDs lists sessionID's jobs that still count against the cap, sorted
+// for a deterministic sweep order and refusal message. A finished job is
+// still owned (see owns) but is not "in flight", so it is deliberately absent
+// from this list.
+func (t *runTracker) activeIDs(sessionID string) []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	ids := make([]string, 0, len(t.jobs[sessionID]))
-	for id := range t.jobs[sessionID] {
-		ids = append(ids, id)
+	var ids []string
+	for id, active := range t.jobs[sessionID] {
+		if active {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 	return ids
 }
 
-func (t *runTracker) release(sessionID, jobID string) {
+// finish marks a job as no longer counting against the cap, without
+// forgetting that sessionID started it -- status and cancel both need to keep
+// answering for it afterwards, which is the whole reason this is not called
+// release and does not delete the entry.
+func (t *runTracker) finish(sessionID, jobID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if current := t.jobs[sessionID]; current != nil {
-		delete(current, jobID)
-		if len(current) == 0 {
-			delete(t.jobs, sessionID)
+		if _, ok := current[jobID]; ok {
+			current[jobID] = false
 		}
 	}
+}
+
+// isJobNotFound reports whether err means the runner has nothing left to say
+// about this job at all, as opposed to a transient failure to say it right
+// now. Only the former is a reason to free the slot: a context deadline or a
+// busy connection pool does not mean the command stopped running, and
+// treating it as if it did would quietly raise the effective cap above
+// runsPerSession every time one of those happens. product.GetJob surfaces a
+// missing row as sql.ErrNoRows, unwrapped, through both LookupRun and
+// CancelRun, so this is real classification, not a guess: any other runner
+// implementation that does not use this sentinel is treated as "still
+// unresolved but maybe transient", which is the safe default either way.
+func isJobNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 type runArgs struct {
@@ -157,7 +199,7 @@ func (s *Service) startRun(ctx context.Context, session Session, args runArgs, r
 	// mean running rather than "started and never observed".
 	s.sweepFinishedRuns(ctx, session.ID)
 	if s.runs.inFlight(session.ID) >= runsPerSession {
-		receipt.Error = runConcurrencyRefusal(s.runs.ids(session.ID))
+		receipt.Error = runConcurrencyRefusal(s.runs.activeIDs(session.ID))
 		return
 	}
 	result, err := s.runner.StartRun(ctx, RunRequest{ProjectID: session.ProjectID, Actor: "agent:" + session.ID,
@@ -172,7 +214,7 @@ func (s *Service) startRun(ctx context.Context, session Session, args runArgs, r
 		// claim. The job just started counts against nobody's cap now, so it
 		// has to be stopped rather than left running untracked; if even that
 		// fails, the model needs to know a process is now loose.
-		refusal := runConcurrencyRefusal(s.runs.ids(session.ID))
+		refusal := runConcurrencyRefusal(s.runs.activeIDs(session.ID))
 		if cancelErr := s.runner.CancelRun(ctx, result.JobID); cancelErr != nil {
 			receipt.Error = fmt.Sprintf("%s (job %s also could not be stopped: %s)", refusal, result.JobID, cancelErr.Error())
 		} else {
@@ -186,17 +228,25 @@ func (s *Service) startRun(ctx context.Context, session Session, args runArgs, r
 	receipt.Metadata = map[string]any{"job_id": result.JobID, "state": result.State, "executable": args.Executable}
 }
 
-// sweepFinishedRuns releases the slots of jobs this session started but has
-// not been told about since: ones the runner reports Done(), and ones the
-// runner can no longer resolve at all. Both are terminal from this tracker's
-// point of view -- there is nothing left to wait for -- so holding the slot
-// serves no purpose and only starves a session that stops polling. The cost
-// is at most runsPerSession lookups, paid once per start.
+// sweepFinishedRuns frees the slots of jobs this session started but has not
+// been told about since: ones the runner reports Done(), and ones the runner
+// no longer resolves at all. Both are terminal from the cap's point of view --
+// there is nothing left to wait for -- so holding the slot serves no purpose
+// and only starves a session that stops polling. It does not forget the
+// session started them: finish marks them done, it does not erase them, so
+// status and cancel can still answer for a job this sweep just reclaimed. The
+// cost is at most runsPerSession lookups, paid once per start.
 func (s *Service) sweepFinishedRuns(ctx context.Context, sessionID string) {
-	for _, jobID := range s.runs.ids(sessionID) {
+	for _, jobID := range s.runs.activeIDs(sessionID) {
 		result, err := s.runner.LookupRun(ctx, jobID)
-		if err != nil || result.Done() {
-			s.runs.release(sessionID, jobID)
+		if err != nil {
+			if isJobNotFound(err) {
+				s.runs.finish(sessionID, jobID)
+			}
+			continue
+		}
+		if result.Done() {
+			s.runs.finish(sessionID, jobID)
 		}
 	}
 }
@@ -238,16 +288,18 @@ func (s *Service) statusRun(ctx context.Context, session Session, args runArgs, 
 	for {
 		result, err := s.runner.LookupRun(ctx, jobID)
 		if err != nil {
-			// The runner no longer resolving a job it once accepted is itself
-			// a terminal outcome for the slot: nothing is ever going to
-			// report this one Done(), so there is nothing left to hold the
-			// slot for.
-			s.runs.release(session.ID, jobID)
+			if isJobNotFound(err) {
+				// Nothing is ever going to report this one Done(): the
+				// record itself is gone, so there is nothing left to hold
+				// the slot for. Ownership stays -- a repeat call gets the
+				// same answer rather than a confusing "not tracked".
+				s.runs.finish(session.ID, jobID)
+			}
 			receipt.Error = err.Error()
 			return
 		}
 		if result.Done() {
-			s.runs.release(session.ID, jobID)
+			s.runs.finish(session.ID, jobID)
 			receipt.Status = "succeeded"
 			receipt.Output = runOutput(result)
 			receipt.Metadata = map[string]any{"job_id": jobID, "state": result.State, "exit_code": result.ExitCode,
@@ -263,8 +315,8 @@ func (s *Service) statusRun(ctx context.Context, session Session, args runArgs, 
 		}
 		select {
 		case <-ctx.Done():
-			// Deliberately not releasing here: the job itself is not done,
-			// only this call is. The next sweep, on this session's next
+			// Deliberately not touching the slot here: the job itself is not
+			// done, only this call is. The next sweep, on this session's next
 			// start, resolves it either way.
 			receipt.Error = ctx.Err().Error()
 			return
@@ -284,26 +336,30 @@ func (s *Service) cancelRun(ctx context.Context, session Session, args runArgs, 
 		return
 	}
 	if err := s.runner.CancelRun(ctx, jobID); err != nil {
-		// Whatever the reason CancelRun could not act on this job -- most
-		// often that the runner no longer resolves it -- holding the slot
-		// open has the same problem as an unresolvable status lookup: there
-		// is nothing left to wait for.
-		s.runs.release(session.ID, jobID)
+		// The runner refusing an already-terminal job (the real CancelJob's
+		// update affects nothing once a job has left queued/running) is not
+		// the same as the runner having nothing left to say about the id at
+		// all -- only the latter frees the slot; the former means the job is
+		// still exactly as done as it already was.
+		if isJobNotFound(err) {
+			s.runs.finish(session.ID, jobID)
+		}
 		receipt.Error = err.Error()
 		return
 	}
-	s.runs.release(session.ID, jobID)
-	// CancelRun reports only whether the request was accepted, not how the
-	// job actually ended -- a job that finished on its own in the moment
-	// before cancellation reached it is not "canceled", whatever this call
-	// assumed on the way in. Ask the runner what actually happened; "canceled"
-	// is only the fallback for when even that ask fails.
-	state := "canceled"
+	s.runs.finish(session.ID, jobID)
+	// CancelRun succeeding means the request was accepted, not that the job
+	// has stopped: the real runner only flags cancellation here and rewrites
+	// state later, asynchronously, once the process actually exits (and after
+	// its own wait delay). Report what happened -- a request -- and carry
+	// whatever the runner currently says beside it, rather than presenting a
+	// guessed outcome as fact.
+	state := "unknown"
 	if result, err := s.runner.LookupRun(ctx, jobID); err == nil {
 		state = result.State
 	}
 	receipt.Status = "succeeded"
-	receipt.Output = fmt.Sprintf("canceled job %s (state: %s)", jobID, state)
+	receipt.Output = fmt.Sprintf("cancellation requested for job %s; last known state: %s", jobID, state)
 	receipt.Metadata = map[string]any{"job_id": jobID, "state": state}
 }
 
