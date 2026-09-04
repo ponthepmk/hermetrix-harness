@@ -2,6 +2,9 @@ package product
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,9 +63,15 @@ func TestStartRunAcceptsATenMinuteCeiling(t *testing.T) {
 	defer cleanup()
 	request := agentRunRequest(project.ID)
 	request.TimeoutSeconds = 600
-	if _, err := service.StartRun(context.Background(), request); err != nil {
+	started, err := service.StartRun(context.Background(), request)
+	if err != nil {
 		t.Fatalf("600 second timeout was refused: %v", err)
 	}
+	// The command itself (echoing a marker) finishes in milliseconds
+	// regardless of the ceiling; wait for it rather than returning while its
+	// goroutine is still mid-flight against a store this test's cleanup is
+	// about to close and a t.TempDir() about to be removed out from under it.
+	waitForRun(t, service, started.JobID)
 	request.TimeoutSeconds = 601
 	if _, err := service.StartRun(context.Background(), request); err == nil {
 		t.Fatal("StartRun accepted a timeout above the ceiling")
@@ -146,8 +155,17 @@ func TestStartRunAcceptsASubdirectoryOfTheProject(t *testing.T) {
 	}
 	request := agentRunRequest(project.ID)
 	request.WorkingDir = "internal/web"
-	if _, err := service.StartRun(context.Background(), request); err != nil {
+	started, err := service.StartRun(context.Background(), request)
+	if err != nil {
 		t.Fatalf("a directory inside the project was refused: %v", err)
+	}
+	// Route through waitForRun rather than returning right after StartRun:
+	// otherwise the node process and its result-writing goroutine outlive
+	// this test, racing t.TempDir()'s removal of their own cwd and writing to
+	// a store this test's cleanup is about to close.
+	final := waitForRun(t, service, started.JobID)
+	if final.ExitCode != 0 {
+		t.Fatalf("exit code = %d, error = %q", final.ExitCode, final.Error)
 	}
 }
 
@@ -165,13 +183,81 @@ func TestStartRunTerminatesACommandThatWillNotFinish(t *testing.T) {
 	if !strings.Contains(final.Error, "timed out") {
 		t.Fatalf("error = %q, want it to say the command timed out", final.Error)
 	}
+	// Neither assertion above is evidence about a process: both come from
+	// ctx.Err() at the 1 second deadline regardless of whether the kill
+	// reaches anything. This one distinguishes a wired Cancel from a no-op
+	// one: with Cancel neutered, Cmd's WaitDelay fallback still ends the run,
+	// but only after its own 2 second grace period on top of the timeout, so
+	// a duration well under that boundary is evidence the kill fired
+	// promptly rather than falling back to it.
+	if final.DurationMS >= 2000 {
+		t.Fatalf("duration = %dms, want comfortably under the 2s WaitDelay grace period", final.DurationMS)
+	}
 }
 
 func TestLookupRunSaysWhenThereIsNoSuchJob(t *testing.T) {
 	service, _, cleanup := newProductTestServiceWithProject(t)
 	defer cleanup()
-	if _, err := service.LookupRun(context.Background(), "job_does_not_exist"); err == nil {
+	_, err := service.LookupRun(context.Background(), "job_does_not_exist")
+	if err == nil {
 		t.Fatal("LookupRun invented a state for a job that does not exist")
+	}
+	// internal/agent's isJobNotFound is errors.Is(err, sql.ErrNoRows): that
+	// classification decides whether a stale job frees a concurrency slot. If
+	// GetJob ever wrapped this error, this bare err != nil check would stay
+	// green while the agent-side sweep silently stopped recognizing missing
+	// jobs.
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("error = %v, want it to wrap sql.ErrNoRows", err)
+	}
+}
+
+// TestStartRunBoundsOutputAtTheCeiling proves the output ceiling actually
+// bounds bytes, not just a flag: a command that writes well past
+// maxCommandOutput must come back with output no longer than the ceiling
+// itself, with Truncated set to say why it is short.
+func TestStartRunBoundsOutputAtTheCeiling(t *testing.T) {
+	service, project, cleanup := newProductTestServiceWithProject(t)
+	defer cleanup()
+	request := agentRunRequest(project.ID)
+	request.Executable = "node"
+	request.Arguments = []string{"-e", fmt.Sprintf("process.stdout.write('x'.repeat(%d))", maxCommandOutput*2)}
+	final := waitForRun(t, service, mustStart(t, service, request).JobID)
+	if final.ExitCode != 0 {
+		t.Fatalf("exit code = %d, error = %q", final.ExitCode, final.Error)
+	}
+	if !final.Truncated {
+		t.Fatal("output exceeded the ceiling but Truncated was false")
+	}
+	if len(final.Output) > maxCommandOutput {
+		t.Fatalf("output length = %d, want at most %d (the ceiling)", len(final.Output), maxCommandOutput)
+	}
+}
+
+// TestStartRunRefusesCredentialShapedArguments checks containsSensitiveArgument
+// against each marker it actually looks for, and includes an ordinary
+// argument list that must still pass -- otherwise a function that refused
+// everything would satisfy this test just as well as the real one.
+func TestStartRunRefusesCredentialShapedArguments(t *testing.T) {
+	service, project, cleanup := newProductTestServiceWithProject(t)
+	defer cleanup()
+	for _, arguments := range [][]string{
+		{"--password", "hunter2"},
+		{"deploy", "--token=abc123"},
+		{"--secret", "s3cr3t"},
+		{"push", "--api_key=xyz"},
+		{"-H", "Authorization: Bearer abc"},
+	} {
+		request := agentRunRequest(project.ID)
+		request.Arguments = arguments
+		if _, err := service.StartRun(context.Background(), request); err == nil {
+			t.Errorf("arguments %v were accepted", arguments)
+		}
+	}
+	// An ordinary argument list must still pass through unrefused, so the
+	// check above is not satisfiable by a function that refuses everything.
+	if _, err := service.StartRun(context.Background(), agentRunRequest(project.ID)); err != nil {
+		t.Fatalf("an ordinary argument list was refused: %v", err)
 	}
 }
 
@@ -184,13 +270,27 @@ func TestLookupRunSaysWhenThereIsNoSuchJob(t *testing.T) {
 // worse experience than duplication caught immediately by a test.
 func TestAgentAllowedExecutablesMatchesTheRunner(t *testing.T) {
 	agentSide := agent.AllowedExecutables()
-	if len(agentSide) != len(allowedExecutables) {
-		t.Fatalf("agent's allowlist has %d entries, runner's has %d: %v vs %v",
-			len(agentSide), len(allowedExecutables), agentSide, allowedExecutables)
+	// Build a set rather than comparing raw lengths: a duplicate entry on
+	// agent's side masking a dropped one (same length, still every remaining
+	// name found in the runner's map) would pass a length-plus-one-direction
+	// check while quietly telling the model it may not run something the
+	// runner would actually accept.
+	agentSet := make(map[string]bool, len(agentSide))
+	for _, name := range agentSide {
+		agentSet[name] = true
+	}
+	if len(agentSet) != len(allowedExecutables) {
+		t.Fatalf("agent's allowlist has %d distinct entries, runner's has %d: %v vs %v",
+			len(agentSet), len(allowedExecutables), agentSide, allowedExecutables)
 	}
 	for _, name := range agentSide {
 		if !allowedExecutables[name] {
 			t.Fatalf("agent's allowlist names %q, which the runner's allowlist does not", name)
+		}
+	}
+	for name := range allowedExecutables {
+		if !agentSet[name] {
+			t.Fatalf("runner's allowlist names %q, which agent's allowlist does not -- the model is never told it may run this", name)
 		}
 	}
 }

@@ -643,8 +643,13 @@ func TestRunToolNamesTheAllowedExecutables(t *testing.T) {
 	if receipt.Status != "failed" {
 		t.Fatal("bash was accepted")
 	}
-	if !strings.Contains(receipt.Error, "go") || !strings.Contains(receipt.Error, "python3") {
-		t.Fatalf("error = %q, want it to name the allowed executables", receipt.Error)
+	// Check every allowed name, not just two of seven: a message that had
+	// silently lost git, node, npm, rg or ls would still satisfy a check that
+	// only looked for "go" and "python3".
+	for _, name := range AllowedExecutables() {
+		if !strings.Contains(receipt.Error, name) {
+			t.Fatalf("error = %q, want it to name allowed executable %q", receipt.Error, name)
+		}
 	}
 }
 
