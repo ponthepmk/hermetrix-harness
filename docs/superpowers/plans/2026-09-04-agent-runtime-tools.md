@@ -1521,6 +1521,10 @@ func TestStartRunTerminatesACommandThatWillNotFinish(t *testing.T) {
 
 A one-second timeout is used rather than the ten-minute ceiling: the ceiling and the enforcement are the same code path, and a test that actually waited ten minutes would never be run.
 
+Asserting the state is not enough, and this was the plan's own mistake. `state == "failed"` and an error containing "timed out" both come from `ctx.Err()`, so they survive deleting the process-group setup entirely — `exec.CommandContext` kills the direct child by default — and they survive neutering `Cancel`, because `WaitDelay` kills it two seconds later. Neither mutation is noticed. The command therefore spawns a **detached grandchild** with `stdio: 'ignore'`, so it does not hold the pipes and get caught by `WaitDelay`, writes that grandchild's pid to a file under the project root, and the test asserts the pid is gone after the run. Without `Setpgid` and `kill(-pgid)` the grandchild is reparented and lives; with them it is reaped. Assert `DurationMS` is under about two seconds alongside it, which kills the `WaitDelay` mutation for free.
+
+Two more bounds from the same hardening list have no test anywhere in the repo, and they belong here rather than in a later triage: the **output ceiling**, where a command writing far past `maxCommandOutput` must come back genuinely bounded and flagged truncated, and **credential-argument refusal**, where `containsSensitiveArgument` must reject a credential-shaped argument while still passing something ordinary through — a test that only checks the refusal is satisfied by a function that refuses everything.
+
 - [ ] **Step 4: Write the missing-job test**
 
 ```go
