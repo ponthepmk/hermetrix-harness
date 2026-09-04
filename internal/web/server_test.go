@@ -467,7 +467,8 @@ func TestEndToEndAgentSearchDescribeAndCallRealMCPServer(t *testing.T) {
 		// The point of the deferred catalog is that a 1,500-tool catalog does
 		// not reach the prompt. Assert the ceiling, not today's exact number.
 		// Raised to 11 when skill_manage joined the waist.
-		if len(request.Tools) > 11 {
+		// Raised to 12 when workspace.run joined the waist.
+		if len(request.Tools) > 12 {
 			t.Errorf("direct tool prompt grew with the catalog: %d tools", len(request.Tools))
 		}
 		for _, tool := range request.Tools {

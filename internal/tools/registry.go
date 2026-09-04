@@ -178,6 +178,7 @@ func NewRegistry(root string) (*Registry, error) {
 				"arguments":     map[string]any{"type": "object", "description": "Arguments conforming to the described schema"},
 			}, []string{"capability_id", "revision", "arguments"})},
 	}
+	definitions = append(definitions, runtimeDefinitions()...)
 	byName := make(map[string]Definition, len(definitions))
 	for _, definition := range definitions {
 		byName[definition.Name] = definition
@@ -291,8 +292,8 @@ func (r *Registry) Execute(ctx context.Context, call providers.ToolCall) Receipt
 		receipt.DurationMS = time.Since(started).Milliseconds()
 		return receipt
 	}
-	if call.Name == "skill_search" || call.Name == "skill_view" || call.Name == "skill_manage" {
-		receipt.Error = "session-scoped Skill tools are executed by the agent service, not the registry"
+	if call.Name == "skill_search" || call.Name == "skill_view" || call.Name == "skill_manage" || call.Name == "workspace.run" {
+		receipt.Error = "session-scoped tools are executed by the agent service, not the registry"
 		receipt.DurationMS = time.Since(started).Milliseconds()
 		return receipt
 	}

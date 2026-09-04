@@ -343,7 +343,11 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 			// other half of a learning loop whose reading half (skill_search,
 			// skill_view) was already in the waist, and a procedural memory the
 			// agent can read but never write is a loop that never closes.
-			if len(request.Tools) > 11 {
+			//
+			// Raised from 11 to 12 for workspace.run: the agent can read the
+			// workspace but could not act on it, and running a build or a test
+			// closes that loop the same way skill_manage closed the learning one.
+			if len(request.Tools) > 12 {
 				t.Errorf("direct tool waist grew past its ceiling: %d", len(request.Tools))
 			}
 			for _, tool := range request.Tools {

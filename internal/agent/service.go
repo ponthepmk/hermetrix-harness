@@ -52,6 +52,10 @@ type Service struct {
 	// agent service usable without the product runtime attached.
 	runner  WorkspaceRunner
 	browser BrowserDriver
+	// runs tracks which jobs each session has in flight, to enforce the
+	// per-session concurrency cap on workspace.run. A value, not a pointer:
+	// *Service is never copied, so the mutex inside it never moves.
+	runs runTracker
 }
 
 func NewService(dataStore *store.Store, providerService *providers.Service, compiler *ctxcompiler.Compiler,
@@ -812,6 +816,8 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			// Also session-scoped, and for the same reason: the answer is this
 			// session's own event log, which the registry has no handle on.
 			receipt = s.executeContextSearch(toolCtx, session, call, definition)
+		case call.Name == "workspace.run":
+			receipt = s.executeRunTool(toolCtx, session, call, definition)
 		default:
 			receipt = s.executeRegistryTool(toolCtx, session, call)
 		}
@@ -829,10 +835,17 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 // server may legitimately stop to ask the user a question, and the answer has
 // to arrive before the call can finish, so its budget covers that wait.
 func toolCallBudget(name string) time.Duration {
-	if name == "tool_call" {
+	switch name {
+	case "tool_call":
 		return elicitationWait + time.Minute
+	case "workspace.run":
+		// One status call long-polls for runStatusPoll; the budget has to clear
+		// that, or the context dies mid-wait and a finished command reports as a
+		// cancellation.
+		return runStatusPoll + 10*time.Second
+	default:
+		return 10 * time.Second
 	}
-	return 10 * time.Second
 }
 
 // executeRegistryTool sends a call to the registry, scoped to the session's
