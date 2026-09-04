@@ -628,6 +628,26 @@ func TestRunToolRefusesWithoutAProjectRoot(t *testing.T) {
 	}
 }
 
+// TestRunToolNamesTheAllowedExecutables pins the spec's requirement that a
+// refused executable says what is allowed, not only that this one is not. The
+// fake runner's startErr would surface the runner's own generic refusal if
+// startRun ever reached it; it must not, because executableAllowed refuses
+// bash before the runner is ever called.
+func TestRunToolNamesTheAllowedExecutables(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	service.WithRuntime(&fakeRunner{startErr: errors.New("actor and an allowed executable without a path are required")}, nil)
+	receipt := service.executeRunTool(context.Background(), session,
+		runCall(`{"action":"start","executable":"bash","arguments":["-c","ls"]}`),
+		toolruntime.Definition{Name: "workspace.run", Revision: "v1", Effect: "execute"})
+	if receipt.Status != "failed" {
+		t.Fatal("bash was accepted")
+	}
+	if !strings.Contains(receipt.Error, "go") || !strings.Contains(receipt.Error, "python3") {
+		t.Fatalf("error = %q, want it to name the allowed executables", receipt.Error)
+	}
+}
+
 func TestRunToolRefusesUnknownArgumentFields(t *testing.T) {
 	service, session, cleanup := newAgentServiceWithProject(t)
 	defer cleanup()

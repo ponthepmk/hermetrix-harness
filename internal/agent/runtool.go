@@ -139,6 +139,33 @@ func isJobNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }
 
+// allowedExecutables mirrors the runner's list. It is duplicated on purpose: the
+// runner's refusal is the one that matters for safety, and this one exists so
+// the model is told what it may use instead of only what it may not.
+var allowedExecutables = []string{"go", "git", "node", "npm", "python3", "rg", "ls"}
+
+func executableAllowed(name string) bool {
+	for _, item := range allowedExecutables {
+		if item == name {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowedExecutables returns a copy of the list above so a test in
+// internal/product can read it. That test lives in product rather than here
+// because product already imports agent; the reverse import would close the
+// cycle the two packages are built to avoid. Exporting this is what lets that
+// test confirm the duplicated list has not drifted from the runner's own,
+// rather than leaving two hand-maintained allowlists to go out of step
+// unwatched.
+func AllowedExecutables() []string {
+	out := make([]string, len(allowedExecutables))
+	copy(out, allowedExecutables)
+	return out
+}
+
 type runArgs struct {
 	Action         string   `json:"action"`
 	Executable     string   `json:"executable"`
@@ -190,6 +217,10 @@ func (s *Service) startRun(ctx context.Context, session Session, args runArgs, r
 	// run it somewhere the user never opened.
 	if _, err := s.scopedTools(ctx, session); err != nil {
 		receipt.Error = err.Error()
+		return
+	}
+	if !executableAllowed(strings.TrimSpace(args.Executable)) {
+		receipt.Error = "executable must be one of: " + strings.Join(allowedExecutables, ", ")
 		return
 	}
 	// A job that finished without ever being polled to completion -- the turn
