@@ -93,11 +93,30 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
     WHERE id=? AND state='queued'`, formatTime(started), job.ID)
 	ctx, cancel := context.WithTimeout(parent, time.Duration(input.TimeoutSeconds)*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, executable, input.Arguments...)
 	// project.RootPath is already known non-empty: StartCommand required it
-	// before this goroutine was ever launched, so the error is ignored here
-	// the same way it always was, not because the check was skipped.
-	workingDir, _ := resolveInside(project.RootPath, input.WorkingDir, true)
+	// before this goroutine was ever launched. input.WorkingDir is a
+	// different story: StartCommand resolved it once, before this goroutine
+	// was even scheduled, and that resolution can go stale before this
+	// second one runs -- the directory deleted out from under it, a symlink
+	// inside it retargeted. resolveInside returns ("", err) on every failure
+	// path, and exec.Cmd treats an empty Dir as "inherit this server
+	// process's own working directory": an unchecked error here would let
+	// the command run outside the project entirely, silently, with nothing
+	// recorded. So the error is checked, and turns the job into a recorded
+	// failure instead of a command running somewhere no one chose.
+	workingDir, workingDirErr := resolveInside(project.RootPath, input.WorkingDir, true)
+	if workingDirErr != nil {
+		errorMessage := "working directory could not be resolved: " + workingDirErr.Error()
+		resultJSON, _ := json.Marshal(map[string]any{})
+		completed := time.Now().UTC()
+		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
+    completed_at=? WHERE id=?`, string(resultJSON), errorMessage, formatTime(completed), job.ID)
+		s.mu.Lock()
+		delete(s.cancels, job.ID)
+		s.mu.Unlock()
+		return
+	}
+	command := exec.CommandContext(ctx, executable, input.Arguments...)
 	command.Dir = workingDir
 	command.Env = minimalEnvironment()
 	subtreeTerminated := configureProcessTermination(command)

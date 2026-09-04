@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"hermetrix-harness/internal/agent"
 	"hermetrix-harness/internal/agentruntime"
+	"hermetrix-harness/internal/identity"
 )
 
 func newProductTestServiceWithProject(t *testing.T) (*Service, Project, func()) {
@@ -169,6 +171,54 @@ func TestStartRunAcceptsASubdirectoryOfTheProject(t *testing.T) {
 	}
 }
 
+// TestRunCommandFailsWhenTheWorkingDirectoryStopsResolving covers the gap
+// between StartCommand's own resolveInside check and the second one inside
+// runCommand's goroutine: the working directory can stop resolving in that
+// window (deleted, a symlink retargeted), resolveInside returns ("", err),
+// and an unchecked error there used to hand exec.Cmd an empty Dir -- which
+// os/exec treats as "inherit this server process's own working directory",
+// letting the command run outside the project entirely, silently.
+//
+// The window between the two checks is a race against real filesystem
+// events; rather than trying to win that race under a test deadline, this
+// calls runCommand directly with a WorkingDir that was never going to
+// resolve, driving straight at the code path the race would eventually
+// reach without needing to reproduce the race itself.
+func TestRunCommandFailsWhenTheWorkingDirectoryStopsResolving(t *testing.T) {
+	service, project, cleanup := newProductTestServiceWithProject(t)
+	defer cleanup()
+	ctx := context.Background()
+	resolvedExecutable, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := CommandInput{ProjectID: project.ID, Actor: "agent:ses_test", Executable: "node",
+		Arguments: []string{"-e", "console.log(process.cwd())"}, WorkingDir: "gone", TimeoutSeconds: 5}
+	now := time.Now().UTC()
+	job := Job{ID: identity.New("job"), Kind: "command", State: "queued", Payload: map[string]any{}, Result: map[string]any{}, CreatedAt: now}
+	if _, err := service.store.DB.ExecContext(ctx, `INSERT INTO background_jobs(id,kind,state,progress,payload_json,created_at)
+    VALUES(?,'command','queued',0,'{}',?)`, job.ID, formatTime(now)); err != nil {
+		t.Fatal(err)
+	}
+	service.runCommand(ctx, job, project, resolvedExecutable, input)
+	final, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.State != "failed" {
+		t.Fatalf("state = %q, want failed", final.State)
+	}
+	if !strings.Contains(final.Error, "working directory") {
+		t.Fatalf("error = %q, want it to explain the working directory could not be resolved", final.Error)
+	}
+	// The strongest evidence the command never ran anywhere, including the
+	// server's own cwd: no artifact was ever created for it, which only
+	// happens if runCommand returned before ever invoking exec.Cmd.
+	if _, hasArtifact := final.Result["artifact_id"]; hasArtifact {
+		t.Fatalf("result = %v, want no artifact -- the command should never have run", final.Result)
+	}
+}
+
 func TestStartRunTerminatesACommandThatWillNotFinish(t *testing.T) {
 	service, project, cleanup := newProductTestServiceWithProject(t)
 	defer cleanup()
@@ -256,9 +306,16 @@ func TestStartRunRefusesCredentialShapedArguments(t *testing.T) {
 	}
 	// An ordinary argument list must still pass through unrefused, so the
 	// check above is not satisfiable by a function that refuses everything.
-	if _, err := service.StartRun(context.Background(), agentRunRequest(project.ID)); err != nil {
+	// Routed through waitForRun rather than returning right after StartRun,
+	// same as the fix already applied to the other two positive-path tests
+	// in this file: otherwise the node process and its result-writing
+	// goroutine outlive this test, racing t.TempDir()'s removal of their own
+	// cwd and a store this test's cleanup is about to close.
+	started, err := service.StartRun(context.Background(), agentRunRequest(project.ID))
+	if err != nil {
 		t.Fatalf("an ordinary argument list was refused: %v", err)
 	}
+	waitForRun(t, service, started.JobID)
 }
 
 // TestAgentAllowedExecutablesMatchesTheRunner guards the duplication in

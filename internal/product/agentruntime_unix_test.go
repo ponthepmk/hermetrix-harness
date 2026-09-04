@@ -61,17 +61,18 @@ func TestStartRunTerminatesTheWholeProcessGroupNotJustTheDirectChild(t *testing.
 	request.Arguments = []string{"-e", grandchildScript, pidFile}
 	request.TimeoutSeconds = 1
 
+	// Registered before waitForRun, and re-reads the pid file itself rather
+	// than closing over a pid variable set later: waitForRun can itself run
+	// up to its own 30s timeout without returning, and every t.Fatal inside
+	// readGrandchildPID below -- including "the pid file never appeared" --
+	// exits this test before either of those would otherwise register a
+	// cleanup. Only a cleanup registered here, first, runs on all of those
+	// paths.
+	t.Cleanup(func() { killIfStillAlive(pidFile) })
+
 	final := waitForRun(t, service, mustStart(t, service, request).JobID)
 
 	pid := readGrandchildPID(t, pidFile)
-	t.Cleanup(func() {
-		// Best-effort backstop: if the bound under test were broken, or this
-		// test's own logic has a bug, do not leave a live process behind on
-		// whatever machine ran the suite.
-		if pid > 0 {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-	})
 
 	if final.State != "failed" {
 		t.Fatalf("state = %q, want failed", final.State)
@@ -122,4 +123,32 @@ func readGrandchildPID(t *testing.T, path string) int {
 	}
 	t.Fatal("grandchild never wrote its pid file")
 	return 0
+}
+
+// killIfStillAlive is the cleanup backstop. It re-reads the pid file itself
+// rather than trusting a pid variable captured earlier in the test, so it
+// still runs correctly on every early-exit path: waitForRun timing out
+// without ever returning, or any t.Fatal inside readGrandchildPID -- up to
+// and including the pid file never having been written at all, in which
+// case there is nothing to read and this is a no-op.
+//
+// It re-checks aliveness with Kill(pid, 0) before signaling anything, rather
+// than killing unconditionally: by the time this runs, the real group-kill
+// under test has very likely already reaped the grandchild, and on a
+// pid-recycling OS an unconditional SIGKILL some seconds later could land on
+// whatever unrelated process the OS has since handed that pid to -- on a
+// developer's own machine, not just in CI.
+func killIfStillAlive(pidFile string) {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return
+	}
+	if syscall.Kill(pid, 0) == syscall.ESRCH {
+		return // already reaped by the bound under test -- nothing to do
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
 }
