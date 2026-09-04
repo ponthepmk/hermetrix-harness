@@ -824,7 +824,10 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 		case call.Name == "workspace.run":
 			receipt = s.executeRunTool(toolCtx, session, call, definition)
 		case call.Name == "browser":
-			receipt = s.executeBrowserTool(toolCtx, session, call, definition)
+			// Reached directly, never via an approval grant: viaApproval is
+			// false, so a non-loopback destination can only get here if the
+			// preflight above already required and is waiting on approval.
+			receipt = s.executeBrowserTool(toolCtx, session, call, definition, false)
 		default:
 			receipt = s.executeRegistryTool(toolCtx, session, call)
 		}
@@ -1010,7 +1013,15 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 		call := providers.ToolCall{ID: approval.ToolCallID, Type: "function", Name: approval.ToolName, Arguments: approval.ArgumentsJSON}
 		grant := toolruntime.ApprovalGrant{ToolCallID: approval.ToolCallID, Name: approval.ToolName,
 			Revision: approval.ToolRevision, Effect: approval.Effect, ArgumentsHash: approval.ArgumentsHash}
-		toolCtx, cancel := context.WithTimeout(durableCtx, 10*time.Second)
+		// The approved path is the slow one by construction -- an open-internet
+		// destination is exactly what needed asking -- so it gets the same
+		// budget a first-time call would have used, not a flat ceiling sized for
+		// the fast tools. Using the generic 10s here would have starved
+		// browser's page-load-plus-screenshot budget (60s) down to a sixth of
+		// itself, and workspace.run's long poll (30s-plus) down by two thirds,
+		// and either one timing out here burns the approval: persistApprovalReceipt
+		// below finalizes it either way, so a timed-out grant cannot be retried.
+		toolCtx, cancel := context.WithTimeout(durableCtx, toolCallBudget(approval.ToolName))
 		switch {
 		case approval.ToolName == "browser":
 			// browser cannot go to s.tools.ExecuteApproved -- the registry
@@ -1019,14 +1030,15 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 			// is unused here. That is not a gap: claimApprovalDecision already
 			// proved this is the stored approval for this exact call, and call's
 			// arguments came from the stored row, not from the model, so there is
-			// nothing left for a second check against grant to catch.
+			// nothing left for a second check against grant to catch. viaApproval
+			// is true precisely because this is that proven call.
 			session, sessionErr := s.GetSession(toolCtx, approval.SessionID)
 			if sessionErr != nil {
 				receipt = toolruntime.Receipt{ToolCallID: approval.ToolCallID, Name: approval.ToolName,
 					Revision: approval.ToolRevision, Effect: approval.Effect, Status: "failed", Error: sessionErr.Error()}
 			} else {
 				receipt = s.executeBrowserTool(toolCtx, session, call,
-					toolruntime.Definition{Name: approval.ToolName, Revision: approval.ToolRevision, Effect: approval.Effect})
+					toolruntime.Definition{Name: approval.ToolName, Revision: approval.ToolRevision, Effect: approval.Effect}, true)
 			}
 		case strings.HasPrefix(approval.ToolName, "workspace."):
 			session, sessionErr := s.GetSession(toolCtx, approval.SessionID)

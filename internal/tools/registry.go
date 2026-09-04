@@ -601,7 +601,7 @@ func (r *Registry) PlanApproval(ctx context.Context, call providers.ToolCall) (A
 		return r.planDeferredApproval(ctx, call, definition)
 	}
 	if call.Name == "browser" {
-		return r.planBrowserApproval(call, definition)
+		return r.planBrowserApproval(ctx, call, definition)
 	}
 	if !definition.RequiresApproval {
 		return ApprovalPlan{}, fmt.Errorf("tool %q does not require approval", call.Name)
@@ -687,7 +687,19 @@ func (r *Registry) ExecuteApproved(ctx context.Context, call providers.ToolCall,
 
 // planBrowserApproval describes a browser destination to the person deciding.
 // The summary is the URL, because the URL is the whole decision.
-func (r *Registry) planBrowserApproval(call providers.ToolCall, definition Definition) (ApprovalPlan, error) {
+//
+// It applies the same size and cancellation guards the generic PlanApproval
+// path applies before it ever decodes: RequiresApproval's browser branch
+// accepts unknown fields on purpose (see the comment there), which means it
+// never rejects an oversized payload either, so this is the only remaining
+// place before the arguments are written into a persisted approval row.
+func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolCall, definition Definition) (ApprovalPlan, error) {
+	if len(call.Arguments) > maxArgumentsBytes {
+		return ApprovalPlan{}, fmt.Errorf("tool arguments exceed 4 MiB")
+	}
+	if err := ctx.Err(); err != nil {
+		return ApprovalPlan{}, err
+	}
 	var args struct {
 		Action string `json:"action"`
 		URL    string `json:"url"`

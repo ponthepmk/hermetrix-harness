@@ -120,6 +120,91 @@ func TestExecuteRefusesWorkspaceRunBeforeDecodingItsPath(t *testing.T) {
 	}
 }
 
+// TestExecuteRefusesBrowserBeforeDecodingItsPath mirrors the workspace.run
+// pin above: browser joined the same session-scoped refusal, and a call
+// reaching the registry directly must fail with that reason, not with
+// path-decoding nonsense a browser call was never going to satisfy.
+func TestExecuteRefusesBrowserBeforeDecodingItsPath(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := registry.Execute(context.Background(), providers.ToolCall{ID: "call", Name: "browser", Arguments: `{"action":"open","url":"https://example.com/"}`})
+	if receipt.Status != "failed" {
+		t.Fatal("the registry answered browser itself")
+	}
+	if !strings.Contains(receipt.Error, "session-scoped") {
+		t.Fatalf("error = %q, want the session-scoped refusal", receipt.Error)
+	}
+}
+
+// TestRequiresApprovalGatesBrowserOnTheURLNotTheTool proves the wiring from
+// Registry.RequiresApproval down to BrowserNeedsApproval: a loopback open
+// needs nothing, and an open-internet destination does.
+func TestRequiresApprovalGatesBrowserOnTheURLNotTheTool(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loopback, err := registry.RequiresApproval(providers.ToolCall{ID: "call", Name: "browser",
+		Arguments: `{"action":"open","url":"http://localhost:8765/"}`})
+	if err != nil || loopback {
+		t.Fatalf("loopback open requiresApproval = %v, err = %v, want false, nil", loopback, err)
+	}
+	internet, err := registry.RequiresApproval(providers.ToolCall{ID: "call", Name: "browser",
+		Arguments: `{"action":"open","url":"https://example.com/"}`})
+	if err != nil || !internet {
+		t.Fatalf("open-internet open requiresApproval = %v, err = %v, want true, nil", internet, err)
+	}
+}
+
+// TestPlanBrowserApprovalDescribesTheURLToTheHuman covers planBrowserApproval
+// directly: the plan a human sees has to name the actual destination, not a
+// paraphrase, and has to refuse to plan a call that never needed a human at
+// all -- both are properties nothing else exercised before this task's review.
+func TestPlanBrowserApprovalDescribesTheURLToTheHuman(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := providers.ToolCall{ID: "call-1", Name: "browser", Arguments: `{"action":"open","url":"https://example.com/path"}`}
+	plan, err := registry.PlanApproval(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.Summary, "https://example.com/path") {
+		t.Fatalf("summary = %q, does not name the destination", plan.Summary)
+	}
+	if !strings.Contains(plan.Preview, "https://example.com/path") {
+		t.Fatalf("preview = %q, does not name the destination", plan.Preview)
+	}
+	if plan.Metadata["url"] != "https://example.com/path" {
+		t.Fatalf("metadata url = %v, want the destination", plan.Metadata["url"])
+	}
+	freeCall := providers.ToolCall{ID: "call-2", Name: "browser", Arguments: `{"action":"open","url":"http://localhost/"}`}
+	if _, err := registry.PlanApproval(context.Background(), freeCall); err == nil {
+		t.Fatal("planned an approval for a call that never needed one")
+	}
+}
+
+// TestPlanBrowserApprovalRefusesOversizedArguments proves planBrowserApproval
+// applies the same 4 MiB ceiling the generic write-tool path applies before
+// decoding: RequiresApproval's browser branch tolerates unknown fields on
+// purpose (see its comment), so this is the only gate left before a model
+// could otherwise mint a persisted approval row carrying an unbounded blob.
+func TestPlanBrowserApprovalRefusesOversizedArguments(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	padding := strings.Repeat("x", maxArgumentsBytes+1)
+	call := providers.ToolCall{ID: "call", Name: "browser",
+		Arguments: `{"action":"open","url":"https://example.com/","padding":"` + padding + `"}`}
+	if _, err := registry.PlanApproval(context.Background(), call); err == nil || !strings.Contains(err.Error(), "4 MiB") {
+		t.Fatalf("oversized browser arguments were planned: err = %v", err)
+	}
+}
+
 func TestDeferredSearchDescribeCallAndDynamicApproval(t *testing.T) {
 	registry, err := NewRegistry(t.TempDir())
 	if err != nil {
