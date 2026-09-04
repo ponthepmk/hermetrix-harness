@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ctxcompiler "hermetrix-harness/internal/context"
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/localmodel"
 	"hermetrix-harness/internal/providers"
@@ -337,9 +338,9 @@ func (s *Service) fail(ctx context.Context, run Run, failure error) (Run, error)
 	run.State, run.Error, run.CompletedAt = "failed", failure.Error(), &completed
 	resultsJSON, _ := json.Marshal(run.Results)
 	remediationJSON, _ := json.Marshal(run.Remediation)
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE model_qualification_runs SET state='failed',allocated_context=?,
+	durability.Exec("mark model qualification failed").Observe(s.store.DB.ExecContext(ctx, `UPDATE model_qualification_runs SET state='failed',allocated_context=?,
       results_json=?,remediation_json=?,error=?,completed_at=? WHERE id=?`, run.AllocatedContext, string(resultsJSON),
-		string(remediationJSON), run.Error, formatTime(completed), run.ID)
+		string(remediationJSON), run.Error, formatTime(completed), run.ID))
 	return run, failure
 }
 

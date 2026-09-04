@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	ctxcompiler "hermetrix-harness/internal/context"
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/store"
 )
@@ -211,8 +212,8 @@ func (s *Service) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 func (s *Service) failRun(ctx context.Context, run Run, failure error) (Run, error) {
 	completed := time.Now().UTC()
 	run.State, run.Error, run.CompletedAt = "failed", failure.Error(), &completed
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE context_eval_runs SET state='failed',error=?,completed_at=? WHERE id=?`,
-		run.Error, formatTime(completed), run.ID)
+	durability.Exec("mark context fidelity run failed").Observe(s.store.DB.ExecContext(ctx, `UPDATE context_eval_runs SET state='failed',error=?,completed_at=? WHERE id=?`,
+		run.Error, formatTime(completed), run.ID))
 	return run, failure
 }
 

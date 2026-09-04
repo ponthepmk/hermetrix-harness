@@ -891,9 +891,20 @@ func boundDefinition(binding StepBinding, name string) (toolruntime.Definition, 
 func (s *Service) persistToolResult(ctx context.Context, session Session, provider providers.Profile, turnID string,
 	binding StepBinding, receipt toolruntime.Receipt, emit func(StreamEvent) error) error {
 	encoded, _ := json.Marshal(receipt)
+	metadata := map[string]any{"tool_call_id": receipt.ToolCallID, "tool_name": receipt.Name,
+		"tool_status": receipt.Status, "step_binding_id": binding.ID, "tool_step": binding.ID}
+	// Exit status is lifted out of the receipt body because learning digests
+	// inspect event metadata. It is still only evidence: the digest below also
+	// requires the command to have reached the completed state before citing it
+	// as verification.
+	if code, ok := receipt.Metadata["exit_code"]; ok {
+		metadata["tool_exit_code"] = code
+	}
+	if state, ok := receipt.Metadata["state"]; ok {
+		metadata["tool_state"] = state
+	}
 	resultEvent, err := s.appendEvent(ctx, Event{SessionID: session.ID, TurnID: turnID, EventKind: "tool_result", Role: "tool",
-		Content: string(encoded), Metadata: map[string]any{"tool_call_id": receipt.ToolCallID, "tool_name": receipt.Name,
-			"tool_status": receipt.Status, "step_binding_id": binding.ID, "tool_step": binding.ID}, ProviderID: provider.ID,
+		Content: string(encoded), Metadata: metadata, ProviderID: provider.ID,
 		Model: provider.Model, CreatedAt: time.Now().UTC()})
 	if err != nil {
 		return err
@@ -1857,7 +1868,7 @@ func (s *Service) learningTriggerForTurn(ctx context.Context, sessionID, turnID,
 	if err != nil {
 		return nil, err
 	}
-	digest := learning.Digest{Outcome: outcome, Decisions: []string{}, ToolReceipts: []string{},
+	digest := learning.Digest{Outcome: outcome, Decisions: []string{}, ToolReceipts: []string{}, VerifiedBy: []string{},
 		SkillActivations: []string{}, UserCorrections: []string{}, Artifacts: []string{}, Redactions: []string{}}
 	currentCorrection, successfulTool := false, false
 	for _, item := range events {
@@ -1873,8 +1884,13 @@ func (s *Service) learningTriggerForTurn(ctx context.Context, sessionID, turnID,
 		if item.TurnID == turnID && item.EventKind == "tool_result" {
 			name := metadataString(item.Metadata, "tool_name")
 			status := metadataString(item.Metadata, "tool_status")
-			digest.ToolReceipts = append(digest.ToolReceipts, "event:"+item.ID+":"+name+":"+status)
+			reference := "event:" + item.ID + ":" + name + ":" + status
+			digest.ToolReceipts = append(digest.ToolReceipts, reference)
 			successfulTool = successfulTool || status == "succeeded"
+			if name == "workspace.run" && status == "succeeded" &&
+				metadataString(item.Metadata, "tool_state") == "completed" && metadataExitCode(item.Metadata) == 0 {
+				digest.VerifiedBy = append(digest.VerifiedBy, reference)
+			}
 		}
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT skill_id,version_id FROM skill_activations WHERE turn_id=? ORDER BY created_at`, turnID)
@@ -2022,6 +2038,33 @@ func metadataString(metadata map[string]any, key string) string {
 	}
 	value, _ := metadata[key].(string)
 	return value
+}
+
+// metadataExitCode reads a command's exit code, returning -1 when the event
+// carries none or carries a malformed value. Event metadata round-trips through
+// JSON, so a number normally arrives as float64. Fractional values are refused:
+// converting 0.5 directly to int would turn invalid evidence into exit code 0.
+func metadataExitCode(metadata map[string]any) int {
+	if metadata == nil {
+		return -1
+	}
+	switch value := metadata["tool_exit_code"].(type) {
+	case float64:
+		if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value ||
+			value < -1<<31 || value > 1<<31-1 {
+			return -1
+		}
+		return int(value)
+	case int:
+		return value
+	case int64:
+		if value < -1<<31 || value > 1<<31-1 {
+			return -1
+		}
+		return int(value)
+	default:
+		return -1
+	}
 }
 
 func safeError(err error) string {

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,12 +21,10 @@ import (
 // capability graph could only reach servers somebody had already put behind a
 // URL, which in practice meant it could reach almost nothing.
 //
-// A session is one process. Discovery starts a process, initializes, lists the
-// tools and stops it; a tool call does the same for that one call. That costs a
-// process launch per call, and it is the deliberate trade: a long-lived pool
-// would need supervision, restart policy and crash accounting before the first
-// tool could run, and a server that is stateless between calls is also a server
-// that cannot leak one session's state into the next.
+// A session is one process. Sessions are pooled per configured server because
+// sampling and elicitation require a connection that outlives one request. A
+// timed-out or broken session is killed and discarded; a later call may start a
+// fresh process, but an effectful request is never replayed automatically.
 
 // stdioLaunchers are the programs an MCP server may be started with. It is an
 // allowlist for the same reason the project workbench has one: this is a local
@@ -48,6 +47,7 @@ type stdioSession struct {
 	cancel   context.CancelFunc
 	stdin    io.WriteCloser
 	stdout   *bufio.Reader
+	stopOnce sync.Once
 	protocol string
 	server   Server
 	handler  ServerRequestHandler
@@ -161,16 +161,20 @@ func (session *stdioSession) stop() {
 	if session == nil || session.command == nil {
 		return
 	}
-	// Closing stdin asks the server to exit cleanly; cancelling the process
-	// context takes the whole group down if it does not.
-	_ = session.stdin.Close()
-	if session.cancel != nil {
-		session.cancel()
-	}
-	if session.command.Process != nil {
-		_ = session.command.Process.Kill()
-	}
-	_ = session.command.Wait()
+	session.stopOnce.Do(func() {
+		// Closing stdin asks the server to exit cleanly; cancelling the process
+		// context takes the whole group down if it does not. stop may be reached
+		// both by the cancellation-aware reader and by pool discard, so the
+		// whole sequence, including Wait, must run only once.
+		_ = session.stdin.Close()
+		if session.cancel != nil {
+			session.cancel()
+		}
+		if session.command.Process != nil {
+			_ = session.command.Process.Kill()
+		}
+		_ = session.command.Wait()
+	})
 }
 
 // inbound is one line from the server, which can be three different things: the
@@ -198,10 +202,7 @@ func (session *stdioSession) call(ctx context.Context, message rpcRequest) (rpcR
 		return rpcResponse{}, fmt.Errorf("write to server: %w", err)
 	}
 	for {
-		if err := ctx.Err(); err != nil {
-			return rpcResponse{}, err
-		}
-		line, err := session.readLine()
+		line, err := session.readLineContext(ctx)
 		if err != nil {
 			return rpcResponse{}, err
 		}
@@ -224,6 +225,32 @@ func (session *stdioSession) call(ctx context.Context, message rpcRequest) (rpcR
 			}
 			return response, nil
 		}
+	}
+}
+
+type stdioReadResult struct {
+	line []byte
+	err  error
+}
+
+// readLineContext makes the request context a real boundary for stdio. A
+// bufio.Reader cannot be interrupted by checking ctx before ReadBytes: once a
+// server stops writing, that check is never reached again. The read therefore
+// runs beside the context wait. Cancellation kills the session, which closes
+// the pipe, releases the reader goroutine and prevents a late response from a
+// timed-out effect being mistaken for a later request.
+func (session *stdioSession) readLineContext(ctx context.Context) ([]byte, error) {
+	result := make(chan stdioReadResult, 1)
+	go func() {
+		line, err := session.readLine()
+		result <- stdioReadResult{line: line, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		session.stop()
+		return nil, ctx.Err()
+	case read := <-result:
+		return read.line, read.err
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
@@ -139,16 +140,16 @@ func (s *Service) DrainPending(ctx context.Context, limit int) (int, error) {
 		}
 		var digest Digest
 		if err := json.Unmarshal([]byte(item.digestJSON), &digest); err != nil {
-			_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
+			durability.Exec("mark invalid learning outbox digest failed").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
 				SET state='failed',error=?,processed_at=? WHERE id=? AND state='processing'`,
-				"decode staged digest: "+err.Error(), formatTime(time.Now().UTC()), item.id)
+				"decode staged digest: "+err.Error(), formatTime(time.Now().UTC()), item.id))
 			continue
 		}
 		_, _, enqueueErr := s.Enqueue(ctx, EnqueueInput{SessionID: item.sessionID, JobID: item.jobID,
 			MilestoneID: item.milestoneID, TriggerKind: item.triggerKind, Digest: digest})
 		if enqueueErr != nil {
-			_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
-				SET state='pending',error=? WHERE id=? AND state='processing'`, enqueueErr.Error(), item.id)
+			durability.Exec("requeue learning outbox item").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
+				SET state='pending',error=? WHERE id=? AND state='processing'`, enqueueErr.Error(), item.id))
 			return processed, enqueueErr
 		}
 		result, err := s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox

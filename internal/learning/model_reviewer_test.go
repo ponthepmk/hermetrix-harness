@@ -231,3 +231,13 @@ func TestFailClosedDecisionsAreMarkedUnusable(t *testing.T) {
 		t.Fatalf("a good proposal came back %+v", created)
 	}
 }
+
+func TestReviewerInstructionNamesTheUnverifiedOutcomeBoundary(t *testing.T) {
+	instruction := strings.Join(strings.Fields(reviewerInstruction), " ")
+	for _, phrase := range []string{"verified_by", "asserted, not measured", "not verified by a run",
+		"Do not describe unmeasured work as tested, verified or proven"} {
+		if !strings.Contains(instruction, phrase) {
+			t.Fatalf("reviewer instruction does not contain %q", phrase)
+		}
+	}
+}

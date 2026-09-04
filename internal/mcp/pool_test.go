@@ -34,10 +34,11 @@ for line in sys.stdin:
             "content": [{"type": "text", "text": "pong " + str(os.getpid())}], "isError": False}})
 `
 
-// TestPooledServerIsReusedAndReconnectsAfterACrash covers both halves of the
-// pool: the process is launched once and kept, and a call that finds it dead
-// runs on a fresh one instead of failing the user's turn.
-func TestPooledServerIsReusedAndReconnectsAfterACrash(t *testing.T) {
+// TestPooledServerIsReusedButNeverReplaysACrashedToolCall covers both halves of
+// the pool contract: healthy calls reuse a process, but a connection failure
+// during tools/call is surfaced rather than replayed. The following, distinct
+// call reconnects on a fresh process.
+func TestPooledServerIsReusedButNeverReplaysACrashedToolCall(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is not installed")
 	}
@@ -69,17 +70,88 @@ func TestPooledServerIsReusedAndReconnectsAfterACrash(t *testing.T) {
 		t.Errorf("the pool relaunched the server between calls:\n  %s\n  %s", first.Result, second.Result)
 	}
 
-	// Now make the live process die mid-call. The next call must succeed on a
-	// new process rather than surfacing a broken pipe to the user.
+	// Now make the live process die mid-call. Replaying this same tools/call
+	// would be unsafe: the server might have performed an effect before exiting.
 	if err := os.WriteFile(marker, []byte("die"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := client.CallToolStdio(ctx, server, marker, "ping", []byte(`{}`)); err == nil {
+		t.Fatal("a tools/call whose connection died was replayed automatically")
+	}
 	third, err := client.CallToolStdio(ctx, server, marker, "ping", []byte(`{}`))
 	if err != nil {
-		t.Fatalf("a crashed server was not reconnected: %v", err)
+		t.Fatalf("the call after a crashed session did not reconnect: %v", err)
 	}
 	if string(third.Result) == string(first.Result) {
-		t.Errorf("the crashed process answered again: %s", third.Result)
+		t.Errorf("the later call was answered by the crashed process: %s", third.Result)
+	}
+}
+
+const hangingFixture = `import json, os, sys, time
+def send(p):
+    sys.stdout.write(json.dumps(p) + "\n"); sys.stdout.flush()
+marker = os.environ.get("HANG_MARKER", "")
+for line in sys.stdin:
+    m = json.loads(line); method = m.get("method")
+    if method == "initialize":
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {"protocolVersion": "2025-11-25"}})
+    elif method == "tools/call":
+        if marker and os.path.exists(marker):
+            os.remove(marker)
+            while True: time.sleep(1)
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {
+            "content": [{"type": "text", "text": "recovered"}], "isError": False}})
+`
+
+// TestTimedOutStdioCallKillsItsSessionAndReleasesThePool proves the deadline is
+// a transport boundary, not a status checked only before a blocking read. The
+// first process never writes a response; the call must still return promptly,
+// discard that process and let a later call launch a usable one.
+func TestTimedOutStdioCallKillsItsSessionAndReleasesThePool(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not installed")
+	}
+	root := t.TempDir()
+	script := filepath.Join(root, "hanging.py")
+	if err := os.WriteFile(script, []byte(hangingFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(root, "hang-once")
+	if err := os.WriteFile(marker, []byte("hang"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(nil)
+	t.Cleanup(client.Close)
+	server := Server{ID: "hanging", Name: "Hanging", TransportKind: TransportStdio,
+		Endpoint: "python3 " + script, APIKeyEnv: "HANG_MARKER", RequestTimeoutMS: 15000, Enabled: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	started := time.Now()
+	_, err := client.CallToolStdio(ctx, server, marker, "hang", []byte(`{}`))
+	cancel()
+	if err == nil {
+		t.Fatal("a stdio server that never answered did not time out")
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("deadline took %v to release a blocked stdio read", elapsed)
+	}
+	if got := client.liveCount(); got != 0 {
+		t.Fatalf("timed-out stdio session remains live in the pool: %d", got)
+	}
+	if _, err := client.CallToolStdio(context.Background(), server, marker, "hang", []byte(`{}`)); err != nil {
+		t.Fatalf("call after the timeout did not get a fresh session: %v", err)
+	}
+}
+
+func TestOnlyCatalogListingIsAutomaticallyRetryable(t *testing.T) {
+	for _, method := range []string{"tools/list", "resources/list", "prompts/list"} {
+		if !retryableMCPMethod(method) {
+			t.Errorf("%s should be safe to retry", method)
+		}
+	}
+	for _, method := range []string{"tools/call", "resources/read", "prompts/get", "elicitation/create"} {
+		if retryableMCPMethod(method) {
+			t.Errorf("%s was allowed to replay after an uncertain connection failure", method)
+		}
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 )
 
@@ -89,8 +90,8 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 
 func (s *Service) runCommand(parent context.Context, job Job, project Project, executable string, input CommandInput) {
 	started := time.Now().UTC()
-	_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='running',progress=0.1,started_at=?
-    WHERE id=? AND state='queued'`, formatTime(started), job.ID)
+	durability.Exec("mark background job running").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='running',progress=0.1,started_at=?
+	    WHERE id=? AND state='queued'`, formatTime(started), job.ID))
 	ctx, cancel := context.WithTimeout(parent, time.Duration(input.TimeoutSeconds)*time.Second)
 	defer cancel()
 	// project.RootPath is already known non-empty: StartCommand required it
@@ -109,8 +110,8 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		errorMessage := "working directory could not be resolved: " + workingDirErr.Error()
 		resultJSON, _ := json.Marshal(map[string]any{})
 		completed := time.Now().UTC()
-		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
-    completed_at=? WHERE id=?`, string(resultJSON), errorMessage, formatTime(completed), job.ID)
+		durability.Exec("mark background job launch failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
+	    completed_at=? WHERE id=?`, string(resultJSON), errorMessage, formatTime(completed), job.ID))
 		s.mu.Lock()
 		delete(s.cancels, job.ID)
 		s.mu.Unlock()
@@ -159,8 +160,8 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 	}
 	resultJSON, _ := json.Marshal(result)
 	completed := time.Now().UTC()
-	_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state=?,progress=1,result_json=?,error=?,
-    completed_at=? WHERE id=?`, state, string(resultJSON), errorMessage, formatTime(completed), job.ID)
+	durability.Exec("finish background job").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state=?,progress=1,result_json=?,error=?,
+	    completed_at=? WHERE id=?`, state, string(resultJSON), errorMessage, formatTime(completed), job.ID))
 	s.mu.Lock()
 	delete(s.cancels, job.ID)
 	s.mu.Unlock()

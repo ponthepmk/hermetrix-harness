@@ -28,9 +28,11 @@ test_packages=$(GOCACHE="${GOCACHE:-/tmp/hermetrix-doc-truth-go-cache}" GOPROXY=
 printf 'test functions:        %s\n' "$test_functions"
 printf 'packages:              %s\n' "$test_packages"
 
-direct_tools=$(grep -cE '^\t\t\{Name: "' internal/tools/registry.go || true)
+direct_tool_files=(internal/tools/registry.go internal/tools/definitions_runtime.go)
+direct_tools=$(grep -hE '^\t\t\{Name: "' "${direct_tool_files[@]}" | wc -l | tr -d ' ')
 printf 'direct primitives:     %s\n' "$direct_tools"
-grep -oE '^\t\t\{Name: "[a-z_.]+"' internal/tools/registry.go | sed 's/.*"\(.*\)"/                       \1/' || true
+grep -h -oE '^\t\t\{Name: "[a-z_.]+"' "${direct_tool_files[@]}" |
+  sed 's/.*"\(.*\)"/                       \1/' || true
 
 printf 'context profiles:\n'
 grep -oE '\{Name: "[a-z0-9-]+", Total: [0-9]+' internal/context/profile.go |
@@ -93,6 +95,10 @@ team-member-history-retired|state='retired'|internal/product/team.go
 cockpit-ui-contract|func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom|internal/web/ui_contract_test.go
 learning-producer|func \(s \*Service\) StageTrigger|internal/learning/service.go
 learning-drain|func \(s \*Service\) DrainPending|internal/learning/service.go
+measured-outcome-citations|VerifiedBy|internal/learning/models.go
+browser-final-url-revalidated|func \(s \*Service\) acceptBrowserSnapshot|internal/product/browser.go
+mcp-stdio-cancellation-unblocks-read|func \(session \*stdioSession\) readLineContext|internal/mcp/stdio.go
+mcp-effects-are-not-replayed|func retryableMCPMethod|internal/mcp/pool.go
 task-budget|MaxCumulativeTokens|internal/agent/service.go
 loop-detector|third identical call|internal/agent/service.go
 qualification-exact-binding|AND provider_revision=\? AND requested_profile=\?|internal/agent/service.go

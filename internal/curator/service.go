@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
@@ -79,14 +80,14 @@ func (s *Service) RunReportOnly(ctx context.Context) (Run, error) {
 	persistCtx := context.WithoutCancel(ctx)
 	completed := time.Now().UTC()
 	if analyzeErr != nil {
-		_, _ = s.store.DB.ExecContext(persistCtx, `UPDATE curator_runs SET state='failed', error=?, completed_at=? WHERE id=?`,
-			analyzeErr.Error(), formatTime(completed), run.ID)
+		durability.Exec("mark curator analysis failed").Observe(s.store.DB.ExecContext(persistCtx, `UPDATE curator_runs SET state='failed', error=?, completed_at=? WHERE id=?`,
+			analyzeErr.Error(), formatTime(completed), run.ID))
 		return Run{}, analyzeErr
 	}
 	findings, persistErr := s.buildAndPersistFindings(persistCtx, run.ID, active, relations)
 	if persistErr != nil {
-		_, _ = s.store.DB.ExecContext(persistCtx, `UPDATE curator_runs SET state='failed', error=?, completed_at=? WHERE id=?`,
-			persistErr.Error(), formatTime(completed), run.ID)
+		durability.Exec("mark curator persistence failed").Observe(s.store.DB.ExecContext(persistCtx, `UPDATE curator_runs SET state='failed', error=?, completed_at=? WHERE id=?`,
+			persistErr.Error(), formatTime(completed), run.ID))
 		return Run{}, persistErr
 	}
 	run.State = "completed"

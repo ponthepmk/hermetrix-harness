@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/skills"
 )
@@ -419,8 +420,8 @@ func importReason(previewID string, conflict bool) string {
 }
 
 func (s *Service) failBackup(id string, cause error) {
-	_, _ = s.store.DB.Exec(`UPDATE backup_runs SET state='failed',error=?,completed_at=? WHERE id=?`, cause.Error(),
-		formatTime(time.Now().UTC()), id)
+	durability.Exec("mark backup failed").Observe(s.store.DB.Exec(`UPDATE backup_runs SET state='failed',error=?,completed_at=? WHERE id=?`, cause.Error(),
+		formatTime(time.Now().UTC()), id))
 }
 
 type backupScanner interface{ Scan(...any) error }

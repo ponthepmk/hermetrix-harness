@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"hermetrix-harness/internal/agent"
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 )
 
@@ -371,8 +372,8 @@ func (s *Service) DecideTeamTaskApproval(ctx context.Context, runID, taskID stri
 		Actor: input.Actor, Decision: input.Decision, Reason: input.Reason}, nil)
 	durableCtx := context.WithoutCancel(ctx)
 	if err != nil {
-		_, _ = s.store.DB.ExecContext(durableCtx, `UPDATE agent_team_tasks SET state='failed',error=?,completed_at=?
-			WHERE id=? AND state='resolving_approval'`, err.Error(), formatTime(time.Now().UTC()), task.ID)
+		durability.Exec("mark team approval resolution failed").Observe(s.store.DB.ExecContext(durableCtx, `UPDATE agent_team_tasks SET state='failed',error=?,completed_at=?
+			WHERE id=? AND state='resolving_approval'`, err.Error(), formatTime(time.Now().UTC()), task.ID))
 		s.continueTeamRun(durableCtx, runID)
 		return s.GetTeamRun(durableCtx, runID)
 	}
@@ -408,7 +409,7 @@ func (s *Service) continueTeamRun(ctx context.Context, runID string) {
 		return
 	}
 	if waiting > 0 {
-		_, _ = s.store.DB.ExecContext(ctx, `UPDATE agent_team_runs SET state='awaiting_approval' WHERE id=? AND state!='cancelled'`, runID)
+		durability.Exec("mark team run awaiting approval").Observe(s.store.DB.ExecContext(ctx, `UPDATE agent_team_runs SET state='awaiting_approval' WHERE id=? AND state!='cancelled'`, runID))
 		return
 	}
 	resumed, err := s.store.DB.ExecContext(ctx, `UPDATE agent_team_runs SET state='queued',error='',completed_at=NULL
@@ -518,8 +519,8 @@ func (s *Service) executeTeamRun(ctx context.Context, runID, qualificationReason
 			}
 		}
 		if waitingApproval {
-			_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_runs SET state='awaiting_approval'
-				WHERE id=? AND state='running'`, runID)
+			durability.Exec("pause team run for approval").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_runs SET state='awaiting_approval'
+				WHERE id=? AND state='running'`, runID))
 			return
 		}
 		var ready []TeamTask
@@ -540,8 +541,8 @@ func (s *Service) executeTeamRun(ctx context.Context, runID, qualificationReason
 				}
 			}
 			if blocked {
-				_, _ = s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET state='blocked',error='dependency did not complete',completed_at=? WHERE id=?`,
-					formatTime(time.Now().UTC()), task.ID)
+				durability.Exec("mark team task dependency blocked").Observe(s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET state='blocked',error='dependency did not complete',completed_at=? WHERE id=?`,
+					formatTime(time.Now().UTC()), task.ID))
 				continue
 			}
 			if satisfied {
@@ -596,8 +597,8 @@ func (s *Service) executeTeamRun(ctx context.Context, runID, qualificationReason
 		}
 	}
 	completed := time.Now().UTC()
-	_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_runs SET state=?,error=?,prompt_tokens=?,completion_tokens=?,completed_at=? WHERE id=?`,
-		state, errorText, promptTokens, completionTokens, formatTime(completed), runID)
+	durability.Exec("finish team run").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_runs SET state=?,error=?,prompt_tokens=?,completion_tokens=?,completed_at=? WHERE id=?`,
+		state, errorText, promptTokens, completionTokens, formatTime(completed), runID))
 }
 
 func (s *Service) runTeamTask(ctx context.Context, run TeamRun, task TeamTask, tasks map[string]TeamTask, qualificationReason string) {
@@ -627,28 +628,28 @@ func (s *Service) runTeamTask(ctx context.Context, run TeamRun, task TeamTask, t
 		s.failTeamTask(ctx, task.ID, err)
 		return
 	}
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET session_id=? WHERE id=?`, session.ID, task.ID)
+	durability.Exec("bind team task session").Observe(s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET session_id=? WHERE id=?`, session.ID, task.ID))
 	result, err := s.agent.RunTurn(ctx, session.ID, agent.TurnInput{Content: prompt}, nil)
 	if err != nil {
 		s.failTeamTask(ctx, task.ID, err)
 		return
 	}
 	if result.Approval != nil {
-		_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_tasks SET state='awaiting_approval',
+		durability.Exec("mark team task awaiting approval").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_tasks SET state='awaiting_approval',
 			approval_id=?,approval_summary=?,approval_preview=?,approval_effect=?,prompt_tokens=?,completion_tokens=?
 			WHERE id=? AND state='running'`, result.Approval.ID, result.Approval.Summary, result.Approval.Preview,
-			result.Approval.Effect, result.Usage.PromptTokens, result.Usage.CompletionTokens, task.ID)
+			result.Approval.Effect, result.Usage.PromptTokens, result.Usage.CompletionTokens, task.ID))
 		return
 	}
 	completed := time.Now().UTC()
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET state='completed',result=?,prompt_tokens=?,completion_tokens=?,completed_at=? WHERE id=?`,
-		result.AssistantEvent.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, formatTime(completed), task.ID)
+	durability.Exec("finish team task").Observe(s.store.DB.ExecContext(ctx, `UPDATE agent_team_tasks SET state='completed',result=?,prompt_tokens=?,completion_tokens=?,completed_at=? WHERE id=?`,
+		result.AssistantEvent.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, formatTime(completed), task.ID))
 }
 
 func (s *Service) failTeamTask(ctx context.Context, taskID string, err error) {
-	_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_tasks SET state='failed',error=?,completed_at=?
+	durability.Exec("mark team task failed").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_tasks SET state='failed',error=?,completed_at=?
 		WHERE id=? AND state='running'`,
-		err.Error(), formatTime(time.Now().UTC()), taskID)
+		err.Error(), formatTime(time.Now().UTC()), taskID))
 }
 
 func (s *Service) ListTeamRuns(ctx context.Context, limit int) ([]TeamRun, error) {

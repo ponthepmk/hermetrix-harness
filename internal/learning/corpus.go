@@ -431,7 +431,7 @@ func inventedEvidence(digest Digest, suggested SuggestedSkill) []string {
 			given[parts[0]+":"+parts[1]] = true
 		}
 	}
-	for _, group := range [][]string{digest.ToolReceipts, digest.SkillActivations,
+	for _, group := range [][]string{digest.ToolReceipts, digest.VerifiedBy, digest.SkillActivations,
 		digest.UserCorrections, digest.Artifacts, digest.Decisions} {
 		for _, value := range group {
 			note(value)

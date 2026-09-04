@@ -29,10 +29,10 @@ Hermetrix เป็น local-first Go harness ที่รวม authority-safe 
 ตัวเลขจาก `./scripts/doc-truth.sh`:
 
 ```text
-test functions        346        packages              25
-direct primitives      11        HTTP routes           116
+test functions        424        packages              26
+direct primitives      13        HTTP routes           118
 SQLite tables          47        schema-only tables      0
-Go (non-test)      28,762        Go (test)           14,432
+Go (non-test)      30,391        Go (test)           17,206
 ```
 
 ## 2. Workbench ที่ทำงานจริงแล้ว
@@ -100,7 +100,7 @@ Go (non-test)      28,762        Go (test)           14,432
 - curator เป็น report-only: หา stale/duplicate/consolidation ได้แต่ห้าม mutate เอง
 - MCP รองรับ **stdio** (`internal/mcp/stdio.go`) และ Streamable HTTP; stdio ใช้ launcher allowlist (npx/node/bun/deno/uv/uvx/python/python3/docker/go) รันตรงไม่ผ่าน shell และ child env มีแค่ PATH/HOME/locale + token ของตัวเอง
 - discovery index ครบ 3 kind: tools, **resources**, **prompts** (`internal/mcp/catalogkinds.go`, `catalogstore.go`) เข้า deferred catalog เดียวกัน ชื่อ capability ขึ้นต้น `resource:` / `prompt:` และ waist ยังเท่าเดิม
-- stdio process อยู่ใน pool (`internal/mcp/pool.go`) 1 process ต่อ server, idle 5 นาทีถูกเก็บ, แก้ config = process ใหม่, pipe ตาย = retry 1 ครั้งบน process ใหม่ (**reconnect**) — retry เฉพาะ connection ตาย ไม่ retry เมื่อ server ปฏิเสธ
+- stdio process อยู่ใน pool (`internal/mcp/pool.go`) 1 process ต่อ server, idle 5 นาทีถูกเก็บ, แก้ config = process ใหม่; timeout/cancel จะ kill และ discard session เพื่อไม่ให้ blocking read ยึด pool ค้าง Catalog-list ที่เป็น read-only retry ได้ 1 ครั้ง แต่ `tools/call`, resource read และ prompt rendering ไม่ replay หลัง connection ตาย—request ถัดไปจึงค่อยเปิด process ใหม่
 - **sampling + elicitation** ทำแล้ว (`internal/mcp/serverrequests.go`, `internal/agent/mcpbridge.go`): `stdioSession.call` เป็น bidirectional pump ตอบ server-to-client request บน pipe เดียวกัน
   - fail-closed: server ที่ `trust_annotations` ปิด ถูกปฏิเสธทั้งคู่ พร้อมบอกว่าต้องเปิดที่ไหน
   - sampling ใช้ provider ของ session, cap 1024 token และ 4 ครั้งต่อ tool call, ข้อความ server เข้าเป็น user content ใต้ system line ที่บอกว่ามาจาก server

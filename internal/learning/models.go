@@ -25,15 +25,21 @@ type SuggestedSkill struct {
 // Digest is deliberately structured and bounded. A review worker receives
 // receipts and redacted facts rather than an entire warm transcript.
 type Digest struct {
-	GoalAndConstraints string          `json:"goal_and_constraints"`
-	Outcome            string          `json:"outcome"`
-	Decisions          []string        `json:"decisions"`
-	ToolReceipts       []string        `json:"tool_receipts"`
-	SkillActivations   []string        `json:"skill_activations"`
-	UserCorrections    []string        `json:"user_corrections"`
-	Artifacts          []string        `json:"artifacts"`
-	Redactions         []string        `json:"redactions"`
-	SuggestedSkill     *SuggestedSkill `json:"suggested_skill,omitempty"`
+	GoalAndConstraints string   `json:"goal_and_constraints"`
+	Outcome            string   `json:"outcome"`
+	Decisions          []string `json:"decisions"`
+	ToolReceipts       []string `json:"tool_receipts"`
+	// VerifiedBy cites the receipts that measured the outcome rather than
+	// asserting it—a command that actually completed and exited zero. A turn
+	// whose Outcome is "success" with an empty VerifiedBy succeeded because the
+	// model said so, which is a weaker claim. References, rather than a boolean,
+	// keep every verification claim traceable to evidence.
+	VerifiedBy       []string        `json:"verified_by"`
+	SkillActivations []string        `json:"skill_activations"`
+	UserCorrections  []string        `json:"user_corrections"`
+	Artifacts        []string        `json:"artifacts"`
+	Redactions       []string        `json:"redactions"`
+	SuggestedSkill   *SuggestedSkill `json:"suggested_skill,omitempty"`
 }
 
 type EnqueueInput struct {

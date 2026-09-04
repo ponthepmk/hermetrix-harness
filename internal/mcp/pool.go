@@ -19,9 +19,9 @@ import (
 //
 // The pool keeps one live process per server and hands it out under a lock, so
 // a server that is stateless between calls stays stateless and one that is not
-// keeps the state it is entitled to. Reconnect falls out of this: a call that
-// dies on a broken pipe drops the session and runs once more on a fresh one,
-// which is what a user means by "it reconnected".
+// keeps the state it is entitled to. A broken process is discarded. Discovery
+// requests may reconnect immediately because they are read-only by contract;
+// an effectful tools/call fails uncertain and only a later call starts fresh.
 
 const (
 	// poolIdleTimeout is how long an unused server process is kept alive. Long
@@ -183,10 +183,11 @@ func (c *Client) sweepIdle() bool {
 	return true
 }
 
-// pooledCall runs one RPC on the server's live process, and retries once on a
-// fresh process when the failure says the old one is gone. That retry is the
-// reconnect: a server that crashed, was restarted, or timed out its own idle
-// connection is picked up on the next call instead of failing the user's turn.
+// pooledCall runs one RPC on the server's live process. It reconnects once only
+// for catalog listing, whose MCP contract is read-only. In particular,
+// tools/call is never replayed: a server may have completed its effect before
+// dying on the response path, so retrying would turn an uncertain result into a
+// duplicate effect.
 func (c *Client) pooledCall(ctx context.Context, server Server, credential, method string,
 	params map[string]any) (json.RawMessage, error) {
 	for attempt := 0; attempt < 2; attempt++ {
@@ -202,15 +203,30 @@ func (c *Client) pooledCall(ctx context.Context, server Server, credential, meth
 			return result, nil
 		}
 		broken := isBrokenConnection(callErr)
-		if broken {
+		cancelled := ctx.Err() != nil
+		if broken || cancelled {
 			entry.discard()
 		}
 		entry.release()
-		if !broken || attempt == 1 || ctx.Err() != nil {
+		if !broken || !retryableMCPMethod(method) || attempt == 1 || cancelled {
 			return nil, callErr
 		}
 	}
 	return nil, errors.New("unreachable")
+}
+
+// retryableMCPMethod is deliberately an allowlist. Catalog listing is the only
+// family whose semantics make an automatic replay safe. Resource reads and
+// prompt rendering are also observational in most servers, but the protocol
+// permits server-side work and nested requests while producing them; reconnect
+// on the caller's next attempt is safer than guessing that work was idempotent.
+func retryableMCPMethod(method string) bool {
+	switch method {
+	case "tools/list", "resources/list", "prompts/list":
+		return true
+	default:
+		return false
+	}
 }
 
 // isBrokenConnection separates "this server is gone" from "this server said

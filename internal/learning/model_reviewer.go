@@ -89,6 +89,12 @@ no value that belonged only to this run. A convention counts even when no steps
 were performed: "money is kept as integer satang and rounded half up only at
 display" is knowledge, and a turn that only stated it still carries it.
 
+Evidence carries a verified_by list. It cites receipts that measured the
+outcome: a command that actually completed and exited zero. When verified_by is
+empty the outcome was asserted, not measured, and any procedure you propose
+must say so in its own text—one plain sentence saying the approach was not
+verified by a run. Do not describe unmeasured work as tested, verified or proven.
+
 Do not invent steps the evidence does not show. Keep the body under 40 lines.`
 
 func (r *ModelReviewer) Review(ctx context.Context, digest Digest) (Decision, error) {

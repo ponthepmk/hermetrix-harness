@@ -275,6 +275,34 @@ func TestManagedBrowserURLPolicy(t *testing.T) {
 	}
 }
 
+// TestManagedBrowserRevalidatesTheURLChromeActuallyReached covers redirects,
+// history and click-driven navigation without requiring Chrome. A public URL
+// may resolve initially and then land on loopback; page text from that final
+// destination must not enter the retained snapshot unless private access was
+// explicitly granted for the tab.
+func TestManagedBrowserRevalidatesTheURLChromeActuallyReached(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	snapshot := browserSnapshot{Title: "Local admin", URL: "http://127.0.0.1:9000/admin",
+		Text: "private control panel", Links: []BrowserLink{{Text: "delete", URL: "/delete"}},
+		Elements: []BrowserElement{{Ref: 1, Tag: "button", Text: "delete", Selector: "button"}}}
+	blocked := &browserTabRuntime{tab: BrowserTab{URL: "https://public.example/start", AllowPrivate: false}}
+	if err := service.acceptBrowserSnapshot(ctx, blocked, snapshot); err == nil || !strings.Contains(err.Error(), "disallowed URL") {
+		t.Fatalf("private final navigation was accepted: %v", err)
+	}
+	if blocked.tab.TextSnapshot != "" || len(blocked.tab.Links) != 0 || len(blocked.tab.Elements) != 0 {
+		t.Fatalf("content from a disallowed final URL entered the tab snapshot: %+v", blocked.tab)
+	}
+
+	approved := &browserTabRuntime{tab: BrowserTab{URL: "https://public.example/start", AllowPrivate: true}}
+	if err := service.acceptBrowserSnapshot(ctx, approved, snapshot); err != nil {
+		t.Fatalf("an explicitly private-enabled tab rejected its final URL: %v", err)
+	}
+	if approved.tab.TextSnapshot != snapshot.Text || approved.tab.URL != snapshot.URL {
+		t.Fatalf("approved snapshot was not retained: %+v", approved.tab)
+	}
+}
+
 func TestNativeOfficeDeliverablesAreRealAuditablePackages(t *testing.T) {
 	service, _, _ := testProductService(t)
 	ctx := context.Background()

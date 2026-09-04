@@ -75,8 +75,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: syntax-check the control-center script
-        run: node --check internal/web/ui/app.js
+        run: |
+          node --check internal/web/ui/runtime.js
+          node --check internal/web/ui/app.js
+
+      - name: test control-center runtime behavior
+        run: node --test internal/web/ui/runtime.test.js
+
+      - name: hydrate the cockpit in Chrome
+        env:
+          HERMETRIX_REQUIRE_BROWSER_E2E: "1"
+        run: go test ./internal/web -run TestCockpitHydratesInARealBrowser -count=1 -v

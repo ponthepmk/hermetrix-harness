@@ -177,7 +177,7 @@ background review ── no_change ──► completed
 
 ### Evidence intake
 
-`learning.Digest` รับข้อมูลแบบมีโครงสร้าง: goal/constraints, outcome, decisions, tool receipts, Skill activations, corrections, artifacts และ redactions ไม่ส่ง warm transcript ทั้งก้อนให้ reviewer เหตุผลคือ:
+`learning.Digest` รับข้อมูลแบบมีโครงสร้าง: goal/constraints, outcome, decisions, tool receipts, Skill activations, corrections, artifacts, redactions และ `verified_by` ไม่ส่ง warm transcript ทั้งก้อนให้ reviewer `verified_by` อ้างได้เฉพาะ receipt ของ `workspace.run` ที่จบสถานะ `completed` และ exit code 0; ความสำเร็จที่เล่าไว้แต่ไม่มี receipt ยังคงเป็น claimed outcome และ reviewer ต้องระบุว่าไม่ได้ยืนยันด้วยการรัน เหตุผลคือ:
 
 - ลด token และ prompt-cache churn
 - จำกัดข้อมูลส่วนตัว/secret ที่ worker เห็น
@@ -373,7 +373,9 @@ JSON decoder จำกัด body 10 MiB และ reject unknown fields Import 
 
 ## Tool runtime และ deferred capability graph
 
-Agent loop expose direct primitives 11 ตัว: `workspace.list_files`, `workspace.read_file`, `workspace.search_files`, `workspace.write_file`, `skill_search`, `context_search`, `skill_view`, `skill_manage`, `tool_search`, `tool_describe` และ `tool_call` ทุก sampling step freeze exact direct name/schema/revision/effect/approval requirement ลง `StepBinding` ก่อน model call Tool ที่ไม่อยู่ใน binding ถูก reject, argument ถูก decode แบบ strict, symlink/path escape ถูกกัน และ file read จำกัด 1 MiB พร้อม SHA-256 ใน receipt
+Agent loop expose direct primitives 13 ตัว: `workspace.list_files`, `workspace.read_file`, `workspace.search_files`, `workspace.write_file`, `skill_search`, `context_search`, `skill_view`, `skill_manage`, `tool_search`, `tool_describe`, `tool_call`, `workspace.run` และ `browser` ทุก sampling step freeze exact direct name/schema/revision/effect/approval requirement ลง `StepBinding` ก่อน model call Tool ที่ไม่อยู่ใน binding ถูก reject และ argument ถูก decode แบบ strict
+
+เครื่องมือ file/run และ `file:` navigation ของ browser ผูกกับ Project ที่ freeze ใน Session Contract ไม่ใช่ workspace root ส่วนกลาง File access กัน symlink/path escape, read จำกัด 1 MiB พร้อม SHA-256 ใน receipt ส่วน `workspace.run` เรียกได้เฉพาะ executable allowlist โดยไม่ผ่าน shell มี deadline/output ceiling/process-group cancellation และยังไม่ใช่ OS sandbox Browser จำกัด action enum, ติดป้าย page content เป็น untrusted evidence, ขอ approval สำหรับ network ที่ไม่ใช่ loopback และตรวจ final URL หลัง navigation ซ้ำเพื่อปิด redirect ไป private/local network
 
 `workspace.write_file` เป็น effectful vertical slice รุ่นแรก:
 
@@ -437,7 +439,7 @@ MCP annotations เป็น hints ที่ไม่ trusted ตาม default 
 - external `$ref` ถูกปิดเพื่อไม่ให้ schema compilation fetch network resource หรือเปลี่ยน contract นอก snapshot revision
 - tool call ทุกครั้งตรวจ persisted server/tool revision ซ้ำหลัง catalog lookup และไม่ retry อัตโนมัติ
 
-ยังไม่มี network/process core tools หรือ OS-level sandbox จึงห้ามตีความว่าเป็น autonomous coding runtime ที่สมบูรณ์ Write รองรับเฉพาะ complete UTF-8 single-file replacement/create ใน directory ที่มีอยู่ MCP ยังขาด stdio, OAuth, resources/prompts/subscriptions และ MRTR
+มี process tool (`workspace.run`) และ managed browser แล้ว แต่ยังไม่มี OS-level sandbox หรือ proxy-level egress/DNS-rebinding enforcement จึงห้ามตีความว่าเป็น isolation boundary สำหรับโค้ดหรือเว็บที่ไม่เชื่อถือ Write รองรับเฉพาะ complete UTF-8 single-file replacement/create ใน directory ที่มีอยู่ MCP รองรับ Streamable HTTP และ stdio รวม tools/resources/prompts แล้ว; ส่วน OAuth, subscriptions และ MRTR ยังขาด
 
 Skill declaration ไม่เพิ่ม permission สิทธิ์จริงเป็น intersection ของ session ceiling, user/admin policy, catalog risk state และ exact task grant Scripts ใน Skill ต้องผ่าน tool execution pipeline เดียวกัน ไม่มีทางเขียน MCP profileหรือเปลี่ยน annotation trust ผ่าน Skill content
 

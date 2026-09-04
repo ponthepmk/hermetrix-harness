@@ -48,7 +48,7 @@ Exit gate:
 
 - crash/restart resume ไม่ fabricate tool success
 - cancellation ถึง child process
-- write actions ผ่าน approval policy — ทำแล้วสำหรับ single-file UTF-8 write; network/process ยังเหลือ
+- effectful write และ non-loopback browser navigation ผ่าน approval policy; `workspace.run` ใช้ executable allowlist, no-shell execution และ resource bounds เป็น authority โดยตั้งใจไม่ถามทุก command ส่วน OS sandbox/proxy-level egress ยังเหลือ
 - tool ที่ไม่อยู่ใน binding ถูก reject
 - unknown side effect ห้าม auto-retry
 
@@ -56,7 +56,7 @@ Exit gate:
 
 - catalog แบบ source-aware เริ่มด้วย MCP และรองรับ atomic snapshot ต่อ server; plugin/dynamic source adapters ยังเหลือ
 - readiness/credential/risk/approval state ทำแล้วสำหรับ MCP; dependency graph ทั่วไปยังเหลือ
-- direct primitives มี 11 ตัว: workspace 4 + session/context/Skill 4 + deferred `tool_search/describe/call` 3; catalog ขนาดใหญ่ไม่เพิ่มจำนวน schema ใน prompt
+- direct primitives มี 13 ตัว: workspace file 4 + session/context/Skill 4 + deferred `tool_search/describe/call` 3 + runtime `workspace.run`/`browser` 2; catalog ขนาดใหญ่ไม่เพิ่มจำนวน schema ใน prompt
 - exact schema/handler revision binding ทำแล้วสำหรับ core และ MCP target revision; call ที่ revision drift ถูก reject
 - Skill metadata selection — ทำแล้วแบบ deterministic selector รุ่นแรก; resource loading ยังขาด
 - Skill body ที่ pre-selected ยังเข้า prompt ตาม goal แรก แต่ Skill นอกชุดนั้นดึงตามต้องการผ่าน `skill_search`/`skill_view` และถูกจำกัดด้วย exact version ใน Session Contract ดู ADR-7 ใน [FUTURE-ARCHITECTURE-PLAN.md](FUTURE-ARCHITECTURE-PLAN.md)

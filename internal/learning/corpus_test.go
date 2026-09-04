@@ -615,6 +615,14 @@ func TestACitationAtTheEndOfASentenceIsNotInvented(t *testing.T) {
 	}
 }
 
+func TestVerificationReceiptIsAValidEvidenceCitation(t *testing.T) {
+	digest := Digest{VerifiedBy: []string{"event:event_measured:workspace.run:succeeded"}}
+	suggested := SuggestedSkill{Markdown: "Verified by event:event_measured."}
+	if invented := inventedEvidence(digest, suggested); len(invented) != 0 {
+		t.Fatalf("a cited verification receipt was reported as invented: %v", invented)
+	}
+}
+
 // failingReviewer fails a set number of times before answering, the way a
 // gateway does when it returns a 502 and then recovers.
 type failingReviewer struct {

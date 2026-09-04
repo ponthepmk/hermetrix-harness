@@ -33,9 +33,11 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - a persisted per-session turn lease so two concurrent requests cannot both commit a user message, with orphaned turns recovered on restart
 - a task budget of model steps, tool calls, wall time and cumulative tokens instead of a hard-coded step limit
 - a learning trigger outbox written in the same transaction as the turn commit and drained into idempotent review jobs
+- learning digests that distinguish measured command success (`verified_by`) from an outcome merely claimed in conversation
 - bounded workspace read tools plus approval-gated atomic text writes with optimistic SHA-256 checks
 - persisted one-shot effect grants, denial receipts and restart recovery that marks interrupted effects `uncertain` instead of retrying
 - deferred capability catalog with fixed-size `tool_search`, `tool_describe` and `tool_call` prompt primitives
+- a 13-tool direct waist: four bounded file tools, four Skill/context tools, three deferred-catalog tools, `workspace.run` and `browser`
 - MCP Streamable HTTP client for current stateless `2026-07-28` plus automatic legacy `2025-11-25` handshake fallback
 - MCP pagination, JSON/SSE responses, request cancellation, timeout/error taxonomy, current `x-mcp-header` support and no automatic tool-call retry
 - MCP connection/tool snapshot persistence with environment-only secrets, exact tool revisions, conservative risk classification and credential redaction
@@ -91,7 +93,12 @@ policy, while an MCP choice inserts the auditable
 current model, context envelope, project, Skill selection, direct-tool count,
 pending approvals and contract revisions beside the conversation.
 
-Use `--workspace PATH` to choose the root exposed to bounded tools. Reads stay inside that root. `workspace.write_file` can replace one UTF-8 file or create one file in an existing directory, but every exact write pauses for approval in Chat and uses `expected_sha256` to reject stale changes.
+Use `--workspace PATH` to register the initial Project. Every session freezes its
+selected Project, and bounded file, command and browser-file operations resolve
+against that Project's root rather than a process-global directory. Reads stay
+inside the root. `workspace.write_file` can replace one UTF-8 file or create one
+file in an existing directory, but every exact write pauses for approval in Chat
+and uses `expected_sha256` to reject stale changes.
 
 The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–120 second deadline, 2 MiB output ceiling, process-group cancellation and an immutable terminal-log artifact. This is process hardening, not an OS security sandbox; run untrusted code only inside a separate OS/container sandbox.
 
@@ -163,9 +170,11 @@ model searches for something in it.
 A stdio server is launched once and kept, not relaunched per call, so a local
 server does not pay its startup on every request. An idle server is stopped
 after five minutes, changing a server's settings starts a fresh process rather
-than reusing the old one, and a call that finds its process gone runs once more
-on a new one. That retry covers a dead connection only: a server that refuses a
-call is never asked twice. Discovery is explicit and atomically replaces one server's catalog snapshot. By default Hermetrix treats all MCP annotations as untrusted, so remote calls require approval; enable annotation trust only for a server whose behavior you control or have audited.
+than reusing the old one, and timeout/cancellation kills and discards the whole
+session so it cannot wedge later calls. Catalog-list requests may reconnect once
+because they are read-only; `tools/call`, resource reads and prompt rendering
+are never replayed after an uncertain connection failure. The next distinct
+request starts a fresh process. Discovery is explicit and atomically replaces one server's catalog snapshot. By default Hermetrix treats all MCP annotations as untrusted, so remote calls require approval; enable annotation trust only for a server whose behavior you control or have audited.
 
 The Models screen exposes a behavioral qualification suite. Remote gateway metadata can test tools, cancellation, recall and latency, but it cannot certify local allocation. `Certified 64k` requires a verified loaded-runtime probe; missing or failed evidence produces an explicit decision report rather than changing the selected profile silently.
 

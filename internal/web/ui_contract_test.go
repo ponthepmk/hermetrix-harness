@@ -9,12 +9,12 @@ import (
 
 func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 	index := mustUIFile(t, "ui/index.html")
-	javascript := mustUIFile(t, "ui/app.js")
+	javascript := mustUIFile(t, "ui/runtime.js") + "\n" + mustUIFile(t, "ui/app.js")
 	stylesheet := mustUIFile(t, "ui/style.css")
 	for _, marker := range []string{
 		`id="sessionDock"`, `id="workbenchContent"`, `data-workbench="review"`, `data-workbench="files"`,
 		`data-workbench="artifacts"`, `data-workbench="team"`, `id="commandButton"`, `id="commandDialog"`,
-		`id="capabilityDialog"`,
+		`id="capabilityDialog"`, `<script src="/runtime.js" defer></script>`,
 	} {
 		if !strings.Contains(index, marker) {
 			t.Errorf("cockpit HTML is missing %s", marker)

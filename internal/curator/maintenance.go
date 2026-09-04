@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 )
 
@@ -153,8 +154,8 @@ func (s *Service) ApplyGC(ctx context.Context, runID, actor string) (GCRun, erro
 			if rollbackFailed {
 				state = "partial_quarantine"
 			}
-			_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state=?,actor=?,quarantine_path=? WHERE id=?`,
-				state, actor, quarantineRoot, run.ID)
+			durability.Exec("record GC quarantine failure").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state=?,actor=?,quarantine_path=? WHERE id=?`,
+				state, actor, quarantineRoot, run.ID))
 			return GCRun{}, err
 		}
 		moved = append(moved, candidate)
@@ -177,8 +178,8 @@ func (s *Service) ApplyGC(ctx context.Context, runID, actor string) (GCRun, erro
 			}
 		}
 		if rollbackFailed {
-			_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state='partial_quarantine',actor=?,quarantine_path=?
-				WHERE id=? AND state='planned'`, actor, quarantineRoot, run.ID)
+			durability.Exec("record partial GC rollback").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state='partial_quarantine',actor=?,quarantine_path=?
+				WHERE id=? AND state='planned'`, actor, quarantineRoot, run.ID))
 		}
 		return GCRun{}, err
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 )
 
@@ -204,8 +205,8 @@ func (s *Service) TryAutomatedPromotion(ctx context.Context, candidateID string)
 	completed := time.Now().UTC()
 	if promoteErr != nil {
 		action.State, action.Error, action.CompletedAt = "failed", promoteErr.Error(), &completed
-		_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE skill_authority_actions SET state='failed',error=?,completed_at=? WHERE id=?`,
-			action.Error, formatTime(completed), action.ID)
+		durability.Exec("mark Skill promotion authority action failed").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE skill_authority_actions SET state='failed',error=?,completed_at=? WHERE id=?`,
+			action.Error, formatTime(completed), action.ID))
 		return &action, promoteErr
 	}
 	action.SkillID, action.AfterVersionID, action.State, action.CompletedAt = promoted.ID, promoted.CurrentVersionID, "completed", &completed
@@ -244,8 +245,8 @@ func (s *Service) TryCuratorArchive(ctx context.Context, skillID, findingID, exp
 	completed := time.Now().UTC()
 	if archiveErr != nil {
 		action.State, action.Error, action.CompletedAt = "failed", archiveErr.Error(), &completed
-		_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE skill_authority_actions
-			SET state='failed',error=?,completed_at=? WHERE id=?`, action.Error, formatTime(completed), action.ID)
+		durability.Exec("mark Skill archive authority action failed").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE skill_authority_actions
+			SET state='failed',error=?,completed_at=? WHERE id=?`, action.Error, formatTime(completed), action.ID))
 		return &action, archiveErr
 	}
 	action.ArchiveID, action.State, action.CompletedAt = archive.ID, "completed", &completed

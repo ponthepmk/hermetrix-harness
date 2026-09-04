@@ -349,7 +349,7 @@ skill_view(skill_id, version_id)
 4. Skill slice ใน budget profile ลดลงเหลือเฉพาะ metadata index ที่ bounded; token ที่คืนมาไปอยู่กับ active history
 5. `skill_search` เป็น `effect: read` ไม่ต้อง approval; `skill_view` เช่นกัน — ทั้งคู่ไม่ mutate อะไร
 
-**ผลที่ implement แล้ว:** หลังเพิ่ม retrieval, `context_search`, `skill_manage` และ bounded workspace search ปัจจุบันมี direct primitives 11 ตัว โดย exact serialization ใช้ 1,959 จาก budget 3,584 ของ compact-32k; deferred catalog ไม่ทำให้จำนวนนี้โต
+**ผลที่ implement แล้ว:** หลังเพิ่ม retrieval, `context_search`, `skill_manage`, bounded workspace search, `workspace.run` และ `browser` ปัจจุบันมี direct primitives 13 ตัว โดย exact serialization ใช้ 2,651 จาก budget 3,584 ของ compact-32k; deferred catalog ไม่ทำให้จำนวนนี้โต
 
 **ทางเลือกที่พิจารณาแล้วไม่เอา:** re-select Skill ทุก turn จาก catalog ที่ freeze ไว้ — ทางนี้ยังทำ prompt prefix เปลี่ยนกลาง session ซึ่งขัด ADR-1 และ Hermes byte-stable invariant โดยตรง
 
@@ -524,7 +524,7 @@ Exit gates:
 - session ที่เปลี่ยนหัวข้อกลางทางเรียก `skill_search` แล้วได้ Skill ที่ตรง โดย prompt fingerprint ไม่เปลี่ยน
 - `skill_view` ที่ขอ version นอก catalog ถูก reject ใน test
 - Skill body ที่ใหญ่เกิน slice ถูก spill เป็น artifact receipt เหมือน tool output อื่น
-- direct primitives ทั้ง 11 ตัวยังต่ำกว่า schema ceiling ของทุก profileด้วย exact serialization และ scale test ยืนยันว่า deferred catalog ไม่ขยาย waist
+- direct primitives ทั้ง 13 ตัวยังต่ำกว่า schema ceiling ของทุก profile ด้วย exact serialization และ scale test ยืนยันว่า deferred catalog ไม่ขยาย waist
 - token ที่ Skill slice คืนมาปรากฏใน active history จริง วัดจาก integrity report
 
 ## Phase 8 — Skill Learning OS 2.0

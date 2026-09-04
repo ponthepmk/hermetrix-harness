@@ -39,9 +39,10 @@ type browserTabRuntime struct {
 }
 
 type cdpClient struct {
-	mu     sync.Mutex
-	conn   *websocket.Conn
-	nextID int64
+	mu           sync.Mutex
+	conn         *websocket.Conn
+	nextID       int64
+	requestGuard func(context.Context, string) error
 }
 
 type cdpResponse struct {
@@ -51,6 +52,14 @@ type cdpResponse struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type browserSnapshot struct {
+	Title    string           `json:"title"`
+	URL      string           `json:"url"`
+	Text     string           `json:"text"`
+	Links    []BrowserLink    `json:"links"`
+	Elements []BrowserElement `json:"elements"`
 }
 
 func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput) (BrowserTab, error) {
@@ -74,7 +83,16 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	if err != nil {
 		return BrowserTab{}, fmt.Errorf("connect Chrome DevTools target: %w", err)
 	}
-	client := &cdpClient{conn: conn}
+	client := &cdpClient{conn: conn, requestGuard: func(requestCtx context.Context, requestURL string) error {
+		return s.validateBrowserRequestURL(requestCtx, input.ProjectID, requestURL, input.AllowPrivate)
+	}}
+	// Fetch interception runs before Chrome releases a request to the network.
+	// It covers redirects, click/form navigation, subresources and websocket
+	// handshakes—not only the initial Page.navigate URL.
+	if err := client.call(ctx, "Fetch.enable", map[string]any{"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}}}, nil); err != nil {
+		_ = conn.Close()
+		return BrowserTab{}, err
+	}
 	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
 		_ = conn.Close()
 		return BrowserTab{}, err
@@ -87,7 +105,10 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 		_ = conn.Close()
 		return BrowserTab{}, err
 	}
-	_ = waitForPageReady(ctx, client)
+	if readyErr := waitForPageReady(ctx, client); isBrowserPolicyError(readyErr) {
+		_ = conn.Close()
+		return BrowserTab{}, readyErr
+	}
 	now := time.Now().UTC()
 	tab := BrowserTab{ID: identity.New("btab"), ProjectID: input.ProjectID, URL: validatedURL,
 		State: "ready", AllowPrivate: input.AllowPrivate, Links: []BrowserLink{}, Elements: []BrowserElement{},
@@ -132,14 +153,18 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 			return BrowserTab{}, err
 		}
 		if err := runtimeTab.client.call(ctx, "Page.navigate", map[string]any{"url": validated}, nil); err != nil {
-			return BrowserTab{}, err
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
-		_ = waitForPageReady(ctx, runtimeTab.client)
+		if readyErr := waitForPageReady(ctx, runtimeTab.client); isBrowserPolicyError(readyErr) {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, readyErr)
+		}
 	case "back":
 		if _, err := runtimeTab.client.evaluate(ctx, `history.back(); true`); err != nil {
-			return BrowserTab{}, err
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
-		_ = waitForPageReady(ctx, runtimeTab.client)
+		if readyErr := waitForPageReady(ctx, runtimeTab.client); isBrowserPolicyError(readyErr) {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, readyErr)
+		}
 	case "read":
 	case "click":
 		selector, err := browserSelector(runtimeTab.tab.Elements, input.Ref)
@@ -148,7 +173,7 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		}
 		expression := fmt.Sprintf(`(() => { const el=document.querySelector(%s); if(!el) throw new Error("element ref is stale"); el.click(); return true })()`, jsString(selector))
 		if _, err := runtimeTab.client.evaluate(ctx, expression); err != nil {
-			return BrowserTab{}, err
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	case "type":
@@ -161,7 +186,7 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		}
 		expression := fmt.Sprintf(`(() => { const el=document.querySelector(%s); if(!el) throw new Error("element ref is stale"); el.focus(); el.value=%s; el.dispatchEvent(new Event("input",{bubbles:true})); el.dispatchEvent(new Event("change",{bubbles:true})); return true })()`, jsString(selector), jsString(input.Text))
 		if _, err := runtimeTab.client.evaluate(ctx, expression); err != nil {
-			return BrowserTab{}, err
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
 	case "capture":
 	case "close":
@@ -170,12 +195,24 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		return BrowserTab{}, fmt.Errorf("unsupported browser action %q", input.Action)
 	}
 	if err := s.refreshBrowserTab(ctx, runtimeTab, true); err != nil {
-		return BrowserTab{}, err
+		return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 	}
 	if err := s.persistBrowserTab(ctx, runtimeTab.tab); err != nil {
 		return BrowserTab{}, err
 	}
 	return runtimeTab.tab, nil
+}
+
+func isBrowserPolicyError(err error) bool {
+	var policyErr *browserRequestPolicyError
+	return errors.As(err, &policyErr)
+}
+
+func (s *Service) handleBrowserActionError(ctx context.Context, runtimeTab *browserTabRuntime, err error) error {
+	if isBrowserPolicyError(err) {
+		return s.blockBrowserTab(ctx, runtimeTab, err)
+	}
+	return err
 }
 
 func (s *Service) ListBrowserTabs(ctx context.Context, limit int) ([]BrowserTab, error) {
@@ -214,22 +251,16 @@ return JSON.stringify({title:document.title||'',url:location.href,text:clean(doc
 	if err != nil {
 		return err
 	}
-	var snapshot struct {
-		Title    string           `json:"title"`
-		URL      string           `json:"url"`
-		Text     string           `json:"text"`
-		Links    []BrowserLink    `json:"links"`
-		Elements []BrowserElement `json:"elements"`
-	}
+	var snapshot browserSnapshot
 	if err := json.Unmarshal([]byte(value), &snapshot); err != nil {
 		return fmt.Errorf("decode browser snapshot: %w", err)
 	}
 	if len(snapshot.Text) > maxBrowserSnapshot {
 		snapshot.Text = snapshot.Text[:maxBrowserSnapshot]
 	}
-	runtimeTab.tab.Title, runtimeTab.tab.URL, runtimeTab.tab.TextSnapshot = snapshot.Title, snapshot.URL, snapshot.Text
-	runtimeTab.tab.Links, runtimeTab.tab.Elements = snapshot.Links, snapshot.Elements
-	runtimeTab.tab.State, runtimeTab.tab.Error, runtimeTab.tab.UpdatedAt = "ready", "", time.Now().UTC()
+	if err := s.acceptBrowserSnapshot(ctx, runtimeTab, snapshot); err != nil {
+		return s.blockBrowserTab(ctx, runtimeTab, err)
+	}
 	if capture {
 		var result struct {
 			Data string `json:"data"`
@@ -251,6 +282,54 @@ return JSON.stringify({title:document.title||'',url:location.href,text:clean(doc
 		runtimeTab.tab.ScreenshotArtifactID = artifact.ID
 	}
 	return nil
+}
+
+// acceptBrowserSnapshot revalidates the URL Chrome actually reached before any
+// page-controlled text or screenshot is retained. Validating only the URL
+// passed to Page.navigate is insufficient: HTTP redirects, history navigation,
+// form submission and click handlers can all land on a different host. This is
+// a containment boundary, not a network sandbox—the request may already have
+// reached that host—so the separate egress-proxy gap remains explicit.
+func (s *Service) acceptBrowserSnapshot(ctx context.Context, runtimeTab *browserTabRuntime, snapshot browserSnapshot) error {
+	if _, err := s.validateBrowserURL(ctx, runtimeTab.tab.ProjectID, snapshot.URL, runtimeTab.tab.AllowPrivate); err != nil {
+		return fmt.Errorf("browser navigation reached a disallowed URL: %w", err)
+	}
+	runtimeTab.tab.Title, runtimeTab.tab.URL, runtimeTab.tab.TextSnapshot = snapshot.Title, snapshot.URL, snapshot.Text
+	runtimeTab.tab.Links, runtimeTab.tab.Elements = snapshot.Links, snapshot.Elements
+	runtimeTab.tab.State, runtimeTab.tab.Error, runtimeTab.tab.UpdatedAt = "ready", "", time.Now().UTC()
+	return nil
+}
+
+// blockBrowserTab closes a tab that crossed its URL policy boundary and clears
+// every page-derived field before persisting the failure. Nothing from the
+// disallowed destination is returned to the agent, and closing the target also
+// stops background requests from continuing after detection.
+func (s *Service) blockBrowserTab(ctx context.Context, runtimeTab *browserTabRuntime, cause error) error {
+	runtimeTab.tab.State = "blocked"
+	runtimeTab.tab.Error = cause.Error()
+	runtimeTab.tab.Title = ""
+	runtimeTab.tab.TextSnapshot = ""
+	runtimeTab.tab.Links = []BrowserLink{}
+	runtimeTab.tab.Elements = []BrowserElement{}
+	runtimeTab.tab.ScreenshotArtifactID = ""
+	runtimeTab.tab.UpdatedAt = time.Now().UTC()
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	if runtimeTab.client != nil {
+		_ = runtimeTab.client.call(closeCtx, "Target.closeTarget", map[string]any{"targetId": runtimeTab.targetID}, nil)
+		_ = runtimeTab.client.conn.Close()
+	}
+	cancel()
+	var persistErr error
+	if runtimeTab.tab.ID != "" {
+		persistErr = s.persistBrowserTab(context.WithoutCancel(ctx), runtimeTab.tab)
+	}
+	s.mu.Lock()
+	delete(s.browserTabs, runtimeTab.tab.ID)
+	s.mu.Unlock()
+	if persistErr != nil {
+		return errors.Join(cause, fmt.Errorf("persist blocked browser tab: %w", persistErr))
+	}
+	return cause
 }
 
 func (s *Service) persistBrowserTab(ctx context.Context, tab BrowserTab) error {
@@ -457,6 +536,35 @@ func (s *Service) validateBrowserURL(ctx context.Context, projectID, raw string,
 	}
 }
 
+// validateBrowserRequestURL is the network-time policy used by CDP Fetch
+// interception. Initial navigation intentionally accepts only http, https and
+// project-bound file URLs; pages additionally need harmless local schemes for
+// inline resources. Websocket handshakes receive the same host policy as HTTP.
+func (s *Service) validateBrowserRequestURL(ctx context.Context, projectID, raw string, allowPrivate bool) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Scheme == "" {
+		return fmt.Errorf("browser request URL must be absolute")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https", "file":
+		_, err = s.validateBrowserURL(ctx, projectID, raw, allowPrivate)
+		return err
+	case "ws", "wss":
+		copy := *parsed
+		if copy.Scheme == "ws" {
+			copy.Scheme = "http"
+		} else {
+			copy.Scheme = "https"
+		}
+		_, err = s.validateBrowserURL(ctx, projectID, copy.String(), allowPrivate)
+		return err
+	case "about", "data", "blob":
+		return nil
+	default:
+		return fmt.Errorf("browser request scheme %q is not allowed", parsed.Scheme)
+	}
+}
+
 func privateHost(ctx context.Context, host string) (bool, error) {
 	if strings.EqualFold(host, "localhost") {
 		return true, nil
@@ -539,14 +647,33 @@ func (c *cdpClient) call(ctx context.Context, method string, params any, result 
 	if err := c.conn.WriteJSON(map[string]any{"id": id, "method": method, "params": params}); err != nil {
 		return err
 	}
+	var blocked error
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			return err
 		}
+		var event struct {
+			Method string `json:"method"`
+			Params struct {
+				RequestID string `json:"requestId"`
+				Request   struct {
+					URL string `json:"url"`
+				} `json:"request"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(data, &event) == nil && event.Method == "Fetch.requestPaused" {
+			if guardErr := c.answerPausedRequest(ctx, event.Params.RequestID, event.Params.Request.URL); guardErr != nil {
+				blocked = errors.Join(blocked, guardErr)
+			}
+			continue
+		}
 		var response cdpResponse
 		if json.Unmarshal(data, &response) != nil || response.ID != id {
 			continue
+		}
+		if blocked != nil {
+			return blocked
 		}
 		if response.Error != nil {
 			return fmt.Errorf("Chrome DevTools %s: %s", method, response.Error.Message)
@@ -556,6 +683,40 @@ func (c *cdpClient) call(ctx context.Context, method string, params any, result 
 		}
 		return nil
 	}
+}
+
+type browserRequestPolicyError struct {
+	URL   string
+	Cause error
+}
+
+func (e *browserRequestPolicyError) Error() string {
+	return fmt.Sprintf("blocked browser request to %q: %v", e.URL, e.Cause)
+}
+
+func (e *browserRequestPolicyError) Unwrap() error { return e.Cause }
+
+// answerPausedRequest makes one allow/block decision while call already owns
+// c.mu. It writes the Fetch decision directly instead of recursively calling
+// c.call, which would deadlock on that mutex. The response to this command is
+// harmlessly ignored by the outer loop; IDs remain unique so it cannot be
+// mistaken for the command the caller is waiting for.
+func (c *cdpClient) answerPausedRequest(ctx context.Context, requestID, requestURL string) error {
+	method := "Fetch.continueRequest"
+	params := map[string]any{"requestId": requestID}
+	var policyErr error
+	if c.requestGuard != nil {
+		if err := c.requestGuard(ctx, requestURL); err != nil {
+			method = "Fetch.failRequest"
+			params["errorReason"] = "BlockedByClient"
+			policyErr = &browserRequestPolicyError{URL: requestURL, Cause: err}
+		}
+	}
+	c.nextID++
+	if err := c.conn.WriteJSON(map[string]any{"id": c.nextID, "method": method, "params": params}); err != nil {
+		return errors.Join(policyErr, err)
+	}
+	return policyErr
 }
 
 func (c *cdpClient) evaluate(ctx context.Context, expression string) (string, error) {
@@ -590,6 +751,9 @@ func waitForPageReady(ctx context.Context, client *cdpClient) error {
 		value, err := client.evaluate(ctx, `document.readyState`)
 		if err == nil && (value == "complete" || value == "interactive") {
 			return nil
+		}
+		if isBrowserPolicyError(err) {
+			return err
 		}
 		select {
 		case <-ctx.Done():

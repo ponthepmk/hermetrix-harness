@@ -1,3 +1,4 @@
+const { escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline } = HermetrixRuntime;
 const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -7,10 +8,6 @@ async function api(path, options = {}) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
   return body;
-}
-
-function escapeHTML(value = "") {
-  return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
 function shortHash(value = "") { return value ? `${value.slice(0, 10)}…` : "—"; }
@@ -195,13 +192,12 @@ async function load() {
     Object.assign(state, data);
     // Belt to the server's braces: one endpoint answering null instead of []
     // used to throw here and leave every panel in the cockpit unrendered.
-    const list = value => (Array.isArray(value) ? value : []);
-    Object.assign(state, { projects: list(projects), jobs: list(jobs), artifacts: list(artifacts),
-      terminals: list(terminals), browserTabs: list(browserTabs), teams: list(teams), teamRuns: list(teamRuns),
-      settings: list(settings), memories: list(memories), backups: list(backups), usage: usage || {},
-      fidelityCases: list(fidelityCases), fidelityRuns: list(fidelityRuns), qualifications: list(qualifications),
-      curatorFindings: list(curatorFindings), schedules: list(schedules), gcRuns: list(gcRuns),
-      skillAuthority, authorityActions: list(authorityActions) });
+    Object.assign(state, { projects: asList(projects), jobs: asList(jobs), artifacts: asList(artifacts),
+      terminals: asList(terminals), browserTabs: asList(browserTabs), teams: asList(teams), teamRuns: asList(teamRuns),
+      settings: asList(settings), memories: asList(memories), backups: asList(backups), usage: usage || {},
+      fidelityCases: asList(fidelityCases), fidelityRuns: asList(fidelityRuns), qualifications: asList(qualifications),
+      curatorFindings: asList(curatorFindings), schedules: asList(schedules), gcRuns: asList(gcRuns),
+      skillAuthority, authorityActions: asList(authorityActions) });
     if (!state.selectedProject && state.projects.length) state.selectedProject = state.projects[0].id;
     if (!state.selectedTerminal && state.terminals.length) state.selectedTerminal = state.terminals.find(item => item.state === "running")?.id || state.terminals[0].id;
     if (!state.selectedBrowserTab && state.browserTabs.length) state.selectedBrowserTab = state.browserTabs.find(item => item.state === "ready")?.id || state.browserTabs[0].id;
@@ -639,63 +635,6 @@ function suggestedOverrideReason(provider, profile) {
   }
   parts.push(`accepted for local single-operator use with ~${answerBudget(provider, profile).toLocaleString()} answer tokens`);
   return parts.join("; ") + ".";
-}
-
-// A tool call and its receipt are one action, and reading them meant expanding
-// two separate rows that named the same tool. toolArgumentsPreview,
-// toolReceiptOf and toolOutputPreview are shared by the paired card below and
-// by the unpaired fallbacks above, which are what a call still in flight or a
-// receipt whose call has been compacted away renders as.
-function toolArgumentsPreview(event) {
-  let preview = String(event.content || "");
-  if (event.metadata?.tool_name === "workspace.write_file") {
-    // A whole file body in the transcript buries the path and the expected
-    // hash, which are the two things worth reading before an approval.
-    try {
-      const args = JSON.parse(preview);
-      preview = JSON.stringify({ path:args.path, content:`[${String(args.content || "").length} characters; inspect approval preview]`, expected_sha256:args.expected_sha256 });
-    } catch {}
-  } else if (preview.length > 900) {
-    preview = `${preview.slice(0,900)}…`;
-  }
-  return preview;
-}
-
-function toolReceiptOf(event) {
-  try { return JSON.parse(event.content); } catch { return {}; }
-}
-
-function toolOutputPreview(receipt) {
-  const preview = String(receipt.output || receipt.error || "No inline output");
-  return preview.length > 900 ? `${preview.slice(0,900)}…` : preview;
-}
-
-// groupTimeline pairs each tool_call with the tool_result carrying the same
-// tool_call_id. Events keep their original order, so an unpaired call still
-// appears exactly where it happened.
-function groupTimeline(events) {
-  const resultByCall = new Map();
-  for (const event of events) {
-    const callID = event.event_kind === "tool_result" ? event.metadata?.tool_call_id : "";
-    if (callID) resultByCall.set(callID, event);
-  }
-  const paired = new Set();
-  const items = [];
-  for (const event of events) {
-    if (event.event_kind === "tool_call") {
-      const callID = event.metadata?.tool_call_id;
-      const result = callID ? resultByCall.get(callID) : null;
-      if (result) {
-        paired.add(callID);
-        items.push({ kind:"tool_step", call:event, result });
-        continue;
-      }
-    } else if (event.event_kind === "tool_result" && paired.has(event.metadata?.tool_call_id)) {
-      continue;
-    }
-    items.push({ kind:"event", event });
-  }
-  return items;
 }
 
 function renderTimelineItem(item) {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,9 @@ type terminalRuntime struct {
 	ptmx    *os.File
 	tail    []byte
 	total   int64
+	// persistErr is separate from the child process result. Losing a durable
+	// output update must remain visible even when the shell itself exits zero.
+	persistErr error
 }
 
 func (s *Service) StartTerminal(ctx context.Context, input StartTerminalInput) (TerminalSession, error) {
@@ -104,10 +108,14 @@ func (s *Service) captureTerminal(runtime *terminalRuntime) {
 			}
 			runtime.session.Cursor = runtime.total
 			runtime.session.UpdatedAt = time.Now().UTC()
-			tail, cursor, updated := string(runtime.tail), runtime.total, runtime.session.UpdatedAt
+			cursor, updated := runtime.total, runtime.session.UpdatedAt
 			runtime.mu.Unlock()
-			_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE terminal_sessions SET output_tail=?,cursor=?,updated_at=?
-				WHERE id=? AND state='running'`, tail, cursor, formatTime(updated), runtime.session.ID)
+			if persistErr := s.appendTerminalOutput(context.Background(), runtime.session.ID, buffer[:count], cursor, updated); persistErr != nil {
+				runtime.mu.Lock()
+				runtime.persistErr = errors.Join(runtime.persistErr, persistErr)
+				runtime.mu.Unlock()
+				slog.Error("terminal output durability write failed", "terminal_id", runtime.session.ID, "error", persistErr)
+			}
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
@@ -134,17 +142,50 @@ func (s *Service) captureTerminal(runtime *terminalRuntime) {
 		state, errorMessage = "closed", ""
 	}
 	now := time.Now().UTC()
+	if runtime.persistErr != nil {
+		state = "failed"
+		durabilityErr := fmt.Errorf("terminal output was not fully persisted: %w", runtime.persistErr)
+		if errorMessage == "" {
+			errorMessage = durabilityErr.Error()
+		} else {
+			errorMessage = errors.Join(errors.New(errorMessage), durabilityErr).Error()
+		}
+	}
 	runtime.session.State, runtime.session.ExitCode, runtime.session.Error = state, &exitCode, errorMessage
 	runtime.session.UpdatedAt, runtime.session.CompletedAt = now, &now
 	tail, cursor := string(runtime.tail), runtime.total
 	runtime.mu.Unlock()
-	_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE terminal_sessions SET state=?,output_tail=?,cursor=?,exit_code=?,
+	if _, persistErr := s.store.DB.ExecContext(context.Background(), `UPDATE terminal_sessions SET state=?,output_tail=?,cursor=?,exit_code=?,
 		error=?,updated_at=?,completed_at=? WHERE id=?`, state, tail, cursor, exitCode, errorMessage,
-		formatTime(now), formatTime(now), runtime.session.ID)
+		formatTime(now), formatTime(now), runtime.session.ID); persistErr != nil {
+		slog.Error("terminal completion durability write failed", "terminal_id", runtime.session.ID, "error", persistErr)
+	}
 	_ = runtime.ptmx.Close()
 	s.mu.Lock()
 	delete(s.terminals, runtime.session.ID)
 	s.mu.Unlock()
+}
+
+// appendTerminalOutput persists only the newly-read bytes. The previous code
+// rebound and rewrote the complete tail after every 8 KiB read, turning a 1 MiB
+// terminal into roughly 128 MiB of bound data. SQLite trims the byte suffix in
+// place here; the final completion update still writes one full snapshot as a
+// reconciliation point.
+func (s *Service) appendTerminalOutput(ctx context.Context, terminalID string, chunk []byte, cursor int64, updated time.Time) error {
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE terminal_sessions SET
+		output_tail=CAST(substr(CAST(COALESCE(output_tail,'') AS BLOB) || CAST(? AS BLOB), -?) AS BLOB),
+		cursor=?,updated_at=? WHERE id=? AND state='running'`, chunk, terminalTailLimit, cursor, formatTime(updated), terminalID)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed != 1 {
+		return fmt.Errorf("terminal %s is no longer running", terminalID)
+	}
+	return nil
 }
 
 func (s *Service) WriteTerminal(ctx context.Context, id, input string) error {

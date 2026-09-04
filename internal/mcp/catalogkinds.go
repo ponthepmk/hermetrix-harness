@@ -67,20 +67,38 @@ type catalogRPC func(ctx context.Context, method string, params map[string]any) 
 func (c *Client) rpcFor(ctx context.Context, server Server, credential string) (catalogRPC, func(), error) {
 	if server.TransportKind == TransportStdio {
 		// Pooled: the process is shared with every other call to this server
-		// and outlives this one, and a dead pipe reconnects instead of failing.
+		// and outlives this one. Only catalog listing reconnects in-place after
+		// a dead pipe; calls that may have done work fail without replay.
 		call := func(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
 			return c.pooledCall(ctx, server, credential, method, params)
 		}
 		return call, func() {}, nil
 	}
 	call := func(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
-		result, err := c.currentRequest(ctx, server, credential, method, "", params, nil)
+		result, err := c.currentRequest(ctx, server, credential, method, standardRequestName(method, params), params, nil)
 		if err != nil {
 			return nil, err
 		}
 		return result.response.Result, nil
 	}
 	return call, func() {}, nil
+}
+
+// standardRequestName mirrors the body selector into Mcp-Name for the current
+// stateless HTTP transport. The header is required not only for tools/call but
+// also for resources/read and prompts/get. Keeping extraction here beside the
+// generic catalog RPC prevents a new catalog kind from silently sending an
+// empty standard header.
+func standardRequestName(method string, params map[string]any) string {
+	key := ""
+	switch method {
+	case "resources/read":
+		key = "uri"
+	case "prompts/get", "tools/call":
+		key = "name"
+	}
+	name, _ := params[key].(string)
+	return name
 }
 
 // ListResources walks a server's resources. A server that does not implement
