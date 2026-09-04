@@ -18,7 +18,8 @@
 - Command execution keeps the existing allowlist exactly: `go git node npm python3 rg ls`. Executables run directly, never through a shell.
 - A command's working directory resolves through `resolveInside` against the project root. Empty means the project root.
 - `timeout_seconds` defaults to 30 and its ceiling rises from 120 to 600. Nothing else about the runner's bounds changes.
-- At most 2 command jobs may be in flight per session.
+- At most 2 command jobs may be **in flight** per session — running, not merely started. A job that has finished releases its slot whether or not anyone asked for its result, so a session can never lock itself out.
+- A `status` or `cancel` naming a job the session did not start is refused. The runner scopes jobs by id alone, so without this check one session could read another's command output or terminate another's job.
 - `status` long-polls for at most 30 seconds per call and returns whatever it has when the wait expires.
 - Loopback browser URLs need no approval. Every other URL goes through the existing `validateBrowserURL`, which already requires the tab to have been opened with approval.
 - Page content is untrusted evidence, always. Text on a page that instructs the agent is data, never a command. Every browser receipt says so in its own output.
@@ -853,6 +854,10 @@ seconds."
 ### Task 3: `workspace.run`
 
 The waist grows from 11 to 12. One action-based tool with `start`, `status` and `cancel`. `start` returns a job id at once, `status` long-polls for up to 30 seconds, and at most two commands may be in flight per session.
+
+Slots are the subtle part. A slot claimed at `start` has to come back on every path that ends a job, not only the one where the model politely polls for the result: a finished job nobody asked about, a `status` whose lookup errors, a poll cut short when the turn's budget expires. Releasing only on the happy paths enforces "started and not yet observed", which is a different rule that locks a session out permanently — both escapes it offers need a `job_id` the model may no longer have. `start` therefore sweeps the session's tracked jobs before it checks the cap.
+
+Ownership is the other half. The tracker already knows which jobs a session started; `status` and `cancel` consult it before touching the runner, which scopes by job id alone and would otherwise hand one session another's stdout, or let it kill the UI's job.
 
 `workspace.run` does not require approval. The authority is the allowlist plus the runner's hardening — a fixed set of executables, no shell, a minimal environment, a working directory inside the project, an output ceiling and process-group termination. That is a deliberate decision, not an omission: an approval prompt on every `go test` would make the tool unusable, and the allowlist is what makes it safe without one.
 
