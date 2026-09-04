@@ -95,6 +95,30 @@ func TestCapabilityRevisionAndDefinitionsAreDeterministic(t *testing.T) {
 	}
 }
 
+// TestExecuteRefusesWorkspaceRunBeforeDecodingItsPath pins the ordering
+// Execute depends on: the session-scoped refusal for workspace.run has to sit
+// above the path-decoding block, or a call reaching the registry directly --
+// bypassing the agent service, which is the only caller that is supposed to
+// answer this tool -- falls through into file-tool argument decoding and
+// fails with the misleading "path is required" instead of naming why the
+// registry cannot answer it at all.
+func TestExecuteRefusesWorkspaceRunBeforeDecodingItsPath(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := registry.Execute(context.Background(), providers.ToolCall{ID: "call", Name: "workspace.run", Arguments: `{}`})
+	if receipt.Status != "failed" {
+		t.Fatal("the registry answered workspace.run itself")
+	}
+	if strings.Contains(receipt.Error, "path is required") {
+		t.Fatalf("error = %q: the session-scoped refusal has regressed below the path decoder", receipt.Error)
+	}
+	if !strings.Contains(receipt.Error, "session-scoped") {
+		t.Fatalf("error = %q, want the session-scoped refusal", receipt.Error)
+	}
+}
+
 func TestDeferredSearchDescribeCallAndDynamicApproval(t *testing.T) {
 	registry, err := NewRegistry(t.TempDir())
 	if err != nil {

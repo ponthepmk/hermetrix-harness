@@ -56,6 +56,11 @@ type Service struct {
 	// per-session concurrency cap on workspace.run. A value, not a pointer:
 	// *Service is never copied, so the mutex inside it never moves.
 	runs runTracker
+	// runStatusPoll overrides how long one workspace.run status call waits
+	// before answering with whatever it has. Zero means defaultRunStatusPoll;
+	// a test sets this to shrink the wait so the "still running" branch is
+	// reachable without a real thirty-second sleep.
+	runStatusPoll time.Duration
 }
 
 func NewService(dataStore *store.Store, providerService *providers.Service, compiler *ctxcompiler.Compiler,
@@ -839,10 +844,12 @@ func toolCallBudget(name string) time.Duration {
 	case "tool_call":
 		return elicitationWait + time.Minute
 	case "workspace.run":
-		// One status call long-polls for runStatusPoll; the budget has to clear
-		// that, or the context dies mid-wait and a finished command reports as a
-		// cancellation.
-		return runStatusPoll + 10*time.Second
+		// One status call long-polls for up to defaultRunStatusPoll; the budget
+		// has to clear that, or the context dies mid-wait and a finished command
+		// reports as a cancellation. This is the package default, not whatever a
+		// test may have set on a particular Service, because the budget is
+		// computed before a Service is in scope.
+		return defaultRunStatusPoll + 10*time.Second
 	default:
 		return 10 * time.Second
 	}
