@@ -44,6 +44,35 @@ func TestSessionRejectsProfileAboveProviderDeclaration(t *testing.T) {
 	}
 }
 
+func TestOrderedProviderFailoverFreezesTheFirstEligibleCandidate(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{
+		ProviderCandidates: []string{"provider_missing", provider.ID}, RoutingPolicy: "ordered-failover",
+		ContextProfile: "compact-32k",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ProviderID != provider.ID || session.Contract.ProviderID != provider.ID {
+		t.Fatalf("route selected provider=%q contract=%q, want %q", session.ProviderID, session.Contract.ProviderID, provider.ID)
+	}
+	if session.Contract.RoutingPolicy != "ordered-failover" || len(session.Contract.ProviderCandidates) != 2 ||
+		session.Contract.ProviderCandidates[0] != "provider_missing" || session.Contract.ProviderCandidates[1] != provider.ID {
+		t.Fatalf("route decision was not frozen exactly: %+v", session.Contract)
+	}
+}
+
+func TestExplicitProviderRouteRefusesFallbackCandidates(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	_, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ProviderCandidates: []string{"another"}, RoutingPolicy: "explicit", ContextProfile: "compact-32k"})
+	if err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("explicit route accepted fallback candidates: %v", err)
+	}
+}
+
 func TestSessionRequiresExactQualification(t *testing.T) {
 	service, provider, cleanup := testAgentService(t, successProviderServer(t))
 	defer cleanup()
@@ -529,6 +558,65 @@ func TestWriteToolPausesForPersistedApprovalThenResumes(t *testing.T) {
 	if _, err := service.DecideApproval(context.Background(), paused.Approval.ID,
 		ApprovalDecisionInput{Actor: "user", Decision: "approve"}, nil); err == nil || !strings.Contains(err.Error(), "never auto-retried") {
 		t.Fatalf("duplicate approval did not fail closed: %v", err)
+	}
+}
+
+// TestDecideApprovalRoutesOnExactWorkspaceWriteFileNameNotPrefix pins IMPORTANT
+// 3: DecideApproval must route an approved tool call to the write executor by
+// matching the exact name "workspace.write_file", not by testing the
+// "workspace." prefix. workspace.run shares that prefix, never requires
+// approval today, and so never reaches this switch in practice -- but a
+// prefix match is only correct by accident, and would silently hand any
+// future workspace.* tool that does gain an effect to the write executor.
+//
+// To make the routing decision observable from outside the switch, the
+// project the approval's session belongs to is marked inactive before the
+// decision is made. A prefix match takes the "workspace." branch, which
+// resolves the session's project before it can reach ExecuteApproved at
+// all -- so with the project inactive it fails with ErrSessionHasNoRoot
+// ("no code folder"), never getting far enough to say anything about
+// workspace.run itself. An exact-name match sends workspace.run to the
+// default branch instead, which calls the unscoped registry directly and
+// never touches the project row, surfacing the registry's own "does not
+// require approval" refusal. The two failures are distinguishable, which is
+// exactly what lets this test fail against the prefix code and pass against
+// the exact-match fix.
+func TestDecideApprovalRoutesOnExactWorkspaceWriteFileNameNotPrefix(t *testing.T) {
+	service, workspace, session, paused := interruptedWriteFixture(t)
+	if _, err := service.store.DB.Exec(`UPDATE tool_approvals SET tool_name='workspace.run' WHERE id=?`,
+		paused.Approval.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.DB.Exec(`UPDATE projects SET state='inactive' WHERE id=?`,
+		session.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	var events []StreamEvent
+	_, _ = service.DecideApproval(context.Background(), paused.Approval.ID,
+		ApprovalDecisionInput{Actor: "user", Decision: "approve", Reason: "test"}, func(event StreamEvent) error {
+			events = append(events, event)
+			return nil
+		})
+	var receiptContent string
+	for _, event := range events {
+		if event.Type == "tool_result" && event.Event != nil {
+			receiptContent = event.Event.Content
+			break
+		}
+	}
+	if receiptContent == "" {
+		t.Fatalf("no tool_result event was emitted for the decision: %+v", events)
+	}
+	if strings.Contains(receiptContent, "no code folder") {
+		t.Fatalf("workspace.run was routed through the session's project (the prefix-match bug this test guards against): %s",
+			receiptContent)
+	}
+	if !strings.Contains(receiptContent, "does not require approval") {
+		t.Fatalf("expected the unscoped registry's own refusal of workspace.run, got: %s", receiptContent)
+	}
+	// Whichever branch handled it, the write executor must never have run.
+	if _, err := os.Stat(filepath.Join(workspace, "uncertain.txt")); !os.IsNotExist(err) {
+		t.Fatalf("workspace.run approval reached the write executor: %v", err)
 	}
 }
 

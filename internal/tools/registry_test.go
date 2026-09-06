@@ -266,6 +266,45 @@ func TestDeferredSearchDescribeCallAndDynamicApproval(t *testing.T) {
 	}
 }
 
+// TestExecuteApprovedRefusesAnUnrecognisedName pins IMPORTANT 3's other half:
+// ExecuteApproved must name the one tool it knows how to run
+// (workspace.write_file) rather than treating "not tool_call" as "must be a
+// write." Today only workspace.write_file sets RequiresApproval, so nothing
+// reaches the old default branch in practice -- this test fabricates the
+// shape a future approved-but-not-a-write tool would take (registered,
+// RequiresApproval true, and named something other than workspace.write_file
+// or tool_call) by injecting a definition directly, since this file is in
+// package tools and can reach the unexported map. PlanApproval still treats
+// an unnamed effect as write-shaped (a related gap this task does not own),
+// so it produces a plan; the fix under test is that ExecuteApproved refuses
+// to run write handling against it, and in particular never touches the
+// filesystem on its behalf.
+func TestExecuteApprovedRefusesAnUnrecognisedName(t *testing.T) {
+	root := t.TempDir()
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.definitions["workspace.mystery_effect"] = Definition{
+		Name: "workspace.mystery_effect", Revision: "v1", Effect: "write", RequiresApproval: true,
+	}
+	call := providers.ToolCall{ID: "call-mystery", Name: "workspace.mystery_effect",
+		Arguments: `{"path":"mystery.txt","content":"whatever","expected_sha256":"absent"}`}
+	plan, err := registry.PlanApproval(context.Background(), call)
+	if err != nil {
+		t.Fatalf("plan approval: %v", err)
+	}
+	grant := ApprovalGrant{ToolCallID: plan.ToolCallID, Name: plan.Name, Revision: plan.Revision,
+		Effect: plan.Effect, ArgumentsHash: plan.ArgumentsHash}
+	receipt := registry.ExecuteApproved(context.Background(), call, grant)
+	if receipt.Status != "failed" || !strings.Contains(receipt.Error, "no approved-execution path") {
+		t.Fatalf("expected a named refusal of the unrecognised tool, got: %+v", receipt)
+	}
+	if _, err := os.Stat(filepath.Join(root, "mystery.txt")); !os.IsNotExist(err) {
+		t.Fatalf("an unrecognised approved tool touched the filesystem: %v", err)
+	}
+}
+
 func TestDeferredApprovalFailsClosedOnCatalogRevisionDrift(t *testing.T) {
 	registry, err := NewRegistry(t.TempDir())
 	if err != nil {

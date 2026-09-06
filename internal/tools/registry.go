@@ -661,6 +661,17 @@ func (r *Registry) ExecuteApproved(ctx context.Context, call providers.ToolCall,
 		receipt.DurationMS = time.Since(started).Milliseconds()
 		return receipt
 	}
+	if call.Name != "workspace.write_file" {
+		// PlanApproval having succeeded only proves the name is registered
+		// and requires approval -- not that the write executor below is the
+		// right one to run it. Naming the one tool this executor actually
+		// handles, instead of treating "not tool_call" as "must be a write,"
+		// is what stops a future approved-but-not-a-write tool from being
+		// silently executed as a file write through this default branch.
+		receipt.Error = fmt.Sprintf("tool %q has no approved-execution path", call.Name)
+		receipt.DurationMS = time.Since(started).Milliseconds()
+		return receipt
+	}
 	args, err := decodeWriteArguments(call.Arguments)
 	if err != nil {
 		receipt.Error = err.Error()

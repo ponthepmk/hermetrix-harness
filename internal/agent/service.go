@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -74,13 +73,6 @@ func (s *Service) WithLearning(service *learning.Service) *Service {
 }
 
 func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (Session, error) {
-	provider, err := s.providers.Get(ctx, input.ProviderID)
-	if err != nil {
-		return Session{}, fmt.Errorf("load provider: %w", err)
-	}
-	if !provider.Enabled {
-		return Session{}, fmt.Errorf("provider profile is disabled")
-	}
 	if input.ProjectID != "" {
 		var exists int
 		if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id=? AND state='active'`, input.ProjectID).Scan(&exists); err != nil || exists != 1 {
@@ -91,10 +83,7 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 	if !ok {
 		return Session{}, fmt.Errorf("unknown context profile %q", input.ContextProfile)
 	}
-	if profile.Total > provider.ContextWindow {
-		return Session{}, fmt.Errorf("context profile %s requires %d tokens but provider declares %d", profile.Name, profile.Total, provider.ContextWindow)
-	}
-	qualification, err := s.resolveQualification(ctx, provider, profile, input.QualificationOverride)
+	provider, qualification, route, err := s.routeSessionProvider(ctx, input, profile)
 	if err != nil {
 		return Session{}, err
 	}
@@ -116,7 +105,7 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 		return Session{}, fmt.Errorf("session title must be at most 120 characters")
 	}
 	now := time.Now().UTC()
-	contract, err := s.buildSessionContract(ctx, provider, profile, input.ProjectID, qualification, now)
+	contract, err := s.buildSessionContract(ctx, provider, profile, input.ProjectID, qualification, route, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("build session contract: %w", err)
 	}
@@ -138,45 +127,10 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 	return item, nil
 }
 
-func (s *Service) resolveQualification(ctx context.Context, provider providers.Profile, profile ctxcompiler.Profile,
-	override *QualificationOverrideInput) (QualificationBinding, error) {
-	providerRevision := providers.Revision(provider)
-	binding := QualificationBinding{ProviderRevision: providerRevision, ContextProfile: profile.Name}
-	if profile.Name == "compact-32k" {
-		binding.Mode = "compatibility"
-		return binding, nil
-	}
-	var runID string
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id FROM model_qualification_runs
-		WHERE provider_id=? AND model=? AND provider_revision=? AND requested_profile=?
-		AND state='completed' AND eligible=1 ORDER BY completed_at DESC LIMIT 1`, provider.ID, provider.Model,
-		providerRevision, profile.Name).Scan(&runID)
-	if err == nil {
-		binding.Mode, binding.RunID = "qualified", runID
-		return binding, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return QualificationBinding{}, fmt.Errorf("load model qualification: %w", err)
-	}
-	if override == nil {
-		return QualificationBinding{}, fmt.Errorf("context profile %s requires an exact eligible qualification for provider/model revision %s; run qualification or submit an explicit reviewed override", profile.Name, providerRevision)
-	}
-	actor := strings.TrimSpace(override.Actor)
-	reason := strings.TrimSpace(override.Reason)
-	if actor == "" || reason == "" {
-		return QualificationBinding{}, fmt.Errorf("qualification override requires actor and reason")
-	}
-	if utf8.RuneCountInString(actor) > 120 || utf8.RuneCountInString(reason) > 1000 {
-		return QualificationBinding{}, fmt.Errorf("qualification override actor/reason is too long")
-	}
-	expires := time.Now().UTC().Add(24 * time.Hour)
-	binding.Mode, binding.Actor, binding.Reason, binding.ExpiresAt = "explicit_override", actor, reason, &expires
-	return binding, nil
-}
-
 func (s *Service) buildSessionContract(ctx context.Context, provider providers.Profile, profile ctxcompiler.Profile,
-	projectID string, qualification QualificationBinding, createdAt time.Time) (SessionContract, error) {
+	projectID string, qualification QualificationBinding, route sessionProviderRoute, createdAt time.Time) (SessionContract, error) {
 	contract := SessionContract{ProviderRevision: providers.Revision(provider), ProviderID: provider.ID, Model: provider.Model,
+		ProviderCandidates: append([]string(nil), route.Candidates...), RoutingPolicy: route.Policy,
 		ContextProfile: profile.Name, ProjectID: projectID, PolicyRevision: policyRevision,
 		CapabilityRevision: "no-tools-v1", Qualification: qualification, CacheEpoch: 1, CreatedAt: createdAt,
 		ReasoningRatio: provider.ReasoningRatio, AnswerBudget: answerBudget(profile.OutputReserve, provider.ReasoningRatio),
@@ -1121,7 +1075,12 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 				receipt = s.executeBrowserTool(toolCtx, session, call,
 					toolruntime.Definition{Name: approval.ToolName, Revision: approval.ToolRevision, Effect: approval.Effect}, true)
 			}
-		case strings.HasPrefix(approval.ToolName, "workspace."):
+		case approval.ToolName == "workspace.write_file":
+			// An exact name, not a prefix: "workspace." also matches
+			// workspace.run, which never requires approval today and so
+			// never reaches this switch -- but a prefix test would silently
+			// hand any future workspace.* tool that does gain an effect to
+			// the write executor below, whether or not it writes anything.
 			session, sessionErr := s.GetSession(toolCtx, approval.SessionID)
 			var scoped *toolruntime.Registry
 			if sessionErr == nil {
