@@ -100,7 +100,7 @@ inside the root. `workspace.write_file` can replace one UTF-8 file or create one
 file in an existing directory, but every exact write pauses for approval in Chat
 and uses `expected_sha256` to reject stale changes.
 
-The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–120 second deadline, 2 MiB output ceiling, process-group cancellation and an immutable terminal-log artifact. This is process hardening, not an OS security sandbox; run untrusted code only inside a separate OS/container sandbox.
+The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–600 second deadline, 2 MiB output ceiling, process-group cancellation and an immutable terminal-log artifact. This is process hardening, not an OS security sandbox; run untrusted code only inside a separate OS/container sandbox.
 
 ### Projects and views
 

@@ -22,7 +22,12 @@ type Reviewer interface {
 // the runner still creates an untrusted candidate through the normal checks.
 type StructuredReviewer struct{}
 
-func (StructuredReviewer) Revision() string { return "structured-reviewer-v1" }
+// Revision moves when the decisions this reviewer produces change, because it
+// is stamped on every review job and forms part of the idempotency key. v2
+// names an unverified outcome in the reason it returns; leaving the revision
+// at v1 would make a pre-fix and a post-fix decision indistinguishable in the
+// learning trail, and would not force a re-review of anything already judged.
+func (StructuredReviewer) Revision() string { return "structured-reviewer-v2" }
 
 func (StructuredReviewer) Review(ctx context.Context, digest Digest) (Decision, error) {
 	if err := ctx.Err(); err != nil {
