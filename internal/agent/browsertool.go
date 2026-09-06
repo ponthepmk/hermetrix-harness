@@ -66,6 +66,15 @@ func (s *Service) executeBrowserTool(ctx context.Context, session Session, call 
 		return finish()
 	}
 	args.Action = strings.TrimSpace(args.Action)
+	// Normalized once, here, right after decoding the model's arguments and
+	// before anything reads args.URL: toolruntime.BrowserNeedsApproval below,
+	// and the earlier preflight in executeToolCalls that decided this call
+	// needed a grant at all, both normalize through the same
+	// toolruntime.NormalizeBrowserURL. Forwarding the raw field to the driver
+	// instead -- as this used to -- meant a value like " http://localhost/"
+	// could read as loopback to the gate and as a relative path to OpenPage,
+	// two parsers reaching different answers about one string.
+	args.URL = toolruntime.NormalizeBrowserURL(args.URL)
 	if !browserActions[args.Action] {
 		receipt.Error = fmt.Sprintf("unsupported browser action %q", args.Action)
 		return finish()
@@ -73,7 +82,7 @@ func (s *Service) executeBrowserTool(ctx context.Context, session Session, call 
 	var page BrowserPage
 	var err error
 	if args.Action == "open" {
-		if strings.TrimSpace(args.URL) == "" {
+		if args.URL == "" {
 			receipt.Error = "url is required for action=open"
 			return finish()
 		}

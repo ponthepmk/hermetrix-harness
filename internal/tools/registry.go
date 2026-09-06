@@ -606,6 +606,17 @@ func (r *Registry) PlanApproval(ctx context.Context, call providers.ToolCall) (A
 	if !definition.RequiresApproval {
 		return ApprovalPlan{}, fmt.Errorf("tool %q does not require approval", call.Name)
 	}
+	if call.Name != "workspace.write_file" {
+		// RequiresApproval being true only proves this name needs asking, not
+		// that the write-preview builder below is the right one to describe
+		// it -- that builder assumes writeArgs (path/content/expected_sha256)
+		// and reports "create" or "replace" no matter what the tool actually
+		// does. Mirrors the guard ExecuteApproved applies on the execution
+		// side for the same reason: naming the one tool this path understands
+		// is what stops a future approval-required tool from being silently
+		// described to the approver as a file write.
+		return ApprovalPlan{}, fmt.Errorf("tool %q has no approval-preview path", call.Name)
+	}
 	if len(call.Arguments) > maxArgumentsBytes {
 		return ApprovalPlan{}, fmt.Errorf("tool arguments exceed 4 MiB")
 	}
@@ -717,6 +728,20 @@ func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolC
 	}
 	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
 		return ApprovalPlan{}, fmt.Errorf("invalid browser arguments: %w", err)
+	}
+	// Normalized once, here, before the URL is used for anything -- the same
+	// normalization executeBrowserTool applies before it hands the URL to the
+	// driver, so the preview built below and the destination actually opened
+	// once approved are the same bytes.
+	args.URL = NormalizeBrowserURL(args.URL)
+	if _, err := ParseBrowserURL(args.URL); err != nil {
+		// A URL that does not parse cannot be shown to a human honestly either:
+		// url.Parse rejects control characters, so this is precisely the case
+		// where the raw string could carry a newline that turns the preview
+		// below into a forged multi-line block. Refuse before building
+		// anything a person reads, rather than let BrowserNeedsApproval's
+		// "unparsable, so ask" answer be mistaken for "safe to preview."
+		return ApprovalPlan{}, fmt.Errorf("browser url does not parse: %w", err)
 	}
 	if !BrowserNeedsApproval(args.Action, args.URL) {
 		return ApprovalPlan{}, fmt.Errorf("browser action %q does not require approval", args.Action)

@@ -168,6 +168,33 @@ func TestBrowserToolOpenAllowsPrivateHostOnlyWhenTheCallCameThroughApproval(t *t
 	}
 }
 
+// TestBrowserToolNormalizesTheURLBeforeOpeningIt pins the two-parsers-over-
+// one-string gap the task review found: toolruntime.BrowserNeedsApproval
+// trims before parsing, but this executor used to forward args.URL to
+// OpenPage untrimmed, so " http://localhost/" read as loopback to the
+// approval gate deciding whether a grant was needed and as a relative path
+// to the driver that actually opens the tab. Both now go through the same
+// toolruntime.NormalizeBrowserURL, so the driver receives exactly the bytes
+// the gate reasoned about -- and, since a loopback destination reads as
+// loopback either way, still ends up with AllowPrivate set.
+func TestBrowserToolNormalizesTheURLBeforeOpeningIt(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	driver := &fakeDriver{page: BrowserPage{TabID: "tab_1"}}
+	service.WithRuntime(nil, driver)
+	receipt := service.executeBrowserTool(context.Background(), session,
+		browserCall(`{"action":"open","url":" http://localhost:1/"}`), browserDefinition(), false)
+	if receipt.Status != "succeeded" {
+		t.Fatalf("status = %q, error = %q", receipt.Status, receipt.Error)
+	}
+	if driver.opened[0].URL != "http://localhost:1/" {
+		t.Fatalf("opened URL = %q, want the leading whitespace trimmed before it reached the driver", driver.opened[0].URL)
+	}
+	if !driver.opened[0].AllowPrivate {
+		t.Fatal("a loopback open, once normalized, must still pass AllowPrivate")
+	}
+}
+
 // TestBrowserToolLabelsADriverErrorAsUntrustedButNotALocalValidationError
 // covers the other place page-authored text can reach a receipt:
 // cdpClient.evaluate in internal/product formats a page script exception

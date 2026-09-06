@@ -23,7 +23,7 @@ func BrowserNeedsApproval(action, rawURL string) bool {
 	if action != "open" && action != "navigate" {
 		return false
 	}
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	parsed, err := ParseBrowserURL(rawURL)
 	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" {
 		// Anything unparsable, and every scheme other than http and https --
 		// file:// included -- goes to the user rather than being guessed at.
@@ -38,4 +38,25 @@ func BrowserNeedsApproval(action, rawURL string) bool {
 	}
 	address := net.ParseIP(host)
 	return address == nil || !address.IsLoopback()
+}
+
+// NormalizeBrowserURL is the one normalization a browser URL goes through
+// before anything decides what to do with it. planBrowserApproval calls it to
+// build the preview a human reads, and executeBrowserTool calls it before
+// handing the URL to the driver -- two independent decoders of the same
+// call.Arguments blob, one deciding whether to ask and the other deciding
+// where to go. Without a single shared definition of "normalized," each was
+// free to invent its own, which is exactly how " http://localhost/" ended up
+// reading as loopback to one and a relative path to the other.
+func NormalizeBrowserURL(rawURL string) string {
+	return strings.TrimSpace(rawURL)
+}
+
+// ParseBrowserURL normalizes and parses a browser URL in one step, so a
+// caller that only wants to know whether the URL is well-formed at all --
+// planBrowserApproval, before it embeds the URL in a human-facing preview --
+// gets the identical parse BrowserNeedsApproval itself acts on, not a second
+// opinion about what counts as parseable.
+func ParseBrowserURL(rawURL string) (*url.URL, error) {
+	return url.Parse(NormalizeBrowserURL(rawURL))
 }
