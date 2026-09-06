@@ -1096,6 +1096,78 @@ func TestLoopDetectorIgnoresCallsWithDifferentArguments(t *testing.T) {
 	}
 }
 
+// runToolCallStream emits one workspace.run tool call whose arguments are
+// exactly argsJSON. Unlike toolCallStream above, which is hardcoded to
+// workspace.list_files, this drives workspace.run's own start/status/cancel
+// contract.
+func runToolCallStream(callID, argsJSON string) string {
+	escaped := strings.ReplaceAll(argsJSON, `"`, `\"`)
+	return fmt.Sprintf("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":%q,\"type\":\"function\","+
+		"\"function\":{\"name\":\"workspace.run\",\"arguments\":\"%s\"}}]},"+
+		"\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n", callID, escaped)
+}
+
+// TestWorkspaceRunStatusPollSurvivesTheLoopDetectorThroughRunTurn covers
+// CRITICAL 2 (2026-09-04 final-findings.md): nothing exercised workspace.run
+// through RunTurn before this test -- every other TestRunTool* test calls
+// executeRunTool directly -- which is exactly why no earlier review caught
+// this. workspace.run's own description tells the model to call action=status
+// again if the command has not finished, and a poll is byte-identical by
+// construction ({"action":"status","job_id":"job_0"}). Without the
+// isAwaitablePoll exemption in RunTurn, the third poll always trips "agent
+// loop detector stopped the third identical call to workspace.run", capping
+// an awaitable command at about two polls (~60s) no matter what
+// timeout_seconds asked for.
+//
+// This drives four consecutive, byte-identical status polls through RunTurn
+// -- one more than the detector's old cumulative threshold of three -- and
+// expects the turn to reach a normal final answer once the script stops
+// polling on its own, rather than dying with the loop-detector error.
+func TestWorkspaceRunStatusPollSurvivesTheLoopDetectorThroughRunTurn(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch {
+		case requests == 1:
+			fmt.Fprint(w, runToolCallStream("call-start", `{"action":"start","executable":"go"}`))
+		case requests <= 5:
+			// Four consecutive, identical polls for the same job_id -- one more
+			// than the old cumulative cap of three.
+			fmt.Fprint(w, runToolCallStream(fmt.Sprintf("call-status-%d", requests), `{"action":"status","job_id":"job_0"}`))
+		default:
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"still running, giving up for now\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		}
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	runner := &fakeRunner{}
+	service.WithRuntime(runner, nil)
+	// The job in this script never finishes -- it does not need to, to prove
+	// the point -- so every poll would otherwise block for the real 30-second
+	// default. Shortening it is what runStatusPoll exists for.
+	service.runStatusPoll = 20 * time.Millisecond
+	projectID := createTestProject(t, service, t.TempDir())
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", ProjectID: projectID, QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "run the build and wait for it"}, nil)
+	if err != nil {
+		t.Fatalf("a long poll must survive the loop detector: %v", err)
+	}
+	if requests != 6 {
+		t.Fatalf("script did not run to completion: requests=%d", requests)
+	}
+	if result.AssistantEvent.Content == "" {
+		t.Fatalf("turn did not reach a final answer: %+v", result)
+	}
+	if len(runner.started) != 1 {
+		t.Fatalf("expected exactly one workspace.run start, got %d", len(runner.started))
+	}
+}
+
 // --- V-4: qualification override ---
 //
 // resolveQualification gates every profile above compact-32k, but the only

@@ -641,6 +641,22 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 				return TurnResult{}, fmt.Errorf("agent exhausted its %d tool-call budget", budget.MaxToolCalls)
 			}
 			for _, call := range completion.ToolCalls {
+				// An awaitable poll is exempt from signature counting, not just
+				// given a longer leash: its own tool description instructs the
+				// model to send the identical call again, so three of them is the
+				// contract working, not a model going in circles. Nothing else
+				// changes -- the same call under a different name, or the same
+				// tool with a different action, still accumulates below exactly
+				// as before, and workspace.read_file repeated three times still
+				// trips this. What bounds a model that keeps polling instead is
+				// the step, tool-call and wall-clock budgets enforced elsewhere in
+				// this loop (see budget.MaxModelSteps and budget.MaxToolCalls
+				// above, and the turn's context.WithTimeout in RunTurn's setup) --
+				// this exemption only removes a second, redundant cap that fired
+				// far earlier than any of those.
+				if isAwaitablePoll(call) {
+					continue
+				}
 				signature := toolCallSignature(call)
 				signatures[signature]++
 				if signatures[signature] >= 3 {
@@ -726,6 +742,38 @@ func toolCallSignature(call providers.ToolCall) string {
 	}
 	sum := sha256.Sum256([]byte(call.Name + "\n" + arguments))
 	return hex.EncodeToString(sum[:])
+}
+
+// awaitablePollActions names the tool+action pairs whose own description
+// tells the model to send the exact same call again: workspace.run's
+// action=status long-polls for up to defaultRunStatusPoll and says "call it
+// again if the command has not finished" (runtool.go's statusRun), and
+// browser's action=read has the same re-read-until-settled shape. Both are
+// named explicitly rather than inferred from Effect or some other trait,
+// because "call me again unchanged" is a contract only these two definitions
+// make -- extending the exemption to a future tool has to add it here on
+// purpose, not inherit it by accident.
+var awaitablePollActions = map[string]string{
+	"workspace.run": "status",
+	"browser":       "read",
+}
+
+// isAwaitablePoll reports whether call is one of the polls above. It decodes
+// just enough of the arguments to read "action"; a decode failure (or any
+// other tool and action) answers false, which is the fail-closed direction --
+// an unrecognized call still gets counted and can still trip the detector.
+func isAwaitablePoll(call providers.ToolCall) bool {
+	action, ok := awaitablePollActions[call.Name]
+	if !ok {
+		return false
+	}
+	var decoded struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &decoded); err != nil {
+		return false
+	}
+	return strings.TrimSpace(decoded.Action) == action
 }
 
 func (s *Service) executeToolCalls(ctx context.Context, session Session, provider providers.Profile, turnID string,
