@@ -108,7 +108,7 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 	workingDir, workingDirErr := resolveInside(project.RootPath, input.WorkingDir, true)
 	if workingDirErr != nil {
 		errorMessage := "working directory could not be resolved: " + workingDirErr.Error()
-		resultJSON, _ := json.Marshal(map[string]any{})
+		resultJSON, _ := json.Marshal(map[string]any{"exit_code": -1})
 		completed := time.Now().UTC()
 		durability.Exec("mark background job launch failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
 	    completed_at=? WHERE id=?`, string(resultJSON), errorMessage, formatTime(completed), job.ID))

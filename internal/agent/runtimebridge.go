@@ -32,6 +32,11 @@ type (
 )
 
 // WorkspaceRunner executes allow-listed commands for the agent.
+//
+// LookupRun and CancelRun must return sql.ErrNoRows, unwrapped, for a jobID
+// that no longer exists. isJobNotFound (runtool.go) checks for exactly that
+// sentinel to free the session's concurrency slot; any other error is read
+// as "still running, ask again," and the slot leaks until the process exits.
 type WorkspaceRunner interface {
 	StartRun(ctx context.Context, request RunRequest) (RunResult, error)
 	LookupRun(ctx context.Context, jobID string) (RunResult, error)

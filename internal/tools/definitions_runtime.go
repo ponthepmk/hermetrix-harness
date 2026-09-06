@@ -7,7 +7,7 @@ package tools
 func runtimeDefinitions() []Definition {
 	return []Definition{
 		{Name: "workspace.run", Revision: "v1", Effect: "execute",
-			Description: "Run one allow-listed command in the project and read its result. Start it with action=start, which returns a job_id straight away, then call action=status with that job_id to wait for the result; status blocks for up to 30 seconds per call, so call it again if the command has not finished. action=cancel stops a command. Allowed executables: go, git, node, npm, python3, rg, ls. There is no shell, so pipes, redirects, globs and command chaining do not work; pass each argument separately.",
+			Description: "Run one allow-listed command in the project and read its result. Start it with action=start, which returns a job_id straight away, then call action=status with that job_id to wait for the result; status blocks for up to 30 seconds per call, so call it again if the command has not finished. action=cancel asks a running command to stop; it stops within a few seconds, not immediately. Allowed executables: go, git, node, npm, python3, rg, ls. There is no shell, so pipes, redirects, globs and command chaining do not work; pass each argument separately.",
 			Parameters: objectSchema(map[string]any{
 				"action":          map[string]any{"type": "string", "enum": []any{"start", "status", "cancel"}, "description": "start a command, wait for one, or stop one"},
 				"executable":      map[string]any{"type": "string", "description": "For start: one of go, git, node, npm, python3, rg, ls"},

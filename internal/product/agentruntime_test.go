@@ -217,6 +217,13 @@ func TestRunCommandFailsWhenTheWorkingDirectoryStopsResolving(t *testing.T) {
 	if _, hasArtifact := final.Result["artifact_id"]; hasArtifact {
 		t.Fatalf("result = %v, want no artifact -- the command should never have run", final.Result)
 	}
+	// IMPORTANT 6 (2026-09-04 final-findings.md): this path used to marshal
+	// result_json as "{}", leaving ExitCode at its Go zero value once
+	// runResultFromJob read it back -- a receipt that says "failed, exit code
+	// 0" is a contradiction the learning trail exists to rule out.
+	if runResultFromJob(final).ExitCode == 0 {
+		t.Fatalf("exit code = 0, want a non-zero code for a command that never ran")
+	}
 }
 
 func TestStartRunTerminatesACommandThatWillNotFinish(t *testing.T) {
