@@ -786,7 +786,29 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 			continue
 		}
 		if requiresApproval {
-			plan, err := s.tools.PlanApproval(ctx, call)
+			// A write approval has to be planned against the tree the write will
+			// actually land in -- the session's project -- not the tree the
+			// process happened to start with. Otherwise the preview a human
+			// reads and the optimistic-concurrency hash it gates on both come
+			// from the wrong file (see executeRegistryTool for the same split).
+			// tool_call and browser keep the unscoped registry: a browser
+			// approval still has to work for a session with no code folder at
+			// all, and a deferred MCP capability reaches a server, not a
+			// directory.
+			planner := s.tools
+			if strings.HasPrefix(call.Name, "workspace.") {
+				scoped, err := s.scopedTools(ctx, session)
+				if err != nil {
+					receipt := toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision,
+						Effect: definition.Effect, Status: "failed", Error: err.Error()}
+					if err := s.persistToolResult(ctx, session, provider, turnID, binding, receipt, emit); err != nil {
+						return nil, err
+					}
+					continue
+				}
+				planner = scoped
+			}
+			plan, err := planner.PlanApproval(ctx, call)
 			if err != nil {
 				receipt := toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision,
 					Effect: definition.Effect, Status: "failed", Error: err.Error()}

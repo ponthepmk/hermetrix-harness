@@ -448,10 +448,26 @@ func TestWriteToolPausesForPersistedApprovalThenResumes(t *testing.T) {
 		}
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"write complete\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
-	workspace := t.TempDir()
-	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
+	// The startup root and the project root are two different directories, and
+	// the startup root already carries a stale approved.txt with different
+	// bytes. The call's expected_sha256 of "absent" is true of the project
+	// root -- where the write actually belongs -- but false of the startup
+	// root. If approval planning ever fell back to the startup root, this
+	// pre-existing file would trip the optimistic-concurrency check before an
+	// approval is even created: the CRITICAL-1 regression (approvals planned
+	// against --workspace instead of the session's own project) that this test
+	// exists to catch. createTestProject(t, service, workspace) with a single
+	// shared root would not have seen this, because a path absent from both
+	// trees is exactly the shape that still works when planning is scoped
+	// wrong.
+	startupRoot := t.TempDir()
+	projectRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(startupRoot, "approved.txt"), []byte("stale content from a different project"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service, provider, cleanup := testAgentServiceAtRoot(t, server, startupRoot)
 	defer cleanup()
-	projectID := createTestProject(t, service, workspace)
+	projectID := createTestProject(t, service, projectRoot)
 	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
@@ -474,7 +490,7 @@ func TestWriteToolPausesForPersistedApprovalThenResumes(t *testing.T) {
 	if _, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "start another turn"}, nil); err == nil || !strings.Contains(err.Error(), "awaiting_approval") {
 		t.Fatalf("session accepted a new turn while approval was pending: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(workspace, "approved.txt")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(projectRoot, "approved.txt")); !os.IsNotExist(err) {
 		t.Fatalf("file changed before approval: %v", err)
 	}
 	detail, err := service.GetSessionDetail(context.Background(), session.ID)
@@ -496,9 +512,16 @@ func TestWriteToolPausesForPersistedApprovalThenResumes(t *testing.T) {
 	if completed.AssistantEvent.Content != "write complete" || completed.Binding.StepNumber != 2 || requestNumber != 2 {
 		t.Fatalf("approval resume mismatch requests=%d result=%+v", requestNumber, completed)
 	}
-	content, err := os.ReadFile(filepath.Join(workspace, "approved.txt"))
+	content, err := os.ReadFile(filepath.Join(projectRoot, "approved.txt"))
 	if err != nil || string(content) != "approved content" {
 		t.Fatalf("approved file mismatch %q err=%v", content, err)
+	}
+	// The write belongs to the project, not the process's startup tree; the
+	// stale file planted there at the top of the test must still read as it
+	// did before this turn ever ran.
+	staleContent, err := os.ReadFile(filepath.Join(startupRoot, "approved.txt"))
+	if err != nil || string(staleContent) != "stale content from a different project" {
+		t.Fatalf("startup-root file should be untouched by the write: %q err=%v", staleContent, err)
 	}
 	if !strings.Contains(strings.Join(resumedTypes, ","), "approval_decision,tool_result,step_bound,delta,completed") {
 		t.Fatalf("missing resumed audit stream: %v", resumedTypes)
@@ -736,7 +759,13 @@ func TestDeniedWriteCommitsReceiptAndContinuesWithoutMutation(t *testing.T) {
 	workspace := t.TempDir()
 	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
 	defer cleanup()
-	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+	// A denial has to reach an actual pending approval to deny, and planning a
+	// workspace.* write now requires a project the same way executing one
+	// always has (scopedTools) -- a session with no project could never have
+	// completed this write. Give it a project, rooted at the same workspace,
+	// so this test is back to exercising only the deny path it is named for.
+	projectID := createTestProject(t, service, workspace)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
@@ -1928,7 +1957,14 @@ func TestMalformedToolArgumentsDoNotPoisonTheNextRequest(t *testing.T) {
 	service, provider, cleanup := testAgentService(t, server)
 	defer cleanup()
 	ctx := context.Background()
-	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+	// workspace.write_file always requires approval, and planning one now
+	// scopes to the session's project before it ever looks at the call's
+	// arguments (scopedTools runs first, mirroring execution). A session with
+	// no project would fail there with "no code folder" and never reach the
+	// malformed-argument decode this test is about. Give it a project so the
+	// truncated JSON below is what actually turns the call away.
+	projectID := createTestProject(t, service, t.TempDir())
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
 		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
