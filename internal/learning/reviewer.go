@@ -35,7 +35,25 @@ func (StructuredReviewer) Review(ctx context.Context, digest Digest) (Decision, 
 	if kind == "" {
 		kind = "create"
 	}
-	return Decision{Kind: kind, Reason: digest.SuggestedSkill.Reason,
+	// Design section 6.1: a Skill proposed from a turn nothing measured must
+	// say so in its own reason, visible in Skill Studio without digging.
+	// ModelReviewer gets this from an instruction it can only ask a model to
+	// follow; this path takes a structured suggestion as given and never asks
+	// anyone anything, so the same guarantee has to be deterministic here.
+	// VerifiedBy citing real receipts, rather than a boolean, is what makes
+	// this check honest -- an empty list means no run measured the outcome,
+	// full stop, whatever the suggestion's own reason claims.
+	//
+	// This only touches a proposal. no_change already returned above: there
+	// is no approach in play for "not verified by a run" to be a fact about.
+	reason := strings.TrimSpace(digest.SuggestedSkill.Reason)
+	if len(digest.VerifiedBy) == 0 {
+		if reason != "" {
+			reason += " "
+		}
+		reason += "This approach was not verified by a run."
+	}
+	return Decision{Kind: kind, Reason: reason,
 		ExpectedBenefit: "reuse an explicitly observed procedure without changing active skills",
 		Risks:           []string{"candidate requires lint, security checks, review, and explicit promotion"}}, nil
 }
