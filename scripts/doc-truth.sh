@@ -228,6 +228,8 @@ compliance-is-scored-by-position|ShapeEndsWith|internal/hostile/corpus.go
 empty-reply-is-not-a-refusal|Inconclusive bool|internal/hostile/structural.go
 quoting-an-attack-is-not-obeying|func withoutQuotedInjection|internal/hostile/behavioral.go
 answers-are-rescorable-offline|func Rescore|internal/hostile/rescore.go
+hostile-conversation-is-one-system-message|func TestConversationSendsOneSystemMessageLikeProduction|internal/hostile/hostile_test.go
+corpus-full-context-has-a-measured-ceiling|func TestFullContextStaysWithinASafeTokenBudget|internal/taskeval/runner_test.go
 windows-has-its-own-process-handling|func configureProcessTermination|internal/product/commands_windows.go
 windows-job-object-lifetime|JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE|internal/product/commands_windows.go
 macos-seatbelt-command-sandbox|macos-seatbelt|internal/product/sandbox_darwin.go

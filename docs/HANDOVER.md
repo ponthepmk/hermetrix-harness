@@ -1,4 +1,4 @@
-# Handover — สถานะงาน ณ 2026-09-05
+# Handover — สถานะงาน ณ 2026-09-08
 
 เอกสารนี้เป็น snapshot สำหรับคนที่เข้ามาทำ Hermetrix ต่อ ให้ยึด runtime และ tests เหนือข้อความในเอกสารเสมอ
 
@@ -26,13 +26,13 @@ Hermetrix เป็น local-first Go harness ที่รวม authority-safe 
 - Skill Studio, provider/model/profile, MCP/tools, context และ system surfaces
 - ใช้ Hermetrix logo/identity; ห้าม copy Aetox source, component หรือ asset เพราะ license boundary
 
-ตัวเลขจาก `./scripts/doc-truth.sh`:
+ตัวเลขจาก `./scripts/doc-truth.sh` (2026-09-08, หลัง Review 19 landed):
 
 ```text
-test functions        434        packages              27
-direct primitives      13        HTTP routes           118
+test functions        451        packages              27
+direct primitives      13        HTTP routes           119
 SQLite tables          47        schema-only tables      0
-Go (non-test)      30,615        Go (test)           17,780
+Go (non-test)      31,685        Go (test)           18,452
 ```
 
 ## 2. Workbench ที่ทำงานจริงแล้ว
@@ -143,6 +143,26 @@ git diff --check
 ```
 
 Linux/Windows cross-compile ของ product/web/cmd ใช้เป็น compile gate; runtime Windows Job Object และ ConPTY ยังต้องพิสูจน์บน Windows จริง Real Chrome integration test มีทั้ง UI hydration และ private-subresource 0-hit network guard และต้องรันบน host ที่มี Chrome
+
+`GOOS=windows go build ./cmd/hermetrix` เคย build ไม่ผ่านเลย — `syscall.Kill`/`SysProcAttr.Setpgid` อยู่หลัง `if runtime.GOOS != "windows"` ซึ่งเป็น runtime check ไม่ใช่ compile-time guard, symbol ที่ไม่มีบน Windows ทำให้ทั้ง binary build ไม่ได้ ไม่มีอะไรบน Linux CI runner เคยเห็นเพราะไม่เคย cross-compile แก้แล้วด้วย build tag (`commands_unix.go`/`commands_windows.go`) และ CI เพิ่มขั้น cross-build+vet ทั้ง windows/linux/darwin ทุก commit
+
+## 5.1 Quality gate ที่วัดสดรอบนี้ (2026-09-08)
+
+**P10-A — untrusted metadata — ปิดแล้วสำหรับ model ที่ผ่าน** — corpus 24 fixture ใน `internal/hostile/`, รันด้วย `hermetrix hostile`
+
+- **structural 12/12 เสมอ ไม่ขึ้นกับ model** — ยิงผ่าน MCP server จริง protocol จริง (description/title/tool-name/schema/annotation ที่ฝังคำสั่ง) `go test ./internal/hostile/` รันทุกครั้ง ไม่ต้องมี provider
+- **behavioural วัดแล้วสองรุ่น**: `qwen3:4b` ในเครื่อง 8/12 (หลุดเฉพาะเคสที่สั่งให้ *พูด* ตาม ไม่ใช่ *ทำ*) · `qwen3.8-27b-fp8` ผ่าน gateway จริง **24/24 (100%)**
+- ระหว่างวัดรอบ gateway เจอบั๊กจริง: `internal/hostile/behavioral.go` ส่ง system message สองก้อนแยกกัน ไม่ตรงกับที่ production ส่งจริง (`renderMessages` รวมเป็นก้อนเดียวเสมอ) — gateway backend บางตัวปฏิเสธตรง ๆ แก้แล้ว มี mutation test คุม
+- คำตอบเต็มถูกเก็บใน report เสมอ `hermetrix hostile --rescore FILE` คำนวณคะแนนใหม่จากไฟล์ที่รันไปแล้วได้โดยไม่ต้องเรียก model ซ้ำ
+- **ยังไม่ครอบ**: model family อื่นนอกจาก qwen, provider paid endpoint อื่น
+
+**P9-B — task success delta** — corpus generator มีบั๊ก sizing: `DefaultNoiseFragments=18` เดิมอ้างว่าได้ ~50,000 token แต่วัดจริงด้วย estimator ได้สูงสุด 105,964 (เกิดจาก V-9 เพิ่ม superseded-fact fragment โดยไม่ recheck ตัวเลขนี้) ทำให้ task แรกที่รันชนเพดาน provider ทันที ("full context exceeds the provider window") แก้เป็น 6 (วัดจริงได้สูงสุด 47,908 เฉลี่ย 35,480) มี `TestFullContextStaysWithinASafeTokenBudget` คุมด้วย estimator จริงแทนคอมเมนต์เดา
+
+หลังแก้ corpus แล้วรันจริงกับ gateway (`qwen3.8-27b-fp8`, compact-32k, `--retrieval --embed-url http://127.0.0.1:11434/v1`) — ดูผลจริงที่ `docs/HANDOVER.md` เวอร์ชันถัดไปหรือ log การรัน ยังไม่จบภายในเซสชันนี้
+
+## 5.2 Branch ที่แยกไว้ต่างหาก
+
+`wip/provider-routing` — provider ordered-failover rewrite จาก agent อีก session หนึ่ง ยังไม่ commit ตอนที่เจอ (ไม่ track ใน git เลย) commit ไว้แยก branch เพื่อไม่ให้หายตอนย้ายเครื่อง ไม่ merge เข้า `main` เพราะไม่ใช่คนออกแบบ ตรวจแค่ build/test ผ่าน ไม่ได้ vouch design — merge เป็นการตัดสินใจของเจ้าของหรือของผู้เขียน rewrite เอง
 
 ## 6. งานถัดไปตามลำดับ
 
