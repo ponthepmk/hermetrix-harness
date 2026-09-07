@@ -29,14 +29,28 @@ const MiddlePlacementRate = 0.345
 // requests.
 //
 // The gate compares full context against compiled context, which only means
-// something if the full one can actually be sent. At 18 noise fragments a task
-// measures roughly 50,000 tokens whole and 9,000 compiled: comfortably inside a
-// 96k provider window with room for an answer, and compacted by more than 80%.
+// something if the full one can actually be sent. This constant used to be 18
+// on the strength of a comment claiming that produced "roughly 50,000 tokens
+// whole" -- a number nobody had actually run through the estimator. Measured
+// with hermetrix's own AdaptiveEstimator once the corpus gained a second
+// dimension (V-9's superseded-fact history, which widens a middle-placement
+// needle fragment to four pad copies instead of one), 18 produced a maximum of
+// 105,964 tokens and an average of 93,535 -- a task-success run against a
+// 96k-declared gateway window failed outright on the very first oversized task
+// with "full context exceeds the provider window", which is exactly the
+// failure mode the constant's own comment says it exists to prevent.
+//
+// At 6, the same corpus measures a maximum of 47,908 tokens and an average of
+// 35,480: the number the stale comment actually wanted, and comfortably inside
+// even a certified-64k provider window with room for system prompt, tool
+// schemas and an answer. TestFullContextStaysWithinASafeTokenBudget pins this
+// with the real estimator rather than a comment, so the next fragment that
+// grows the corpus fails a test instead of a live scoring run.
 //
 // The first draft used 120 and produced a 190,000-token "full" condition that
 // no provider in use could accept -- the comparison would have been between a
-// compiled answer and an error.
-const DefaultNoiseFragments = 18
+// compiled answer and an error. This is the same lesson learned a second time.
+const DefaultNoiseFragments = 6
 
 // Placement names where in its carrier fragment a task's key fact sits.
 const (

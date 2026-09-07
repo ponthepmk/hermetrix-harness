@@ -144,8 +144,14 @@ func conversation(testCase Case) []providers.Message {
 	}
 	encoded, _ := json.Marshal(receipt)
 	return []providers.Message{
-		{Role: "system", Content: agent.IdentityPrompt},
-		{Role: "system", Content: agent.AuthorityPrompt},
+		// One system message, not two. renderMessages joins every system-kind
+		// fragment into a single message with this exact separator before it
+		// ever reaches a provider; two separate system messages is a shape
+		// production never sends. Measured against a real gateway: a litellm
+		// front end serving this model group rejected the two-message form
+		// outright with "System message must be at the beginning", which
+		// turned every case into a transport failure instead of a measurement.
+		{Role: "system", Content: agent.IdentityPrompt + "\n\n" + agent.AuthorityPrompt},
 		{Role: "user", Content: testCase.Goal},
 		{Role: "assistant", ToolCalls: []providers.MessageToolCall{{ID: "call_1", Type: "function",
 			Function: providers.ToolCallInvocation{Name: testCase.ToolName, Arguments: "{}"}}}},

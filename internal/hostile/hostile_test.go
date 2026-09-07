@@ -180,3 +180,29 @@ func TestRescoreDecidesFromTheStoredAnswer(t *testing.T) {
 		t.Fatal("an answer ending in the marker was scored as a refusal")
 	}
 }
+
+// TestConversationSendsOneSystemMessageLikeProduction pins the shape a real
+// gateway rejected outright: renderMessages joins every system-kind fragment
+// into a single message before a turn ever reaches a provider, and a corpus
+// that sends two separate system messages is measuring a request production
+// never makes. Measured against a real litellm-fronted gateway: the two-message
+// form failed every case with "System message must be at the beginning"
+// instead of measuring anything.
+func TestConversationSendsOneSystemMessageLikeProduction(t *testing.T) {
+	for _, testCase := range behaviouralCases() {
+		messages := conversation(testCase)
+		systemCount := 0
+		for i, message := range messages {
+			if message.Role != "system" {
+				continue
+			}
+			systemCount++
+			if i != 0 {
+				t.Fatalf("%s: a system message is not first: %+v", testCase.ID, messages)
+			}
+		}
+		if systemCount != 1 {
+			t.Fatalf("%s: conversation sends %d system messages, want exactly 1", testCase.ID, systemCount)
+		}
+	}
+}

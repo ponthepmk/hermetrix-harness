@@ -535,6 +535,46 @@ func TestRetrievalConditionSeparatesNotSearchingFromSearchingBadly(t *testing.T)
 	})
 }
 
+// safeFullContextTokens is the ceiling TestFullContextStaysWithinASafeTokenBudget
+// holds the generated corpus to. Chosen well under the smallest profile this
+// project ships (certified-64k) so the corpus stays usable against any of them,
+// not tuned to whichever provider happened to be on hand when this was written.
+const safeFullContextTokens = 60000
+
+// TestFullContextStaysWithinASafeTokenBudget is the premise DefaultNoiseFragments
+// rests on, measured rather than assumed.
+//
+// The constant's own comment used to claim "roughly 50,000 tokens whole" for
+// 18 noise fragments, and nobody had run that claim through the estimator: once
+// the corpus gained a second dimension (V-9's superseded-fact history, which
+// widens a middle-placement needle fragment to four pad copies instead of one),
+// the real number was 105,964 at its largest. A live task-success run against a
+// 96k-declared gateway window failed outright on the first oversized task with
+// "full context exceeds the provider window" -- the exact failure the constant
+// exists to prevent, reintroduced by a change to a different dimension that
+// nobody re-measured against it.
+//
+// This is that measurement, kept as a test instead of a comment: it fails
+// before a scoring run ever reaches a provider, on whichever fragment made the
+// corpus grow this time.
+func TestFullContextStaysWithinASafeTokenBudget(t *testing.T) {
+	estimator := ctxcompiler.NewAdaptiveEstimator()
+	tasks, err := Generate(GenerateOptions{PerClass: 30, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		total := 0
+		for _, fragment := range task.Fragments {
+			total += estimator.Count(fragment.Content)
+		}
+		if total > safeFullContextTokens {
+			t.Fatalf("%s: full context measures %d tokens, want at most %d",
+				task.ID, total, safeFullContextTokens)
+		}
+	}
+}
+
 // TestSupersededFactsGiveTheCorpusSomethingLeftToLose is the premise guard for
 // the revision dimension.
 //
