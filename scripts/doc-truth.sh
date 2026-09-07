@@ -107,7 +107,8 @@ durability-errors-are-observed|func \(operation Exec\) Observe|internal/durabili
 ui-real-browser-e2e|func TestCockpitHydratesInARealBrowser|internal/web/ui_browser_e2e_test.go
 task-budget|MaxCumulativeTokens|internal/agent/service.go
 loop-detector|third identical call|internal/agent/service.go
-qualification-exact-binding|AND provider_revision=\? AND requested_profile=\?|internal/agent/service.go
+qualification-exact-binding|AND provider_revision=\? AND requested_profile=\?|internal/agent/provider_routing.go
+provider-ordered-failover|func \(s \*Service\) routeSessionProvider|internal/agent/provider_routing.go
 override-expiry|override expired|internal/agent/service.go
 tier-ultra-1m|ultra-1m|internal/qualification/service.go
 recall-positions|RecallPositions|internal/qualification/service.go

@@ -44,6 +44,35 @@ func TestSessionRejectsProfileAboveProviderDeclaration(t *testing.T) {
 	}
 }
 
+func TestOrderedProviderFailoverFreezesTheFirstEligibleCandidate(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{
+		ProviderCandidates: []string{"provider_missing", provider.ID}, RoutingPolicy: "ordered-failover",
+		ContextProfile: "compact-32k",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ProviderID != provider.ID || session.Contract.ProviderID != provider.ID {
+		t.Fatalf("route selected provider=%q contract=%q, want %q", session.ProviderID, session.Contract.ProviderID, provider.ID)
+	}
+	if session.Contract.RoutingPolicy != "ordered-failover" || len(session.Contract.ProviderCandidates) != 2 ||
+		session.Contract.ProviderCandidates[0] != "provider_missing" || session.Contract.ProviderCandidates[1] != provider.ID {
+		t.Fatalf("route decision was not frozen exactly: %+v", session.Contract)
+	}
+}
+
+func TestExplicitProviderRouteRefusesFallbackCandidates(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	_, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ProviderCandidates: []string{"another"}, RoutingPolicy: "explicit", ContextProfile: "compact-32k"})
+	if err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("explicit route accepted fallback candidates: %v", err)
+	}
+}
+
 func TestSessionRequiresExactQualification(t *testing.T) {
 	service, provider, cleanup := testAgentService(t, successProviderServer(t))
 	defer cleanup()

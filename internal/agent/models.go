@@ -28,7 +28,9 @@ type Session struct {
 
 type CreateSessionInput struct {
 	Title                 string                      `json:"title"`
-	ProviderID            string                      `json:"provider_id"`
+	ProviderID            string                      `json:"provider_id,omitempty"`
+	ProviderCandidates    []string                    `json:"provider_candidates,omitempty"`
+	RoutingPolicy         string                      `json:"routing_policy,omitempty"`
 	ProjectID             string                      `json:"project_id,omitempty"`
 	ContextProfile        string                      `json:"context_profile"`
 	QualificationOverride *QualificationOverrideInput `json:"qualification_override,omitempty"`
@@ -61,6 +63,8 @@ type SessionContract struct {
 	Revision           string                   `json:"revision"`
 	ProviderRevision   string                   `json:"provider_revision"`
 	ProviderID         string                   `json:"provider_id"`
+	ProviderCandidates []string                 `json:"provider_candidates,omitempty"`
+	RoutingPolicy      string                   `json:"routing_policy"`
 	Model              string                   `json:"model"`
 	ContextProfile     string                   `json:"context_profile"`
 	ProjectID          string                   `json:"project_id,omitempty"`
