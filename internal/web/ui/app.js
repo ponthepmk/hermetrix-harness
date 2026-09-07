@@ -1,14 +1,37 @@
 const { escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline } = HermetrixRuntime;
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, authPrincipal: "" };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-async function api(path, options = {}) {
+let authenticationAttempt;
+async function authenticateControlAPI() {
+  if (authenticationAttempt) return authenticationAttempt;
+  authenticationAttempt = (async () => {
+    const token = window.prompt("Hermetrix authentication token");
+    if (!token) throw new Error("Authentication is required");
+    const response = await fetch("/api/auth/session", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({token}) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || "Authentication failed");
+    state.authPrincipal = body.principal || state.authPrincipal;
+    return body;
+  })();
+  try { return await authenticationAttempt; }
+  finally { authenticationAttempt = null; }
+}
+
+async function api(path, options = {}, authenticatedRetry = false) {
   const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+	state.authPrincipal = response.headers.get("X-Hermetrix-Principal") || state.authPrincipal;
+  if (response.status === 401 && path !== "/api/auth/session" && !authenticatedRetry) {
+    await authenticateControlAPI();
+    return api(path, options, true);
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
   return body;
 }
+
+function currentActor() { return state.authPrincipal || "local-user"; }
 
 function shortHash(value = "") { return value ? `${value.slice(0, 10)}…` : "—"; }
 function formatDate(value) { return value ? new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—"; }
@@ -327,7 +350,7 @@ async function proposeImprovement(skill) {
   const reason = await askAction({ title:`Improve ${skill.canonical_name}?`, message:"Hermetrix will clone the active immutable version into a candidate workspace. The active skill remains unchanged until a later promotion.", confirmLabel:"Create improvement proposal", reasonLabel:"Improvement goal" });
   if (!reason) return;
   try {
-    const candidate = await api(`/api/skills/${encodeURIComponent(skill.id)}/improvements`, { method:"POST", body:JSON.stringify({ actor:"user", reason }) });
+    const candidate = await api(`/api/skills/${encodeURIComponent(skill.id)}/improvements`, { method:"POST", body:JSON.stringify({ actor:currentActor(), reason }) });
     toast("Improvement proposal created — active version unchanged");
     await load();
     switchTab("proposals");
@@ -339,7 +362,7 @@ async function archiveSkill(skill) {
   const reason = await askAction({ title:`Archive ${skill.canonical_name}?`, message:"The skill will stop being selected. Its current version, provenance, usage, and blob remain recoverable.", confirmLabel:"Archive safely", reasonLabel:"Archive reason", danger:true });
   if (!reason) return;
   try {
-    await api(`/api/skills/${encodeURIComponent(skill.id)}/archive`, { method: "POST", body: JSON.stringify({ actor: "user", reason }) });
+    await api(`/api/skills/${encodeURIComponent(skill.id)}/archive`, { method: "POST", body: JSON.stringify({ actor: currentActor(), reason }) });
     state.selectedSkill = null;
     $("#workbenchContent").innerHTML = `<div class="empty-inspector"><span class="orb">✓</span><h2>Archived safely</h2><p>The exact version remains available in Archive and restore creates a new proposal.</p></div>`;
     toast("Skill archived — snapshot retained");
@@ -357,7 +380,7 @@ async function updateSkillControl(skill, field, value) {
   if (!approved) return;
   try {
     await api(`/api/skills/${encodeURIComponent(skill.id)}`, { method:"PATCH", body:JSON.stringify({
-      actor:"local-user", expected_version_id:skill.current_version_id, [field]:value
+      actor:currentActor(), expected_version_id:skill.current_version_id, [field]:value
     }) });
     toast(`Skill ${label}d for future sessions`);
     await load();
@@ -379,7 +402,7 @@ async function forkSkill(skill) {
   }
   try {
     const candidate = await api(`/api/skills/${encodeURIComponent(skill.id)}/fork`, { method:"POST", body:JSON.stringify({
-      canonical_name:canonicalName, actor:"local-user", reason:`User-created fork of ${skill.canonical_name}`
+      canonical_name:canonicalName, actor:currentActor(), reason:`User-created fork of ${skill.canonical_name}`
     }) });
     toast("Custom fork created as a reviewable candidate");
     await load();
@@ -398,7 +421,7 @@ async function saveAuthorityPolicy(event) {
       mode:form.get("mode"), auto_promote_agent_create:form.get("auto_create") === "on",
       auto_promote_agent_improve:form.get("auto_improve") === "on",
       auto_archive_agent_skills:form.get("auto_archive") === "on", allowed_scopes:scopes,
-      max_candidate_tokens:Number(form.get("max_candidate_tokens")), actor:"local-user",
+      max_candidate_tokens:Number(form.get("max_candidate_tokens")), actor:currentActor(),
       reason:form.get("reason"), expected_revision:state.skillAuthority.revision
     }) });
     toast("Skill authority policy saved with a new revision");
@@ -420,7 +443,7 @@ async function rollbackAuthorityAction(id) {
   const reason = await askAction({ title:"Undo automated Skill decision?", message:"Auto-created Skills are archived immediately. Improvements create a rollback candidate so the previous immutable version must pass the normal review gate.", confirmLabel:"Create safe rollback", reasonLabel:"Rollback reason", danger:true });
   if (!reason) return;
   try {
-    const candidate = await api(`/api/skill-authority/actions/${encodeURIComponent(id)}/rollback`, { method:"POST", body:JSON.stringify({ actor:"local-user", reason }) });
+    const candidate = await api(`/api/skill-authority/actions/${encodeURIComponent(id)}/rollback`, { method:"POST", body:JSON.stringify({ actor:currentActor(), reason }) });
     toast(candidate.id ? "Rollback candidate created for review" : "Auto-created Skill archived and retained for restore");
     await load();
     switchTab(candidate.id ? "proposals" : "archive");
@@ -490,14 +513,14 @@ async function reviewCandidateTools(item) {
   const approved = await askAction({ title:"Approve widened tool declaration?", message:"This approval is bound only to the exact candidate revision and added tool list shown in the replay report.", confirmLabel:"Approve exact revision" });
   if (!approved) return;
   try {
-    await api(`/api/candidates/${encodeURIComponent(item.id)}/capability-review`, { method:"POST", body:JSON.stringify({ actor:"user", decision:"approve", expected_revision:item.revision }) });
+    await api(`/api/candidates/${encodeURIComponent(item.id)}/capability-review`, { method:"POST", body:JSON.stringify({ actor:currentActor(), decision:"approve", expected_revision:item.revision }) });
     toast("Capability widening approved for this exact revision");
   } catch (error) { toast(error.message, true); }
 }
 
 async function saveCandidateEdit(item) {
   try {
-    const updated = await api(`/api/candidates/${encodeURIComponent(item.id)}`, { method:"PATCH", body:JSON.stringify({ markdown:$("#candidateEditor").value, actor:"user", expected_revision:item.revision }) });
+    const updated = await api(`/api/candidates/${encodeURIComponent(item.id)}`, { method:"PATCH", body:JSON.stringify({ markdown:$("#candidateEditor").value, actor:currentActor(), expected_revision:item.revision }) });
     toast(`Candidate revision ${updated.revision} saved; checks re-run`);
     await load();
     await inspectCandidate(updated.id);
@@ -510,7 +533,7 @@ async function promoteCandidate(id) {
   const approved = await askAction({ title:`Promote ${item.canonical_name}?`, message:"This immutable version will become eligible for context selection. The proposal, checks, actor, and evidence remain in the audit history.", confirmLabel:"Approve & promote" });
   if (!approved) return;
   try {
-    await api(`/api/candidates/${encodeURIComponent(id)}/promote`, { method: "POST", body: JSON.stringify({ actor: "user", expected_revision: item.revision }) });
+    await api(`/api/candidates/${encodeURIComponent(id)}/promote`, { method: "POST", body: JSON.stringify({ actor: currentActor(), expected_revision: item.revision }) });
     toast("Candidate promoted as an immutable skill version");
     await load();
     switchTab("library");
@@ -522,7 +545,7 @@ async function rejectCandidate(id) {
   const reason = await askAction({ title:`Reject ${item?.canonical_name || "this proposal"}?`, message:"The proposal will stay in history and cannot become active.", confirmLabel:"Reject proposal", reasonLabel:"Rejection reason", danger:true });
   if (!reason) return;
   try {
-    await api(`/api/candidates/${encodeURIComponent(id)}/reject`, { method: "POST", body: JSON.stringify({ actor: "user", reason, expected_revision: item.revision }) });
+    await api(`/api/candidates/${encodeURIComponent(id)}/reject`, { method: "POST", body: JSON.stringify({ actor: currentActor(), reason, expected_revision: item.revision }) });
     toast("Proposal rejected with an audit reason");
     await load();
   } catch (error) { toast(error.message, true); }
@@ -551,7 +574,7 @@ function renderArchive() {
 async function restoreArchive(id) {
   const reason = await askAction({ title:"Restore archived version?", message:"Restore creates a proposal from the exact archived blob. It does not reactivate the skill until a separate promotion decision.", confirmLabel:"Create restore proposal", reasonLabel:"Restore reason" });
   if (!reason) return;
-  try { await api(`/api/archives/${encodeURIComponent(id)}/restore`, { method: "POST", body: JSON.stringify({ actor: "user", reason }) }); toast("Restore proposal created — active state is unchanged"); await load(); switchTab("proposals"); } catch (error) { toast(error.message, true); }
+  try { await api(`/api/archives/${encodeURIComponent(id)}/restore`, { method: "POST", body: JSON.stringify({ actor: currentActor(), reason }) }); toast("Restore proposal created — active state is unchanged"); await load(); switchTab("proposals"); } catch (error) { toast(error.message, true); }
 }
 
 function profileLabel(profile) {
@@ -1197,7 +1220,7 @@ async function createAgentSession() {
     };
     if (admission.mode === "override_required") {
       const reason = (state.draftQualificationReason.trim() || suggestedOverrideReason(provider, profile));
-      body.qualification_override = { actor:"local-user", reason };
+      body.qualification_override = { actor:currentActor(), reason };
     }
     const session = await api("/api/sessions", { method:"POST", body:JSON.stringify(body) });
     state.draftQualificationReason = "";
@@ -1298,7 +1321,7 @@ async function decideToolApproval(id, decision) {
   try {
     const stream = await fetch(`/api/approvals/${encodeURIComponent(id)}/decisions`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ actor:"user", decision, reason:decision === "deny" ? response : "approved after preview" })
+      body:JSON.stringify({ actor:currentActor(), decision, reason:decision === "deny" ? response : "approved after preview" })
     });
     if (!stream.ok) {
       const body = await stream.json().catch(() => ({}));
@@ -1383,11 +1406,12 @@ function renderProviders() {
     [list.filter(item => item.credential_stored).length.toLocaleString(), "key saved"],
     [qualified.toLocaleString(), "qualified"]
   ];
-  const hero = `<section class="capability-hero"><div class="capability-hero-head"><div><p class="eyebrow">Models</p><h3>${list.length ? `${list.length} model${list.length === 1 ? "" : "s"} connected` : "No model connected yet"}</h3><p>Any OpenAI-compatible endpoint works — a hosted API or a local runtime. Paste the key here; there is nothing to put in your shell and nothing to restart.</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
-  const cards = list.length ? list.map(provider => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(provider.name)}</h3>${pill(provider.enabled ? "enabled" : "disabled", provider.enabled ? "green" : "amber")}${pill(provider.context_evidence, provider.context_evidence === "qualified" ? "green" : "amber")}</div><p>${escapeHTML(provider.base_url)}</p></div>${pill(provider.credential_stored ? "key saved" : provider.api_key_env ? "key from environment" : "no key set", provider.credential_stored || provider.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(provider.model)}</strong><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><span>${provider.max_output_tokens.toLocaleString()}</span><span>Key source</span><span>${provider.credential_stored ? "saved on this machine" : provider.api_key_env ? `environment · ${escapeHTML(provider.api_key_env)}` : "none required"}</span></div><div class="action-row"><button class="ghost" data-provider-key="${escapeHTML(provider.id)}">${provider.credential_stored ? "Replace API key" : "Set API key"}</button><button class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Test connection</button><button class="primary" data-qualify-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Full qualification</button></div></article>`).join("") : `<div class="empty"><h3>No model connected</h3><p>Open the Model registry panel and connect one. A hosted endpoint needs its API key; a local runtime usually needs none.</p></div>`;
+  const hero = `<section class="capability-hero"><div class="capability-hero-head"><div><p class="eyebrow">Models</p><h3>${list.length ? `${list.length} model${list.length === 1 ? "" : "s"} connected` : "No model connected yet"}</h3><p>Connect OpenAI-compatible gateways or native Anthropic and Gemini endpoints. Credentials remain isolated per profile.</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
+  const cards = list.length ? list.map(provider => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(provider.name)}</h3>${pill(provider.adapter_kind, "blue")}${pill(provider.enabled ? "enabled" : "disabled", provider.enabled ? "green" : "amber")}${pill(provider.context_evidence, provider.context_evidence === "qualified" ? "green" : "amber")}</div><p>${escapeHTML(provider.base_url)}</p></div>${pill(provider.credential_stored ? "key saved" : provider.api_key_env ? "key from environment" : "no key set", provider.credential_stored || provider.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(provider.model)}</strong><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><span>${provider.max_output_tokens.toLocaleString()}</span><span>Key source</span><span>${provider.credential_stored ? "saved on this machine" : provider.api_key_env ? `environment · ${escapeHTML(provider.api_key_env)}` : "none required"}</span></div><div class="action-row"><button class="ghost" data-provider-key="${escapeHTML(provider.id)}">${provider.credential_stored ? "Replace API key" : "Set API key"}</button><button class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Test connection</button><button class="primary" data-qualify-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Full qualification</button></div></article>`).join("") : `<div class="empty"><h3>No model connected</h3><p>Open the Model registry panel and connect one. A hosted endpoint needs its API key; a local runtime usually needs none.</p></div>`;
   const flow = `<div class="panel"><p class="eyebrow">How connecting works</p><div class="tool-flow">${MODEL_FLOW.map(([title, detail], index) => `<article><b>${index + 1}</b><div><strong>${escapeHTML(title)}</strong><small>${escapeHTML(detail)}</small></div></article>`).join("")}</div></div>`;
   const setup = `<details class="panel connection-setup" ${list.length ? "" : "open"}><summary><div><p class="eyebrow">Model registry</p><h3>Connect a model</h3></div></summary><div class="connection-setup-body"><form id="providerForm">
       <label>Name<input name="name" required maxlength="80" placeholder="OpenAI, my local gateway…"></label>
+      <label>Protocol<select name="adapter_kind"><option value="openai-compatible">OpenAI-compatible</option><option value="anthropic-native">Anthropic native</option><option value="gemini-native">Gemini native</option></select></label>
       <label>Base URL<input name="base_url" required type="url" placeholder="https://api.openai.com/v1"></label>
       <label>Model<input name="model" required maxlength="240" placeholder="model ID from your provider"></label>
       <label>API key<input name="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key — leave empty for a local model"></label>
@@ -1449,7 +1473,7 @@ async function saveProvider(event) {
   const values = new FormData(form);
   try {
     const key = String(values.get("api_key") || "");
-    await api("/api/providers", { method:"POST", body:JSON.stringify({ name:values.get("name"), adapter_kind:"openai-compatible", base_url:values.get("base_url"), model:values.get("model"), api_key:key, api_key_env:values.get("api_key_env"), context_window:Number(values.get("context_window")), context_evidence:"declared", max_output_tokens:Number(values.get("max_output_tokens")) }) });
+    await api("/api/providers", { method:"POST", body:JSON.stringify({ name:values.get("name"), adapter_kind:values.get("adapter_kind"), base_url:values.get("base_url"), model:values.get("model"), api_key:key, api_key_env:values.get("api_key_env"), context_window:Number(values.get("context_window")), context_evidence:"declared", max_output_tokens:Number(values.get("max_output_tokens")) }) });
     form.reset();
     toast(key.trim() ? "Model connected and API key saved on this machine" : "Model connected");
     await load();
@@ -1805,7 +1829,7 @@ async function startCommand(event) {
   try { args = JSON.parse(form.get("arguments")); if (!Array.isArray(args) || !args.every(item => typeof item === "string")) throw new Error(); }
   catch { toast("Arguments must be a JSON array of strings", true); return; }
   try {
-    await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/commands`, { method:"POST", body:JSON.stringify({ actor:"user", executable:form.get("executable"), arguments:args, working_dir:form.get("working_dir"), timeout_seconds:Number(form.get("timeout")) }) });
+    await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/commands`, { method:"POST", body:JSON.stringify({ actor:currentActor(), executable:form.get("executable"), arguments:args, working_dir:form.get("working_dir"), timeout_seconds:Number(form.get("timeout")) }) });
     toast("Background job started with a direct process binding"); await load(); switchTab("office");
   } catch (error) { toast(error.message, true); }
 }
@@ -1871,14 +1895,14 @@ function renderMaintenance() {
 async function saveSetting(event) { event.preventDefault(); const form = new FormData(event.currentTarget); let value; try { value=JSON.parse(form.get("value")); } catch { toast("Setting value must be valid JSON",true); return; } try { await api("/api/settings",{method:"PUT",body:JSON.stringify({key:form.get("key"),value})}); toast("Non-secret setting saved"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function saveMemory(event) { event.preventDefault(); const form=new FormData(event.currentTarget); const scope=form.get("scope_kind"); try { await api("/api/memories",{method:"POST",body:JSON.stringify({scope_kind:scope,scope_ref:scope === "project" ? form.get("scope_ref") : "",memory_kind:form.get("memory_kind"),content:form.get("content"),source:"user"})}); toast("Explicit user memory saved"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function archiveMemory(id) { try { await api(`/api/memories/${encodeURIComponent(id)}/archive`,{method:"POST",body:"{}"}); toast("Memory archived"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
-async function exportBackup() { try { const run=await api("/api/backups",{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Verified backup completed"); await load(); window.location.href=`/api/backups/${encodeURIComponent(run.id)}/download`; } catch(error){toast(error.message,true);} }
-async function previewImport() { const file=$("#importBackupFile").files[0]; if(!file){toast("Choose a backup file",true);return;} try { const response=await fetch("/api/imports/preview?actor=user",{method:"POST",headers:{"Content-Type":"application/vnd.hermetrix.backup+json"},body:file}); const body=await response.json(); if(!response.ok)throw new Error(body.error); toast(`Verified import preview · ${body.skill_conflicts} skill conflicts`); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
-async function applyImport(id) { const approved=await askAction({title:"Restore backup as candidates?",message:"Blobs are checksum-verified. Skills become reviewable candidates only; active skills are never overwritten.",confirmLabel:"Create candidates"}); if(!approved)return; try { const result=await api(`/api/imports/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast(`Created ${result.candidate_ids.length} candidates · ${result.conflicts} conflicts`); await load(); switchTab("proposals"); } catch(error){toast(error.message,true);} }
+async function exportBackup() { try { const run=await api("/api/backups",{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Verified backup completed"); await load(); window.location.href=`/api/backups/${encodeURIComponent(run.id)}/download`; } catch(error){toast(error.message,true);} }
+async function previewImport() { const file=$("#importBackupFile").files[0]; if(!file){toast("Choose a backup file",true);return;} try { const body=await api(`/api/imports/preview?actor=${encodeURIComponent(currentActor())}`,{method:"POST",headers:{"Content-Type":"application/vnd.hermetrix.backup+json"},body:file}); toast(`Verified import preview · ${body.skill_conflicts} skill conflicts`); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
+async function applyImport(id) { const approved=await askAction({title:"Restore backup as candidates?",message:"Blobs are checksum-verified. Skills become reviewable candidates only; active skills are never overwritten.",confirmLabel:"Create candidates"}); if(!approved)return; try { const result=await api(`/api/imports/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast(`Created ${result.candidate_ids.length} candidates · ${result.conflicts} conflicts`); await load(); switchTab("proposals"); } catch(error){toast(error.message,true);} }
 async function saveSchedule(event) { event.preventDefault(); const form=new FormData(event.currentTarget); try { await api("/api/maintenance/schedules",{method:"POST",body:JSON.stringify({name:form.get("name"),task_kind:form.get("task_kind"),interval_seconds:Number(form.get("interval_seconds")),enabled:form.get("enabled")==="on",require_idle:form.get("require_idle")==="on",require_ac_power:form.get("require_ac_power")==="on"})}); toast("Maintenance schedule saved"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function runDueMaintenance() { try { const detected=await api("/api/maintenance/system-state"); const runs=await api("/api/maintenance/run-due",{method:"POST",body:JSON.stringify(detected)}); toast(runs.length ? `Evaluated ${runs.length} due schedules` : "No schedules are due"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function dryRunGC() { try { const run=await api("/api/maintenance/gc/dry-run",{method:"POST",body:"{}"}); toast(`GC dry-run found ${run.unreachable_count} unreachable objects`); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
-async function applyGC(id) { const approved=await askAction({title:"Quarantine exact GC snapshot?",message:"The CAS set must still match the dry-run. Objects are moved to recoverable quarantine, never deleted.",confirmLabel:"Quarantine exact set",danger:true}); if(!approved)return; try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Exact snapshot moved to recoverable quarantine"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
-async function restoreGC(id) { try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/restore`,{method:"POST",body:JSON.stringify({actor:"user"})}); toast("Quarantined CAS objects restored after integrity verification"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
+async function applyGC(id) { const approved=await askAction({title:"Quarantine exact GC snapshot?",message:"The CAS set must still match the dry-run. Objects are moved to recoverable quarantine, never deleted.",confirmLabel:"Quarantine exact set",danger:true}); if(!approved)return; try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Exact snapshot moved to recoverable quarantine"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
+async function restoreGC(id) { try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/restore`,{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Quarantined CAS objects restored after integrity verification"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 
 let workbenchPollTimer;
 
@@ -1987,7 +2011,7 @@ async function newWorkbenchFile() {
 async function saveWorkbenchFile(event) {
   event.preventDefault();
   try {
-    const result = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file`, {method:"PUT",body:JSON.stringify({path:state.projectFile.path,content:$("#workbenchFileContent").value,expected_sha256:state.projectFile.sha256 || "",actor:"local-user"})});
+    const result = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file`, {method:"PUT",body:JSON.stringify({path:state.projectFile.path,content:$("#workbenchFileContent").value,expected_sha256:state.projectFile.sha256 || "",actor:currentActor()})});
     state.projectFile = result.document;
     state.projectFileDiff = result.diff;
     toast(`File committed · receipt ${shortHash(result.receipt_artifact.id)}`);
@@ -2029,7 +2053,7 @@ function renderWorkbenchTerminal() {
 async function startWorkbenchTerminal(event) {
   event.preventDefault(); const form=new FormData(event.currentTarget);
   try {
-    const terminal=await api("/api/terminals",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),shell:form.get("shell"),working_dir:form.get("working_dir"),actor:"local-user",columns:Number(form.get("columns")),rows:Number(form.get("rows"))})});
+    const terminal=await api("/api/terminals",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),shell:form.get("shell"),working_dir:form.get("working_dir"),actor:currentActor(),columns:Number(form.get("columns")),rows:Number(form.get("rows"))})});
     state.selectedProject=form.get("project_id"); state.selectedTerminal=terminal.id; state.terminalOutput=""; state.terminals=await api("/api/terminals"); refreshWorkbenchSurface("terminal");
   } catch(error){toast(error.message,true);}
 }
@@ -2074,8 +2098,8 @@ function renderWorkbenchBrowser() {
   bindWorkbenchBrowserEvents();
 }
 
-async function openWorkbenchBrowser(event){event.preventDefault();const form=new FormData(event.currentTarget);try{const tab=await api("/api/browser/tabs",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),url:form.get("url"),allow_private:form.get("allow_private")==="on",actor:"local-user"})});state.browserTabs.unshift(tab);state.selectedBrowserTab=tab.id;refreshWorkbenchSurface("browser");}catch(error){toast(error.message,true);}}
-async function browserWorkbenchAction(action,ref=0,text=""){const tab=state.browserTabs.find(item=>item.id===state.selectedBrowserTab);if(!tab)return;const url=action==="navigate"?new FormData($("#browserOpenForm")).get("url"):"";try{const updated=await api(`/api/browser/tabs/${encodeURIComponent(tab.id)}/actions`,{method:"POST",body:JSON.stringify({action,url,ref,text,actor:"local-user"})});state.browserTabs=state.browserTabs.map(item=>item.id===updated.id?updated:item);state.selectedBrowserTab=updated.id;refreshWorkbenchSurface("browser");}catch(error){toast(error.message,true);}}
+async function openWorkbenchBrowser(event){event.preventDefault();const form=new FormData(event.currentTarget);try{const tab=await api("/api/browser/tabs",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),url:form.get("url"),allow_private:form.get("allow_private")==="on",actor:currentActor()})});state.browserTabs.unshift(tab);state.selectedBrowserTab=tab.id;refreshWorkbenchSurface("browser");}catch(error){toast(error.message,true);}}
+async function browserWorkbenchAction(action,ref=0,text=""){const tab=state.browserTabs.find(item=>item.id===state.selectedBrowserTab);if(!tab)return;const url=action==="navigate"?new FormData($("#browserOpenForm")).get("url"):"";try{const updated=await api(`/api/browser/tabs/${encodeURIComponent(tab.id)}/actions`,{method:"POST",body:JSON.stringify({action,url,ref,text,actor:currentActor()})});state.browserTabs=state.browserTabs.map(item=>item.id===updated.id?updated:item);state.selectedBrowserTab=updated.id;refreshWorkbenchSurface("browser");}catch(error){toast(error.message,true);}}
 async function typeBrowserElement(ref){const text=await askAction({title:`Type into browser element ${ref}`,message:"The value is sent only to this exact element reference on the active managed tab.",confirmLabel:"Type value",reasonLabel:"Text"});if(text===null)return;await browserWorkbenchAction("type",ref,text);}
 
 // Files, terminal and browser can each be showing in one of two places (a
@@ -2233,7 +2257,7 @@ function renderDeliverableDraftPreview(){
   root.innerHTML=`<p class="eyebrow">Structured preview · ${escapeHTML(format.toUpperCase())}</p><article class="page-preview"><h4>${escapeHTML(title)}</h4>${content.split(/\n+/).filter(Boolean).slice(0,30).map(paragraph=>`<p>${escapeHTML(paragraph)}</p>`).join("")||`<p class="preview-placeholder">Document paragraphs appear here</p>`}</article>`;
 }
 
-async function createDeliverable(event){event.preventDefault();const form=new FormData(event.currentTarget);const format=form.get("format");const content=String(form.get("content")||"");const body={project_id:form.get("project_id"),format,title:form.get("title"),actor:"local-user",paragraphs:content.split(/\n+/).filter(Boolean)};if(format==="xlsx")body.rows=content.split("\n").map(row=>row.split("\t"));if(format==="pptx")body.slides=content.split(/\n---\n/).map(block=>{const lines=block.split("\n").filter(Boolean);return{title:lines.shift()||form.get("title"),bullets:lines};});try{const artifact=await api("/api/deliverables",{method:"POST",body:JSON.stringify(body)});state.artifacts=await api("/api/artifacts");toast(`Created ${artifact.name} · ${shortHash(artifact.checksum)}`);renderWorkbenchArtifacts();}catch(error){toast(error.message,true);}}
+async function createDeliverable(event){event.preventDefault();const form=new FormData(event.currentTarget);const format=form.get("format");const content=String(form.get("content")||"");const body={project_id:form.get("project_id"),format,title:form.get("title"),actor:currentActor(),paragraphs:content.split(/\n+/).filter(Boolean)};if(format==="xlsx")body.rows=content.split("\n").map(row=>row.split("\t"));if(format==="pptx")body.slides=content.split(/\n---\n/).map(block=>{const lines=block.split("\n").filter(Boolean);return{title:lines.shift()||form.get("title"),bullets:lines};});try{const artifact=await api("/api/deliverables",{method:"POST",body:JSON.stringify(body)});state.artifacts=await api("/api/artifacts");toast(`Created ${artifact.name} · ${shortHash(artifact.checksum)}`);renderWorkbenchArtifacts();}catch(error){toast(error.message,true);}}
 
 function newTeamDraft(team=null){
   return team ? {sourceID:team.id,id:team.id,expected_revision:team.revision,name:team.name,instructions:team.instructions,members:team.members.map(member=>({...member}))} :
@@ -2284,10 +2308,10 @@ function renderWorkbenchTeam(){
 
 function bindTeamTaskRemovers(){$$('[data-remove-team-task]').forEach(button=>button.onclick=()=>button.closest('[data-team-task]').remove());}
 
-async function saveWorkbenchTeam(event){event.preventDefault();captureTeamDraft();const draft=state.teamDraft;try{const team=await api("/api/teams",{method:"POST",body:JSON.stringify({id:draft.id||"",expected_revision:draft.expected_revision||0,project_id:state.selectedProject||"",name:draft.name,instructions:draft.instructions,actor:"local-user",members:draft.members})});state.teams=await api("/api/teams");state.selectedTeam=team.id;state.teamDraft=newTeamDraft(team);toast("Reusable team saved with one explicit lead");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
-async function startWorkbenchTeamRun(event){event.preventDefault();const form=new FormData(event.currentTarget);const tasks=$$('[data-team-task]',event.currentTarget).map(row=>({id:row.querySelector('[data-task-field="id"]').value.trim(),member_id:row.querySelector('[data-task-field="member_id"]').value,title:row.querySelector('[data-task-field="title"]').value.trim(),prompt:row.querySelector('[data-task-field="prompt"]').value.trim(),depends_on:row.querySelector('[data-task-field="depends"]').value.split(",").map(value=>value.trim()).filter(Boolean)}));try{const run=await api("/api/team-runs",{method:"POST",body:JSON.stringify({team_id:state.selectedTeam,project_id:state.selectedProject||"",objective:form.get("objective"),provider_id:form.get("provider_id"),context_profile:form.get("context_profile"),qualification_reason:form.get("qualification_reason"),max_parallel:Number(form.get("max_parallel")),actor:"local-user",tasks})});state.teamRuns.unshift(run);toast("Team run started; child sessions keep independent provenance");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
-async function cancelWorkbenchTeamRun(id){const approved=await askAction({title:"Cancel this team run?",message:"Hermetrix will cancel every active child context and mark queued/running tasks cancelled. Completed child effects are not undone or retried.",confirmLabel:"Cancel team",danger:true});if(!approved)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(id)}/cancel`,{method:"POST",body:JSON.stringify({actor:"local-user"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast("Team and active child contexts cancelled");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
-async function decideWorkbenchTeamApproval(runId,taskId,decision){const response=await askAction({title:decision==="approve"?"Approve this child effect once?":"Deny this child effect?",message:"The decision is bound to the exact child approval and arguments hash. The child resumes its existing turn; Hermetrix does not replay its prompt or earlier effects.",confirmLabel:decision==="approve"?"Approve exact effect":"Deny effect",reasonLabel:decision==="deny"?"Reason":"",danger:decision==="deny"});if(!response)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/approval`,{method:"POST",body:JSON.stringify({actor:"local-user",decision,reason:decision==="deny"?response:"approved after team preview"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast(decision==="approve"?"Child effect approved; DAG resumes from its receipt":"Child effect denied; DAG resumes without mutation");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function saveWorkbenchTeam(event){event.preventDefault();captureTeamDraft();const draft=state.teamDraft;try{const team=await api("/api/teams",{method:"POST",body:JSON.stringify({id:draft.id||"",expected_revision:draft.expected_revision||0,project_id:state.selectedProject||"",name:draft.name,instructions:draft.instructions,actor:currentActor(),members:draft.members})});state.teams=await api("/api/teams");state.selectedTeam=team.id;state.teamDraft=newTeamDraft(team);toast("Reusable team saved with one explicit lead");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function startWorkbenchTeamRun(event){event.preventDefault();const form=new FormData(event.currentTarget);const tasks=$$('[data-team-task]',event.currentTarget).map(row=>({id:row.querySelector('[data-task-field="id"]').value.trim(),member_id:row.querySelector('[data-task-field="member_id"]').value,title:row.querySelector('[data-task-field="title"]').value.trim(),prompt:row.querySelector('[data-task-field="prompt"]').value.trim(),depends_on:row.querySelector('[data-task-field="depends"]').value.split(",").map(value=>value.trim()).filter(Boolean)}));try{const run=await api("/api/team-runs",{method:"POST",body:JSON.stringify({team_id:state.selectedTeam,project_id:state.selectedProject||"",objective:form.get("objective"),provider_id:form.get("provider_id"),context_profile:form.get("context_profile"),qualification_reason:form.get("qualification_reason"),max_parallel:Number(form.get("max_parallel")),actor:currentActor(),tasks})});state.teamRuns.unshift(run);toast("Team run started; child sessions keep independent provenance");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function cancelWorkbenchTeamRun(id){const approved=await askAction({title:"Cancel this team run?",message:"Hermetrix will cancel every active child context and mark queued/running tasks cancelled. Completed child effects are not undone or retried.",confirmLabel:"Cancel team",danger:true});if(!approved)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(id)}/cancel`,{method:"POST",body:JSON.stringify({actor:currentActor()})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast("Team and active child contexts cancelled");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function decideWorkbenchTeamApproval(runId,taskId,decision){const response=await askAction({title:decision==="approve"?"Approve this child effect once?":"Deny this child effect?",message:"The decision is bound to the exact child approval and arguments hash. The child resumes its existing turn; Hermetrix does not replay its prompt or earlier effects.",confirmLabel:decision==="approve"?"Approve exact effect":"Deny effect",reasonLabel:decision==="deny"?"Reason":"",danger:decision==="deny"});if(!response)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/approval`,{method:"POST",body:JSON.stringify({actor:currentActor(),decision,reason:decision==="deny"?response:"approved after team preview"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast(decision==="approve"?"Child effect approved; DAG resumes from its receipt":"Child effect denied; DAG resumes without mutation");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 async function pollTeamRuns(){if(state.workbenchTab!=="team")return;try{state.teamRuns=await api("/api/team-runs");if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 
 // CONFIG_SECTIONS is the settings room's navigation. Configuration used to sit

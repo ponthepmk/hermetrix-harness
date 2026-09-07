@@ -132,6 +132,10 @@ func TestBackgroundCommandIsDirectBoundedAuditableAndCancelable(t *testing.T) {
 		!strings.Contains(completed.Result["output"].(string), "direct-command-ok") {
 		t.Fatalf("completed job=%+v", completed)
 	}
+	sandbox, ok := completed.Result["sandbox"].(map[string]any)
+	if !ok || sandbox["kind"] == "" || sandbox["write_scope"] == "" {
+		t.Fatalf("command receipt did not disclose its sandbox boundary: %+v", completed.Result)
+	}
 	artifactID, _ := completed.Result["artifact_id"].(string)
 	if artifactID == "" {
 		t.Fatal("command output was not persisted as an artifact")

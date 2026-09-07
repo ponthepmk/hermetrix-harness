@@ -217,13 +217,16 @@ func (s *Service) runBehavioralSuite(ctx context.Context, profile providers.Prof
 	}
 	run.Results.LongContextRecall = recallErr == nil && recovered == len(placements)
 	run.Results.RecallProbedTokens = probeTokens
+	recallEvidence := map[string]any{"allocated_context": recallTarget, "probe_tokens": probeTokens,
+		"reported_prompt_tokens": recall.Usage.PromptTokens, "reported_completion_tokens": recall.Usage.CompletionTokens,
+		"finish_reason": recall.FinishReason, "positions_recovered": recovered,
+		"positions_probed": len(placements), "positions": run.Results.RecallPositions}
+	if recallErr != nil {
+		recallEvidence["error"] = errorString(recallErr)
+	}
 	run.Results.Checks = append(run.Results.Checks, Check{Name: "long_context_recall", State: state(run.Results.LongContextRecall),
-		LatencyMS: time.Since(recallStarted).Milliseconds(), Evidence: map[string]any{"allocated_context": recallTarget, "probe_tokens": probeTokens,
-			"reported_prompt_tokens": recall.Usage.PromptTokens, "positions_recovered": recovered,
-			"positions_probed": len(placements), "positions": run.Results.RecallPositions},
-		Remediation: remediation(!run.Results.LongContextRecall,
-			fmt.Sprintf("Recovered %d of %d position sentinels. Increase runtime allocation or reduce the selected context tier.",
-				recovered, len(placements)))})
+		LatencyMS: time.Since(recallStarted).Milliseconds(), Evidence: recallEvidence,
+		Remediation: recallFailureRemediation(recallErr, recall.FinishReason, recovered, len(placements))})
 
 	toolSchema := map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"},
 		"mode": map[string]any{"type": "string", "enum": []string{"safe"}}}, "required": []string{"text", "mode"}, "additionalProperties": false}
@@ -448,6 +451,19 @@ func remediation(condition bool, message string) string {
 		return message
 	}
 	return ""
+}
+
+func recallFailureRemediation(err error, finishReason string, recovered, total int) string {
+	if err != nil {
+		return "The recall request failed before it produced a scorable answer; inspect the recorded provider error before changing context allocation."
+	}
+	if recovered == total {
+		return ""
+	}
+	if finishReason == "length" {
+		return fmt.Sprintf("Recovered %d of %d position sentinels because the answer exhausted its output budget; increase the profile output limit or use a less reasoning-heavy mode before reducing context.", recovered, total)
+	}
+	return fmt.Sprintf("Recovered %d of %d position sentinels from a completed answer; reduce the selected context tier or use a model with stronger long-context recall.", recovered, total)
 }
 
 func unique(values []string) []string {

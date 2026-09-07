@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // configureProcessTermination approximates the Unix process-group kill on
@@ -39,4 +42,34 @@ func configureProcessTermination(command *exec.Cmd) bool {
 		return nil
 	}
 	return false
+}
+
+// runCommandProcess assigns the root process to a Job Object with
+// KILL_ON_JOB_CLOSE. taskkill remains the immediate cancellation path set
+// above; closing the Job after the root exits is the OS-enforced backstop that
+// kills descendants even if they re-parented away from the original process.
+func runCommandProcess(command *exec.Cmd) (error, bool) {
+	if err := command.Start(); err != nil {
+		return err, false
+	}
+	job, jobErr := windows.CreateJobObject(nil, nil)
+	if jobErr != nil {
+		return command.Wait(), false
+	}
+	defer windows.CloseHandle(job)
+	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
+	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+		return command.Wait(), false
+	}
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(command.Process.Pid))
+	if err != nil {
+		return command.Wait(), false
+	}
+	defer windows.CloseHandle(process)
+	if err := windows.AssignProcessToJobObject(job, process); err != nil {
+		return command.Wait(), false
+	}
+	return command.Wait(), true
 }

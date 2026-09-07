@@ -80,7 +80,7 @@ The local web product now has working navigation and APIs for:
 - non-secret JSON settings, explicit user/project memory and event-derived usage;
 - backup export/download, checksum preview and candidate-only Skill import.
 
-Background commands never invoke a shell. Executables are allowlisted; arguments are passed as an array; working directories stay inside the Project; environment exposure is minimal; deadline is 1–120 seconds; output is capped at 2 MiB; cancellation kills the Unix process group. The Go cache paths are derived explicitly so `go test` works without exposing the full parent environment. This is not an OS sandbox, so untrusted executables still require a VM/container/sandbox outside Hermetrix.
+Background commands never invoke a shell. Executables are allowlisted; arguments are passed as an array; working directories stay inside the Project; environment exposure is minimal; deadline is 1–600 seconds; output is capped at 2 MiB; cancellation kills the process tree. Post-phase hardening added macOS Seatbelt isolation, optional/fail-closed Linux Bubblewrap and Windows Job Object lifetime containment; see the current architecture document for exact platform boundaries.
 
 Backups use a versioned JSON envelope, payload checksum and per-blob SHA-256 verification. Preview reports name/scope conflicts. Apply restores blobs but creates Skill candidates only—never active versions and never an overwrite.
 
@@ -108,11 +108,11 @@ No GC path hard-deletes user data.
 The vertical slices are complete, but the following remain future breadth rather than hidden placeholders:
 
 - native desktop packaging/signing และ composited live browser view (headless managed browser workbench มีแล้ว);
-- OS-level process sandbox, network policy and generalized effect idempotency;
+- complete cross-platform OS isolation profiles, dedicated browser egress proxy and generalized effect idempotency (macOS Seatbelt, Linux Bubblewrap support and per-tab browser DNS pinning were added after this historical phase);
 - live interjection and crash-resume during an in-flight model sample;
-- MCP stdio, OAuth, resources, prompts, subscriptions and MRTR;
+- MCP OAuth, subscriptions and MRTR (stdio และ resources/prompts ส่งมอบแล้ว);
 - exact model tokenizer plus runtime RAM/VRAM/OOM telemetry;
 - semantic local-LLM compactor beyond the verified/fallback interface;
-- cryptographic multi-user actor identity and authenticated non-loopback control API.
+- cryptographic multi-user actor identity/RBAC (single-principal authenticated TLS control API was added after this historical phase).
 
 Any future feature must preserve the same authority boundaries and pass the same replay/fidelity/qualification gates before it can be described as complete.

@@ -160,7 +160,7 @@ Browser flows ที่ exercise แล้ว:
 Remaining gap:
 
 - accessibility audit เต็มรูปแบบและ mobile layout ต่ำกว่า 980px
-- E2E suite ที่รันใน CI แทน manual browser pass
+- accessibility audit เต็มรูปแบบนอกเหนือจาก E2E hydration/SSRF ที่รันด้วย Chrome จริงใน CI
 - localization และ desktop packaging
 
 ## Review 8 — Verification
@@ -177,13 +177,13 @@ browser smoke + visual inspection
 
 ## Open risks ordered by severity
 
-1. Background process มี no-shell/path/deadline/cancel hardening แต่ยังไม่มี OS-level sandbox/network policy
-2. MCP breadth ยังขาด stdio, OAuth, resources/prompts/subscriptions, MRTR และ connection edit/export UX
+1. Background process มี macOS Seatbelt และ Linux Bubblewrap path แล้ว แต่ Linux fallback ต้องเปิด require mode เอง และ Windows ยังไม่มี isolation profile
+2. MCP breadth ยังขาด OAuth, subscriptions, MRTR และ connection edit/export UX; stdio กับ resources/prompts ส่งมอบและมี regression test แล้ว
 3. Model qualification ยังขาด exact tokenizer, RAM/VRAM/OOM telemetry และ live interjection
-4. Product shell ยังไม่มี managed browser surface และ native desktop packaging/signing
-5. local API ไม่มี auth แต่ CLI บังคับ loopback แล้ว
+4. Product shell มี managed headless browser แล้ว แต่ยังไม่มี embedded live WebView และ native desktop packaging/signing
+5. control API มี single-principal bearer/HMAC-cookie auth และ non-loopback บังคับ TLS แล้ว แต่ยังไม่มี multi-user account/RBAC
 6. semantic local-LLM compactor ยังไม่ส่งมอบ; verifier/fallback และ deterministic fidelity evaluator พร้อมแล้ว
-7. actor identity ยังเป็น local logical actor ไม่ใช่ cryptographic multi-user identity
+7. actor ถูก bind กับ authenticated principal แล้ว แต่ identity ยังเป็น configured principal เดียว ไม่ใช่ cryptographic multi-user identity
 
 ## Review 9 — Provider, agent and bounded-tool vertical slice
 
@@ -311,11 +311,11 @@ Remaining gap:
 
 ### Remaining gaps หลัง review
 
-- stdio/child process lifecycle และ OS sandbox
+- OS sandbox สำหรับ stdio child process; transport/lifecycle/cancel ส่งมอบแล้ว
 - OAuth/authorization discovery, credential-rotation invalidation และ private-network scope policy
-- resources, prompts, subscriptions/listen และ MRTR `input_required`
+- subscriptions/listen และ MRTR `input_required`; resources/prompts ส่งมอบแล้ว
 - persistent invocation/idempotency key สำหรับ remote APIs ที่รองรับ (ปัจจุบัน safety contract คือ no automatic retry)
-- automated browser CI; manual visual pass ปัจจุบันตรวจ desktop viewport เท่านั้น
+- accessibility/mobile visual coverage เพิ่มเติม; CI มี Node runtime tests, real-Chrome hydration และ pre-network SSRF E2E แล้ว
 
 ## Review 12 — Schema-bound MCP execution
 
@@ -425,3 +425,11 @@ product/store tests, race suite, vet, JavaScript syntax, UI contract และ L
 จุดสำคัญไม่ใช่เพียงหน้าตา: Skill picker ใช้ exact `skill_id`/`version_id` จาก Skill catalog ที่ freeze ใน Session Contract และปฏิเสธ Skill ที่ promote หลังเปิด session; direct-tool mention ไม่เปลี่ยน authority; MCP mention บังคับเส้นทาง `tool_search → tool_describe → tool_call` และไม่ข้าม exact revision/approval Tool receipt จับ call/result เป็นการ์ดเดียวที่พับได้ และ Review room แสดง model/context/project/Skill/tool/approval/contract revision ข้างบทสนทนา Skill Studio เปิดให้สร้าง แก้ fork archive/restore ตรวจ provenance/usage และ rollback auto-promotion โดยพับ authority policy ที่ซับซ้อนไว้หลัง summary
 
 Regression contract ตรวจว่า command/capability dialogs มี behavior จริง, ทุก static element ID ถูก wire, ไม่มี inline style ที่ขัด CSP, ทุก native room ยังมี API path และ UI ไม่ปน Aetox branding JavaScript syntax และ no-listener UI contract ผ่าน การทดสอบทั้ง suite ที่ต้องเปิด `httptest` listener ถูก sandbox ปฏิเสธ `listen tcp` จึงบันทึกเป็น blocked-by-environment ไม่ใช่ pass และการเปิด `127.0.0.1:17331` ใน in-app browser ได้ `ERR_CONNECTION_REFUSED` เพราะไม่มี server เดิมกำลังทำงานและ sandbox นี้เปิด listener ใหม่ไม่ได้
+
+## Review 19 — Provider, authentication and isolation hardening (2026-09-05)
+
+- เปลี่ยน provider concrete dependency เป็น interface และเพิ่ม native Anthropic/Gemini protocol translators พร้อม contract-server tests; OpenAI-compatible behavior เดิมยังคงอยู่
+- เพิ่ม ordered failover เฉพาะก่อนสร้าง SessionContract โดยตรวจ enabled/credential/context/qualification ตามลำดับ เมื่อ freeze แล้วห้ามสลับ provider หรือ replay turn ข้าม gateway
+- เพิ่ม bearer-to-derived-cookie authentication, authenticated principal ใน request context และ reject JSON mutation ที่ปลอม `actor`; non-loopback listener ต้องมีทั้ง auth และ TLS
+- macOS command ใช้ Seatbelt ที่ deny network และจำกัด write scope, Linux ใช้ Bubblewrap เมื่อมีหรือ fail closed ตาม policy, Windows ใช้ kill-on-close Job Object แต่ยังไม่มี isolation profile/ConPTY runtime proof
+- browser สร้าง target ที่ `about:blank`, เปิด Fetch interception ก่อน navigation, ตรวจ redirect/subresource/websocket ก่อน release และ pin resolver answer ต่อ tab; dedicated proxy ยังเป็น boundary ที่แข็งแรงกว่าและยังไม่ส่งมอบ

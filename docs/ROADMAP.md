@@ -23,7 +23,7 @@ Exit gate: unit/integration/race/static/browser checks ผ่าน และเ
 
 ## Phase 1 — Single-agent kernel (vertical slice complete)
 
-สิ่งที่ทำแล้ว: append-only session/turn/tool event log, provider-flexible OpenAI-compatible adapter, streaming loop, context snapshot และ exact `StepBinding` ทุก sampling step
+สิ่งที่ทำแล้ว: append-only session/turn/tool event log, provider interface พร้อม OpenAI-compatible/Anthropic/Gemini adapters, creation-time ordered failover, streaming loop, context snapshot และ exact `StepBinding` ทุก sampling step
 
 ```text
 history version
@@ -42,13 +42,13 @@ parse → binding lookup → schema validate → effect classify
 → normalized receipt/artifact → event commit
 ```
 
-สถานะปัจจุบัน pipeline นี้ครบสำหรับ workspace tools รุ่นแรกและ deferred MCP Streamable HTTP Workspace write กับ effectful/unknown MCP call ต้องเป็น single-call step, persist approval ก่อน mutation, ผูก grant กับ exact call/revision/argument hash และใช้ no-auto-retry contract หาก process หยุดขณะถือ effect lock ระบบจะสร้าง `uncertain` receipt ตอน restart Background command แยกจาก model tools มี process-group cancellation จริง แต่ OS sandbox และ crash-resume กลาง sampling ยังคงเป็น forward hardening
+สถานะปัจจุบัน pipeline นี้ครบสำหรับ workspace tools รุ่นแรกและ deferred MCP Streamable HTTP Workspace write กับ effectful/unknown MCP call ต้องเป็น single-call step, persist approval ก่อน mutation, ผูก grant กับ exact call/revision/argument hash และใช้ no-auto-retry contract หาก process หยุดขณะถือ effect lock ระบบจะสร้าง `uncertain` receipt ตอน restart Background command แยกจาก model tools มี process-tree cancellation และ sandbox receipt; macOS Seatbelt กับ Linux Bubblewrap path ส่งมอบแล้ว ส่วน Windows isolation profile และ crash-resume กลาง sampling ยังเป็น forward hardening
 
 Exit gate:
 
 - crash/restart resume ไม่ fabricate tool success
 - cancellation ถึง child process
-- effectful write และ non-loopback browser navigation ผ่าน approval policy; `workspace.run` ใช้ executable allowlist, no-shell execution และ resource bounds เป็น authority โดยตั้งใจไม่ถามทุก command ส่วน OS sandbox/proxy-level egress ยังเหลือ
+- effectful write และ non-loopback browser navigation ผ่าน approval policy; `workspace.run` ใช้ executable allowlist, no-shell execution, resource bounds และ platform sandbox status เป็น authority โดยตั้งใจไม่ถามทุก command ส่วน Windows isolation profile/dedicated browser proxy ยังเหลือ
 - tool ที่ไม่อยู่ใน binding ถูก reject
 - unknown side effect ห้าม auto-retry
 
@@ -76,8 +76,8 @@ Exit gate:
 
 Remaining ก่อนปิด Phase 2 breadth:
 
-- stdio transport และ child-process sandbox/lifecycle
-- MCP resources, prompts, subscriptions/listen และ MRTR `input_required`
+- child-process OS sandbox สำหรับ stdio transport (transport/lifecycle/cancel ส่งมอบแล้ว)
+- MCP subscriptions/listen และ MRTR `input_required` (resources/prompts ส่งมอบแล้ว)
 - OAuth/authorization discovery และ secret rotation invalidation
 - plugin/dynamic adapters และ generalized dependency graph
 - edit/disable/delete connection UX พร้อม export/import policy
@@ -187,7 +187,7 @@ Qualification suite:
 
 - Chat + project/session navigation และ provider/context diagnostics
 - project registry/file browser ที่กัน path/symlink escape
-- direct no-shell background terminal jobs, allowlist, minimal env, timeout/output bound, process-group cancel
+- direct no-shell background terminal jobs, allowlist, minimal env, timeout/output bound, process-tree cancel และ platform sandbox receipt
 - Background Job state/restart recovery และ immutable terminal-log artifacts; ยังไม่ใช่ Office document/spreadsheet/slides workspace
 - Artifact registry/content checksum, non-secret settings, explicit memory และ event-derived usage
 - checksum-verified backup/download/import preview และ restore Skill เป็น candidate เท่านั้น

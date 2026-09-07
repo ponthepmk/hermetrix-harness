@@ -593,7 +593,7 @@ func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "read import: " + err.Error()})
 		return
 	}
-	item, err := s.product.PreviewImport(r.Context(), data, r.URL.Query().Get("actor"))
+	item, err := s.product.PreviewImport(r.Context(), data, effectiveActor(r.Context(), r.URL.Query().Get("actor")))
 	if err != nil {
 		writeError(w, err)
 		return

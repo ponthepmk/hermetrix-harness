@@ -3,6 +3,7 @@ package qualification
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -249,6 +250,21 @@ func TestEveryProbeUsesTheSharedOutputBudget(t *testing.T) {
 	}
 	if qualificationOutputBudget < 512 {
 		t.Fatalf("probe budget %d is too small to hold reasoning plus an answer", qualificationOutputBudget)
+	}
+}
+
+func TestRecallFailureRemediationDistinguishesCause(t *testing.T) {
+	if got := recallFailureRemediation(errors.New("runner stopped"), "", 0, 5); !strings.Contains(got, "request failed") {
+		t.Fatalf("transport/model failure remediation = %q", got)
+	}
+	if got := recallFailureRemediation(nil, "length", 1, 5); !strings.Contains(got, "output budget") {
+		t.Fatalf("length remediation = %q", got)
+	}
+	if got := recallFailureRemediation(nil, "stop", 2, 5); !strings.Contains(got, "long-context recall") {
+		t.Fatalf("completed miss remediation = %q", got)
+	}
+	if got := recallFailureRemediation(nil, "stop", 5, 5); got != "" {
+		t.Fatalf("successful recall remediation = %q", got)
 	}
 }
 

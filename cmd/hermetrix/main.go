@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -74,10 +75,15 @@ func runServe(args []string) {
 	defaultData, _ := filepath.Abs(".hermetrix")
 	dataRoot := flags.String("data", defaultData, "local data directory")
 	listen := flags.String("listen", "127.0.0.1:7331", "HTTP listen address")
+	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing the control API token; enables authentication")
+	authPrincipal := flags.String("auth-principal", "local-user", "principal recorded for authenticated control API requests")
+	tlsCert := flags.String("tls-cert", "", "TLS certificate PEM; required with --tls-key for non-loopback listeners")
+	tlsKey := flags.String("tls-key", "", "TLS private key PEM; required with --tls-cert for non-loopback listeners")
 	debug := flags.Bool("debug", false, "enable debug logging")
 	workspace := flags.String("workspace", ".", "workspace root exposed to bounded core tools")
 	providerName := flags.String("provider-name", "", "optional startup provider profile name")
-	providerBaseURL := flags.String("provider-base-url", "", "OpenAI-compatible base URL, for example https://host/v1")
+	providerAdapter := flags.String("provider-adapter", providers.AdapterOpenAICompatible, "provider protocol: openai-compatible, anthropic-native, or gemini-native")
+	providerBaseURL := flags.String("provider-base-url", "", "provider API base URL, for example https://host/v1")
 	providerModel := flags.String("provider-model", "", "model ID for the startup provider")
 	providerAPIKeyEnv := flags.String("provider-api-key-env", "HERMETRIX_PROVIDER_API_KEY", "environment variable holding the provider credential")
 	providerContext := flags.Int("provider-context", 131072, "declared provider context window")
@@ -101,9 +107,28 @@ func runServe(args []string) {
 		"open the control center in its own application window using an installed "+
 			"Chromium-family browser; falls back to --open behaviour when none is found")
 	_ = flags.Parse(args)
-	if err := requireLoopbackListener(*listen); err != nil {
+	authEnabled := *authTokenEnv != ""
+	tlsEnabled := *tlsCert != "" || *tlsKey != ""
+	if (*tlsCert == "") != (*tlsKey == "") {
+		fmt.Fprintln(os.Stderr, "--tls-cert and --tls-key must be supplied together")
+		os.Exit(2)
+	}
+	if err := requireSecureListener(*listen, authEnabled, tlsEnabled); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	authToken := ""
+	if authEnabled {
+		value, ok := os.LookupEnv(*authTokenEnv)
+		if !ok || len(value) < 32 {
+			fmt.Fprintf(os.Stderr, "environment variable %s must contain an authentication token of at least 32 characters\n", *authTokenEnv)
+			os.Exit(2)
+		}
+		authToken = value
+		if strings.TrimSpace(*authPrincipal) == "" || len(*authPrincipal) > 120 {
+			fmt.Fprintln(os.Stderr, "--auth-principal must contain 1-120 characters")
+			os.Exit(2)
+		}
 	}
 	level := slog.LevelInfo
 	if *debug {
@@ -179,7 +204,7 @@ func runServe(args []string) {
 			name = "Startup provider"
 		}
 		profile, providerErr := providerService.EnsureByName(ctx, providers.SaveInput{Name: name,
-			AdapterKind: providers.AdapterOpenAICompatible, BaseURL: *providerBaseURL, Model: *providerModel,
+			AdapterKind: *providerAdapter, BaseURL: *providerBaseURL, Model: *providerModel,
 			APIKeyEnv: *providerAPIKeyEnv, ContextWindow: *providerContext, ContextEvidence: "declared",
 			MaxOutputTokens: *providerMaxOutput})
 		if providerErr != nil {
@@ -237,9 +262,13 @@ func runServe(args []string) {
 	} else if recovered > 0 {
 		logger.Info("requeued interrupted learning reviews", "count", recovered)
 	}
-	server := &http.Server{Addr: *listen, Handler: web.New(skillService, learningService, curatorService, compiler, estimator,
+	webServer := web.New(skillService, learningService, curatorService, compiler, estimator,
 		localProber, providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
-		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).Handler(),
+		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService)
+	if authEnabled {
+		webServer.WithAuthentication(authToken, strings.TrimSpace(*authPrincipal), tlsEnabled)
+	}
+	server := &http.Server{Addr: *listen, Handler: webServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute,
 		IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 	go func() {
@@ -280,7 +309,11 @@ func runServe(args []string) {
 		logger.Error("serve", "error", err)
 		os.Exit(1)
 	}
-	url := "http://" + *listen
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
+	}
+	url := scheme + "://" + *listen
 	logger.Info("Hermetrix Skill Control Center", "url", url, "data", *dataRoot)
 	if *desktopMode || *autoOpen {
 		// Only after the bind has succeeded, and never fatal: the server is the
@@ -308,13 +341,17 @@ func runServe(args []string) {
 			}
 		}()
 	}
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+	serve := func() error { return server.Serve(listener) }
+	if tlsEnabled {
+		serve = func() error { return server.ServeTLS(listener, *tlsCert, *tlsKey) }
+	}
+	if err := serve(); err != nil && err != http.ErrServerClosed {
 		logger.Error("serve", "error", err)
 		os.Exit(1)
 	}
 }
 
-func requireLoopbackListener(address string) error {
+func requireSecureListener(address string, authenticated, tls bool) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Errorf("invalid --listen address: %w", err)
@@ -324,7 +361,9 @@ func requireLoopbackListener(address string) error {
 	}
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("refusing non-loopback --listen %q while the local control API has no authentication", address)
+		if !authenticated || !tls {
+			return fmt.Errorf("refusing non-loopback --listen %q without both authentication and TLS", address)
+		}
 	}
 	return nil
 }

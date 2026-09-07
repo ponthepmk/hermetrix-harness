@@ -16,7 +16,8 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - context compiler สำหรับ 32k/64k/128k/256k/1M envelopes
 - deterministic compaction, causal-pair integrity, tool-output spill และ adaptive token estimate
 - local runtime context probe สำหรับ Ollama, LM Studio, vLLM และ llama.cpp
-- provider registry ที่เก็บเฉพาะ secret environment reference และรองรับ OpenAI-compatible streaming
+- provider registry ที่แยก credential ต่อ profile และ dispatch ผ่าน interface ไป OpenAI-compatible streaming, Anthropic native และ Gemini native
+- creation-time routing แบบ explicit/ordered failover ที่ freeze ผู้ชนะใน SessionContract ก่อน sampling และไม่ fallback หลังเริ่ม turn
 - append-only agent session/events, frozen context snapshots และ immutable `StepBinding`
 - immutable `SessionContract` ที่ freeze provider/model revision, context profile, policy/capability revision, Skill catalog, `CacheEpoch` และ `TaskBudget` ตอนเปิด session
 - persisted per-session turn lease ที่ acquire lease และ append user event ใน transaction เดียว พร้อม recovery ของ orphaned turn ตอน restart
@@ -44,15 +45,15 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 ขอบเขตที่ยังไม่ควรตีความว่า production-complete:
 
 - crash-resume กลาง model sampling, live interjection และ generalized idempotency นอกเหนือจาก contracts ที่ระบุ
-- direct background process มี no-shell/path/deadline/output/cancel hardening แต่ยังไม่ใช่ OS-level sandbox
-- MCP stdio/resources/prompts/OAuth/subscriptions/MRTR และ plugin/dynamic catalog adapters
+- command isolation ใช้ macOS Seatbelt จริง, Linux Bubblewrap เมื่อมี (หรือ fail closed ด้วย `HERMETRIX_REQUIRE_OS_SANDBOX=1`) และ Windows Job Object สำหรับ process lifetime; Windows isolation profile ยังขาด
+- MCP OAuth/subscriptions/MRTR และ plugin/dynamic catalog adapters (stdio และ resources/prompts ส่งมอบแล้ว)
 - semantic local-LLM compactor; ปัจจุบัน verifier/fallback พร้อมและ fidelity lab ใช้ deterministic task assertions
 - runtime-specific RAM/VRAM/OOM telemetry และ exact tokenizer adapters; direct-tool accounting นับ payload จริงแล้วแต่ยังใช้ heuristic estimator ไม่ใช่ tokenizer ของ model
-- `skill_search`/`skill_view` และ metric `no_skill_requested_rate` มีครบแล้ว (ADR-7, R-14) แต่ยังไม่เคยรันกับ local model จริง จึงวัดได้แต่ยังไม่ได้วัด
+- `skill_search`/`skill_view` และ metric `no_skill_requested_rate` มีครบแล้ว (ADR-7, R-14) แต่ยังไม่มี model-matrix ที่ใหญ่พอให้สรุป retrieval behavior ทั่วไป
 - retrieval ข้ามภาษาได้แล้วเมื่อเปิด `serve --embed-url` — goal ไทยถึง Skill ที่สรุปเป็นอังกฤษ วัดกับ bge-m3 จริง 3/3 ถ้าไม่เปิด ทุกอย่างถอยไปใช้ lexical เหมือนเดิม ซึ่งข้ามภาษาไม่ได้
-- long-context recall probe ปลูก sentinel ห้าตำแหน่งแล้ว แต่ยังไม่เคยรันกับ local model จริงที่ 128k ขึ้นไป
+- qualification จริงวันที่ 4 กันยายน 2026 ใช้ local `qwen3:4b` ผ่าน Ollama alias ที่ live allocation 131,072: tool behavior ได้ grade A แต่ long-context sentinel ได้ 0/5 หลัง probe 85,196 tokens จึงคง tier `limited` และไม่อนุญาต 128k โดยไม่มี explicit decision
 - native desktop packaging/signing, Windows ConPTY, mobile UI และ packaged-app accessibility/E2E
-- managed browser ยังต้องพึ่ง Chrome/Chromium ที่ติดตั้งในเครื่อง และ private-host validation ยังไม่ใช่ network egress proxy ที่กัน DNS rebinding ได้สมบูรณ์
+- managed browser ยังต้องพึ่ง Chrome/Chromium ที่ติดตั้งในเครื่อง; redirect/subresource/websocket ถูกดักด้วย CDP Fetch ก่อนปล่อย request และมี real-Chrome test ยืนยัน loopback ได้ 0 hits แต่ยังไม่ใช่ proxy/DNS-pinned egress boundary ที่กัน DNS rebinding ได้สมบูรณ์
 - PDF generator ยังไม่มี embedded redistributable Unicode font จึงรองรับ printable Basic Latin เท่านั้นและปฏิเสธข้อความอื่นอย่างชัดเจน
 
 ทุก room ที่แสดงใน workbench ปัจจุบันมี API หรือ runtime จริง: Review, Files, Terminal, Browser, Office artifacts และ Team ไม่ใช่ placeholder ส่วนหน้า `Background Jobs` แยกจาก Office deliverables เพื่อไม่ให้ label สูงกว่าความสามารถ
@@ -83,7 +84,7 @@ HTTP API ─────────────── Local model context probe
    ├── Agent Service ─── SessionContract/TurnLease/CacheEpoch/TaskBudget
    │        │              append-only events/context snapshots/StepBinding
    │        │
-   │        ├── Provider Registry → OpenAI-compatible streaming adapter
+   │        ├── Provider Registry → OpenAI-compatible / Anthropic / Gemini adapters
    │        ├── Frozen Skill catalog → selected versions → activation receipt
    │        ├── Bound core tools → policy/path/deadline → normalized receipt
    │        └── 3 deferred primitives → Capability Catalog → MCP client
@@ -369,13 +370,13 @@ CAS blobs ที่เขียนสำเร็จแต่ transaction DB ล
 - `/api/backups`, `/api/imports`
 - `/api/maintenance/schedules`, `/api/maintenance/gc`
 
-JSON decoder จำกัด body 10 MiB และ reject unknown fields Import backup แยก endpoint ที่จำกัด 256 MiB พร้อม envelope/blob checksums UI ใช้ CSP/no-frame/no-sniff/no-referrer headers Default listener เป็น loopback และ CLI ปฏิเสธ non-loopback listener เพราะ single-user build ยังไม่มี identity/authentication
+JSON decoder จำกัด body 10 MiB และ reject unknown fields Import backup แยก endpoint ที่จำกัด 256 MiB พร้อม envelope/blob checksums UI ใช้ CSP/no-frame/no-sniff/no-referrer headers Default listener เป็น loopback หากเปิด authentication API รับ bearer token แล้วออก derived HMAC-signed HttpOnly/SameSite cookie อายุ 12 ชั่วโมง และ bind `actor` ใน JSON mutation กับ principal; CLI อนุญาต non-loopback เฉพาะเมื่อมี authentication token และ TLS certificate/key ครบ ระบบนี้ยังเป็น principal เดียว ไม่ใช่ multi-user RBAC/OAuth
 
 ## Tool runtime และ deferred capability graph
 
 Agent loop expose direct primitives 13 ตัว: `workspace.list_files`, `workspace.read_file`, `workspace.search_files`, `workspace.write_file`, `skill_search`, `context_search`, `skill_view`, `skill_manage`, `tool_search`, `tool_describe`, `tool_call`, `workspace.run` และ `browser` ทุก sampling step freeze exact direct name/schema/revision/effect/approval requirement ลง `StepBinding` ก่อน model call Tool ที่ไม่อยู่ใน binding ถูก reject และ argument ถูก decode แบบ strict
 
-เครื่องมือ file/run และ `file:` navigation ของ browser ผูกกับ Project ที่ freeze ใน Session Contract ไม่ใช่ workspace root ส่วนกลาง File access กัน symlink/path escape, read จำกัด 1 MiB พร้อม SHA-256 ใน receipt ส่วน `workspace.run` เรียกได้เฉพาะ executable allowlist โดยไม่ผ่าน shell มี deadline/output ceiling/process-group cancellation และยังไม่ใช่ OS sandbox Browser จำกัด action enum, ติดป้าย page content เป็น untrusted evidence, ขอ approval สำหรับ network ที่ไม่ใช่ loopback และตรวจ final URL หลัง navigation ซ้ำเพื่อปิด redirect ไป private/local network
+เครื่องมือ file/run และ `file:` navigation ของ browser ผูกกับ Project ที่ freeze ใน Session Contract ไม่ใช่ workspace root ส่วนกลาง File access กัน symlink/path escape, read จำกัด 1 MiB พร้อม SHA-256 ใน receipt ส่วน `workspace.run` เรียกได้เฉพาะ executable allowlist โดยไม่ผ่าน shell มี deadline/output ceiling/process-tree cancellation และบันทึก sandbox status ใน receipt: macOS Seatbelt กัน network/จำกัด write, Linux Bubblewrap เมื่อมี, Windows Job Object ยังเป็น lifetime containment Browser จำกัด action enum, ติดป้าย page content เป็น untrusted evidence, ขอ approval สำหรับ network ที่ไม่ใช่ loopback, ดัก redirect/subresource/websocket ด้วย CDP Fetch ก่อนปล่อย request และ pin DNS answer ต่อ host ตลอดอายุ tab
 
 `workspace.write_file` เป็น effectful vertical slice รุ่นแรก:
 
@@ -439,7 +440,7 @@ MCP annotations เป็น hints ที่ไม่ trusted ตาม default 
 - external `$ref` ถูกปิดเพื่อไม่ให้ schema compilation fetch network resource หรือเปลี่ยน contract นอก snapshot revision
 - tool call ทุกครั้งตรวจ persisted server/tool revision ซ้ำหลัง catalog lookup และไม่ retry อัตโนมัติ
 
-มี process tool (`workspace.run`) และ managed browser แล้ว แต่ยังไม่มี OS-level sandbox หรือ proxy-level egress/DNS-rebinding enforcement จึงห้ามตีความว่าเป็น isolation boundary สำหรับโค้ดหรือเว็บที่ไม่เชื่อถือ Write รองรับเฉพาะ complete UTF-8 single-file replacement/create ใน directory ที่มีอยู่ MCP รองรับ Streamable HTTP และ stdio รวม tools/resources/prompts แล้ว; ส่วน OAuth, subscriptions และ MRTR ยังขาด
+มี process tool (`workspace.run`) และ managed browserแล้ว macOS command isolation เป็น OS-enforced Seatbelt, Linux ใช้ Bubblewrap เมื่อมีและเปิดโหมด require เพื่อ fail closed ได้; Windows ยังไม่มี isolation profile Browser มี pre-network request guard และ per-tab DNS-answer pin แต่ยังไม่ใช่ dedicated proxy/kernel egress boundary จึงต้องคงคำเตือนสำหรับเว็บไม่เชื่อถือ Write รองรับเฉพาะ complete UTF-8 single-file replacement/create ใน directory ที่มีอยู่ MCP รองรับ Streamable HTTP และ stdio รวม tools/resources/prompts แล้ว; ส่วน OAuth, subscriptions และ MRTR ยังขาด
 
 Skill declaration ไม่เพิ่ม permission สิทธิ์จริงเป็น intersection ของ session ceiling, user/admin policy, catalog risk state และ exact task grant Scripts ใน Skill ต้องผ่าน tool execution pipeline เดียวกัน ไม่มีทางเขียน MCP profileหรือเปลี่ยน annotation trust ผ่าน Skill content
 

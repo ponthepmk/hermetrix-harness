@@ -48,6 +48,12 @@ type Server struct {
 	product   *product.Service
 	store     *store.Store
 	logger    *slog.Logger
+	auth      *authenticator
+}
+
+func (s *Server) WithAuthentication(token, principal string, secureCookie bool) *Server {
+	s.auth = newAuthenticator(token, principal, secureCookie)
+	return s
 }
 
 func (s *Server) WithProduct(service *product.Service) *Server {
@@ -88,6 +94,9 @@ func New(skillService *skills.Service, learningService *learning.Service, curato
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if s.auth != nil {
+		mux.HandleFunc("/api/auth/session", s.auth.session)
+	}
 	// O-19: this reported a hardcoded 16 while the database was at 17. Health is
 	// the one endpoint a client uses to decide whether the server is the one it
 	// expects, so a constant written by hand is the least useful thing it can
@@ -232,7 +241,11 @@ func (s *Server) Handler() http.Handler {
 			"error": "no API route matches " + r.Method + " " + r.URL.Path})
 	})
 	mux.Handle("/", spa(http.FileServer(http.FS(assets)), assets))
-	return requestLog(s.logger, securityHeaders(mux))
+	var handler http.Handler = mux
+	if s.auth != nil {
+		handler = s.auth.middleware(handler)
+	}
+	return requestLog(s.logger, securityHeaders(handler))
 }
 
 func (s *Server) listQualifications(w http.ResponseWriter, r *http.Request) {

@@ -1,8 +1,22 @@
 package providers
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
-const AdapterOpenAICompatible = "openai-compatible"
+const (
+	AdapterOpenAICompatible = "openai-compatible"
+	AdapterAnthropicNative  = "anthropic-native"
+	AdapterGeminiNative     = "gemini-native"
+)
+
+// Adapter is the transport boundary for one provider protocol. Profiles keep
+// model/context/credential policy; adapters only translate the frozen common
+// chat and tool contract to a wire protocol.
+type Adapter interface {
+	StreamChat(context.Context, Profile, string, ChatRequest, func(Delta) error) (Completion, error)
+}
 
 type Profile struct {
 	ID              string `json:"id"`

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,19 @@ type cdpClient struct {
 	conn         *websocket.Conn
 	nextID       int64
 	requestGuard func(context.Context, string) error
+}
+
+// browserRequestGuard applies the URL policy at the last interception point
+// available before Chrome releases a request. It also pins each hostname to
+// the first resolver answer observed for this tab, so a later DNS-rebinding
+// answer fails closed instead of silently changing the destination class.
+type browserRequestGuard struct {
+	service      *Service
+	projectID    string
+	allowPrivate bool
+
+	mu   sync.Mutex
+	pins map[string]string
 }
 
 type cdpResponse struct {
@@ -75,7 +89,12 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	if err != nil {
 		return BrowserTab{}, err
 	}
-	target, err := createChromeTarget(ctx, browser.debugURL, validatedURL)
+	// A DevTools target begins loading the URL supplied to /json/new before we
+	// can attach a websocket client. Always create it at about:blank, install
+	// Fetch interception, and only then release the validated navigation. Passing
+	// validatedURL here would leave a pre-attachment SSRF window for redirects
+	// and subresources on the initial page.
+	target, err := createChromeTarget(ctx, browser.debugURL, "about:blank")
 	if err != nil {
 		return BrowserTab{}, err
 	}
@@ -83,8 +102,9 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	if err != nil {
 		return BrowserTab{}, fmt.Errorf("connect Chrome DevTools target: %w", err)
 	}
+	guard := &browserRequestGuard{service: s, projectID: input.ProjectID, allowPrivate: input.AllowPrivate, pins: map[string]string{}}
 	client := &cdpClient{conn: conn, requestGuard: func(requestCtx context.Context, requestURL string) error {
-		return s.validateBrowserRequestURL(requestCtx, input.ProjectID, requestURL, input.AllowPrivate)
+		return guard.validate(requestCtx, requestURL)
 	}}
 	// Fetch interception runs before Chrome releases a request to the network.
 	// It covers redirects, click/form navigation, subresources and websocket
@@ -563,6 +583,54 @@ func (s *Service) validateBrowserRequestURL(ctx context.Context, projectID, raw 
 	default:
 		return fmt.Errorf("browser request scheme %q is not allowed", parsed.Scheme)
 	}
+}
+
+func (g *browserRequestGuard) validate(ctx context.Context, raw string) error {
+	if err := g.service.validateBrowserRequestURL(ctx, g.projectID, raw, g.allowPrivate); err != nil {
+		return err
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https", "ws", "wss":
+	default:
+		return nil
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if net.ParseIP(host) != nil || host == "localhost" {
+		return nil
+	}
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("resolve browser host for request pin: %w", err)
+	}
+	return g.pinResolvedHost(host, addresses)
+}
+
+func (g *browserRequestGuard) pinResolvedHost(host string, addresses []net.IPAddr) error {
+	resolved := make([]string, 0, len(addresses))
+	for _, address := range addresses {
+		if address.IP.IsPrivate() || address.IP.IsLoopback() || address.IP.IsLinkLocalUnicast() || address.IP.IsUnspecified() {
+			if !g.allowPrivate {
+				return fmt.Errorf("private or local browser resolution requires explicit allow_private")
+			}
+		}
+		resolved = append(resolved, address.IP.String())
+	}
+	if len(resolved) == 0 {
+		return fmt.Errorf("browser host %q resolved to no addresses", host)
+	}
+	sort.Strings(resolved)
+	fingerprint := strings.Join(resolved, ",")
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if previous, ok := g.pins[host]; ok && previous != fingerprint {
+		return fmt.Errorf("browser DNS answer for %q changed during the tab lifetime", host)
+	}
+	g.pins[host] = fingerprint
+	return nil
 }
 
 func privateHost(ctx context.Context, host string) (bool, error) {

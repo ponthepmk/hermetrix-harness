@@ -598,8 +598,8 @@ Exit gates:
 - plugin SDK/manifest/versioning/signature/permissions/dependency resolver
 - core adapters สำหรับ file patch/git/shell/browser/Office ผ่าน session-gated toolsets ไม่โหลดทุก session
 - OS sandbox profiles ต่อ platform; network/filesystem/process ceilings
-- MCP stdio child lifecycle, stderr bounds, process cancellation และ sandbox
-- MCP resources, prompts เป็น human-invoked palette, notifications/subscriptions
+- MCP stdio OS sandbox เพิ่มเติม (child lifecycle, stderr bounds และ cancellation ส่งมอบแล้ว)
+- MCP notifications/subscriptions เพิ่มเติม (resources/prompts ส่งมอบแล้ว)
 - OAuth/authorization discovery, keychain secret refs, rotation invalidation
 - elicitation/input-required flow ผ่าน trusted UI; sampling requests มี governance/budget/recursion guard
 - per-session/per-desk/per-agent MCP placement และ allow/deny list
@@ -840,8 +840,8 @@ web control center จึงเป็น product surface **ระหว่าง
 | R-5 | breadth สิบ subsystem ระดับ vertical slice ไม่มีตัวไหน production | กว้างแต่ตื้นทุกด้าน แข่ง Aetox/Hermes ไม่ได้ทั้ง breadth และ depth | ADR-8 scope discipline; ห้ามเริ่ม subsystem ใหม่จนของเดิมถึง `qualified` | ต่อเนื่อง |
 | R-6 | native shell เป็นงานใหญ่ที่สุดในแผน (D 20–35 / I 40–70) | ดูด decision budget จาก kernel ซึ่งเป็นความต่างจริงของโครงการ | **ไม่ตัด** ตามมติเจ้าของโครงการ; คุมด้วย WIP limit และ dependency แทน — เริ่มหลัง 8/9/10 qualified และเริ่มด้วย spike | 11 |
 | R-7 | Skill retrieval ผูกกับ goal แรกของ session | session ที่เปลี่ยนหัวข้อไม่ได้ Skill ที่ตรง และจอง token ที่ไม่ได้ใช้ | ADR-7 `skill_search`/`skill_view` | 7.2 |
-| R-8 | ไม่มี OS-level sandbox สำหรับ background process | untrusted executable ทำอะไรก็ได้ในสิทธิ์ผู้ใช้ | คง allowlist/no-shell/deadline ไว้ และระบุชัดว่าไม่ใช่ sandbox จนกว่าจะถึง Phase 10 | 10 |
-| R-9 | ไม่มี actor identity จริง provenance เป็น claim | audit trail อ้างผู้กระทำไม่ได้ | local principal + keychain + signed audit export | 14 |
+| R-8 | OS sandbox ยังไม่ครบทุก platform | Linux host ที่ไม่มี Bubblewrap อาจ fallback และ Windows มีเพียง Job Object lifetime containment | macOS Seatbelt บังคับแล้ว; Linux รองรับ Bubblewrap พร้อม `HERMETRIX_REQUIRE_OS_SANDBOX=1`; ทำ Windows isolation profile ต่อ | 10 |
+| R-9 | identity ยังเป็น configured principal เดียว | audit แยกผู้ใช้/role หลายคนไม่ได้ | authenticated TLS API + actor binding ส่งมอบแล้ว; เพิ่ม account/RBAC, keychain และ signed audit export | 14 |
 | R-10 | dead code ที่อ่าน live state ขัด frozen-contract invariant | invariant พังเงียบถ้ามีคนต่อกลับ โดยไม่มี test ล้ม | ลบ + static check ใน CI | 7.1 |
 | R-11 | finding ถูกประกาศปิดโดยมีหลักฐานต่ำกว่าเกรด A (ห้าในหกข้อของรอบแรก) | refactor ครั้งหน้าทำ invariant พังเงียบโดยไม่มีอะไรล้ม; แผนวางบนสถานะที่ดีเกินจริง | สเกลเกรดหลักฐาน + กฎ “ปิดได้เมื่อเกรด A” + งาน V-1 ถึง V-6 | 7.1 |
 | R-12 | ชื่อ test สัญญามากกว่าที่ assertion ตรวจ | audit และคนอ่านให้เครดิตเกินจริง ซึ่งเป็นต้นเหตุของ R-11 | test naming rule + rename สอง test ที่พบ | 7.0 |

@@ -27,7 +27,8 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - typed context fragments, 32k/64k/128k/256k/1M profiles and reserve-aware compilation
 - deterministic deduplication, tool-output spill, structured checkpoints and pluggable semantic compaction
 - runtime-allocation probes for Ollama, LM Studio, vLLM and llama.cpp
-- provider registry with secret-by-environment references and OpenAI-compatible streaming
+- provider registry with per-profile vault/environment credentials and adapters for OpenAI-compatible streaming, native Anthropic Messages and native Gemini generateContent
+- creation-time `explicit` or ordered failover routing that freezes the selected provider into the Session Contract; an active session never silently changes gateways
 - append-only agent sessions, context snapshots and immutable step bindings
 - an immutable session contract that freezes the provider revision, model, context profile, policy and capability revisions, Skill catalog, cache epoch and task budget when the session opens
 - a persisted per-session turn lease so two concurrent requests cannot both commit a user message, with orphaned turns recovered on restart
@@ -48,13 +49,13 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - verified compactor wrapper with provenance/causal validation and deterministic extractive fallback
 - bilingual full-vs-compiled context fidelity corpus and measured retention/delta/hallucination reports
 - real model qualification suite separating allocated context tier from tool capability grade and refusing silent downgrade
-- bounded Projects workbench, project-bound sessions, direct no-shell background commands, cancel/process-group cleanup and immutable command artifacts
+- bounded Projects workbench, project-bound sessions, direct no-shell background commands, cancel/process-tree cleanup and immutable command artifacts
 - explicit user memory, non-secret settings, event-derived usage tracking and checksum-verified backup/import-as-candidate flow
 - curator stale/duplicate findings with exact-version consolidation/replay plans and no mutation authority
 - idle/AC-aware background maintenance schedules plus exact-snapshot CAS GC using recoverable quarantine instead of deletion
 - clean-room cockpit shell with a project picker, three independently resizable and collapsible zones, four views (Chat, Work, Code, Knowledge) and per-project per-view layout memory
 - optimistic project file editor with bounded diff and immutable write receipt
-- persisted real PTY sessions on macOS/Linux, bounded output tail, resize/input/interrupt/close and honest interrupted recovery
+- persisted real PTY sessions on macOS/Linux, bounded incremental output tail, resize/input/interrupt/close and honest interrupted recovery
 - managed Chrome/Chromium tabs through DevTools (not an iframe), bounded untrusted DOM snapshots, numbered click/type references, screenshot artifacts and explicit private/local URL opt-in
 - native DOCX/XLSX/PPTX package generation with Unicode, deterministic package contents and provenance; PDF generation fails closed when the built-in Basic-Latin font cannot represent the text
 - reusable/editable Agent Team rosters with one explicit lead, UI-authored validated DAGs, up to four scheduled children, independent child Session Contracts, frozen run/member instruction snapshots, durable exact-effect approval pause/resume without prompt replay, parent cancellation propagation, labelled untrusted peer evidence and aggregated token/provenance tracking
@@ -100,7 +101,7 @@ inside the root. `workspace.write_file` can replace one UTF-8 file or create one
 file in an existing directory, but every exact write pauses for approval in Chat
 and uses `expected_sha256` to reject stale changes.
 
-The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–600 second deadline, 2 MiB output ceiling, process-group cancellation and an immutable terminal-log artifact. This is process hardening, not an OS security sandbox; run untrusted code only inside a separate OS/container sandbox.
+The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–600 second deadline, 2 MiB output ceiling, process-tree cancellation and an immutable terminal-log artifact. On macOS commands run under an enforced Seatbelt profile with network denied and writes limited to the Project/runtime caches. On Linux Hermetrix uses Bubblewrap with a read-only host view, Project/cache write scopes and a private network namespace when `bwrap` is installed; otherwise the receipt says `process-hardening-only`. Set `HERMETRIX_REQUIRE_OS_SANDBOX=1` to fail closed when the platform sandbox is unavailable. Windows uses a kill-on-close Job Object for process lifetime but does not yet provide an isolation profile.
 
 ### Projects and views
 
@@ -129,8 +130,8 @@ Code's own rail is still a spec too.
 
 ### Connecting a model
 
-The quickest path is the **Models** screen: name the endpoint, give it a model
-ID, paste the API key, press *Connect model*. The key takes effect immediately —
+The quickest path is the **Models** screen: choose OpenAI-compatible, Anthropic
+native or Gemini native, name the endpoint, give it a model ID, paste the API key, press *Connect model*. The key takes effect immediately —
 there is nothing to export in your shell and nothing to restart. A local runtime
 that needs no key can leave the field empty.
 
@@ -147,13 +148,28 @@ To seed a provider that way at startup, pass only the variable name:
 go run ./cmd/hermetrix serve \
   --data ./.hermetrix \
   --provider-name "My Gateway" \
+  --provider-adapter openai-compatible \
   --provider-base-url "https://gateway.example/v1" \
   --provider-model "my-model" \
   --provider-api-key-env HERMETRIX_PROVIDER_API_KEY \
   --provider-context 131072
 ```
 
-A saved key takes precedence over the variable. Remote providers require HTTPS; the Hermetrix control server refuses non-loopback listeners while authentication is not implemented.
+A saved key takes precedence over the variable. Remote providers require HTTPS. Session creation accepts either one `provider_id`, or `routing_policy: "ordered-failover"` with `provider_candidates`; the router selects the first enabled, credential-ready, context-qualified candidate before the immutable contract is created. It never retries a model turn on another provider after sampling begins.
+
+The control API is loopback-only by default. To listen on another interface, authentication and TLS are both mandatory:
+
+```bash
+export HERMETRIX_CONTROL_TOKEN='replace-with-at-least-32-random-characters'
+go run ./cmd/hermetrix serve \
+  --listen 0.0.0.0:7331 \
+  --auth-token-env HERMETRIX_CONTROL_TOKEN \
+  --auth-principal local-user \
+  --tls-cert ./server.crt \
+  --tls-key ./server.key
+```
+
+The UI exchanges the token for a derived, HMAC-signed 12-hour `HttpOnly`, `SameSite=Strict`, secure cookie; the raw token is not placed in browser storage. Mutating JSON requests cannot claim an `actor` different from the authenticated principal. This is a single configured principal, not multi-user account management or OAuth.
 
 MCP connections are managed from the Tool Center screen, and a server can run either way:
 
@@ -234,6 +250,7 @@ Skill authority to Manual on the Skill Studio screen.
 go test ./...
 go test -race ./...
 go vet ./...
+node --test internal/web/ui/runtime.test.js
 node --check internal/web/ui/app.js
 ```
 
@@ -244,11 +261,13 @@ For deterministic manual/E2E MCP QA, run `python3 scripts/e2e/mcp_fixture.py` on
 This is a vertical slice, not a finished product. Kernel correctness is closed and every claim behind it is
 mutation-tested — disabling a guard turns its test red. The gaps that matter most right now:
 
-- no real local model has been run against `no_skill_requested_rate` yet, so whether small models actually reach for `skill_search` is measurable but unmeasured;
+- `no_skill_requested_rate` has not yet been characterized across a representative local-model matrix, so one qwen qualification run is not enough to generalize Skill retrieval behavior;
 - token estimation still has no exact per-model tokenizer, so budget numbers carry a calibrated error band rather than an exact one;
-- long-context recall now probes five positions across the envelope, but only against fixtures; no real local model has been qualified at 128k or above;
-- there is no OS-level sandbox, authenticated principal, signed native desktop package or Windows ConPTY implementation; the current cockpit is a loopback web app and Windows builds report PTY unavailability explicitly;
-- managed browser automation requires an installed Chrome/Chromium and its host/DNS guard is not yet a full egress proxy against DNS rebinding;
+- a real local `qwen3:4b` run at a live 131,072-token Ollama allocation completed tool qualification at grade A but recovered 0/5 long-context sentinels, so the harness correctly kept it `limited`; 128k is measured but not certified for this model/configuration;
+- authentication is one configured principal and is not an account/role system; signed native desktop packaging and Windows ConPTY remain unimplemented;
+- command isolation is enforced with Seatbelt on macOS and Bubblewrap when available on Linux, but Windows has only process-lifetime containment and Linux must use `HERMETRIX_REQUIRE_OS_SANDBOX=1` when fallback is unacceptable;
+- managed browser automation requires an installed Chrome/Chromium; CDP blocks redirects/subresources before network release and pins DNS answers per tab, but this is not a kernel/proxy egress boundary and cannot eliminate Chrome/resolver TOCTOU as completely as a dedicated proxy;
+- native Anthropic/Gemini protocol behavior is covered by local contract servers, but live paid endpoints were not exercised without user-supplied credentials;
 - native PDF output currently supports printable Basic Latin only; use DOCX/PPTX for Thai and other Unicode scripts until a redistributable embedded-font pipeline is selected.
 
 Each gap has an ID, evidence down to file and line, and a mitigation phase. See [docs/AETOX-HERMES-TRACEABILITY-AUDIT.md](docs/AETOX-HERMES-TRACEABILITY-AUDIT.md) section 4.2 and the risk register in [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md).

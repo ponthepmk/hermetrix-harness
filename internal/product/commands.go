@@ -108,6 +108,9 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 	workingDir, workingDirErr := resolveInside(project.RootPath, input.WorkingDir, true)
 	if workingDirErr != nil {
 		errorMessage := "working directory could not be resolved: " + workingDirErr.Error()
+		// -1 matches the other failure paths below: the command never ran, so
+		// there is no measured exit code, and leaving this at Go's zero value
+		// would read back as "succeeded with status 0" alongside state=failed.
 		resultJSON, _ := json.Marshal(map[string]any{"exit_code": -1})
 		completed := time.Now().UTC()
 		durability.Exec("mark background job launch failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
@@ -117,15 +120,27 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		s.mu.Unlock()
 		return
 	}
-	command := exec.CommandContext(ctx, executable, input.Arguments...)
-	command.Dir = workingDir
+	command, sandbox, sandboxCleanup, sandboxErr := prepareSandboxCommand(ctx, executable, input.Arguments, workingDir, project.RootPath)
+	if sandboxErr != nil {
+		errorMessage := "prepare OS sandbox: " + sandboxErr.Error()
+		resultJSON, _ := json.Marshal(map[string]any{"sandbox": sandbox})
+		completed := time.Now().UTC()
+		durability.Exec("mark sandboxed command launch failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
+	    completed_at=? WHERE id=?`, string(resultJSON), errorMessage, formatTime(completed), job.ID))
+		s.mu.Lock()
+		delete(s.cancels, job.ID)
+		s.mu.Unlock()
+		return
+	}
+	defer sandboxCleanup()
 	command.Env = minimalEnvironment()
 	subtreeTerminated := configureProcessTermination(command)
 	command.WaitDelay = 2 * time.Second
 	buffer := &boundedBuffer{limit: maxCommandOutput}
 	command.Stdout, command.Stderr = buffer, buffer
 	runStarted := time.Now()
-	err := command.Run()
+	err, lifetimeGuaranteed := runCommandProcess(command)
+	subtreeTerminated = subtreeTerminated || lifetimeGuaranteed
 	duration := time.Since(runStarted)
 	output := buffer.String()
 	exitCode := 0
@@ -151,7 +166,8 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		Metadata: map[string]any{"job_id": job.ID, "executable": input.Executable, "exit_code": exitCode,
 			"truncated": buffer.truncated}})
 	result := map[string]any{"exit_code": exitCode, "duration_ms": duration.Milliseconds(), "output": output,
-		"truncated": buffer.truncated, "process_group_terminated_on_cancel": subtreeTerminated}
+		"truncated": buffer.truncated, "process_group_terminated_on_cancel": subtreeTerminated,
+		"sandbox": sandbox}
 	if artifactErr == nil {
 		result["artifact_id"] = artifact.ID
 	} else if errorMessage == "" {
@@ -165,6 +181,13 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 	s.mu.Lock()
 	delete(s.cancels, job.ID)
 	s.mu.Unlock()
+}
+
+type commandSandbox struct {
+	Kind            string `json:"kind"`
+	Enforced        bool   `json:"enforced"`
+	NetworkIsolated bool   `json:"network_isolated"`
+	WriteScope      string `json:"write_scope"`
 }
 
 func (s *Service) CancelJob(ctx context.Context, id string) (Job, error) {

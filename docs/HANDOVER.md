@@ -1,4 +1,4 @@
-# Handover — สถานะงาน ณ 2026-08-31
+# Handover — สถานะงาน ณ 2026-09-05
 
 เอกสารนี้เป็น snapshot สำหรับคนที่เข้ามาทำ Hermetrix ต่อ ให้ยึด runtime และ tests เหนือข้อความในเอกสารเสมอ
 
@@ -29,10 +29,10 @@ Hermetrix เป็น local-first Go harness ที่รวม authority-safe 
 ตัวเลขจาก `./scripts/doc-truth.sh`:
 
 ```text
-test functions        424        packages              26
+test functions        434        packages              27
 direct primitives      13        HTTP routes           118
 SQLite tables          47        schema-only tables      0
-Go (non-test)      30,391        Go (test)           17,206
+Go (non-test)      30,615        Go (test)           17,780
 ```
 
 ## 2. Workbench ที่ทำงานจริงแล้ว
@@ -47,7 +47,7 @@ Go (non-test)      30,391        Go (test)           17,206
 ### Terminal
 
 - interactive POSIX PTY: start/input/resize/output/close
-- persisted bounded output tail 1 MiB
+- persisted bounded output tail 1 MiB โดย append เฉพาะ chunk ใหม่ (ไม่ rewrite ทั้งก้อนทุก 8 KiB) และ log/fail session เมื่อ persistence พัง
 - restart mark session เป็น interrupted และไม่ replay command
 - Windows build ผ่าน แต่ยัง fail-closed ว่า PTY unavailable จนมี ConPTY
 
@@ -57,9 +57,10 @@ Go (non-test)      30,391        Go (test)           17,206
 - open/navigate/back/read/click/type/capture/close
 - DOM snapshot ถูกจำกัดขนาดและติดป้าย untrusted evidence
 - local/private URL ต้อง explicit opt-in; `file:` จำกัดใน project root
+- ทุก redirect/subresource/websocket ผ่าน CDP Fetch guard ก่อน network; Chrome E2E ยืนยัน request ไป loopback ถูกหยุดก่อน server เห็น hit
 - screenshot เป็น immutable PNG artifact
 
-ข้อจำกัด: ยังไม่มี embedded live WebView, download workspace และ proxy-level DNS-rebinding/egress enforcement
+ข้อจำกัด: ยังไม่มี embedded live WebView, download workspace และ proxy/DNS-pinned egress enforcement ที่กัน DNS rebinding ได้สมบูรณ์
 
 ### Office Deliverables
 
@@ -118,7 +119,8 @@ auto-promote เปิดตามคำสั่งเจ้าของแล�
 - qualified capacity ใช้ evidence ที่ผูก exact provider/model/revision/profile ไม่เชื่อ declared context อย่างเดียว
 - SessionContract/Skill catalog/cache epoch freeze ระหว่าง session
 - typed fragments, causal-pair integrity, spill/recovery และ token ledger
-- OpenAI-compatible provider ใช้งานได้; provider ecosystem แบบ native Anthropic/Gemini/local runtime adapters ยังเป็น phase ถัดไป
+- provider dispatch เป็น interface และรองรับ OpenAI-compatible, Anthropic native และ Gemini native; local runtimes ที่พูด OpenAI-compatible ใช้ adapter แรก
+- session creation รองรับ explicit และ ordered failover; เลือกเฉพาะ profile ที่ credential/context/qualification ผ่านก่อน freeze contract และไม่ fallback หลัง sampling เริ่ม
 
 credential เก็บได้ 2 ทาง: พิมพ์ลง UI แล้วเก็บที่ `internal/secrets` vault (`<data>/secrets.json` โหมด `0600`) หรือ environment variable — token ที่ save ไว้ชนะ env
 
@@ -140,7 +142,7 @@ node --check internal/web/ui/app.js
 git diff --check
 ```
 
-Linux/Windows cross-compile ของ product/web/cmd ผ่าน Real Chrome integration test มีและเปิด browser จริงเมื่อ host อนุญาต แต่ environment รอบนี้ทำให้ Chrome abort และห้าม TCP bind ดังนั้น full HTTP/visual browser E2E ถูก **blocked by environment** ไม่ถูกนับเป็น pass
+Linux/Windows cross-compile ของ product/web/cmd ใช้เป็น compile gate; runtime Windows Job Object และ ConPTY ยังต้องพิสูจน์บน Windows จริง Real Chrome integration test มีทั้ง UI hydration และ private-subresource 0-hit network guard และต้องรันบน host ที่มี Chrome
 
 ## 6. งานถัดไปตามลำดับ
 
@@ -148,7 +150,7 @@ Linux/Windows cross-compile ของ product/web/cmd ผ่าน Real Chrome i
 2. **Workbench hardening:** Windows ConPTY, browser egress proxy, download/artifact policy, diagnostics/multi-file editor และ rich Office preview/Unicode PDF fonts
 3. **Agent Team qualification:** checkpoint/restart กลาง sampling, artifact-only handoff และ per-task capability/model/budget
 4. **Skill Learning OS:** controlled effectiveness eval, semantic duplicate clusters, user merge assistant และ opt-in reversible curator automation
-5. **Provider/local-model matrix:** live 64k/128k canary, memory/TTFT/OOM telemetry และ native adapters โดยไม่มี silent downgrade
-6. **Release/security:** local identity, keychain, remote auth, OS sandbox, signed audit export, backup/migration/install/upgrade tests
+5. **Provider/local-model matrix:** live 64k/128k canary, memory/TTFT/OOM telemetry และ paid-endpoint canary สำหรับ native adapters โดยไม่มี silent downgrade
+6. **Release/security:** multi-user identity/RBAC, OS keychain, Linux sandbox packaging, Windows isolation profile, signed audit export, backup/migration/install/upgrade tests
 
 Definition of done ยังไม่ใช่ “มีปุ่มแล้ว”: capability ต้องมี backend authority, persistence/recovery, negative test, user-visible failure state และ artifact/provenance เมื่อเกิด side effect

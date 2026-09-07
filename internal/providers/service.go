@@ -51,16 +51,31 @@ type CredentialVault interface {
 }
 
 type Service struct {
-	store   *store.Store
-	adapter *OpenAIAdapter
-	vault   CredentialVault
+	store    *store.Store
+	adapters map[string]Adapter
+	vault    CredentialVault
 }
 
-func NewService(dataStore *store.Store, adapter *OpenAIAdapter) *Service {
+func NewService(dataStore *store.Store, adapter Adapter) *Service {
 	if adapter == nil {
 		adapter = NewOpenAIAdapter(nil)
 	}
-	return &Service{store: dataStore, adapter: adapter}
+	return &Service{store: dataStore, adapters: map[string]Adapter{
+		AdapterOpenAICompatible: adapter,
+		AdapterAnthropicNative:  NewAnthropicAdapter(nil),
+		AdapterGeminiNative:     NewGeminiAdapter(nil),
+	}}
+}
+
+// WithAdapter overrides one protocol transport. It exists primarily for
+// deterministic integration tests and private compatible gateways; production
+// defaults register every built-in native adapter.
+func (s *Service) WithAdapter(kind string, adapter Adapter) *Service {
+	kind = strings.TrimSpace(kind)
+	if adapter != nil && kind != "" {
+		s.adapters[kind] = adapter
+	}
+	return s
 }
 
 // WithVault attaches the credential store. A stored token takes precedence over
@@ -202,7 +217,11 @@ func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatR
 	if err != nil {
 		return Completion{}, err
 	}
-	return s.adapter.StreamChat(ctx, profile, key, request, emit)
+	adapter := s.adapters[profile.AdapterKind]
+	if adapter == nil {
+		return Completion{}, fmt.Errorf("provider adapter %q is not registered", profile.AdapterKind)
+	}
+	return adapter.StreamChat(ctx, profile, key, request, emit)
 }
 
 func (s *Service) Test(ctx context.Context, id string) (TestResult, error) {
@@ -260,7 +279,7 @@ func validateInput(input SaveInput) error {
 	if input.Name == "" || len(input.Name) > 80 {
 		return fmt.Errorf("provider name is required and must be at most 80 characters")
 	}
-	if input.AdapterKind != AdapterOpenAICompatible {
+	if input.AdapterKind != AdapterOpenAICompatible && input.AdapterKind != AdapterAnthropicNative && input.AdapterKind != AdapterGeminiNative {
 		return fmt.Errorf("unsupported provider adapter %q", input.AdapterKind)
 	}
 	if input.Model == "" || len(input.Model) > 240 {

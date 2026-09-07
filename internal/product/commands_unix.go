@@ -21,3 +21,7 @@ func configureProcessTermination(command *exec.Cmd) bool {
 	}
 	return true
 }
+
+func runCommandProcess(command *exec.Cmd) (error, bool) {
+	return command.Run(), false
+}

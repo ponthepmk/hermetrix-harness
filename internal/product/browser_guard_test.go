@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,28 @@ func TestBrowserRequestGuardRejectsPrivateNetworkSchemesBeforeRelease(t *testing
 		if err := service.validateBrowserRequestURL(ctx, "", raw, false); err != nil {
 			t.Errorf("request guard rejected local non-network URL %s: %v", raw, err)
 		}
+	}
+}
+
+func TestBrowserRequestGuardPinsDNSAnswersAndRejectsRebinding(t *testing.T) {
+	guard := &browserRequestGuard{pins: map[string]string{}}
+	first := []net.IPAddr{{IP: net.ParseIP("203.0.113.10")}, {IP: net.ParseIP("203.0.113.11")}}
+	if err := guard.pinResolvedHost("public.example", first); err != nil {
+		t.Fatal(err)
+	}
+	// Resolver ordering is not meaningful and must not trigger a false block.
+	if err := guard.pinResolvedHost("public.example", []net.IPAddr{first[1], first[0]}); err != nil {
+		t.Fatalf("same answer in a different order was rejected: %v", err)
+	}
+	if err := guard.pinResolvedHost("public.example", []net.IPAddr{{IP: net.ParseIP("203.0.113.12")}}); err == nil {
+		t.Fatal("changed DNS answer was accepted")
+	}
+}
+
+func TestBrowserRequestGuardRejectsPrivateDNSAnswer(t *testing.T) {
+	guard := &browserRequestGuard{pins: map[string]string{}}
+	if err := guard.pinResolvedHost("rebound.example", []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}); err == nil {
+		t.Fatal("private DNS answer was accepted without allow_private")
 	}
 }
 

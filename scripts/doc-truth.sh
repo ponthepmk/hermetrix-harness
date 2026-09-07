@@ -87,6 +87,7 @@ skills-frozen-once|SkillsInitialized|internal/agent/service.go
 workbench-optimistic-file|func \(s \*Service\) WriteProjectFile|internal/product/workbench.go
 real-pty|func \(s \*Service\) StartTerminal|internal/product/terminal.go
 managed-browser|func \(s \*Service\) OpenBrowserTab|internal/product/browser.go
+browser-dns-answer-pinned|func \(g \*browserRequestGuard\) pinResolvedHost|internal/product/browser.go
 native-deliverables|func \(s \*Service\) CreateDeliverable|internal/product/deliverables.go
 team-dag|func validateTeamTaskGraph|internal/product/team.go
 team-run-snapshots-roster|team_name,team_instructions|internal/product/team.go
@@ -97,8 +98,13 @@ learning-producer|func \(s \*Service\) StageTrigger|internal/learning/service.go
 learning-drain|func \(s \*Service\) DrainPending|internal/learning/service.go
 measured-outcome-citations|VerifiedBy|internal/learning/models.go
 browser-final-url-revalidated|func \(s \*Service\) acceptBrowserSnapshot|internal/product/browser.go
+browser-request-blocked-pre-network|Fetch.requestPaused|internal/product/browser.go
+browser-network-policy-real-chrome|func TestChromeBlocksAPrivateSubresourceBeforeItReachesTheServer|internal/product/browser_chrome_e2e_test.go
 mcp-stdio-cancellation-unblocks-read|func \(session \*stdioSession\) readLineContext|internal/mcp/stdio.go
 mcp-effects-are-not-replayed|func retryableMCPMethod|internal/mcp/pool.go
+terminal-tail-appends-incrementally|func \(s \*Service\) appendTerminalOutput|internal/product/terminal.go
+durability-errors-are-observed|func \(operation Exec\) Observe|internal/durability/observe.go
+ui-real-browser-e2e|func TestCockpitHydratesInARealBrowser|internal/web/ui_browser_e2e_test.go
 task-budget|MaxCumulativeTokens|internal/agent/service.go
 loop-detector|third identical call|internal/agent/service.go
 qualification-exact-binding|AND provider_revision=\? AND requested_profile=\?|internal/agent/service.go
@@ -223,6 +229,14 @@ empty-reply-is-not-a-refusal|Inconclusive bool|internal/hostile/structural.go
 quoting-an-attack-is-not-obeying|func withoutQuotedInjection|internal/hostile/behavioral.go
 answers-are-rescorable-offline|func Rescore|internal/hostile/rescore.go
 windows-has-its-own-process-handling|func configureProcessTermination|internal/product/commands_windows.go
+windows-job-object-lifetime|JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE|internal/product/commands_windows.go
+macos-seatbelt-command-sandbox|macos-seatbelt|internal/product/sandbox_darwin.go
+linux-bubblewrap-command-sandbox|unshare-net|internal/product/sandbox_linux.go
+provider-adapter-interface|type Adapter interface|internal/providers/models.go
+provider-anthropic-native|type AnthropicAdapter|internal/providers/anthropic.go
+provider-gemini-native|type GeminiAdapter|internal/providers/gemini.go
+control-api-authentication|func \(a \*authenticator\) middleware|internal/web/auth.go
+authenticated-actor-binding|func effectiveActor|internal/web/auth.go
 corpus-measures-withdrawn-facts|RevisionSuperseded|internal/taskeval/generate.go
 withdrawn-answer-is-its-own-count|StaleAnswersCompiled|internal/taskeval/models.go
 corpus-still-has-loss-to-measure|func TestSupersededFactsGiveTheCorpusSomethingLeftToLose|internal/taskeval/runner_test.go
@@ -244,6 +258,16 @@ while IFS='|' read -r id anchor file; do
     status=1
   fi
 done <<< "$claims"
+
+# A best-effort durability write may log and continue, but it must never erase
+# the database error syntactically. Keep this negative check next to the claim
+# anchors so a future `_, _ = db.Exec...` cannot re-enter unnoticed.
+if rg -n '_, _ (?:=|:=).*\.?(?:Exec|ExecContext)\(' internal cmd >/dev/null; then
+  printf 'SILENT WRITE  %-28s %s\n' 'ignored-exec-error' 'internal/ or cmd/'
+  status=1
+else
+  printf 'ok            %-28s %s\n' 'ignored-exec-error' 'none'
+fi
 
 # ---------------------------------------------------------------- verdict
 section "Verdict"
