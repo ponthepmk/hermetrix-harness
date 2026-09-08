@@ -284,6 +284,12 @@ Expected: FAIL — `--surface` และ `--faint` ยังไม่มี จ�
   --blue: var(--accent);
   --accent-lime: var(--accent);
   --accent-violet: var(--accent);
+  /* สามตัวนี้อยู่ใน :root block ที่สองของไฟล์ (บรรทัด ~440) ไม่ใช่บล็อกแรก
+     สเปคไม่รู้จักมันตอนเขียน แต่ตั้งชื่อหน้าที่ของมันไว้แล้ว: raised กับ hover
+     คือ "พื้นที่ยกขึ้นมา" ซึ่ง §3.1 เรียก --surface-2 ส่วน focus ring §3.2 ยกให้ --accent */
+  --panel-raised: var(--surface-2);
+  --panel-hover: var(--surface-2);
+  --focus: var(--accent);
 
   --radius-sm: 8px;
   --radius: 12px;
@@ -306,6 +312,17 @@ Expected: FAIL — `--surface` และ `--faint` ยังไม่มี จ�
 ```
 
 โทเคนเวลาและ `font-family` ที่อยู่ต่อจากนี้ **คงไว้ทุกบรรทัด ห้ามแตะ**
+
+จากนั้นไปที่ **`:root` block ที่สองของไฟล์ (ราวบรรทัด 440)** แล้วลบสามบรรทัดนี้ทิ้ง —
+ค่าของมันย้ายไปเป็น alias ใน block แรกแล้ว การมีนิยามสองที่คือที่ที่สองที่ตอบคำถามเดียวกัน:
+
+```css
+  --panel-raised: #171c25;
+  --panel-hover: #1c222c;
+  --focus: #8ce8e5;
+```
+
+โทเคนอื่นใน block นั้น (ที่ไม่ใช่สี) คงไว้ทุกบรรทัด
 
 - [ ] **Step 4: รัน ต้องผ่าน**
 
@@ -459,7 +476,8 @@ alias ที่ค้างคือหนี้ — มันทำให้ช
 // ชื่อที่ยกเลิกแล้วต้องหายจริง ไม่ใช่ยังเขียนได้เพราะมี alias ค้าง
 func TestRetiredTokensStayRetired(t *testing.T) {
 	css := mustUIFile(t, "ui/style.css")
-	for _, retired := range []string{"--accent-lime", "--accent-violet", "--blue", "--amber", "--red", "--panel-2", "--panel"} {
+	for _, retired := range []string{"--accent-lime", "--accent-violet", "--blue", "--amber", "--red",
+		"--panel-2", "--panel", "--panel-raised", "--panel-hover", "--focus"} {
 		if strings.Contains(css, retired) {
 			t.Errorf("โทเคนที่ยกเลิกแล้วยังอยู่: %s", retired)
 		}
@@ -474,7 +492,8 @@ Expected: FAIL — alias ทั้งเจ็ดยังอยู่ใน `:r
 
 - [ ] **Step 3: ลบ alias ทั้งบล็อกออกจาก `:root`**
 
-ลบเจ็ดบรรทัดที่ Task 3 ใส่ไว้ใต้คอมเมนต์ "alias ชั่วคราวระหว่างย้าย"
+ลบสิบบรรทัดที่ Task 3 ใส่ไว้ใต้คอมเมนต์ "alias ชั่วคราวระหว่างย้าย" (รวมสามตัวที่มาจาก
+`:root` block ที่สอง: `--panel-raised` `--panel-hover` `--focus`)
 
 - [ ] **Step 4: รันทั้ง package**
 
