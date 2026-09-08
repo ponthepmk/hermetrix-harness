@@ -1,4 +1,8 @@
-.hermetrix/
+# Any local data directory, not just the default one. A second profile started
+# with --data .hermetrix-native sat outside `.hermetrix/` and was therefore one
+# `git add -A` away from committing a SQLite database -- and the secrets vault
+# lives at <data>/secrets.json.
+.hermetrix*/
 tmp-*-data/
 
 # Local provider/embedding credentials and the launch wrapper that reads them.
