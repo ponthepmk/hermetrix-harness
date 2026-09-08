@@ -621,3 +621,93 @@ func TestRetiredTokensStayRetired(t *testing.T) {
 		}
 	}
 }
+
+// scaleValueCeiling is the radius/type-scale sibling of colourLiteralCeiling:
+// the count of hardcoded border-radius, font-size and font: px values that
+// live outside every :root block in ui/style.css. Colour has had a ceiling
+// test since early in this branch; the radius and type-scale migration --
+// roughly half the branch's diff -- had none, even though it finished just
+// as clean. It measures 0 today. As with the colour ceiling, this number can
+// only go down: it is a floor against drift back into literals, not a target
+// to hit.
+//
+// Spacing (padding/gap/margin) is deliberately not covered here: those
+// legitimately carry many one-off px values for optical alignment, and a
+// zero ceiling there would be false precision, not a real invariant.
+const scaleValueCeiling = 0
+
+func TestScaleValuesOnlyLiveInTokens(t *testing.T) {
+	found := scaleLiteralsIn(mustUIFile(t, "ui/style.css"))
+	if len(found) > scaleValueCeiling {
+		t.Errorf("ค่าสเกลที่เขียนตรงนอก :root มี %d ค่า เพดานคือ %d — เพดานนี้ลดได้อย่างเดียว: %v",
+			len(found), scaleValueCeiling, found)
+	}
+}
+
+// TestScaleValueCheckerSeesLiteralsAndIgnoresTokens proves scaleLiteralsIn
+// actually catches hardcoded radius/type-scale px values rather than
+// trivially returning zero every time, and that it does not flag the
+// legitimate exceptions: font-size: 0 (a layout trick for hiding text while
+// keeping an element in the accessibility tree/tab order, used twice in the
+// file) and border-radius values of 0, 50% or inherit (a square corner, a
+// circle, and "match my container" are not answers to "what size is this
+// radius" -- they carry no scale value to migrate into a token, so a px
+// hunter naturally leaves them alone: none of the four ever has a "px"
+// suffix for scalePxPattern to find).
+func TestScaleValueCheckerSeesLiteralsAndIgnoresTokens(t *testing.T) {
+	css := `:root { --radius: 12px; }
+.a { border-radius: 7px; }
+.b { font-size: 15px; }
+.c { border-radius: var(--radius); }
+.d { border-radius: 0; }
+.e { border-radius: 50%; }
+.f { border-radius: inherit; }
+.g { font-size: 0; }
+.h { font: var(--text-2xs)/var(--leading-2xs) ui-monospace,monospace; }`
+	found := scaleLiteralsIn(css)
+	if len(found) != 2 {
+		t.Fatalf("อยากได้ 2 ค่า (7px กับ 15px) ได้ %v", found)
+	}
+	for _, literal := range found {
+		if literal != "7px" && literal != "15px" {
+			t.Fatalf("เจอค่าที่ไม่ควรเจอ: %q ใน %v", literal, found)
+		}
+	}
+}
+
+// scaleLiteralsIn returns every hardcoded border-radius/font-size/font: px
+// value outside all :root blocks, the same way colourLiteralsIn does for
+// colour. It isolates each matching declaration, strips var(...) references
+// out of its value (so a token reference like var(--radius) is never
+// mistaken for a literal), and then looks for a bare px number in what is
+// left.
+func scaleLiteralsIn(css string) []string {
+	stripped := rootBlockPattern.ReplaceAllString(css, "")
+	var found []string
+	for _, declaration := range scaleDeclarationPattern.FindAllString(stripped, -1) {
+		colon := strings.Index(declaration, ":")
+		if colon == -1 {
+			continue
+		}
+		value := colourTokenUse.ReplaceAllString(declaration[colon+1:], "")
+		found = append(found, scalePxPattern.FindAllString(value, -1)...)
+	}
+	return found
+}
+
+var (
+	// scaleDeclarationPattern isolates one border-radius/font-size/font
+	// declaration at a time, the same way colourDeclarationPattern isolates
+	// a colour declaration -- and for the same reason: scalePxPattern must
+	// only ever look inside a value, never a selector, and a bare word
+	// boundary before "font" keeps "font-family:" from being read as the
+	// "font" shorthand (the family list runs into real font names that are
+	// not px values, so it would never false-positive here, but the
+	// boundary keeps the isolated text limited to a property this test
+	// actually governs).
+	scaleDeclarationPattern = regexp.MustCompile(`\b(?:border-radius|font-size|font)\s*:\s*[^;{}]+;?`)
+	// scalePxPattern finds a bare px number the way bareDuration finds a
+	// bare duration: no assumption that the number has a leading digit, so
+	// ".5px" is caught along with "7px".
+	scalePxPattern = regexp.MustCompile(`\d*\.?\d+px\b`)
+)
