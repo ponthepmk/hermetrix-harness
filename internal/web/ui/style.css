@@ -889,9 +889,9 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 }
 .elicitation-card form { display: grid; gap: var(--space-2); }
 .elicitation-card label { display: grid; gap: var(--space-1); color: var(--muted); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
-.elicitation-card label small { color: var(--faint); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
+.elicitation-card label small { color: var(--muted); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
 .elicitation-card .action-row { justify-content: flex-end; margin-top: var(--space-1); }
-.elicitation-card > small { display: block; margin-top: var(--space-2); color: var(--faint); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
+.elicitation-card > small { display: block; margin-top: var(--space-2); color: var(--muted); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
 
 /* Rail layout ---------------------------------------------------------------
    The rail is a column with one growing part. Everything else keeps its size:
