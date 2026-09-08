@@ -418,7 +418,15 @@ func TestPaletteMeetsWCAGAA(t *testing.T) {
 		{"--danger", 4.5},
 	} {
 		for _, bg := range backgrounds {
-			got := contrastRatio(tokenValue(css, item.token), tokenValue(css, bg))
+			foreground := tokenValue(css, item.token)
+			background := tokenValue(css, bg)
+			if foreground == "" {
+				t.Fatalf("โทเคน %s ไม่มีใน :root — contrast วัดไม่ได้ ไม่ใช่ผ่าน", item.token)
+			}
+			if background == "" {
+				t.Fatalf("โทเคนพื้น %s ไม่มีใน :root — contrast วัดไม่ได้ ไม่ใช่ผ่าน", bg)
+			}
+			got := contrastRatio(foreground, background)
 			if got < item.min {
 				t.Errorf("%s บน %s = %.2f ต้อง ≥ %.1f", item.token, bg, got, item.min)
 			}
