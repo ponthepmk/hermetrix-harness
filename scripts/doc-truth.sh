@@ -245,6 +245,8 @@ corpus-still-has-loss-to-measure|func TestSupersededFactsGiveTheCorpusSomethingL
 semantic-retrieval-is-a-serve-flag|embed-url|cmd/hermetrix/main.go
 manifest-only-replay-blocks|ErrReplayImplicitOnly|internal/skills/replay.go
 export-is-skill-lifecycle-only|func TestExportCarriesOnlyWhatImportRestores|internal/product/backup_test.go
+colour-literals-live-in-tokens|colourLiteralCeiling = 0|internal/web/ui_contract_test.go
+palette-contrast-is-measured|func contrastRatio|internal/web/ui_contract_test.go
 CLAIMS
 )
 
