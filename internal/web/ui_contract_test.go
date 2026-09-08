@@ -2,7 +2,9 @@ package web
 
 import (
 	"io/fs"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -397,3 +399,73 @@ var (
 	hexPattern       = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
 	rgbPattern       = regexp.MustCompile(`\brgba?\(`)
 )
+
+// contrast วัดด้วยเลข ไม่ใช่สายตา เพราะ Task ถัดไปเปลี่ยนทุกสีพร้อมกัน
+// และ "ดูโอเคนะ" ไม่ใช่หลักฐาน
+func TestPaletteMeetsWCAGAA(t *testing.T) {
+	css := mustUIFile(t, "ui/style.css")
+	backgrounds := []string{"--bg", "--panel", "--panel-2"}
+	for _, item := range []struct {
+		token string
+		min   float64
+	}{
+		{"--text", 4.5},
+		{"--muted", 4.5},
+	} {
+		for _, bg := range backgrounds {
+			got := contrastRatio(tokenValue(css, item.token), tokenValue(css, bg))
+			if got < item.min {
+				t.Errorf("%s บน %s = %.2f ต้อง ≥ %.1f", item.token, bg, got, item.min)
+			}
+		}
+	}
+}
+
+// เช็คเกอร์ต้องรู้จักคู่ที่ตกจริง ไม่ใช่คืนเลขสวยเสมอ
+func TestContrastCheckerRejectsALowPair(t *testing.T) {
+	if got := contrastRatio("#777777", "#6f6f6f"); got >= 4.5 {
+		t.Fatalf("เทาบนเทาได้ %.2f ซึ่งไม่ควรผ่าน 4.5", got)
+	}
+	if got := contrastRatio("#ffffff", "#000000"); got < 20 {
+		t.Fatalf("ขาวบนดำได้ %.2f ควรใกล้ 21", got)
+	}
+}
+
+// tokenValue อ่านค่าโทเคนจาก :root block แรก ถ้าไม่เจอคืนค่าว่าง
+// ซึ่ง contrastRatio จะคืน 0 และ test จะฟ้องว่าโทเคนหาย ไม่ใช่ผ่านเงียบ
+func tokenValue(css, name string) string {
+	pattern := regexp.MustCompile(regexp.QuoteMeta(name) + `:\s*(#[0-9a-fA-F]{3,8})`)
+	match := pattern.FindStringSubmatch(css)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
+}
+
+// contrastRatio คำนวณตาม WCAG 2.x relative luminance
+func contrastRatio(foreground, background string) float64 {
+	first, second := relativeLuminance(foreground), relativeLuminance(background)
+	if first < second {
+		first, second = second, first
+	}
+	return (first + 0.05) / (second + 0.05)
+}
+
+func relativeLuminance(hex string) float64 {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 0
+	}
+	channel := func(offset int) float64 {
+		value, err := strconv.ParseInt(hex[offset:offset+2], 16, 0)
+		if err != nil {
+			return 0
+		}
+		scaled := float64(value) / 255
+		if scaled <= 0.03928 {
+			return scaled / 12.92
+		}
+		return math.Pow((scaled+0.055)/1.055, 2.4)
+	}
+	return 0.2126*channel(0) + 0.7152*channel(2) + 0.0722*channel(4)
+}
