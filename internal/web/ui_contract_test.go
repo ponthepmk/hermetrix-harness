@@ -350,3 +350,50 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 		t.Error("stylesheet does not define the pane grid")
 	}
 }
+
+// colourLiteralCeiling is the count of hardcoded colour values (hex and
+// rgb()/rgba()) that live outside every :root block in ui/style.css. A
+// hardcoded colour is a second place that answers "what is this colour" --
+// this ceiling can only go down as literals migrate into tokens. 194 is not
+// an acceptable number; it is where counting started.
+const colourLiteralCeiling = 194
+
+func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
+	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))
+	if len(found) > colourLiteralCeiling {
+		t.Errorf("ค่าสีที่เขียนตรงนอก :root มี %d ค่า เพดานคือ %d — เพดานนี้ลดได้อย่างเดียว",
+			len(found), colourLiteralCeiling)
+	}
+}
+
+// TestColourLiteralCheckerSeesLiteralsAndIgnoresTokens proves the checker
+// actually catches hardcoded colours rather than trivially passing by
+// returning zero every time.
+func TestColourLiteralCheckerSeesLiteralsAndIgnoresTokens(t *testing.T) {
+	css := `:root { --bg: #0c0e12; }
+.a { color: #ff0000; }
+.b { background: rgba(1,2,3,.4); }
+.c { color: var(--bg); }`
+	found := colourLiteralsIn(css)
+	if len(found) != 2 {
+		t.Fatalf("อยากได้ 2 ค่า (#ff0000 กับ rgba(...)) ได้ %v", found)
+	}
+}
+
+// colourLiteralsIn returns every hardcoded colour value outside all :root
+// blocks.
+//
+// :root is stripped first, always, because that is where colour values
+// belong. This file has four :root blocks (main theme, media query, and
+// density) -- every one of them has to be stripped, not just the first.
+func colourLiteralsIn(css string) []string {
+	stripped := rootBlockPattern.ReplaceAllString(css, "")
+	found := hexPattern.FindAllString(stripped, -1)
+	return append(found, rgbPattern.FindAllString(stripped, -1)...)
+}
+
+var (
+	rootBlockPattern = regexp.MustCompile(`(?s):root(\[[^\]]*\])?\s*\{[^}]*\}`)
+	hexPattern       = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
+	rgbPattern       = regexp.MustCompile(`\brgba?\(`)
+)
