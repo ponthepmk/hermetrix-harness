@@ -360,8 +360,9 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 // where counting started; Task 4 migrated the shell/header/rail chrome and
 // brought it to 163; Task 5 migrated the chat/main reading surfaces
 // (.message/.chat-*/.composer/.stats/.panel/.empty and the inline tool
-// receipt and approval cards) and brought it to 123.
-const colourLiteralCeiling = 123
+// receipt and approval cards) and brought it to 123. Task 6 migrated the
+// settings and workbench surfaces and brought it to 72.
+const colourLiteralCeiling = 72
 
 func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
 	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))
