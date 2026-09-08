@@ -60,6 +60,12 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
+	// migrateV29TableSwap has to run before the shared transaction below opens
+	// and commit on its own. See its comment for why.
+	if err := migrateV29TableSwap(ctx, db); err != nil {
+		return fmt.Errorf("apply schema v29 table swap: %w", err)
+	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin migration: %w", err)
@@ -1295,6 +1301,108 @@ ALTER TABLE agent_team_tasks ADD COLUMN approval_effect TEXT NOT NULL DEFAULT ''
 CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_approval ON agent_team_tasks(approval_id,state);
 `
 
+// migrateV29TableSwap rebuilds the projects table when it already exists in
+// its pre-v29 shape, and does nothing otherwise. It has to run before
+// migrateV29 -- and outside any surrounding transaction -- because of a
+// SQLite limitation this project's own test suite never exercised.
+//
+// Five tables (agent_sessions, artifacts, terminal_sessions, browser_tabs,
+// agent_teams, agent_team_runs) carry FOREIGN KEY(project_id) REFERENCES
+// projects(id). Rebuilding projects means dropping it and recreating it under
+// the same name, and with foreign_keys=ON -- the pragma this store always
+// sets -- SQLite refuses that drop while other rows still reference it.
+//
+// The obvious fix, PRAGMA defer_foreign_keys=ON, postpones the *check* but
+// not the underlying bookkeeping: SQLite tracks a deferred violation against
+// the dropped table's b-tree object specifically, and creating a new object
+// under the old name does not retroactively satisfy it. Verified directly
+// against a real, aged database with real rows in five referencing tables and
+// zero actual constraint violations (`PRAGMA foreign_key_check` confirms this
+// both before the rebuild and after, run standalone): the deferred approach
+// still fails at COMMIT. This is not theoretical -- it is what a real user's
+// upgrade hit first, because every migration test before this one started
+// from a bare schema with no FK-referencing rows to trip it.
+//
+// SQLite's own documented answer for rebuilding a referenced table is to
+// disable enforcement outright, and PRAGMA foreign_keys can only be toggled
+// outside an open transaction -- inside one, it is a documented no-op. That
+// is why this cannot be folded into the shared migration transaction the rest
+// of this file uses: it needs its own transaction, bracketed by the pragma
+// toggle in autocommit mode on either side.
+//
+// Idempotent and safe to re-run: if the process dies after this commits but
+// before the shared transaction records user_version, the next startup finds
+// projects already in its new shape (via the pinned column check below) and
+// skips straight past this step.
+func migrateV29TableSwap(ctx context.Context, db *sql.DB) (err error) {
+	var name string
+	lookupErr := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='projects'`).Scan(&name)
+	if lookupErr != nil {
+		if lookupErr == sql.ErrNoRows {
+			return nil // nothing to rebuild; migrateV29 creates it fresh
+		}
+		return lookupErr
+	}
+	var alreadyMigrated int
+	if scanErr := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='pinned'`).Scan(&alreadyMigrated); scanErr != nil {
+		return scanErr
+	}
+	if alreadyMigrated > 0 {
+		return nil // already in the v29 shape -- a prior run got here first
+	}
+
+	if _, execErr := db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); execErr != nil {
+		return fmt.Errorf("disable foreign keys for table swap: %w", execErr)
+	}
+	// However this function returns, enforcement must be back on before
+	// anything else touches this connection -- the shared migration
+	// transaction that follows relies on it, and so does every other query
+	// this store ever runs. A failure here cannot be logged and swallowed:
+	// running the rest of this process with foreign_keys silently OFF is
+	// exactly the class of bug the store's own doc-truth check (the
+	// ignored-exec-error claim) exists to refuse, so it is folded into this
+	// function's named return instead -- it wins over a nil success, and rides
+	// alongside a real one, rather than disappearing into `_, _ =`.
+	defer func() {
+		if _, reenableErr := db.ExecContext(ctx, `PRAGMA foreign_keys = ON`); reenableErr != nil {
+			if err != nil {
+				err = fmt.Errorf("%w (also failed to re-enable foreign keys: %v)", err, reenableErr)
+			} else {
+				err = fmt.Errorf("re-enable foreign keys after table swap: %w", reenableErr)
+			}
+		}
+	}()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin table swap: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, schemaV29Rebuild); err != nil {
+		return err
+	}
+	// Defence in depth: foreign_keys=OFF means the rebuild cannot fail loudly
+	// on its own, so ask directly whether it left anything inconsistent rather
+	// than assuming the absence of an error means the absence of a problem.
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("check table swap: %w", err)
+	}
+	var violation string
+	hasViolation := rows.Next()
+	if hasViolation {
+		_ = rows.Scan(&violation)
+	}
+	if closeErr := rows.Close(); closeErr != nil {
+		return closeErr
+	}
+	if hasViolation {
+		return fmt.Errorf("table swap left a foreign key violation: %s", violation)
+	}
+	return tx.Commit()
+}
+
 // schemaV29 makes a project a bounded scope rather than a code folder. A
 // project without code is ordinary -- planning a trip and planning a refactor
 // have the same shape -- so root_path becomes optional. SQLite cannot drop a
@@ -1307,6 +1415,18 @@ CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_approval ON agent_team_tasks(app
 // has nothing to copy from, and rebuilding a table that was never there
 // would fail on the SELECT instead of just creating the new shape directly.
 func migrateV29(ctx context.Context, tx *sql.Tx) error {
+	// migrateV29TableSwap, above, already rebuilt projects if it existed
+	// BEFORE migrate() was called -- the case where real rows in the five
+	// FK-referencing tables might already be committed on disk, which is why
+	// that rebuild has to run outside this transaction with foreign_keys=OFF.
+	//
+	// This function still has to handle the other way projects can reach this
+	// point in the old shape: a brand-new database, migrated through every
+	// version in one call to migrate(). There, an earlier version's schema
+	// (long before v29) creates projects for the first time inside THIS SAME
+	// open transaction, so nothing outside it can possibly reference it yet --
+	// the plain rebuild below is safe precisely because there is no
+	// previously-committed data to protect.
 	var name string
 	err := tx.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='projects'`).Scan(&name)
 	if err != nil && err != sql.ErrNoRows {
@@ -1316,8 +1436,17 @@ func migrateV29(ctx context.Context, tx *sql.Tx) error {
 		if _, execErr := tx.ExecContext(ctx, schemaV29Create); execErr != nil {
 			return execErr
 		}
-	} else if _, execErr := tx.ExecContext(ctx, schemaV29Rebuild); execErr != nil {
-		return execErr
+	} else {
+		var alreadyMigrated int
+		if scanErr := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='pinned'`).Scan(&alreadyMigrated); scanErr != nil {
+			return scanErr
+		}
+		if alreadyMigrated == 0 {
+			if _, execErr := tx.ExecContext(ctx, schemaV29Rebuild); execErr != nil {
+				return execErr
+			}
+		}
 	}
 
 	// A project became mandatory for every session at this version, so a
@@ -1356,6 +1485,9 @@ CREATE TABLE projects (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root ON projects(root_path) WHERE root_path <> '';
 `
 
+// schemaV29Rebuild is run by migrateV29TableSwap, outside any transaction and
+// with PRAGMA foreign_keys=OFF -- see that function for why DROP TABLE
+// projects cannot happen any other way when five other tables reference it.
 const schemaV29Rebuild = `
 CREATE TABLE projects_v29 (
   id TEXT PRIMARY KEY,

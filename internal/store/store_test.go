@@ -312,3 +312,98 @@ func TestOrphanSessionsLandInInbox(t *testing.T) {
 		t.Errorf("Inbox was created in a database with no orphan sessions")
 	}
 }
+
+// TestMigrationV29RebuildsProjectsWithRealForeignKeyChildren is the fixture
+// this migration step was never run against before it broke a real database.
+// TestSchemaV29AllowsProjectsWithoutCode exercises the rebuild too, but only
+// on a database built fresh through every version in one call, where projects
+// is created and rebuilt inside the same open transaction and nothing
+// committed anywhere yet references it. That is not what an upgrade looks
+// like: on a real machine, projects has existed since long before this
+// process started, with real rows in the five tables that hold
+// FOREIGN KEY(project_id) REFERENCES projects(id), committed and on disk.
+//
+// This fixture hand-builds exactly that: a pre-v29 projects table, one row in
+// it, and one child row in agent_teams pointing at that row by id. Rebuilding
+// projects means dropping it and recreating it under the same name, and with
+// foreign_keys=ON -- the pragma this store always sets -- SQLite refuses that
+// drop while agent_teams still references it, transaction or no transaction.
+func TestMigrationV29RebuildsProjectsWithRealForeignKeyChildren(t *testing.T) {
+	root := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(root, "hermetrix.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE projects (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, root_path TEXT NOT NULL UNIQUE,
+      state TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE agent_teams (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL,
+      instructions TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      FOREIGN KEY(project_id) REFERENCES projects(id))`,
+		`INSERT INTO projects(id,name,root_path,created_at,updated_at)
+      VALUES('p1','Real Project','/home/user/code',
+      '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+		`INSERT INTO agent_teams(id,project_id,name,created_at,updated_at)
+      VALUES('t1','p1','Team One','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+		`PRAGMA user_version=28`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The bug this guards: Open used to fail here with "FOREIGN KEY constraint
+	// failed" (a naive DROP TABLE inside the shared migration transaction) or,
+	// after a first attempted fix, at COMMIT (defer_foreign_keys does not
+	// survive a table being dropped and recreated under its old name -- it
+	// tracks the deferred obligation against the dropped table's own object,
+	// which a same-named replacement does not satisfy).
+	reopened, err := Open(context.Background(), root)
+	if err != nil {
+		t.Fatalf("migrating a database with a real foreign-key child failed: %v", err)
+	}
+	defer reopened.Close()
+
+	var teamName, projectName, rootPath string
+	var pinned int
+	if err := reopened.DB.QueryRow(`SELECT t.name,p.name,p.root_path,p.pinned
+    FROM agent_teams t JOIN projects p ON p.id=t.project_id WHERE t.id='t1'`).
+		Scan(&teamName, &projectName, &rootPath, &pinned); err != nil {
+		t.Fatalf("the child row lost its parent across the rebuild: %v", err)
+	}
+	if teamName != "Team One" || projectName != "Real Project" || rootPath != "/home/user/code" {
+		t.Errorf("rebuild changed the data: team=%q project=%q root=%q", teamName, projectName, rootPath)
+	}
+
+	var violations int
+	if err := reopened.DB.QueryRow(`SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil {
+		t.Fatal(err)
+	}
+	if violations != 0 {
+		t.Errorf("foreign_key_check reports %d violation(s) after migration", violations)
+	}
+
+	// A second Open on the already-migrated file must be a no-op, not a second
+	// attempt at a rebuild that no longer applies.
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopenedAgain, err := Open(context.Background(), root)
+	if err != nil {
+		t.Fatalf("reopening an already-migrated database failed: %v", err)
+	}
+	defer reopenedAgain.Close()
+	var version int
+	if err := reopenedAgain.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != CurrentSchemaVersion {
+		t.Errorf("schema version = %d after reopening, want %d", version, CurrentSchemaVersion)
+	}
+}
