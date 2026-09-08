@@ -1,18 +1,56 @@
 :root {
-  --bg: #0c0e12;
-  --panel: #12151b;
-  --panel-2: #171b22;
-  --line: #262c35;
-  --text: #eef1f5;
-  --muted: #929ba8;
-  --accent: #45e8e8;
-  --accent-soft: rgba(69,232,232,.10);
-  --accent-lime: #9cff38;
-  --accent-violet: #8b7cff;
-  --amber: #ffcf70;
-  --red: #ff7b7b;
-  --blue: #76b8ff;
-  --radius: 14px;
+  /* ชั้นพื้นหลังสามระดับ แทนการขีดเส้นแบ่งทุกกล่อง */
+  --bg: #0e1013;
+  --surface: #14171b;
+  --surface-2: #1b1f24;
+  --line: #262b31;
+
+  --text: #e8eaed;
+  --muted: #a1a8b0;
+  --faint: #767d86;
+
+  /* สีเดียวของแอป ความหรูมาจากความยับยั้ง ไม่ใช่จำนวนสี */
+  --accent: #57c9c2;
+  --accent-soft: rgba(87,201,194,.12);
+
+  /* สีบอกสถานะ ไม่บอกหมวด ชื่อบอกหน้าที่เพื่อให้เปลี่ยนสีได้โดยไม่ต้องเปลี่ยนชื่อ */
+  --ok: #6bbf87;
+  --warn: #d9a441;
+  --danger: #e0656a;
+
+  /* alias ชั่วคราวระหว่างย้าย — Task 7 ลบทิ้ง ห้ามเหลือค้าง */
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --amber: var(--warn);
+  --red: var(--danger);
+  --blue: var(--accent);
+  --accent-lime: var(--accent);
+  --accent-violet: var(--accent);
+  /* สามตัวนี้อยู่ใน :root block ที่สองของไฟล์ (บรรทัด ~440) ไม่ใช่บล็อกแรก
+     สเปคไม่รู้จักมันตอนเขียน แต่ตั้งชื่อหน้าที่ของมันไว้แล้ว: raised กับ hover
+     คือ "พื้นที่ยกขึ้นมา" ซึ่ง §3.1 เรียก --surface-2 ส่วน focus ring §3.2 ยกให้ --accent */
+  --panel-raised: var(--surface-2);
+  --panel-hover: var(--surface-2);
+  --focus: var(--accent);
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ขนาดตัวอักษรห้าระดับ คู่กับ line-height ที่เหมาะกับระดับนั้น
+     เขียนคู่กันเพราะขนาดที่ไม่มี line-height คือครึ่งเดียวของคำตอบ */
+  --text-xs: 12px;   --leading-xs: 1.4;
+  --text-sm: 13px;   --leading-sm: 1.5;
+  --text-md: 14px;   --leading-md: 1.6;
+  --text-lg: 16px;   --leading-lg: 1.5;
+  --text-xl: 20px;   --leading-xl: 1.35;
   /* One place answers "how long". A number written into a rule is a second
      place answering the same question, and one day they will disagree. */
   --dur-press: .09s;
@@ -438,9 +476,6 @@ body {
    The galaxy identity stays in the background while controls use quieter,
    familiar desktop contrast and spacing. */
 :root {
-  --panel-raised: #171c25;
-  --panel-hover: #1c222c;
-  --focus: #8ce8e5;
   --shadow-float: 0 24px 80px rgba(0,0,0,.55);
 }
 button, [tabindex="0"] { -webkit-tap-highlight-color: transparent; }

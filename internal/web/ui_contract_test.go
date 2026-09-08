@@ -404,13 +404,18 @@ var (
 // และ "ดูโอเคนะ" ไม่ใช่หลักฐาน
 func TestPaletteMeetsWCAGAA(t *testing.T) {
 	css := mustUIFile(t, "ui/style.css")
-	backgrounds := []string{"--bg", "--panel", "--panel-2"}
+	backgrounds := []string{"--bg", "--surface", "--surface-2"}
 	for _, item := range []struct {
 		token string
 		min   float64
 	}{
 		{"--text", 4.5},
 		{"--muted", 4.5},
+		{"--faint", 3.0},
+		{"--accent", 4.5},
+		{"--ok", 4.5},
+		{"--warn", 4.5},
+		{"--danger", 4.5},
 	} {
 		for _, bg := range backgrounds {
 			got := contrastRatio(tokenValue(css, item.token), tokenValue(css, bg))
