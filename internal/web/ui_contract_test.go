@@ -356,9 +356,10 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 // colourLiteralCeiling is the count of hardcoded colour values (hex and
 // rgb()/rgba()) that live outside every :root block in ui/style.css. A
 // hardcoded colour is a second place that answers "what is this colour" --
-// this ceiling can only go down as literals migrate into tokens. 194 is not
-// an acceptable number; it is where counting started.
-const colourLiteralCeiling = 194
+// this ceiling can only go down as literals migrate into tokens. 194 was
+// where counting started; Task 4 migrated the shell/header/rail chrome and
+// brought it to 163.
+const colourLiteralCeiling = 163
 
 func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
 	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))

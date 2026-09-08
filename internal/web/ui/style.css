@@ -33,6 +33,16 @@
   --panel-hover: var(--surface-2);
   --focus: var(--accent);
 
+  /* Task 4: named meanings the alias list above had no real token for.
+     The outer chrome (header, rail) sits over the app's ambient gradient
+     and needs its own vocabulary rather than more one-off rgba() values. */
+  --chrome-glass: rgba(11,14,21,.94);   /* translucent chrome surface: header, rail, rail-footer */
+  --surface-well: #0b0f15;              /* sunken control surface: chips, search-like triggers */
+  --line-hover: #414b59;                /* a boundary line brightened for :hover */
+  --accent-bright: #72f0cc;             /* lighter accent tint for gradient highlights */
+  --accent-ink: #061113;                /* text drawn on a solid/gradient accent fill */
+  --shadow-panel: 0 18px 60px rgba(0,0,0,.2); /* elevation behind a floating chrome panel */
+
   --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 16px;
@@ -74,16 +84,16 @@ button { color: inherit; }
    collapsed by whoever is actually looking at the screen. */
 .app-shell { display: grid; grid-template-rows: auto minmax(0,1fr); height: 100vh; overflow: hidden; }
 .app-header { display: flex; align-items: center; gap: 14px; padding: 0 12px; height: 46px;
-  border-bottom: 1px solid var(--line); background: rgba(15,19,27,.92); }
+  border-bottom: 1px solid var(--line); background: var(--chrome-glass); }
 .header-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.view-switch { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.view-switch { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
 .view-switch button { border: 0; border-radius: 7px; padding: 6px 14px; background: transparent;
   color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
-.view-switch button.on { background: linear-gradient(135deg,var(--accent),#72f0cc); color: #061113; font-weight: 700; }
+.view-switch button.on { background: linear-gradient(135deg,var(--accent),var(--accent-bright)); color: var(--accent-ink); font-weight: 700; }
 .view-switch button:disabled { opacity: .4; cursor: not-allowed; }
 .project-chip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
-  border-radius: 9px; padding: 6px 10px; background: #0b0f15; color: var(--text); cursor: pointer; font-size: 12px; }
-.project-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-lime); }
+  border-radius: 9px; padding: 6px 10px; background: var(--surface-well); color: var(--text); cursor: pointer; font-size: 12px; }
+.project-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .zones { display: grid; grid-template-columns: var(--rail-width) 5px minmax(0,1fr) 5px var(--workbench-max); min-height: 0; }
 .zones.rail-hidden { grid-template-columns: 0 0 minmax(0,1fr) 5px var(--workbench-max); }
 .zones.side-hidden { grid-template-columns: var(--rail-width) 5px minmax(0,1fr) 0 0; }
@@ -105,14 +115,14 @@ button { color: inherit; }
 .zones.rail-hidden > .zone-handle[data-handle="rail"],
 .zones.side-hidden > .zone-handle[data-handle="side"] { display: none; }
 @media (prefers-reduced-motion: reduce) { .zone-handle { transition: none; } }
-.rail { border-right: 1px solid var(--line); padding: 20px 14px 14px; background: #0a0c10; display: flex; flex-direction: column; }
+.rail { border-right: 1px solid var(--line); padding: 20px 14px 14px; display: flex; flex-direction: column; }
 .nav-label { color: #626b78; text-transform: uppercase; font-size: 10px; letter-spacing: .13em; padding: 16px 10px 7px; margin: 0; }
 .nav-item { width: 100%; border: 0; background: transparent; border-radius: 9px; display: flex; align-items: center; gap: 10px; padding: 9px 10px; margin: 2px 0; cursor: pointer; color: #aeb5bf; text-align: left; }
 .nav-item:hover { background: var(--panel-2); color: white; }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); }
 .nav-item small { margin-left: auto; color: #59616d; font-size: 10px; }
 .nav-item b { margin-left: auto; background: var(--accent); color: #111; min-width: 20px; height: 20px; border-radius: 10px; display: grid; place-items: center; font-size: 11px; }
-.runtime-card { margin-top: auto; border: 1px solid var(--line); border-radius: 11px; padding: 10px; display: flex; align-items: center; gap: 9px; background: radial-gradient(circle at 12% 20%, rgba(69,232,232,.11), transparent 42%), radial-gradient(circle at 88% 90%, rgba(139,124,255,.07), transparent 38%), var(--panel); }
+.runtime-card { margin-top: auto; border: 1px solid var(--line); border-radius: 11px; padding: 10px; display: flex; align-items: center; gap: 9px; background: radial-gradient(circle at 12% 20%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 42%), radial-gradient(circle at 88% 90%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 38%), var(--surface); }
 .runtime-card strong, .runtime-card small { display: block; }
 .runtime-card strong { font-size: 12px; }
 .runtime-card small { font-size: 10px; color: var(--muted); margin-top: 2px; }
@@ -218,24 +228,24 @@ pre { border: 1px solid var(--line); background: #090b0e; border-radius: 9px; pa
 .session-create code, .provider-card code { color: var(--accent); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 /* One block states whether this session can open, and why. It replaces a
    checkbox plus two paragraphs that between them never said what would happen. */
-.session-readiness { border-radius: 9px; padding: 9px 10px; margin: 10px 0; border: 1px solid var(--line); background: var(--panel); }
+.session-readiness { border-radius: 9px; padding: 9px 10px; margin: 10px 0; border: 1px solid var(--line); background: var(--surface); }
 .session-readiness .readiness-line { margin: 0; font-size: 11px; line-height: 1.55; color: var(--muted); }
-.session-readiness.ready { border-color: rgba(156,255,56,.34); background: rgba(156,255,56,.06); }
-.session-readiness.ready .readiness-line { color: var(--accent-lime); }
-.session-readiness.review { border-color: rgba(255,207,112,.34); background: rgba(255,207,112,.06); }
-.session-readiness.review .readiness-line { color: var(--amber); }
-.session-readiness.blocked { border-color: rgba(255,123,123,.34); background: rgba(255,123,123,.06); }
-.session-readiness.blocked .readiness-line { color: var(--red); }
+.session-readiness.ready { border-color: color-mix(in srgb, var(--ok) 34%, transparent); background: color-mix(in srgb, var(--ok) 6%, transparent); }
+.session-readiness.ready .readiness-line { color: var(--ok); }
+.session-readiness.review { border-color: color-mix(in srgb, var(--warn) 34%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent); }
+.session-readiness.review .readiness-line { color: var(--warn); }
+.session-readiness.blocked { border-color: color-mix(in srgb, var(--danger) 34%, transparent); background: color-mix(in srgb, var(--danger) 6%, transparent); }
+.session-readiness.blocked .readiness-line { color: var(--danger); }
 .override-details { margin-top: 8px; }
 .override-details summary { cursor: pointer; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
 .override-details summary:hover { color: var(--text); }
 .override-details textarea { width: 100%; margin-top: 7px; font-size: 11px; line-height: 1.5; resize: vertical; }
 /* Persistent: a refusal used to arrive as a toast that cleared in 2.6 seconds. */
-.session-error { margin: 9px 0 0; padding: 9px 10px; border-radius: 9px; border: 1px solid rgba(255,123,123,.42); background: rgba(255,123,123,.09); color: var(--red); font-size: 11px; line-height: 1.55; }
+.session-error { margin: 9px 0 0; padding: 9px 10px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent); background: color-mix(in srgb, var(--danger) 9%, transparent); color: var(--danger); font-size: 11px; line-height: 1.55; }
 .session-list { padding: 8px; display: grid; gap: 5px; max-height: 52vh; overflow-y: auto; }
 .session-item { border: 1px solid transparent; background: transparent; border-radius: 10px; text-align: left; padding: 10px; color: var(--muted); cursor: pointer; min-width: 0; }
-.session-item:hover { background: var(--panel); color: white; }
-.session-item.active { border-color: rgba(69,232,232,.24); background: var(--accent-soft); color: white; }
+.session-item:hover { background: var(--surface-2); color: var(--text); }
+.session-item.active { border-color: color-mix(in srgb, var(--accent) 24%, transparent); background: var(--accent-soft); color: var(--text); }
 .session-item strong, .session-item span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-item strong { font-size: 11px; }
 .session-item span, .session-empty { color: var(--muted); font-size: 9px; margin-top: 4px; }
@@ -367,11 +377,11 @@ body {
     #080a0f;
 }
 .rail, .zone.side {
-  border: 1px solid rgba(120,139,170,.18);
-  box-shadow: 0 18px 60px rgba(0,0,0,.2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-panel);
 }
-.rail { border-radius: 17px; padding: 14px 11px 11px; background: rgba(11,14,21,.94); overflow: hidden; }
-.new-chat { margin: 11px 0 7px; width: 100%; border: 1px solid rgba(69,232,232,.22); border-radius: 10px; padding: 9px; background: rgba(69,232,232,.07); color: var(--accent); cursor: pointer; text-align: left; }
+.rail { border-radius: 17px; padding: 14px 11px 11px; background: var(--chrome-glass); overflow: hidden; }
+.new-chat { margin: 11px 0 7px; width: 100%; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 10px; padding: 9px; background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--accent); cursor: pointer; text-align: left; }
 .session-dock { min-height: 0; overflow: auto; display: grid; gap: 4px; }
 .session-dock .session-create { padding: 8px 2px 10px; border-bottom: 1px solid var(--line); }
 .session-dock .session-create > .eyebrow { display: none; }
@@ -496,13 +506,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 7px 9px;
-  background: #0b0f15;
-  color: #8e99a7;
+  background: var(--surface-well);
+  color: var(--muted);
   cursor: pointer;
   font-size: 10px;
   text-align: left;
 }
-.command-trigger:hover { border-color: #414b59; color: var(--text); background: var(--panel-raised); }
+.command-trigger:hover { border-color: var(--line-hover); color: var(--text); background: var(--surface-2); }
 kbd { border: 1px solid #343d49; border-bottom-color: #202630; border-radius: 5px; background: #151a22; color: #8793a2; padding: 1px 5px; font: 9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; box-shadow: 0 1px 0 rgba(255,255,255,.04); }
 .command-trigger kbd { margin-left: auto; }
 .command-dialog { width: min(650px,calc(100vw - 36px)); transform: translateY(-12vh); overflow: hidden; }
@@ -679,8 +689,8 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 8px 9px;
-  background: rgba(8,11,16,.5);
-  color: #c8d0da;
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 10px;
   cursor: default;
 }
@@ -737,7 +747,7 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   gap: 7px;
   padding-top: 9px;
   border-top: 1px solid var(--line);
-  background: rgba(11,14,21,.94);
+  background: var(--chrome-glass);
 }
 /* The picker is the app's first screen: a project is the root of everything,
    so nothing else can render until one is chosen. It borrows the settings
@@ -902,9 +912,9 @@ details.tool-receipt { padding: 0; overflow: hidden; }
    Options, where someone who wants it can go and read it. */
 .session-note {
   margin: 0 0 8px;
-  border-left: 2px solid rgba(255,207,112,.42);
+  border-left: 2px solid color-mix(in srgb, var(--warn) 42%, transparent);
   padding: 1px 0 1px 8px;
-  color: var(--amber);
+  color: var(--warn);
   font-size: 9px;
   line-height: 1.5;
 }
@@ -978,7 +988,7 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: #59636f;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
@@ -987,7 +997,7 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 }
 .session-row:hover .session-delete,
 .session-delete:focus-visible { opacity: 1; }
-.session-delete:hover { border-color: rgba(255,123,123,.4); background: rgba(255,123,123,.1); color: var(--red); }
+.session-delete:hover { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
 @media (prefers-reduced-motion: reduce) { .session-delete { transition: none; } }
 
 /* The dock is a column with one growing part, not a grid that stretches its
