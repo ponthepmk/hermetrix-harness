@@ -361,8 +361,10 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 // brought it to 163; Task 5 migrated the chat/main reading surfaces
 // (.message/.chat-*/.composer/.stats/.panel/.empty and the inline tool
 // receipt and approval cards) and brought it to 123. Task 6 migrated the
-// settings and workbench surfaces and brought it to 72.
-const colourLiteralCeiling = 72
+// settings and workbench surfaces, bringing it to 72, then finished the
+// sweep -- every remaining literal (list rows, dialogs, the command
+// palette, kbd, the office/sheet/slide previews) now resolves to a token.
+const colourLiteralCeiling = 0
 
 func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
 	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))
