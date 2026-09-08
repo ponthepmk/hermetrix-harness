@@ -358,8 +358,10 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 // hardcoded colour is a second place that answers "what is this colour" --
 // this ceiling can only go down as literals migrate into tokens. 194 was
 // where counting started; Task 4 migrated the shell/header/rail chrome and
-// brought it to 163.
-const colourLiteralCeiling = 163
+// brought it to 163; Task 5 migrated the chat/main reading surfaces
+// (.message/.chat-*/.composer/.stats/.panel/.empty and the inline tool
+// receipt and approval cards) and brought it to 123.
+const colourLiteralCeiling = 123
 
 func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
 	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))
