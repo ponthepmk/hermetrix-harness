@@ -775,7 +775,7 @@ details.tool-receipt { padding: 0; overflow: hidden; }
   color: var(--text); text-align: left; cursor: pointer; transition: border-color var(--dur-press); }
 .picker-card:hover { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .picker-card strong { display: block; font-size: 12px; margin-bottom: 6px; }
-.picker-path { color: var(--faint); font: 9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+.picker-path { color: var(--muted); font: 9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-path.none { font-family: inherit; font-style: italic; }
 .picker-stat { display: block; margin-top: 9px; color: var(--muted); font-size: 9px; }

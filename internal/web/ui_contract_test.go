@@ -353,24 +353,35 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 	}
 }
 
-// colourLiteralCeiling is the count of hardcoded colour values (hex and
-// rgb()/rgba()) that live outside every :root block in ui/style.css. A
-// hardcoded colour is a second place that answers "what is this colour" --
-// this ceiling can only go down as literals migrate into tokens. 194 was
-// where counting started; Task 4 migrated the shell/header/rail chrome and
-// brought it to 163; Task 5 migrated the chat/main reading surfaces
-// (.message/.chat-*/.composer/.stats/.panel/.empty and the inline tool
-// receipt and approval cards) and brought it to 123. Task 6 migrated the
-// settings and workbench surfaces, bringing it to 72, then finished the
-// sweep -- every remaining literal (list rows, dialogs, the command
-// palette, kbd, the office/sheet/slide previews) now resolves to a token.
-const colourLiteralCeiling = 0
+// colourLiteralCeiling is the count of hardcoded colour values (hex,
+// rgb()/rgba(), and bare CSS colour keywords) that live outside every
+// :root block in ui/style.css. A hardcoded colour is a second place that
+// answers "what is this colour" -- this ceiling can only go down as
+// literals migrate into tokens. 194 was where counting started; Task 4
+// migrated the shell/header/rail chrome and brought it to 163; Task 5
+// migrated the chat/main reading surfaces (.message/.chat-*/.composer/
+// .stats/.panel/.empty and the inline tool receipt and approval cards) and
+// brought it to 123. Task 6 migrated the settings and workbench surfaces,
+// bringing it to 72, then finished the sweep on hex/rgb literals -- every
+// one of those now resolves to a token, which is how the ceiling reached 0.
+//
+// That 0 was not the whole truth: colourLiteralsIn only ever matched
+// #hex and rgb()/rgba(), so every bare CSS colour keyword (`color: white`)
+// was invisible to it and never counted. Extending the checker to also see
+// bare keywords (colourKeywordsIn, below) re-measured the file honestly and
+// found 10 literals it had missed -- all `white`, at .tab:hover,
+// .search input, the select/input/textarea reset, .metric strong,
+// .chat-welcome h3, .toast, .toast.error's color-mix, dialog,
+// .workbench-tab:hover and .browser-shot. The ceiling moves to 10 to record
+// what the checker can now prove is still unnamed; migrating those 10 into
+// tokens is the very next change.
+const colourLiteralCeiling = 10
 
 func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
 	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))
 	if len(found) > colourLiteralCeiling {
-		t.Errorf("ค่าสีที่เขียนตรงนอก :root มี %d ค่า เพดานคือ %d — เพดานนี้ลดได้อย่างเดียว",
-			len(found), colourLiteralCeiling)
+		t.Errorf("ค่าสีที่เขียนตรงนอก :root มี %d ค่า เพดานคือ %d — เพดานนี้ลดได้อย่างเดียว: %v",
+			len(found), colourLiteralCeiling, found)
 	}
 }
 
@@ -388,8 +399,44 @@ func TestColourLiteralCheckerSeesLiteralsAndIgnoresTokens(t *testing.T) {
 	}
 }
 
+// TestColourLiteralCheckerSeesBareKeywordsToo regression-guards the blind
+// spot a review caught: colourLiteralsIn matched only #hex and rgb()/rgba(),
+// so a rule like ".tab:hover { color: white; }" counted as zero literals.
+// This proves the checker now sees a bare keyword used as a real colour
+// value, while still ignoring the things that only look like one:
+//   - a class name that contains a colour word (.pill.green) -- the word
+//     never sits in value position, so a checker naively scanning the whole
+//     file with \bgreen\b would over-count here.
+//   - a custom-property name that ends in a colour word (--accent-lime),
+//     referenced with var(...) -- the reference must be stripped before
+//     keyword-hunting, the same way literalDurationsIn strips var(--dur-*)
+//     before hunting bare durations, or "lime" inside "--accent-lime"
+//     would be reported as if it were a raw keyword.
+//   - transparent and currentColor, which are structural values (and
+//     transparent is used deliberately inside color-mix()), not named hues.
+func TestColourLiteralCheckerSeesBareKeywordsToo(t *testing.T) {
+	css := `:root { --bg: #0c0e12; --accent-lime: var(--accent); }
+.tab:hover { color: white; }
+.pill.green { color: var(--accent); }
+.toast { background: color-mix(in srgb, var(--danger) 50%, white); }
+.a { background: var(--accent-lime); }
+.b { color: transparent; }
+.c { color: currentColor; }`
+	found := colourLiteralsIn(css)
+	if len(found) != 2 {
+		t.Fatalf("อยากได้ 2 ค่า (white กับ white ใน color-mix) ได้ %v", found)
+	}
+	for _, literal := range found {
+		if !strings.EqualFold(literal, "white") {
+			t.Fatalf("เจอค่าที่ไม่ควรเจอ: %q ใน %v", literal, found)
+		}
+	}
+}
+
 // colourLiteralsIn returns every hardcoded colour value outside all :root
-// blocks.
+// blocks: #hex, rgb()/rgba(), and bare CSS colour keywords used as an
+// actual value (not a class name, not a custom-property identifier, and
+// not the structural values transparent/currentColor).
 //
 // :root is stripped first, always, because that is where colour values
 // belong. This file has four :root blocks (main theme, media query, and
@@ -397,13 +444,69 @@ func TestColourLiteralCheckerSeesLiteralsAndIgnoresTokens(t *testing.T) {
 func colourLiteralsIn(css string) []string {
 	stripped := rootBlockPattern.ReplaceAllString(css, "")
 	found := hexPattern.FindAllString(stripped, -1)
-	return append(found, rgbPattern.FindAllString(stripped, -1)...)
+	found = append(found, rgbPattern.FindAllString(stripped, -1)...)
+	return append(found, colourKeywordsIn(stripped)...)
+}
+
+// colourKeywordsIn finds bare CSS colour keywords used as declaration
+// values. It first isolates each "property: value;" declaration -- not the
+// whole file -- because a colour word can legitimately appear in a
+// selector (.pill.green) or a custom-property name (--accent-lime), and a
+// selector or identifier is never where colour keyword-hunting is
+// wanted: a keyword only counts when it sits in a value. Then, inside each
+// value, it strips every var(...) reference before searching, the same way
+// literalDurationsIn strips var(--dur-*) refs before hunting bare
+// durations -- otherwise "lime" inside "var(--accent-lime)" reads as a raw
+// keyword when it is actually a token reference.
+func colourKeywordsIn(css string) []string {
+	var found []string
+	for _, declaration := range colourDeclarationPattern.FindAllString(css, -1) {
+		colon := strings.Index(declaration, ":")
+		if colon == -1 {
+			continue
+		}
+		value := colourTokenUse.ReplaceAllString(declaration[colon+1:], "")
+		found = append(found, colourKeywordPattern.FindAllString(value, -1)...)
+	}
+	return found
 }
 
 var (
-	rootBlockPattern = regexp.MustCompile(`(?s):root(\[[^\]]*\])?\s*\{[^}]*\}`)
-	hexPattern       = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
-	rgbPattern       = regexp.MustCompile(`\brgba?\(`)
+	rootBlockPattern         = regexp.MustCompile(`(?s):root(\[[^\]]*\])?\s*\{[^}]*\}`)
+	hexPattern               = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
+	rgbPattern               = regexp.MustCompile(`\brgba?\(`)
+	colourDeclarationPattern = regexp.MustCompile(`[a-zA-Z-]+\s*:\s*[^;{}]+;`)
+	colourTokenUse           = regexp.MustCompile(`var\([^)]*\)`)
+	// colourKeywordPattern lists the standard CSS named colours, minus the
+	// two structural keywords transparent and currentColor -- those are
+	// never a hue: transparent is used deliberately inside color-mix(), and
+	// currentColor names "whatever --text/--accent/etc already resolved
+	// to" rather than answering "what is this colour" a second time.
+	colourKeywordPattern = regexp.MustCompile(`(?i)\b(` + strings.Join(cssColourKeywords, "|") + `)\b`)
+	cssColourKeywords     = []string{
+		"aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+		"blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+		"chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan",
+		"darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki", "darkmagenta",
+		"darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen",
+		"darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink",
+		"deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen",
+		"fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "green", "greenyellow",
+		"grey", "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender",
+		"lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan",
+		"lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink", "lightsalmon",
+		"lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue",
+		"lightyellow", "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
+		"mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue",
+		"mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream",
+		"mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange",
+		"orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise", "palevioletred",
+		"papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple", "rebeccapurple",
+		"red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell",
+		"sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen",
+		"steelblue", "tan", "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white",
+		"whitesmoke", "yellow", "yellowgreen",
+	}
 )
 
 // contrast วัดด้วยเลข ไม่ใช่สายตา เพราะ Task ถัดไปเปลี่ยนทุกสีพร้อมกัน
