@@ -475,10 +475,26 @@ func colourKeywordsIn(css string) []string {
 }
 
 var (
-	rootBlockPattern         = regexp.MustCompile(`(?s):root(\[[^\]]*\])?\s*\{[^}]*\}`)
-	hexPattern               = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
-	rgbPattern               = regexp.MustCompile(`\brgba?\(`)
-	colourDeclarationPattern = regexp.MustCompile(`[a-zA-Z-]+\s*:\s*[^;{}]+;`)
+	rootBlockPattern = regexp.MustCompile(`(?s):root(\[[^\]]*\])?\s*\{[^}]*\}`)
+	hexPattern       = regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`)
+	// rgbPattern matches every CSS colour function, not just rgb()/rgba().
+	// hsl()/hsla()/hwb()/lab()/lch()/oklab()/oklch()/color() are just as
+	// hardcoded a colour as rgb() is -- a value that answers "what is this
+	// colour" a second time instead of pointing at a token. The alternation
+	// requires the literal "(" immediately after the function name, so
+	// "color:" (the property) never matches -- there is no "(" after it --
+	// and "color-mix(" never matches either -- "color" is followed by "-",
+	// not "(", so color-mix keeps working as this file's deliberate tinting
+	// technique rather than being flagged as a literal.
+	rgbPattern = regexp.MustCompile(`\b(rgba?|hsla?|hwb|oklab|oklch|lab|lch|color)\(`)
+	// colourDeclarationPattern isolates one "property: value" declaration at
+	// a time. The trailing ";" used to be required, which silently skipped a
+	// final declaration in a block written without one (e.g. ".x{color:red}")
+	// -- ";" is now optional, so the match still stops at the value's real
+	// end (colourTokenUse and colourKeywordPattern both operate on
+	// [^;{}]+, which already can't cross a "}") whether or not a semicolon
+	// follows it.
+	colourDeclarationPattern = regexp.MustCompile(`[a-zA-Z-]+\s*:\s*[^;{}]+;?`)
 	colourTokenUse           = regexp.MustCompile(`var\([^)]*\)`)
 	// colourKeywordPattern lists the standard CSS named colours, minus the
 	// two structural keywords transparent and currentColor -- those are
