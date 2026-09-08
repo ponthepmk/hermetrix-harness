@@ -151,13 +151,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .stat span { color: var(--muted); font-size: 11px; }
 .tabbar { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); gap: 3px; }
 .tab { background: transparent; border: 0; padding: 11px 12px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
-.tab:hover { color: white; }
+.tab:hover { color: var(--text); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .tab span { background: var(--surface-2); padding: 2px 6px; border-radius: 8px; font-size: 10px; margin-left: 3px; }
 .toolbar { display: flex; gap: 9px; padding: 16px 0 12px; }
 .search { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 0 11px; }
-.search input { border: 0; outline: 0; background: transparent; color: white; width: 100%; padding: 9px 0; }
-select, input, textarea { border: 1px solid var(--line); color: white; background: var(--surface); border-radius: 9px; padding: 9px 10px; outline: none; }
+.search input { border: 0; outline: 0; background: transparent; color: var(--text); width: 100%; padding: 9px 0; }
+select, input, textarea { border: 1px solid var(--line); color: var(--text); background: var(--surface); border-radius: 9px; padding: 9px 10px; outline: none; }
 input:focus, textarea:focus, select:focus { border-color: var(--line-hover); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent); }
 .view { display: none; padding-top: 13px; }
 .view.active { display: block; }
@@ -176,7 +176,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--line-hover); box
 .pill.red { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .pill.blue { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .metric { text-align: right; color: var(--muted); font-size: 11px; }
-.metric strong { color: white; display: block; font-size: 15px; }
+.metric strong { color: var(--text); display: block; font-size: 15px; }
 .empty { border: 1px dashed var(--line); border-radius: var(--radius); padding: 42px 20px; color: var(--muted); text-align: center; }
 .empty h3 { color: var(--text); margin: 0 0 7px; }
 .empty-inspector { text-align: center; color: var(--muted); margin-top: 20vh; }
@@ -294,7 +294,7 @@ pre { border: 1px solid var(--line); background: var(--surface-well); border-rad
 .chat-welcome { align-self: center; justify-self: center; text-align: center; color: var(--muted); max-width: 440px; padding: 35px; }
 .chat-welcome.standalone { grid-row: 1 / -1; }
 .chat-welcome img { width: 118px; height: 118px; object-fit: contain; filter: drop-shadow(0 0 28px color-mix(in srgb, var(--accent) 18%, transparent)); }
-.chat-welcome h3 { color: white; margin: 8px 0; }
+.chat-welcome h3 { color: var(--text); margin: 8px 0; }
 .chat-welcome p { font-size: 12px; line-height: 1.6; }
 .provider-grid { display: grid; grid-template-columns: minmax(280px,.7fr) minmax(360px,1.3fr); gap: 12px; align-items: start; }
 .provider-grid .panel form > label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; margin: 11px 0; }
@@ -348,15 +348,15 @@ pre { border: 1px solid var(--line); background: var(--surface-well); border-rad
 .authority-actions article > div { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 .authority-actions article p { color: var(--danger); grid-column: 1 / -1; margin: 0; }
 @keyframes pulse { from { opacity: .35; transform: scale(.8); } to { opacity: 1; transform: scale(1.1); } }
-.toast { position: fixed; left: 50%; bottom: 25px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; background: white; color: var(--accent-ink); padding: 10px 14px; border-radius: 9px; font-size: 12px; transition: var(--dur-arrive); box-shadow: 0 14px 40px color-mix(in srgb, var(--bg) 35%, transparent); }
+.toast { position: fixed; left: 50%; bottom: 25px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; background: var(--doc-paper); color: var(--doc-ink); padding: 10px 14px; border-radius: 9px; font-size: 12px; transition: var(--dur-arrive); box-shadow: 0 14px 40px color-mix(in srgb, var(--bg) 35%, transparent); }
 .toast.show { opacity: 1; transform: translate(-50%,0); }
-.toast.error { background: color-mix(in srgb, var(--danger) 50%, white); }
+.toast.error { background: color-mix(in srgb, var(--danger) 50%, var(--doc-paper)); }
 .card-list.spaced { margin-top: 10px; }
 /* The page sets visibility through the hidden attribute rather than an inline
    style, because the server's own `style-src 'self'` blocks inline styles.
    Elements laid out with flex/grid need this to honour it. */
 [hidden] { display: none !important; }
-dialog { width: min(690px, calc(100vw - 40px)); border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: white; padding: 0; box-shadow: 0 30px 100px color-mix(in srgb, var(--bg) 60%, transparent); }
+dialog { width: min(690px, calc(100vw - 40px)); border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--text); padding: 0; box-shadow: 0 30px 100px color-mix(in srgb, var(--bg) 60%, transparent); }
 dialog::backdrop { background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(5px); }
 dialog form { padding: 20px; }
 .dialog-head { display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; }
@@ -417,7 +417,7 @@ body {
 .zone.side { border-radius: 17px; background: var(--chrome-glass); padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 .workbench-tabs { display: flex; overflow-x: auto; padding: 10px 10px 8px; gap: 3px; border-bottom: 1px solid var(--line); }
 .workbench-tab { flex: none; border: 1px solid transparent; border-radius: 8px; background: transparent; padding: 6px 8px; color: var(--muted); font-size: 9px; cursor: pointer; }
-.workbench-tab:hover { color: white; }
+.workbench-tab:hover { color: var(--text); }
 .workbench-tab.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 22%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .workbench-content { min-height: 0; flex: 1; overflow: auto; padding: 13px; }
 .workbench-content .empty-inspector { margin-top: 11vh; }
@@ -458,7 +458,7 @@ body {
 .terminal-screen { min-height: 330px; max-height: 55vh; background: var(--surface-well); color: var(--muted); white-space: pre-wrap; word-break: break-word; }
 .terminal-command { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .terminal-resize { display: grid; grid-template-columns: 64px auto 64px 1fr; gap: 6px; align-items: center; margin-top: 7px; color: var(--muted); }
-.browser-shot { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: white; }
+.browser-shot { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: var(--doc-paper); }
 .browser-elements { display: grid; gap: 5px; margin-top: 8px; }
 .browser-element { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 7px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 7px; font-size: 9px; }
 .browser-element strong, .browser-element small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -372,10 +372,13 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 // found 10 literals it had missed -- all `white`, at .tab:hover,
 // .search input, the select/input/textarea reset, .metric strong,
 // .chat-welcome h3, .toast, .toast.error's color-mix, dialog,
-// .workbench-tab:hover and .browser-shot. The ceiling moves to 10 to record
-// what the checker can now prove is still unnamed; migrating those 10 into
-// tokens is the very next change.
-const colourLiteralCeiling = 10
+// .workbench-tab:hover and .browser-shot. Those 10 became var(--text)
+// (primary text on a dark surface) everywhere but .toast/.toast.error and
+// .browser-shot, which are light surfaces inside the dark app and so took
+// --doc-paper/--doc-ink -- the tokens already named for exactly that case.
+// The ceiling returns to 0, this time honestly measured against keywords
+// too.
+const colourLiteralCeiling = 0
 
 func TestColourLiteralsOnlyLiveInTokens(t *testing.T) {
 	found := colourLiteralsIn(mustUIFile(t, "ui/style.css"))
