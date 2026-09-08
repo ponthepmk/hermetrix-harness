@@ -24,7 +24,7 @@
   --chrome-glass: rgba(11,14,21,.94);   /* translucent chrome surface: header, rail, rail-footer */
   --surface-well: #0b0f15;              /* sunken control surface: chips, search-like triggers */
   --line-hover: #414b59;                /* a boundary line brightened for :hover */
-  --accent-bright: #72f0cc;             /* lighter accent tint for gradient highlights */
+  --accent-bright: color-mix(in srgb, var(--accent) 70%, white); /* lighter accent tint for gradient highlights, mixed rather than a second flat hex */
   --accent-ink: #061113;                /* text drawn on a solid/gradient accent fill */
   --shadow-panel: 0 18px 60px rgba(0,0,0,.2); /* elevation behind a floating chrome panel */
 
@@ -483,9 +483,6 @@ body {
 /* Usability pass: task-first navigation and lightweight command surfaces.
    The galaxy identity stays in the background while controls use quieter,
    familiar desktop contrast and spacing. */
-:root {
-  --shadow-float: 0 24px 80px rgba(0,0,0,.55);
-}
 button, [tabindex="0"] { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex="0"]:focus-visible {
   outline: 2px solid var(--accent);
