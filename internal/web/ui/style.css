@@ -18,21 +18,6 @@
   --warn: #d9a441;
   --danger: #e0656a;
 
-  /* alias ชั่วคราวระหว่างย้าย — Task 7 ลบทิ้ง ห้ามเหลือค้าง */
-  --panel: var(--surface);
-  --panel-2: var(--surface-2);
-  --amber: var(--warn);
-  --red: var(--danger);
-  --blue: var(--accent);
-  --accent-lime: var(--accent);
-  --accent-violet: var(--accent);
-  /* สามตัวนี้อยู่ใน :root block ที่สองของไฟล์ (บรรทัด ~440) ไม่ใช่บล็อกแรก
-     สเปคไม่รู้จักมันตอนเขียน แต่ตั้งชื่อหน้าที่ของมันไว้แล้ว: raised กับ hover
-     คือ "พื้นที่ยกขึ้นมา" ซึ่ง §3.1 เรียก --surface-2 ส่วน focus ring §3.2 ยกให้ --accent */
-  --panel-raised: var(--surface-2);
-  --panel-hover: var(--surface-2);
-  --focus: var(--accent);
-
   /* Task 4: named meanings the alias list above had no real token for.
      The outer chrome (header, rail) sits over the app's ambient gradient
      and needs its own vocabulary rather than more one-off rgba() values. */

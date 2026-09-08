@@ -594,3 +594,14 @@ func relativeLuminance(hex string) float64 {
 	}
 	return 0.2126*channel(0) + 0.7152*channel(2) + 0.0722*channel(4)
 }
+
+// ชื่อที่ยกเลิกแล้วต้องหายจริง ไม่ใช่ยังเขียนได้เพราะมี alias ค้าง
+func TestRetiredTokensStayRetired(t *testing.T) {
+	css := mustUIFile(t, "ui/style.css")
+	for _, retired := range []string{"--accent-lime", "--accent-violet", "--blue", "--amber", "--red",
+		"--panel-2", "--panel", "--panel-raised", "--panel-hover", "--focus"} {
+		if strings.Contains(css, retired) {
+			t.Errorf("โทเคนที่ยกเลิกแล้วยังอยู่: %s", retired)
+		}
+	}
+}
