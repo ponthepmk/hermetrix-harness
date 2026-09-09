@@ -1,7 +1,12 @@
 const { escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline } = HermetrixRuntime;
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, authPrincipal: "" };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, railProjectsOpen: true, railSetupOpen: false, railProjectOpen: {}, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, paneLayout: "bottom-wide", draggedPane: null, paneSplitX: 50, paneSplitY: 50, authPrincipal: "" };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const UI_ICON_NAMES = new Set(["search","plus","close","sidebar","workbench","refresh","settings","file","files","terminal","browser","activity","model","tools","skill","review","learning","insights","archive","context","fidelity","project","jobs","artifact","chat","at","expand","contract","grip"]);
+function uiIcon(name) {
+  const icon = UI_ICON_NAMES.has(name) ? name : "activity";
+  return `<svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#${icon}"></use></svg>`;
+}
 
 let authenticationAttempt;
 async function authenticateControlAPI() {
@@ -53,10 +58,15 @@ function toast(message, error = false) {
 
 function activateWorkbenchChrome(name) {
   state.workbenchTab = name;
-  $$(".workbench-tab").forEach(node => node.classList.toggle("active", node.dataset.workbench === name));
   // Opening a room from elsewhere (a skill row, a candidate) has to reveal the
   // side zone even if the user had collapsed it earlier.
   collapseZone("side", false);
+}
+
+function ensureReviewSurface() {
+  if (!state.panes.includes("review")) openContentPane("review");
+  else if (!$(".pane-body[data-pane-kind='review']")) renderPanes();
+  return $(".pane-body[data-pane-kind='review']");
 }
 
 // The chip names whichever project the picker opened -- currentProject, not
@@ -89,8 +99,14 @@ function renderPicker() {
   };
   const group = (title, items) => items.length
     ? `<p class="picker-group">${title}</p><div class="picker-grid">${items.map(card).join("")}</div>` : "";
-  $("#pickerPinned").innerHTML = group("ปักหมุด", matches.filter(item => item.pinned));
-  $("#pickerRecent").innerHTML = group("ล่าสุด", matches.filter(item => !item.pinned));
+  const pinned = matches.filter(item => item.pinned);
+  const recent = matches.filter(item => !item.pinned);
+  const pinnedRoot = $("#pickerPinned");
+  const recentRoot = $("#pickerRecent");
+  pinnedRoot.innerHTML = group("ปักหมุด", pinned);
+  recentRoot.innerHTML = group("ล่าสุด", recent);
+  pinnedRoot.hidden = pinned.length === 0;
+  recentRoot.hidden = recent.length === 0;
   const exact = state.projects.some(item => item.name.toLowerCase() === query);
   const create = $("#pickerCreate");
   create.hidden = !query || exact;
@@ -103,7 +119,15 @@ function renderPicker() {
 // by, and then hands the screen to the shell.
 async function openProject(id) {
   try {
+    captureCodeDraft();
     state.currentProject = await api(`/api/projects/${encodeURIComponent(id)}/open`, { method:"POST", body:"{}" });
+    state.projectFile = null;
+    state.projectFileDiff = "";
+    state.projectPath = "";
+    state.projectFiles = [];
+    state.workspaceFiles = [];
+    state.selectedTerminal = null;
+    state.terminalOutput = "";
     state.projects = await api("/api/projects");
     state.selectedProject = id;
     showShell();
@@ -225,7 +249,11 @@ async function load() {
     if (!state.selectedTerminal && state.terminals.length) state.selectedTerminal = state.terminals.find(item => item.state === "running")?.id || state.terminals[0].id;
     if (!state.selectedBrowserTab && state.browserTabs.length) state.selectedBrowserTab = state.browserTabs.find(item => item.state === "ready")?.id || state.browserTabs[0].id;
     if (!state.selectedTeam && state.teams.length) state.selectedTeam = state.teams[0].id;
-    if (state.selectedProject) state.projectFiles = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/files?path=`);
+    if (state.currentProject) {
+      state.selectedProject = state.currentProject.id;
+      state.projectFiles = state.currentProject.root_path ? await api(`/api/projects/${encodeURIComponent(state.currentProject.id)}/files?path=${encodeURIComponent(state.projectPath || "")}`) : [];
+      state.workspaceFiles = state.projectFiles;
+    }
     renderAll();
   } catch (error) { toast(error.message, true); }
 }
@@ -245,7 +273,7 @@ function renderAll() {
   $("#proposalBadge").textContent = waiting;
   renderProjectChip();
   switchTab(state.activeTab);
-  if (!$("#zones").classList.contains("side-hidden")) renderCurrentWorkbench();
+  if (!$("#zones").classList.contains("side-hidden")) renderPanes();
 }
 
 function renderStats() {
@@ -322,9 +350,10 @@ async function inspectSkill(id) {
     const { skill, version } = data;
     state.selectedSkillDetail = data;
     activateWorkbenchChrome("review");
+    const reviewSurface = ensureReviewSurface();
     const attempts = skill.success_count + skill.failure_count;
     const observed = attempts ? `${skill.success_count}/${attempts} observed success` : "No explicit outcomes yet";
-    $("#workbenchContent").innerHTML = `
+    reviewSurface.innerHTML = `
       <div class="inspect-head"><div class="provider-head"><div><p class="eyebrow">Active capability</p><h2>${escapeHTML(skill.canonical_name)}</h2></div><button class="ghost" id="closeSkillInspect">Session review</button></div><div class="meta">${pill(skill.state,"green")}${pill(skill.scope_kind)}${pill(skill.origin)}</div></div>
       <section class="inspect-section"><h3>Provenance</h3><div class="kv"><span>Owner</span><strong>${escapeHTML(skill.owner)}</strong><span>Version</span><span class="hash">${escapeHTML(version.id)}</span><span>Content</span><span class="hash">${escapeHTML(version.content_hash)}</span><span>Author</span><span>${escapeHTML(version.author_actor)}</span><span>Changed</span><span>${formatDate(version.created_at)}</span></div></section>
       <section class="inspect-section"><h3>Usage evidence</h3><div class="kv"><span>Selected</span><strong>${skill.selected_count}</strong><span>Injected</span><strong>${skill.injected_count}</strong><span>Outcome</span><span>${observed}</span><span>Last used</span><span>${formatDate(skill.last_used_at)}</span></div></section>
@@ -364,7 +393,7 @@ async function archiveSkill(skill) {
   try {
     await api(`/api/skills/${encodeURIComponent(skill.id)}/archive`, { method: "POST", body: JSON.stringify({ actor: currentActor(), reason }) });
     state.selectedSkill = null;
-    $("#workbenchContent").innerHTML = `<div class="empty-inspector"><span class="orb">✓</span><h2>Archived safely</h2><p>The exact version remains available in Archive and restore creates a new proposal.</p></div>`;
+    ensureReviewSurface().innerHTML = `<div class="empty-inspector"><span class="orb">✓</span><h2>Archived safely</h2><p>The exact version remains available in Archive and restore creates a new proposal.</p></div>`;
     toast("Skill archived — snapshot retained");
     await load();
   } catch (error) { toast(error.message, true); }
@@ -489,7 +518,7 @@ async function inspectCandidate(id) {
     const replay = replays[0];
     const addedTools = replay?.summary?.added_tools || [];
     activateWorkbenchChrome("review");
-    $("#workbenchContent").innerHTML = `<div class="inspect-head"><p class="eyebrow">Untrusted candidate</p><h2>${escapeHTML(item.canonical_name)}</h2><div class="meta">${pill(item.state,item.checks.passed ? "green" : "red")}${pill(`revision ${item.revision}`)}</div></div>
+    ensureReviewSurface().innerHTML = `<div class="inspect-head"><p class="eyebrow">Untrusted candidate</p><h2>${escapeHTML(item.canonical_name)}</h2><div class="meta">${pill(item.state,item.checks.passed ? "green" : "red")}${pill(`revision ${item.revision}`)}</div></div>
       <section class="inspect-section"><h3>Evidence</h3><p>${escapeHTML(item.reason)}</p><div class="meta">${(item.evidence_refs || []).map(ref => pill(ref)).join("") || pill("manual")}</div></section>
       <section class="inspect-section"><h3>Candidate SKILL.md</h3><textarea id="candidateEditor" rows="18">${escapeHTML(item.markdown)}</textarea><div class="action-row"><button class="primary" id="saveCandidateEdit">Save & re-run checks</button></div></section>
       <section class="inspect-section"><h3>Checks</h3><div class="kv"><span>Lint</span><strong>${item.checks.lint_passed ? "pass" : "fail"}</strong><span>Security</span><strong>${item.checks.security_passed ? "pass" : "fail"}</strong><span>Replay</span><strong>${item.checks.replay_required ? (item.checks.replay_passed ? "pass" : "required") : "not required"}</strong><span>Footprint</span><span>${item.checks.token_estimate} tokens</span></div></section>
@@ -768,6 +797,41 @@ async function pollElicitations() {
   if (state.sending) setTimeout(pollElicitations, 1200);
 }
 
+// The left rail is global navigation, not a list that changes meaning between
+// Chat and Code. Projects own their sessions, so the hierarchy is visible and
+// clickable in the same place instead of flattening every conversation into
+// one anonymous list.
+function renderRailNavigation(selectedID) {
+  const projectGroups = state.projects.map(project => {
+    const sessions = state.sessions.filter(item => item.project_id === project.id);
+    const projectOpen = Object.prototype.hasOwnProperty.call(state.railProjectOpen, project.id)
+      ? state.railProjectOpen[project.id]
+      : project.id === state.currentProject?.id;
+    return `<section class="rail-project ${project.id === state.currentProject?.id ? "active" : ""}">
+      <div class="rail-project-head">
+        <button class="rail-project-button" data-rail-project="${escapeHTML(project.id)}" title="Open ${escapeHTML(project.root_path || project.name)}">
+          ${uiIcon("project")}<strong>${escapeHTML(project.name)}</strong><small>${sessions.length}</small>
+        </button>
+        <button class="rail-project-toggle" data-rail-project-toggle="${escapeHTML(project.id)}" aria-expanded="${projectOpen}" aria-label="${projectOpen ? "Collapse" : "Expand"} ${escapeHTML(project.name)}"><span aria-hidden="true">›</span></button>
+      </div>
+      <div class="rail-project-sessions" data-rail-project-sessions="${escapeHTML(project.id)}" ${projectOpen ? "" : "hidden"}>${sessions.map(item => {
+        const meta = `${item.model} · ${item.context_profile}`;
+        return `<div class="session-row"><button class="session-item ${item.id === selectedID ? "active" : ""}" data-session-id="${escapeHTML(item.id)}" title="${escapeHTML(`${item.title} — ${meta}`)}"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(meta)}</span></button><button class="session-delete" data-delete-session="${escapeHTML(item.id)}" title="Delete this session" aria-label="Delete ${escapeHTML(item.title)}">${uiIcon("close")}</button></div>`;
+      }).join("") || `<p class="rail-project-empty">No sessions</p>`}</div>
+    </section>`;
+  }).join("");
+  return `<nav class="rail-primary" aria-label="Hermetrix navigation">
+      <button class="rail-nav-item ${state.view === "chat" ? "active" : ""}" data-rail-view="chat">${uiIcon("chat")}<span>Chat</span></button>
+      <button class="rail-nav-item ${state.view === "code" ? "active" : ""}" data-rail-view="code">${uiIcon("files")}<span>Workspace</span></button>
+      <button class="rail-nav-item" data-rail-config="mcp">${uiIcon("tools")}<span>Tool Center</span></button>
+      <button class="rail-nav-item" data-rail-config="providers">${uiIcon("model")}<span>Models</span></button>
+    </nav>
+    <details class="rail-projects" id="railProjects" ${state.railProjectsOpen ? "open" : ""}>
+      <summary class="nav-label rail-project-label"><span>Projects</span><small>${state.projects.length}</small></summary>
+      <div class="rail-project-list">${projectGroups || `<p class="rail-project-empty">No projects</p>`}</div>
+    </details>`;
+}
+
 function renderChat() {
   const root = $("#view-chat");
   if (!root) return;
@@ -821,7 +885,7 @@ function renderChat() {
   // lives behind Options where someone can go and read it.
   const optionsOpen = state.sessionOptionsOpen;
   const dock = $("#sessionDock");
-  dock.innerHTML = `<div class="session-create">${enabledProviders.length ? `
+  dock.innerHTML = `${renderRailNavigation(selectedID)}<details class="session-setup" id="sessionSetup" ${state.railSetupOpen ? "open" : ""}><summary>Session setup</summary><div class="session-create">${enabledProviders.length ? `
         <p class="session-summary" title="Change these under Options">${escapeHTML(draftProvider ? `${draftProvider.name} · ${draftProvider.model}` : "No model")}<span>${escapeHTML(draftProfile ? profileLabel(draftProfile) : "no envelope")} · ${escapeHTML(draftProjectName)}</span></p>
         ${draftProvider && !draftProvider.credential_ready ? `<p class="session-error" role="alert">${escapeHTML(draftProvider.name)} has no API key. Open Models and paste one — it takes effect immediately.</p>` : ""}
         ${draftProfile && !admission.admitted && !needsOverride ? `<p class="session-error" role="alert">Only ${admission.budget.toLocaleString()} answer tokens left. Choose a larger envelope under Options.</p>` : ""}
@@ -845,25 +909,16 @@ function renderChat() {
           ${needsOverride ? `<div class="session-readiness review"><p class="readiness-line">No local qualification can exist for a remote endpoint, so this envelope opens under a reviewed 24-hour override.</p><textarea id="chatQualificationReason" rows="3" minlength="8">${escapeHTML(overrideReason)}</textarea></div>` : ""}
         </div></details>` : `
         <div class="session-needs-model"><p>No model connected yet. Connect one and every session picks it up — no environment variable, no restart.</p><button class="primary" id="openProvidersFromDock">Connect a model</button></div>`}
-      </div><div class="session-list">${state.sessions.length ? state.sessions.map((item, index) => {
-        // The model and envelope repeat down the whole list when every session
-        // uses the same ones, which is the common case. Drawing them once per
-        // run of identical sessions halves the height of the list and loses
-        // nothing: a row with no meta line has the same meta as the row above.
-        const meta = `${item.model} · ${item.context_profile}`;
-        const previous = state.sessions[index - 1];
-        const repeated = previous && `${previous.model} · ${previous.context_profile}` === meta;
-        return `<div class="session-row"><button class="session-item ${item.id === selectedID ? "active" : ""} ${repeated ? "terse" : ""}" data-session-id="${escapeHTML(item.id)}" title="${escapeHTML(`${item.title} — ${meta}`)}"><strong>${escapeHTML(item.title)}</strong>${repeated ? "" : `<span>${escapeHTML(meta)}</span>`}</button><button class="session-delete" data-delete-session="${escapeHTML(item.id)}" title="Delete this session" aria-label="Delete ${escapeHTML(item.title)}">×</button></div>`;
-      }).join("") : `<div class="session-empty">No sessions yet</div>`}</div>`;
+      </div></details>`;
   const railStart = $("#railNewSession");
   railStart.disabled = enabledProviders.length > 0 && !canStart;
   // One short label on one line. Which envelope it opens under is the summary
   // line's job, not the button's.
-  railStart.textContent = "＋ New session";
+  railStart.innerHTML = `${uiIcon("plus")}<span>New session</span>`;
   root.innerHTML = `<div class="chat-layout"><section class="chat-stage">
       ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">Skills <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">Direct tools <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP ready <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
-        <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
-        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">＋ Skills & tools</button><button type="button" class="composer-tool-button" id="composerFilesButton">Files</button><button type="button" class="composer-tool-button" id="composerTerminalButton">Terminal</button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, Shift+Enter adds a line, @ picks a Skill or tool" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-engine-v3-512.png" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press ＋ New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p>${enabledProviders.length ? "" : `<button class="primary" id="openProvidersButton">Connect a model</button>`}</div>`}
+        <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
+        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>Skills & tools</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>Files</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>Terminal</span></button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, Shift+Enter adds a line, @ picks a Skill or tool" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p>${enabledProviders.length ? "" : `<button class="primary" id="openProvidersButton">Connect a model</button>`}</div>`}
     </section></div>`;
   $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
   $("#chatProjectSelect")?.addEventListener("change", event => { state.draftProjectID = event.target.value; });
@@ -871,10 +926,25 @@ function renderChat() {
   // Update state without re-rendering: the textarea lives inside an open
   // <details>, and a re-render would collapse it and take the caret with it.
   $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; $("#railNewSession").disabled=event.target.value.trim().length < 8; });
-  // Remember whether Options is open across the re-render each select triggers.
-  $("#sessionOptions")?.addEventListener("toggle", event => { state.sessionOptionsOpen = event.target.open; });
+  // Remember the sidebar's disclosure state across re-renders and app restarts.
+  $("#railProjects")?.addEventListener("toggle", event => { state.railProjectsOpen = event.target.open; saveLayout(); });
+  $("#sessionSetup")?.addEventListener("toggle", event => { state.railSetupOpen = event.target.open; saveLayout(); });
+  $("#sessionOptions")?.addEventListener("toggle", event => { state.sessionOptionsOpen = event.target.open; saveLayout(); });
   $("#openProvidersFromDock")?.addEventListener("click", () => switchTab("providers"));
-  $$("[data-session-id]", dock).forEach(button => button.addEventListener("click", () => selectSession(button.dataset.sessionId)));
+  $$("[data-rail-view]", dock).forEach(button => button.addEventListener("click", () => switchView(button.dataset.railView)));
+  $$("[data-rail-config]", dock).forEach(button => button.addEventListener("click", () => openConfig(button.dataset.railConfig)));
+  $$("[data-rail-project]", dock).forEach(button => button.addEventListener("click", async () => { if (state.view !== "chat") switchView("chat"); await openProject(button.dataset.railProject); }));
+  $$("[data-rail-project-toggle]", dock).forEach(button => button.addEventListener("click", () => {
+    const projectID = button.dataset.railProjectToggle;
+    const open = button.getAttribute("aria-expanded") !== "true";
+    state.railProjectOpen[projectID] = open;
+    button.setAttribute("aria-expanded", String(open));
+    button.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${state.projects.find(project => project.id === projectID)?.name || "project"}`);
+    const sessions = dock.querySelector(`[data-rail-project-sessions="${CSS.escape(projectID)}"]`);
+    if (sessions) sessions.hidden = !open;
+    saveLayout();
+  }));
+  $$("[data-session-id]", dock).forEach(button => button.addEventListener("click", async () => { if (state.view !== "chat") switchView("chat"); await selectSession(button.dataset.sessionId); }));
   $$("[data-delete-session]", dock).forEach(button => button.addEventListener("click", event => {
     event.stopPropagation();
     deleteSession(button.dataset.deleteSession);
@@ -912,11 +982,11 @@ function renderChat() {
 // them is renderChat's and renderCurrentWorkbench's job, not this one's, so
 // chat's live markup is computed in exactly the one place it always was.
 function renderChatRail() {
-  return `<button class="new-chat" id="railNewSession">＋ New session</button>
+  return `<button class="new-chat" id="railNewSession">${uiIcon("plus")}<span>New session</span></button>
     <div class="session-dock" id="sessionDock" aria-label="Agent sessions"></div>
     <div class="rail-footer">
       <div class="runtime-card">
-        <img class="runtime-mark" src="/assets/brand/hermetrix-icon-v3-192.png" alt="">
+        <img class="runtime-mark" src="/assets/brand/hermetrix-mark-flat.svg" alt="">
         <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> Local-first · authority gated</small></div>
       </div>
     </div>`;
@@ -930,13 +1000,8 @@ function renderChatMain() {
 // so that leaving chat for another view and coming back does not silently
 // snap the workbench back to the first tab.
 function renderChatSide() {
-  // Terminal and browser left this 320px strip for Code's panes -- both need
-  // room a fixed-width column cannot give them -- so only the rooms that
-  // still fit one stay here.
-  const rooms = [["review", "Review"], ["files", "Files"], ["artifacts", "Office"], ["team", "Team"]];
-  return `<nav class="workbench-tabs" aria-label="Workbench rooms">${rooms.map(([id, label]) =>
-    `<button class="workbench-tab ${state.workbenchTab === id ? "active" : ""}" data-workbench="${id}">${escapeHTML(label)}</button>`).join("")}</nav>
-    <div class="workbench-content" id="workbenchContent"></div>`;
+  return `${paneToolbarHTML()}
+    <div class="workspace-pane-host" id="workspacePaneHost" aria-label="Resizable workspace panes"></div>`;
 }
 
 // Each view fills the same three zones. What changes is the content; what
@@ -959,8 +1024,8 @@ const VIEWS = {
     side: () => ""
   },
   code: {
-    label: "Code",
-    rail: () => unbuilt("Files and diffs", "spec 2"),
+    label: "Workspace",
+    rail: () => renderChatRail(),
     // Code is the one view whose main area is a split rather than a single
     // surface -- the spec's own table gives only this row more than one
     // pane -- so main() hands back an empty host and renderPanes() fills it,
@@ -987,7 +1052,7 @@ function unbuilt(what, spec) {
 // lives here, called at startup and again on every return to chat, so both
 // stay exactly as functional as the first paint.
 function wireChatSkeleton() {
-  $("#railNewSession").addEventListener("click", () => {
+  $("#railNewSession")?.addEventListener("click", () => {
     switchTab("chat");
     if (!state.providers.some(provider => provider.enabled)) { switchTab("providers"); return; }
     if (state.sessionReady) { createAgentSession(); return; }
@@ -997,7 +1062,6 @@ function wireChatSkeleton() {
     renderChat();
     $("#chatProviderSelect")?.focus();
   });
-  $$(".workbench-tab").forEach(node => node.addEventListener("click", () => switchWorkbench(node.dataset.workbench)));
 }
 
 // applyLayoutForView restores this project's memory of the view already on
@@ -1024,6 +1088,7 @@ function applyLayoutForView() {
 // have no such state yet, so their rail and main just say what they will be,
 // and a side with nothing to put in it is hidden rather than drawn empty.
 function switchView(name) {
+  captureCodeDraft();
   const view = VIEWS[name] ? name : "chat";
   $$("#viewSwitch [data-view]").forEach(button => button.classList.toggle("on", button.dataset.view === view));
   if (view === state.view) return;
@@ -1033,7 +1098,12 @@ function switchView(name) {
   // so the timer is cancelled here rather than left to throw on a pane that
   // no longer exists.
   clearTimeout(workbenchPollTimer);
-  $("#zoneRail").innerHTML = VIEWS[view].rail();
+  // Chat and Code share one global project/session rail. Changing the centre
+  // view must not replace the user's navigation with a different tool list.
+  if (!["chat", "code"].includes(view) || !$("#sessionDock")) {
+    $("#zoneRail").innerHTML = VIEWS[view].rail();
+  }
+  $$("[data-rail-view]").forEach(button => button.classList.toggle("active", button.dataset.railView === view));
   $("#zoneMain").innerHTML = VIEWS[view].main();
   $("#zoneSide").innerHTML = VIEWS[view].side();
   // Widths, panes and side-collapse are this project's memory of the view
@@ -1049,7 +1119,7 @@ function switchView(name) {
   if (view === "chat") {
     wireChatSkeleton();
     renderChat();
-    if (!$("#zones").classList.contains("side-hidden")) renderCurrentWorkbench();
+    if (!$("#zones").classList.contains("side-hidden")) renderPanes();
   }
   // main() above hands Code an empty host on purpose; this is what actually
   // fills it, the same way renderChat() fills the empty <section> chat's own
@@ -1268,7 +1338,7 @@ async function selectSession(id) {
     state.selectedSkillDetail = null;
     state.sessionDetail = await api(`/api/sessions/${encodeURIComponent(id)}`);
     renderChat();
-    if (state.workbenchTab === "review" && !$("#zones").classList.contains("side-hidden")) renderWorkbenchReview();
+    if (state.panes.includes("review") && !$("#zones").classList.contains("side-hidden")) renderPanes();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1792,7 +1862,7 @@ function renderProjects() {
   if (!root) return;
   const project = state.projects.find(item => item.id === state.selectedProject);
   root.innerHTML = `<div class="workbench-grid"><div class="panel"><p class="eyebrow">Bounded workspace registry</p><h3>Add project</h3><form id="projectForm"><label>Name<input name="name" required maxlength="100" placeholder="My workspace"></label><label>Existing local root<span class="path-field"><input name="root_path" id="projectRoot" required placeholder="/absolute/path"><button type="button" class="ghost" id="browseRoot">Browse…</button></span></label><button class="primary">Register project</button></form><section class="inspect-section"><h3>Projects</h3><div class="project-list">${state.projects.map(item => `<button class="session-item ${item.id === state.selectedProject ? "active" : ""}" data-project-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.root_path)}</span></button>`).join("")}</div></section></div>
-    <div class="panel"><div class="provider-head"><div><p class="eyebrow">Project workbench</p><h3>${escapeHTML(project?.name || "Select a project")}</h3><p>${escapeHTML(project?.root_path || "")}</p></div>${project ? pill(project.state,"green") : ""}</div>${project ? `<div class="file-browser"><div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="projectUpButton">Up</button>` : ""}</div>${state.projectFiles.map(item => `<button class="file-row" data-file-path="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${item.directory ? "◇" : "·"}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "directory" : `${Number(item.bytes).toLocaleString()} bytes`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div><section class="inspect-section"><h3>Direct background command</h3><form id="commandForm"><div class="form-grid"><label>Executable<select name="executable"><option>go</option><option>git</option><option>node</option><option>npm</option><option>python3</option><option>rg</option><option>ls</option></select></label><label>Timeout seconds<input name="timeout" type="number" min="1" max="600" value="30"></label></div><label>Arguments as JSON array<textarea name="arguments" rows="3">["test", "./..."]</textarea></label><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><p class="form-note neutral">No shell is involved. Executable allowlist, root boundary, minimal environment, timeout, output limit and process-group cancellation are enforced server-side.</p><button class="primary">Start background job</button></form></section>` : `<div class="empty"><h3>No project selected</h3><p>Register an existing local directory to create a bounded workbench.</p></div>`}</div></div>`;
+    <div class="panel"><div class="provider-head"><div><p class="eyebrow">Project workbench</p><h3>${escapeHTML(project?.name || "Select a project")}</h3><p>${escapeHTML(project?.root_path || "")}</p></div>${project ? pill(project.state,"green") : ""}</div>${project ? `<div class="file-browser"><div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="projectUpButton">Up</button>` : ""}</div>${state.projectFiles.map(item => `<button class="file-row" data-file-path="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${uiIcon(item.directory ? "files" : "file")}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "directory" : `${Number(item.bytes).toLocaleString()} bytes`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div><section class="inspect-section"><h3>Direct background command</h3><form id="commandForm"><div class="form-grid"><label>Executable<select name="executable"><option>go</option><option>git</option><option>node</option><option>npm</option><option>python3</option><option>rg</option><option>ls</option></select></label><label>Timeout seconds<input name="timeout" type="number" min="1" max="600" value="30"></label></div><label>Arguments as JSON array<textarea name="arguments" rows="3">["test", "./..."]</textarea></label><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><p class="form-note neutral">No shell is involved. Executable allowlist, root boundary, minimal environment, timeout, output limit and process-group cancellation are enforced server-side.</p><button class="primary">Start background job</button></form></section>` : `<div class="empty"><h3>No project selected</h3><p>Register an existing local directory to create a bounded workbench.</p></div>`}</div></div>`;
   $("#projectForm")?.addEventListener("submit", createProject);
   $("#browseRoot")?.addEventListener("click", () => openFolderPicker($("#projectRoot")?.value || ""));
   $$('[data-project-id]', root).forEach(button => button.addEventListener("click", () => selectProject(button.dataset.projectId, "")));
@@ -1909,15 +1979,11 @@ let workbenchPollTimer;
 function switchWorkbench(tab) {
   clearTimeout(workbenchPollTimer);
   activateWorkbenchChrome(tab);
-  renderCurrentWorkbench();
+  openContentPane(tab);
 }
 
 function renderCurrentWorkbench() {
-  const tab = state.workbenchTab;
-  if (tab === "review") renderWorkbenchReview();
-  if (tab === "files") renderWorkbenchFiles();
-  if (tab === "artifacts") renderWorkbenchArtifacts();
-  if (tab === "team") renderWorkbenchTeam();
+  renderPanes();
 }
 
 // Terminal has exactly one home now: a Code pane. Its poll loop and the
@@ -1926,28 +1992,25 @@ function renderCurrentWorkbench() {
 // old tab would silently stop a running terminal's output the moment
 // anything else became the active workbench tab.
 function terminalPaneOpen() {
-  return state.view === "code" && state.panes.includes("terminal");
+  return state.panes.includes("terminal") && Boolean($("#workspacePaneHost"));
 }
 
 function scheduleWorkbenchPoll(callback, delay = 700) {
   clearTimeout(workbenchPollTimer);
-  if (terminalPaneOpen() || state.workbenchTab === "team") {
+  if (terminalPaneOpen() || state.panes.includes("team")) {
     workbenchPollTimer = setTimeout(callback, delay);
   }
 }
 
-function renderWorkbenchReview() {
-  if (state.selectedSkillDetail?.skill) {
-    inspectSkill(state.selectedSkillDetail.skill.id);
-    return;
-  }
+function renderWorkbenchReview(target = $(".pane-body[data-pane-kind='review']") || $("#workbenchContent")) {
+  if (!target) return;
   const queued = state.reviews.filter(item => ["queued","running"].includes(item.state));
   const session = state.sessionDetail?.session;
   const contract = session?.contract || {};
   const selectedSkills = contract.selected_skills || [];
   const pendingApprovals = (state.sessionDetail?.approvals || []).filter(item => item.state === "pending");
   const sessionPanel = session ? `<div class="panel session-contract-panel"><div class="provider-head"><div><p class="eyebrow">Current Session Contract</p><h3>${escapeHTML(session.title)}</h3></div>${pill(session.state, session.state === "active" ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(session.model)}</strong><span>Context</span><strong>${escapeHTML(session.context_profile)}</strong><span>Project</span><strong>${escapeHTML(state.projects.find(item => item.id === session.project_id)?.name || "chat only")}</strong><span>Skills in context</span><strong>${selectedSkills.length}</strong><span>Direct tools</span><strong>${(contract.tool_bindings || []).length}</strong><span>Pending approvals</span><strong>${pendingApprovals.length}</strong><span>Contract</span><code>${escapeHTML(shortHash(session.contract_revision))}</code><span>Capability revision</span><code>${escapeHTML(shortHash(contract.capability_revision))}</code></div>${selectedSkills.length ? `<div class="meta session-skill-list">${selectedSkills.map(item => pill(item.canonical_name,"blue")).join("")}</div>` : `<p class="form-note neutral">No Skill body is injected yet; the session can still retrieve a frozen Skill with skill_search and skill_view.</p>`}<div class="action-row"><button class="primary" id="reviewOpenCapabilities">Skills & tools</button><button class="ghost" id="reviewOpenTools">Tool Center</button></div></div>` : `<div class="panel"><p class="eyebrow">Session review</p><h3>Start or select a session</h3><p class="dialog-message">Its immutable model, context envelope, Skill catalog, direct tools and approval state will appear here beside the conversation.</p></div>`;
-  $("#workbenchContent").innerHTML = `${sessionPanel}<div class="panel"><p class="eyebrow">Authority & background work</p><h3>Evidence before authority</h3><p class="dialog-message">Skill candidates, write approvals, background reviews and command receipts stay inspectable here. Agents cannot widen authority through this room.</p><div class="kv"><span>Proposals</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>Review jobs</span><strong>${queued.length}</strong><span>Policy</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">Open Skill Studio</button><button class="ghost" id="reviewRunNext" ${queued.length ? "" : "disabled"}>Run next review</button></div></div>
+  target.innerHTML = `${sessionPanel}<div class="panel"><p class="eyebrow">Authority & background work</p><h3>Evidence before authority</h3><p class="dialog-message">Skill candidates, write approvals, background reviews and command receipts stay inspectable here. Agents cannot widen authority through this room.</p><div class="kv"><span>Proposals</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>Review jobs</span><strong>${queued.length}</strong><span>Policy</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">Open Skill Studio</button><button class="ghost" id="reviewRunNext" ${queued.length ? "" : "disabled"}>Run next review</button></div></div>
   <div class="card-list spaced">${state.jobs.slice(0,5).map(job => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(job.payload?.executable || job.kind)}</strong>${pill(job.state,job.state === "completed" ? "green" : job.state === "failed" ? "red" : "amber")}</div><small>${formatDate(job.created_at)} · ${escapeHTML(job.result?.artifact_id || "receipt pending")}</small></article>`).join("") || `<div class="probe-empty">No recent execution receipts.</div>`}</div>`;
   $("#reviewOpenCapabilities")?.addEventListener("click", () => openCapabilityPicker("all"));
   $("#reviewOpenTools")?.addEventListener("click", () => switchTab("mcp"));
@@ -1961,13 +2024,197 @@ function renderWorkbenchReview() {
 // function would drift the moment one of them changed; returning a string
 // keeps there being exactly one place the files room is actually built.
 function renderWorkbenchFilesHTML() {
-  const project = state.projects.find(item => item.id === state.selectedProject);
-  const document = state.projectFile;
-  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Bounded file room</p><h3>${escapeHTML(project?.name || "Select a project")}</h3></div><button class="ghost" id="newWorkbenchFile" ${project ? "" : "disabled"}>New file</button></div>
-    <label>Project<select id="workbenchProject">${state.projects.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === state.selectedProject ? "selected" : ""}>${escapeHTML(item.name)}</option>`).join("")}</select></label>
-    ${project ? `<div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="workbenchFileUp">Up</button>` : ""}</div><div class="file-browser">${state.projectFiles.map(item => `<button class="file-row" data-workbench-file="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${item.directory ? "◇" : "·"}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "folder" : `${Number(item.bytes).toLocaleString()} B`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div>` : `<div class="probe-empty">Register a project from Control Center → Projects.</div>`}
-    ${document ? `<form class="file-editor" id="workbenchFileForm"><div class="provider-head"><div><strong>${escapeHTML(document.path)}</strong><p>SHA ${escapeHTML(shortHash(document.sha256))} · optimistic save</p></div>${pill(document.mode || "new","blue")}</div><textarea id="workbenchFileContent" spellcheck="false">${escapeHTML(document.content)}</textarea><div class="action-row"><button class="primary">Save exact revision</button><button class="ghost" type="button" id="closeFileEditor">Close</button></div></form>${state.projectFileDiff ? `<section class="inspect-section"><h3>Committed diff</h3><pre class="diff-view">${escapeHTML(state.projectFileDiff)}</pre></section>` : ""}` : ""}
+  const project = state.currentProject;
+  return `<div class="workspace-files"><div class="provider-head"><strong>${escapeHTML(project?.name || "No project")}</strong><button class="ghost" id="newWorkbenchFile" ${project?.root_path ? "" : "disabled"}>New file</button></div>
+    ${project?.root_path ? `<div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="workbenchFileUp">Up</button>` : ""}</div><div class="file-browser">${(state.workspaceFiles || []).map(item => `<button class="file-row" data-workbench-file="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${uiIcon(item.directory ? "files" : "file")}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "" : `${Number(item.bytes).toLocaleString()} B`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div>` : `<div class="probe-empty">This project has no code folder. Add its folder in project settings to use Files, Code and Terminal.</div>`}
   </div>`;
+}
+
+const codeDrafts = new Map();
+const codeTabs = new Map();
+let activeCodeEditor = null;
+let activeTerminalEmulator = null;
+let terminalCursor = { id: "", value: 0 };
+let terminalResizeTimer = null;
+let terminalInputChain = Promise.resolve();
+function codeDraftKey(projectID, path) { return JSON.stringify([projectID, path]); }
+function projectCodeTabs(projectID = state.currentProject?.id) {
+  if (!projectID) return [];
+  if (!codeTabs.has(projectID)) codeTabs.set(projectID, []);
+  return codeTabs.get(projectID);
+}
+function rememberCodeTab(projectID, path) {
+  const tabs = projectCodeTabs(projectID);
+  if (!tabs.includes(path)) tabs.push(path);
+}
+function captureCodeDraft() {
+  const document = state.projectFile;
+  const content = activeCodeEditor?.documentKey === codeDraftKey(document?.projectID, document?.path)
+    ? activeCodeEditor.getValue()
+    : $("#workbenchFileContent")?.value;
+  if (document && typeof content === "string") {
+    const draft = { ...document, content };
+    codeDrafts.set(codeDraftKey(document.projectID, document.path), draft);
+    state.projectFile = draft;
+  }
+}
+
+function disposeWorkspaceWidgets() {
+  activeCodeEditor?.dispose();
+  activeTerminalEmulator?.dispose();
+  activeCodeEditor = null;
+  activeTerminalEmulator = null;
+  clearTimeout(terminalResizeTimer);
+}
+
+function codeDiffText(document, content) {
+  const before = (document.originalContent || "").split("\n");
+  const after = content.split("\n");
+  let prefix = 0, suffix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+  while (suffix < before.length - prefix && suffix < after.length - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+  return content === document.originalContent ? "No unsaved changes." :
+    ["--- Saved version", "+++ Working copy", `@@ from line ${prefix + 1} @@`, ...before.slice(prefix, before.length - suffix).map(line => "- " + line), ...after.slice(prefix, after.length - suffix).map(line => "+ " + line)].join("\n");
+}
+
+function codeSymbols(path, content) {
+  const extension = String(path || "").split(".").pop().toLowerCase();
+  const patterns = extension === "go"
+    ? [/^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/, /^\s*type\s+([A-Za-z_]\w*)\s+/]
+    : extension === "py"
+      ? [/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/, /^\s*class\s+([A-Za-z_]\w*)/]
+      : [ /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/, /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)/, /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/ ];
+  return String(content || "").split("\n").flatMap((line, index) => {
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (match) return [{ name:match[1], line:index + 1 }];
+    }
+    return [];
+  });
+}
+
+function shellQuote(value) { return `'${String(value).replaceAll("'", `'"'"'`)}'`; }
+
+function editorCommandFor(action, document) {
+  const extension = document.path.split(".").pop().toLowerCase();
+  const file = shellQuote(document.path);
+  const directory = document.path.includes("/") ? `./${document.path.split("/").slice(0, -1).join("/")}` : ".";
+  const goTarget = shellQuote(directory);
+  const goMain = /^\s*package\s+main\b/m.test(document.content || "");
+  const commands = {
+    go: {
+      format:`gofmt -w ${file}`,
+      run:goMain ? `go run ${goTarget}` : `go test ${goTarget}`,
+      test:"go test ./...",
+      debug:`command -v dlv >/dev/null && dlv ${goMain ? "debug" : "test"} ${goTarget} || printf '\\nDelve is not installed. Install dlv to debug Go.\\n'`
+    },
+    py: {
+      format:`python3 -m black ${file}`,
+      run:`python3 ${file}`,
+      test:"python3 -m pytest",
+      debug:`python3 -m pdb ${file}`
+    },
+    js: { run:`node ${file}`, test:"npm test", debug:`node --inspect-brk ${file}` },
+    mjs: { run:`node ${file}`, test:"npm test", debug:`node --inspect-brk ${file}` },
+    cjs: { run:`node ${file}`, test:"npm test", debug:`node --inspect-brk ${file}` },
+    ts: { run:`npm exec --offline -- tsx ${file}`, test:"npm test", debug:`node --inspect-brk --import tsx ${file}` }
+  };
+  return commands[extension]?.[action] || "";
+}
+
+function renderCodeEditor(body) {
+  const document = state.projectFile;
+  if (!document || document.projectID !== state.currentProject?.id) {
+    body.innerHTML = `<div class="code-empty"><h3>Open a file to start coding</h3><p>Select a file from Files to edit it here.</p><button class="ghost" id="codeOpenFiles">Browse files</button></div>`;
+    $("#codeOpenFiles")?.addEventListener("click", () => openContentPane("files"));
+    return;
+  }
+  rememberCodeTab(document.projectID, document.path);
+  const tabs = projectCodeTabs(document.projectID);
+  const symbols = codeSymbols(document.path, document.content);
+  body.innerHTML = `<form class="code-editor" id="workbenchFileForm">
+    <div class="code-tabs" role="tablist" aria-label="Open files">${tabs.map(path => {
+      const draft = codeDrafts.get(codeDraftKey(document.projectID, path));
+      const dirty = draft && draft.content !== draft.originalContent;
+      return `<span class="code-tab ${path === document.path ? "active" : ""}" role="tab" aria-selected="${path === document.path}"><button type="button" data-code-tab="${escapeHTML(path)}" title="${escapeHTML(path)}">${escapeHTML(path.split("/").pop())}${dirty ? `<i aria-label="Unsaved">•</i>` : ""}</button><button type="button" class="code-tab-close" data-code-tab-close="${escapeHTML(path)}" aria-label="Close ${escapeHTML(path)}">×</button></span>`;
+    }).join("")}</div>
+    <div class="code-editor-toolbar"><code>${escapeHTML(document.path)}</code><button class="ghost" type="button" data-editor-action="format" ${editorCommandFor("format", document) ? "" : "disabled"}>Format</button><button class="ghost" type="button" data-editor-action="run" ${editorCommandFor("run", document) ? "" : "disabled"}>Run</button><button class="ghost" type="button" data-editor-action="test" ${editorCommandFor("test", document) ? "" : "disabled"}>Test</button><button class="ghost" type="button" data-editor-action="debug" ${editorCommandFor("debug", document) ? "" : "disabled"}>Debug</button><button class="ghost" type="button" id="codeReview">Review</button><span id="codeSaveState">${document.content !== document.originalContent ? "Unsaved" : "Saved"}</span><button class="primary">Save</button></div>
+    <div class="code-workarea"><aside class="code-outline"><strong>Outline</strong>${symbols.map(symbol => `<button type="button" data-code-symbol="${symbol.line}"><span>${escapeHTML(symbol.name)}</span><small>${symbol.line}</small></button>`).join("") || `<small>No symbols found</small>`}</aside><div id="workbenchFileContent" class="code-editor-host" aria-label="Code editor"></div></div>
+    <footer class="code-status"><span>${escapeHTML(document.path.split(".").pop().toUpperCase())}</span><span id="codeCursor">Ln 1, Col 1</span><span>Spaces: 2</span><span>UTF-8</span></footer>
+    <details class="code-review" id="codeReviewPanel"><summary>Changes</summary><pre class="diff-view" id="codeDiff"></pre></details>
+  </form>`;
+  const host = $("#workbenchFileContent");
+  if (!window.HermetrixIDE?.createEditor) {
+    host.innerHTML = `<textarea aria-label="Code editor fallback" spellcheck="false">${escapeHTML(document.content)}</textarea>`;
+    activeCodeEditor = { documentKey:codeDraftKey(document.projectID, document.path), getValue:() => host.querySelector("textarea").value, focus:() => host.querySelector("textarea").focus(), dispose:() => {} };
+  } else {
+    activeCodeEditor = window.HermetrixIDE.createEditor(host, {
+      doc: document.content,
+      path: document.path,
+      onChange: content => {
+        const draft = { ...state.projectFile, content };
+        codeDrafts.set(codeDraftKey(document.projectID, document.path), draft);
+        state.projectFile = draft;
+        $("#codeSaveState").textContent = content === document.originalContent ? "Saved" : "Unsaved";
+      },
+      onCursor: (line, column) => { const status=$("#codeCursor"); if(status) status.textContent=`Ln ${line}, Col ${column}`; },
+      onSave: () => $("#workbenchFileForm")?.requestSubmit()
+    });
+    activeCodeEditor.documentKey = codeDraftKey(document.projectID, document.path);
+  }
+  $("#workbenchFileForm").addEventListener("submit", saveWorkbenchFile);
+  $("#codeReview").addEventListener("click", () => {
+    $("#codeDiff").textContent = codeDiffText(document, activeCodeEditor.getValue());
+    $("#codeReviewPanel").open = true;
+  });
+  $$('[data-code-tab]').forEach(button => button.addEventListener("click", () => openWorkbenchFile(button.dataset.codeTab)));
+  $$('[data-code-tab-close]').forEach(button => button.addEventListener("click", () => closeCodeTab(document.projectID, button.dataset.codeTab)));
+  $$('[data-code-symbol]').forEach(button => button.addEventListener("click", () => activeCodeEditor?.goToLine(button.dataset.codeSymbol)));
+  $$('[data-editor-action]').forEach(button => button.addEventListener("click", () => runEditorAction(button.dataset.editorAction)));
+  requestAnimationFrame(() => activeCodeEditor?.focus());
+}
+
+async function runEditorAction(action) {
+  captureCodeDraft();
+  const document = state.projectFile;
+  if (!document) return;
+  if (document.content !== document.originalContent) {
+    toast("Save the file before running IDE actions.", true);
+    return;
+  }
+  const command = editorCommandFor(action, document);
+  if (!command) { toast(`${action} is not configured for this file type.`, true); return; }
+  openContentPane("terminal");
+  const terminal = await startProjectTerminal(false);
+  const id = terminal?.id || projectTerminals().find(item => item.state === "running")?.id;
+  if (!id) return;
+  state.selectedTerminal = id;
+  await sendRawTerminalInput(`${command}\n`, id);
+  if (action === "format") setTimeout(() => reloadCodeDocument(document.projectID, document.path), 500);
+}
+
+async function reloadCodeDocument(projectID, path) {
+  try {
+    const document = await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path)}`);
+    if (state.currentProject?.id !== projectID || state.projectFile?.path !== path) return;
+    const fresh = { ...document, projectID, originalContent:document.content };
+    codeDrafts.set(codeDraftKey(projectID, path), fresh);
+    state.projectFile = fresh;
+    refreshWorkbenchSurface("editor");
+  } catch (error) { toast(error.message, true); }
+}
+
+function closeCodeTab(projectID, path) {
+  captureCodeDraft();
+  const tabs = projectCodeTabs(projectID);
+  const index = tabs.indexOf(path);
+  if (index >= 0) tabs.splice(index, 1);
+  if (state.projectFile?.projectID === projectID && state.projectFile?.path === path) {
+    const next = tabs[Math.min(index, tabs.length - 1)];
+    state.projectFile = null;
+    if (next) { void openWorkbenchFile(next); return; }
+  }
+  refreshWorkbenchSurface("editor");
 }
 
 // The listeners below used to be attached at the bottom of the function that
@@ -1978,11 +2225,20 @@ function renderWorkbenchFilesHTML() {
 // right after they set innerHTML.
 function bindWorkbenchFilesEvents() {
   $("#workbenchProject")?.addEventListener("change", event => selectProject(event.target.value, ""));
-  $("#workbenchFileUp")?.addEventListener("click", () => selectProject(state.selectedProject, (state.projectPath || "").split("/").slice(0,-1).join("/")));
-  $$('[data-workbench-file]').forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? selectProject(state.selectedProject, button.dataset.workbenchFile) : openWorkbenchFile(button.dataset.workbenchFile)));
-  $("#workbenchFileForm")?.addEventListener("submit", saveWorkbenchFile);
-  $("#closeFileEditor")?.addEventListener("click", () => { state.projectFile=null; state.projectFileDiff=""; refreshWorkbenchSurface("files"); });
+  $("#workbenchFileUp")?.addEventListener("click", () => browseWorkspace((state.projectPath || "").split("/").slice(0,-1).join("/")));
+  $$('[data-workbench-file]').forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? browseWorkspace(button.dataset.workbenchFile) : openWorkbenchFile(button.dataset.workbenchFile)));
   $("#newWorkbenchFile")?.addEventListener("click", newWorkbenchFile);
+}
+
+async function browseWorkspace(path) {
+  const projectID = state.currentProject?.id;
+  try {
+    const files = await api(`/api/projects/${encodeURIComponent(projectID)}/files?path=${encodeURIComponent(path)}`);
+    if (state.currentProject?.id !== projectID) return;
+    state.projectPath = path;
+    state.workspaceFiles = files;
+    refreshWorkbenchSurface("files");
+  } catch (error) { toast(error.message, true); }
 }
 
 // The chat-side workbench room's own entry point: still exactly what callers
@@ -1993,56 +2249,109 @@ function renderWorkbenchFiles() {
 }
 
 async function openWorkbenchFile(path) {
+  captureCodeDraft();
+  const projectID = state.currentProject?.id;
+  if (!projectID) return;
+  rememberCodeTab(projectID, path);
   try {
-    state.projectFile = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file?path=${encodeURIComponent(path)}`);
+    const document = codeDrafts.get(codeDraftKey(projectID, path)) || await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path)}`);
+    if (state.currentProject?.id !== projectID) return;
+    state.projectFile = { ...document, projectID, originalContent: document.originalContent ?? document.content };
     state.projectFileDiff = "";
-    refreshWorkbenchSurface("files");
+    openContentPane("editor");
   } catch (error) { toast(error.message, true); }
 }
 
 async function newWorkbenchFile() {
-  const path = await askAction({title:"Create a project file",message:"Enter a path relative to the bounded project root. The server rejects symlinks and traversal.",confirmLabel:"Open editor",reasonLabel:"Relative path"});
-  if (!path) return;
-  state.projectFile = {path:path.trim(),content:"",sha256:"",mode:"0644",bytes:0};
+  const projectID = state.currentProject?.id;
+  const path = await askAction({title:"New file",message:"File name or path inside this project.",confirmLabel:"Create",reasonLabel:"File path"});
+  if (!path || state.currentProject?.id !== projectID) return;
+  // Read an existing file first so a new-file draft cannot mask its contents.
+  try { await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path.trim())}`); await openWorkbenchFile(path.trim()); return; }
+  catch (error) { if (!/not exist|not found|no such file/i.test(error.message)) { toast(error.message, true); return; } }
+  captureCodeDraft();
+  state.projectFile = {projectID,path:path.trim(),content:"",originalContent:"",sha256:"",mode:"0644",bytes:0};
   state.projectFileDiff = "";
-  refreshWorkbenchSurface("files");
+  openContentPane("editor");
 }
 
 async function saveWorkbenchFile(event) {
   event.preventDefault();
+  captureCodeDraft();
+  const document = state.projectFile;
+  if (!document || document.projectID !== state.currentProject?.id) return;
   try {
-    const result = await api(`/api/projects/${encodeURIComponent(state.selectedProject)}/file`, {method:"PUT",body:JSON.stringify({path:state.projectFile.path,content:$("#workbenchFileContent").value,expected_sha256:state.projectFile.sha256 || "",actor:currentActor()})});
-    state.projectFile = result.document;
-    state.projectFileDiff = result.diff;
-    toast(`File committed · receipt ${shortHash(result.receipt_artifact.id)}`);
-    state.artifacts = await api("/api/artifacts");
-    refreshWorkbenchSurface("files");
+    const result = await api(`/api/projects/${encodeURIComponent(document.projectID)}/file`, {method:"PUT",body:JSON.stringify({path:document.path,content:document.content,expected_sha256:document.sha256 || "",actor:currentActor()})});
+    const saved = {...result.document, projectID:document.projectID, originalContent:result.document.content};
+    // A save may finish after more typing or a project switch.
+    captureCodeDraft();
+    const key = codeDraftKey(document.projectID, document.path);
+    const latest = codeDrafts.get(key);
+    const updated = {...saved, content:latest?.content ?? saved.content};
+    codeDrafts.set(key, updated);
+    if (state.currentProject?.id === document.projectID && state.projectFile?.path === document.path) {
+      state.projectFile = updated;
+      state.projectFileDiff = result.diff;
+      refreshWorkbenchSurface("editor");
+    }
+    toast("File saved");
+    if (state.currentProject?.id === document.projectID) await browseWorkspace(state.projectPath || "");
   } catch (error) { toast(error.message, true); }
 }
 
-function stripANSI(value="") { return String(value).replace(/\x1B(?:[@-_][0-?]*[ -\/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, ""); }
+function stripANSI(value="") {
+  return String(value)
+    .replace(/\x1B\][\s\S]*?(?:\x07|\x1B\\)/g, "")
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1B(?:[=>]|[ -/]*[@-~])/g, "")
+    .replace(/[^\n]\x08/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
 
+const terminalStarts = new Map();
+const terminalAutoAttempted = new Set();
+function projectTerminals() { return state.terminals.filter(item => item.project_id === state.currentProject?.id && item.state === "running"); }
 function renderWorkbenchTerminalHTML() {
-  const terminal = state.terminals.find(item => item.id === state.selectedTerminal);
-  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Real PTY room</p><h3>${terminal ? escapeHTML(`${terminal.shell} · ${terminal.working_dir}`) : "Start terminal"}</h3></div>${terminal ? pill(terminal.state,terminal.state === "running" ? "green" : "amber") : ""}</div>
-    <form id="terminalStartForm"><div class="form-grid"><label>Project<select name="project_id">${state.projects.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === state.selectedProject ? "selected" : ""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><label>Shell<select name="shell"><option>zsh</option><option>bash</option><option>sh</option></select></label></div><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><div class="form-grid"><label>Columns<input name="columns" type="number" min="20" max="400" value="100"></label><label>Rows<input name="rows" type="number" min="5" max="200" value="30"></label></div><button class="primary">New PTY tab</button></form>
-    <div class="meta">${state.terminals.map(item => `<button class="ghost" data-terminal-id="${escapeHTML(item.id)}">${escapeHTML(item.shell)} · ${escapeHTML(item.state)}</button>`).join("")}</div>
-    ${terminal ? `<pre class="terminal-screen" id="terminalScreen">${escapeHTML(stripANSI(state.terminalOutput || "waiting for output…"))}</pre>${terminal.state === "running" ? `<form class="terminal-command" id="terminalInputForm"><input name="input" autocomplete="off" placeholder="Command or interactive input"><button class="primary">Send ↵</button></form><form class="terminal-resize" id="terminalResizeForm"><input name="columns" type="number" min="20" max="400" value="100" aria-label="Terminal columns"><span>×</span><input name="rows" type="number" min="5" max="200" value="30" aria-label="Terminal rows"><button class="ghost">Resize PTY</button></form><div class="action-row"><button class="ghost" id="terminalInterrupt">Ctrl-C</button><button class="danger" id="terminalClose">Close PTY</button></div>` : `<p class="form-note neutral">Exit ${terminal.exit_code ?? "—"} · ${escapeHTML(terminal.error || "terminal is no longer live")}</p>`}` : `<div class="probe-empty">PTY output is streamed from a real shell process and bounded to a 1 MiB tail.</div>`}
+  const terminals = projectTerminals();
+  let terminal = terminals.find(item => item.id === state.selectedTerminal);
+  if (!terminal) {
+    terminal = terminals.find(item => item.state === "running");
+    state.selectedTerminal = terminal?.id || null;
+    state.terminalOutput = "";
+  }
+  return `<div class="workspace-terminal">
+    <div class="terminal-tabs">${terminals.map((item, index) => `<button class="ghost ${item.id === terminal?.id ? "active" : ""}" data-terminal-id="${escapeHTML(item.id)}">${escapeHTML(item.shell)} ${index + 1}</button>`).join("")}<button class="ghost" id="terminalNew" ${!state.currentProject?.root_path || terminalStarts.has(state.currentProject?.id) ? "disabled" : ""}>+ Terminal</button></div>
+    ${terminal ? `<div class="terminal-screen" id="terminalScreen" role="application" aria-label="Interactive terminal"></div><div class="terminal-actions"><span>Interactive PTY · type, paste, Tab, arrows and Ctrl-C work directly</span><button class="ghost" id="terminalClose">Close terminal</button></div>` : `<div class="probe-empty">${state.currentProject?.root_path ? (terminalAutoAttempted.has(state.currentProject.id) && !terminalStarts.has(state.currentProject.id) ? "Could not open a terminal. Use + Terminal to retry." : "Opening terminal in your project…") : "This project has no code folder."}</div>`}
   </div>`;
 }
 
 function bindWorkbenchTerminalEvents() {
-  const terminal = state.terminals.find(item => item.id === state.selectedTerminal);
-  $("#terminalStartForm")?.addEventListener("submit", startWorkbenchTerminal);
-  $$('[data-terminal-id]').forEach(button => button.addEventListener("click", () => { state.selectedTerminal=button.dataset.terminalId; state.terminalOutput=""; refreshWorkbenchSurface("terminal"); }));
-  $("#terminalInputForm")?.addEventListener("submit", sendTerminalInput);
-  $("#terminalResizeForm")?.addEventListener("submit", resizeWorkbenchTerminal);
-  $("#terminalInterrupt")?.addEventListener("click", () => sendRawTerminalInput("\x03"));
+  $("#terminalNew")?.addEventListener("click", () => startProjectTerminal(true));
+  $$('[data-terminal-id]').forEach(button => button.addEventListener("click", () => { state.selectedTerminal=button.dataset.terminalId; terminalCursor={id:"",value:0}; refreshWorkbenchSurface("terminal"); }));
   $("#terminalClose")?.addEventListener("click", closeWorkbenchTerminal);
-  // Polling has to (re)start from wherever the markup just landed, which is
-  // exactly why this lives in the bind step rather than back in the HTML
-  // builder: it needs the terminal to already exist in the DOM to write into.
-  if (terminal) pollTerminal();
+  const projectID = state.currentProject?.id;
+  if (state.selectedTerminal) mountWorkbenchTerminal();
+  if (state.currentProject?.root_path && !projectTerminals().some(item => item.state === "running") &&
+      !terminalAutoAttempted.has(projectID)) {
+    terminalAutoAttempted.add(projectID);
+    void startProjectTerminal();
+  }
+}
+
+function mountWorkbenchTerminal() {
+  const id = state.selectedTerminal;
+  const screen = $("#terminalScreen");
+  if (!id || !screen) return;
+  activeTerminalEmulator?.dispose();
+  activeTerminalEmulator = null;
+  terminalCursor = { id, value: 0 };
+  if (window.HermetrixIDE?.createTerminal) {
+    activeTerminalEmulator = window.HermetrixIDE.createTerminal(screen, {
+      onData: input => sendRawTerminalInput(input, id),
+      onResize: (columns, rows) => resizeTerminalTo(id, columns, rows)
+    });
+  }
+  void pollTerminal();
 }
 
 function renderWorkbenchTerminal() {
@@ -2050,30 +2359,66 @@ function renderWorkbenchTerminal() {
   bindWorkbenchTerminalEvents();
 }
 
-async function startWorkbenchTerminal(event) {
-  event.preventDefault(); const form=new FormData(event.currentTarget);
+async function startProjectTerminal(force = false) {
+  const project = state.currentProject;
+  if (!project?.root_path || terminalStarts.has(project.id)) return null;
+  const existing = projectTerminals().find(item => item.state === "running");
+  if (!force && existing) return existing;
+  terminalAutoAttempted.add(project.id);
+  terminalStarts.set(project.id, true);
   try {
-    const terminal=await api("/api/terminals",{method:"POST",body:JSON.stringify({project_id:form.get("project_id"),shell:form.get("shell"),working_dir:form.get("working_dir"),actor:currentActor(),columns:Number(form.get("columns")),rows:Number(form.get("rows"))})});
-    state.selectedProject=form.get("project_id"); state.selectedTerminal=terminal.id; state.terminalOutput=""; state.terminals=await api("/api/terminals"); refreshWorkbenchSurface("terminal");
-  } catch(error){toast(error.message,true);}
+    const terminal = await api("/api/terminals", {method:"POST",body:JSON.stringify({project_id:project.id,working_dir:".",actor:currentActor(),columns:100,rows:30})});
+    state.terminals = [...state.terminals.filter(item => item.id !== terminal.id), terminal];
+    if (state.currentProject?.id === project.id) {
+      state.selectedTerminal = terminal.id;
+      state.terminalOutput = "";
+    }
+    return terminal;
+  } catch (error) { toast(error.message, true); }
+  finally {
+    terminalStarts.delete(project.id);
+    if (state.currentProject?.id === project.id) refreshWorkbenchSurface("terminal");
+  }
+  return null;
 }
 
 async function pollTerminal() {
   const id=state.selectedTerminal;
   if (!id || !terminalPaneOpen()) return;
   try {
-    const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=0`);
-    state.terminalOutput=output.output;
+    const cursor = terminalCursor.id === id ? terminalCursor.value : 0;
+    const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=${cursor}`);
+    if (state.selectedTerminal !== id) return;
     const terminal=state.terminals.find(item => item.id===id);
     if (terminal) Object.assign(terminal,{state:output.state,exit_code:output.exit_code,error:output.error,cursor:output.cursor});
-    const screen=$("#terminalScreen"); if(screen){screen.textContent=stripANSI(state.terminalOutput);screen.scrollTop=screen.scrollHeight;}
-    scheduleWorkbenchPoll(pollTerminal,500);
+    if (output.truncated) activeTerminalEmulator?.reset();
+    terminalCursor = { id, value: Number(output.cursor || cursor) };
+    if (activeTerminalEmulator) activeTerminalEmulator.write(output.output || "");
+    else {
+      state.terminalOutput = cursor ? state.terminalOutput + (output.output || "") : (output.output || "");
+      const screen=$("#terminalScreen");
+      if(screen){screen.textContent=stripANSI(state.terminalOutput);screen.scrollTop=screen.scrollHeight;}
+    }
+    if (output.state === "running") scheduleWorkbenchPoll(pollTerminal,160);
   } catch(error){toast(error.message,true);}
 }
 
-async function sendRawTerminalInput(input) { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/input`,{method:"POST",body:JSON.stringify({input})}); scheduleWorkbenchPoll(pollTerminal,80); } catch(error){toast(error.message,true);} }
-async function sendTerminalInput(event) { event.preventDefault(); const input=new FormData(event.currentTarget).get("input"); if(!input)return; event.currentTarget.reset(); await sendRawTerminalInput(input+"\n"); }
-async function resizeWorkbenchTerminal(event) { event.preventDefault(); const form=new FormData(event.currentTarget); try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/resize`,{method:"POST",body:JSON.stringify({columns:Number(form.get("columns")),rows:Number(form.get("rows"))})}); toast(`PTY resized to ${form.get("columns")} × ${form.get("rows")}`); } catch(error){toast(error.message,true);} }
+function sendRawTerminalInput(input, id = state.selectedTerminal) {
+  if (!id || !input) return terminalInputChain;
+  terminalInputChain = terminalInputChain
+    .catch(() => {})
+    .then(() => api(`/api/terminals/${encodeURIComponent(id)}/input`,{method:"POST",body:JSON.stringify({input})}))
+    .then(() => { if (state.selectedTerminal === id) scheduleWorkbenchPoll(pollTerminal,40); })
+    .catch(error => toast(error.message,true));
+  return terminalInputChain;
+}
+function resizeTerminalTo(id, columns, rows) {
+  clearTimeout(terminalResizeTimer);
+  terminalResizeTimer = setTimeout(() => {
+    void api(`/api/terminals/${encodeURIComponent(id)}/resize`, {method:"POST",body:JSON.stringify({columns,rows})})
+      .catch(error => toast(error.message,true));
+  }, 80);
+}
 async function closeWorkbenchTerminal() { try { await api(`/api/terminals/${encodeURIComponent(state.selectedTerminal)}/close`,{method:"POST",body:"{}"}); state.terminals=await api("/api/terminals"); refreshWorkbenchSurface("terminal"); } catch(error){toast(error.message,true);} }
 
 function renderWorkbenchBrowserHTML() {
@@ -2109,12 +2454,7 @@ async function typeBrowserElement(ref){const text=await askAction({title:`Type i
 // node -- so it asks state instead of assuming a fixed target, and does
 // nothing if the content in question is not actually on screen anywhere.
 function refreshWorkbenchSurface(id) {
-  if (state.view === "code" && state.panes.includes(id)) { renderPanes(); return; }
-  if (state.view === "chat" && state.workbenchTab === id) {
-    if (id === "files") renderWorkbenchFiles();
-    if (id === "terminal") renderWorkbenchTerminal();
-    if (id === "browser") renderWorkbenchBrowser();
-  }
+  if (state.panes.includes(id) && $("#workspacePaneHost")) renderPanes();
 }
 
 // Terminal and browser now live only as pane content in Code. Anything that
@@ -2122,14 +2462,15 @@ function refreshWorkbenchSurface(id) {
 // button, the command palette -- opens or reveals a pane instead, so there
 // is exactly one door into either room rather than two.
 function openContentPane(id) {
-  if (!state.panes.length) state.panes = ["files"];
+  if (!state.panes.length) state.panes = ["review"];
   if (!state.panes.includes(id)) {
     if (state.panes.length < MAX_PANES) state.panes.push(id);
     else state.panes[state.panes.length - 1] = id;
   }
-  state.maximisedPane = state.panes.indexOf(id);
-  if (state.view === "code") renderPanes();
-  else switchView("code");
+  state.maximisedPane = null;
+  if (state.view === "chat") collapseZone("side", false);
+  renderPanes();
+  saveLayout();
 }
 
 // The Output pane reads the same state.jobs the Review room's receipt list
@@ -2147,48 +2488,122 @@ function renderPaneOutputHTML() {
 // tested. This is a split, not a tiling manager.
 const MAX_PANES = 4;
 
-// Content is not tied to a position: any pane may show any of these.
-// Terminal and browser are here rather than in the side strip because both
-// need room, which is the whole reason the panes exist.
+// Every real workspace surface is available in every slot. A content type is
+// mounted once at a time because its forms have stable IDs; selecting a type
+// already open in another slot swaps the two instead of creating duplicate
+// controls with ambiguous event targets.
 const PANE_CONTENT = [
-  { id: "files", label: "Files", render: () => renderWorkbenchFilesHTML() },
-  { id: "terminal", label: "Terminal", render: () => renderWorkbenchTerminalHTML() },
-  { id: "browser", label: "Browser", render: () => renderWorkbenchBrowserHTML() },
-  { id: "output", label: "Output", render: () => renderPaneOutputHTML() }
+  { id: "editor", icon: "file", label: "Code" },
+  { id: "review", icon: "review", label: "Review" },
+  { id: "files", icon: "files", label: "Files" },
+  { id: "terminal", icon: "terminal", label: "Terminal" },
+  { id: "browser", icon: "browser", label: "Browser" },
+  { id: "artifacts", icon: "artifact", label: "Office" },
+  { id: "team", icon: "project", label: "Team" },
+  { id: "output", icon: "activity", label: "Output" }
 ];
 
 function paneContent(id) {
   return PANE_CONTENT.find(item => item.id === id) || PANE_CONTENT[0];
 }
 
+const PANE_LAYOUTS = {
+  1: [{ id: "single", label: "Single pane" }],
+  2: [{ id: "columns", label: "Side by side" }, { id: "rows", label: "Stacked" }],
+  3: [
+    { id: "bottom-wide", label: "2 top · 1 bottom" },
+    { id: "top-wide", label: "1 top · 2 bottom" },
+    { id: "left-wide", label: "1 left · 2 right" },
+    { id: "right-wide", label: "2 left · 1 right" }
+  ],
+  4: [{ id: "quad", label: "2 × 2 grid" }]
+};
+
+function normalisePaneLayout(count, requested = state.paneLayout) {
+  const options = PANE_LAYOUTS[count] || PANE_LAYOUTS[1];
+  return options.some(item => item.id === requested) ? requested : options[0].id;
+}
+
+function paneToolbarHTML() {
+  const count = state.panes.length || 1;
+  const layout = normalisePaneLayout(count);
+  const options = PANE_LAYOUTS[count] || PANE_LAYOUTS[1];
+  return `<header class="workspace-toolbar"><div><strong>Workspace</strong><small>ลากหัวช่องเพื่อย้าย · ลากเส้นเพื่อปรับขนาด</small></div>
+    <div class="workspace-actions">
+      ${options.length > 1 ? `<label class="pane-layout-control"><span>Layout</span><select id="paneLayoutSelect" aria-label="Workspace layout">${options.map(option => `<option value="${option.id}" ${option.id === layout ? "selected" : ""}>${option.label}</option>`).join("")}</select></label>` : ""}
+      <span id="paneCountLabel">${count}/4 panes</span>
+      <button class="ghost compact" id="paneAdd">${uiIcon("plus")}<span>Split</span></button>
+    </div></header>`;
+}
+
+function paneDividerHTML(count, layout) {
+  if (state.maximisedPane !== null || count < 2) return "";
+  const vertical = `<div class="pane-divider vertical" data-pane-divider="vertical" role="separator" aria-orientation="vertical" aria-label="Resize workspace columns" tabindex="0"></div>`;
+  const horizontal = `<div class="pane-divider horizontal" data-pane-divider="horizontal" role="separator" aria-orientation="horizontal" aria-label="Resize workspace rows" tabindex="0"></div>`;
+  if (count === 2) return layout === "rows" ? horizontal : vertical;
+  return `${vertical}${horizontal}`;
+}
+
+function paneDropGuidesHTML(count) {
+  if (state.maximisedPane !== null || count < 2 || count > 3) return "";
+  return `<div class="pane-drop-guides" aria-hidden="true">
+    ${["top", "right", "bottom", "left"].map(edge => `<div class="pane-drop-edge ${edge}" data-pane-drop-edge="${edge}">${edge}</div>`).join("")}
+  </div>`;
+}
+
+function mountPaneContent(body, id) {
+  if (id === "editor") { renderCodeEditor(body); return; }
+  if (id === "review") { renderWorkbenchReview(body); return; }
+  if (id === "files") { body.innerHTML = renderWorkbenchFilesHTML(); bindWorkbenchFilesEvents(); return; }
+  if (id === "terminal") { body.innerHTML = renderWorkbenchTerminalHTML(); bindWorkbenchTerminalEvents(); return; }
+  if (id === "browser") { body.innerHTML = renderWorkbenchBrowserHTML(); bindWorkbenchBrowserEvents(); return; }
+  if (id === "artifacts") { renderWorkbenchArtifacts(body); return; }
+  if (id === "team") { renderWorkbenchTeam(body); return; }
+  body.innerHTML = renderPaneOutputHTML();
+}
+
 function renderPanes() {
-  const host = $("#zoneMain");
-  if (!state.panes.length) state.panes = ["files"];
-  const columns = state.panes.length > 1 ? 2 : 1;
-  const rows = state.panes.length > 2 ? 2 : 1;
-  document.documentElement.style.setProperty("--pane-columns", String(columns));
-  document.documentElement.style.setProperty("--pane-rows", String(rows));
-  host.innerHTML = `<div class="pane-grid ${state.maximisedPane === null ? "" : "one-up"}">${
+  captureCodeDraft();
+  disposeWorkspaceWidgets();
+  if (!state.panes.length) state.panes = ["review"];
+  let host = $("#workspacePaneHost");
+  if (state.view === "code") {
+    $("#zoneMain").innerHTML = `${paneToolbarHTML()}<div class="workspace-pane-host" id="workspacePaneHost" aria-label="Resizable workspace panes"></div>`;
+    host = $("#workspacePaneHost");
+  } else if (host?.previousElementSibling?.classList.contains("workspace-toolbar")) {
+    host.previousElementSibling.outerHTML = paneToolbarHTML();
+    host = $("#workspacePaneHost");
+  }
+  if (!host) return;
+  document.documentElement.style.setProperty("--pane-split-x", `${state.paneSplitX}%`);
+  document.documentElement.style.setProperty("--pane-split-y", `${state.paneSplitY}%`);
+  const count = state.panes.length;
+  state.paneLayout = normalisePaneLayout(count);
+  host.innerHTML = `<div class="pane-grid pane-layout-${count} pane-arrangement-${state.paneLayout} ${state.maximisedPane === null ? "" : "one-up"}">${
     state.panes.map((id, index) => {
       const hidden = state.maximisedPane !== null && state.maximisedPane !== index;
       const item = paneContent(id);
-      return `<section class="pane ${hidden ? "pane-hidden" : ""}" data-pane="${index}">
+      return `<section class="pane pane-index-${index} ${hidden ? "pane-hidden" : ""}" data-pane="${index}">
         <header class="pane-head">
+          <button type="button" class="pane-drag-handle" draggable="true" data-pane-drag="${index}" aria-label="Drag ${escapeHTML(item.label)} pane to move it" title="Drag to move · arrow keys also reorder">${uiIcon("grip")}</button>
+          ${uiIcon(item.icon)}
           <select data-pane-content="${index}" aria-label="Pane content">${
             PANE_CONTENT.map(option =>
               `<option value="${option.id}" ${option.id === id ? "selected" : ""}>${escapeHTML(option.label)}</option>`).join("")
           }</select>
           <button class="ghost compact" data-pane-max="${index}" aria-label="Maximise this pane">${
-            state.maximisedPane === index ? "▪" : "▫"}</button>
+            uiIcon(state.maximisedPane === index ? "contract" : "expand")}</button>
           ${state.panes.length > 1
-            ? `<button class="ghost compact" data-pane-close="${index}" aria-label="Close this pane">×</button>` : ""}
+            ? `<button class="ghost compact" data-pane-close="${index}" aria-label="Close this pane">${uiIcon("close")}</button>` : ""}
         </header>
-        <div class="pane-body">${item.render()}</div>
+        <div class="pane-body" data-pane-kind="${item.id}"></div>
       </section>`;
     }).join("")
-  }</div>
-  ${state.panes.length < MAX_PANES ? `<button class="ghost compact pane-add" id="paneAdd">＋ แบ่งช่อง</button>` : ""}`;
+  }${paneDividerHTML(count, state.paneLayout)}${paneDropGuidesHTML(count)}</div>`;
+  $("#paneCountLabel").textContent = `${count}/4 panes`;
+  $("#paneAdd").disabled = count >= MAX_PANES;
   bindPaneControls();
+  state.panes.forEach((id, index) => mountPaneContent($(`.pane[data-pane="${index}"] .pane-body`, host), id));
 }
 
 function splitPane() {
@@ -2211,9 +2626,78 @@ function closePane(index) {
 }
 
 function setPaneContent(index, id) {
-  state.panes[index] = paneContent(id).id;
+  const next = paneContent(id).id;
+  const other = state.panes.indexOf(next);
+  if (other >= 0 && other !== index) state.panes[other] = state.panes[index];
+  state.panes[index] = next;
   renderPanes();
   saveLayout();
+}
+
+function setPaneLayout(layout) {
+  state.paneLayout = normalisePaneLayout(state.panes.length, layout);
+  state.maximisedPane = null;
+  renderPanes();
+  saveLayout();
+}
+
+function movePane(from, to) {
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from === to ||
+      from < 0 || to < 0 || from >= state.panes.length || to >= state.panes.length) return;
+  const [moved] = state.panes.splice(from, 1);
+  state.panes.splice(to, 0, moved);
+  state.maximisedPane = null;
+  renderPanes();
+  saveLayout();
+}
+
+function placePaneAtEdge(from, edge) {
+  const count = state.panes.length;
+  if (count === 2) {
+    state.paneLayout = edge === "top" || edge === "bottom" ? "rows" : "columns";
+    movePane(from, edge === "right" || edge === "bottom" ? 1 : 0);
+    if (from === (edge === "right" || edge === "bottom" ? 1 : 0)) { renderPanes(); saveLayout(); }
+    return;
+  }
+  if (count === 3) {
+    const placement = {
+      left: ["left-wide", 0], right: ["right-wide", 2],
+      top: ["top-wide", 0], bottom: ["bottom-wide", 2]
+    }[edge];
+    if (!placement) return;
+    state.paneLayout = placement[0];
+    if (from === placement[1]) { renderPanes(); saveLayout(); }
+    else movePane(from, placement[1]);
+  }
+}
+
+function clearPaneDragState(grid = $(".pane-grid")) {
+  state.draggedPane = null;
+  grid?.classList.remove("is-reordering");
+  $$(".pane-drop-target, .pane-drop-edge.active", grid || document).forEach(node => node.classList.remove("pane-drop-target", "active"));
+}
+
+function beginPaneReorder(handle, event) {
+  state.draggedPane = Number(handle.dataset.paneDrag);
+  const grid = handle.closest(".pane-grid");
+  grid?.classList.add("is-reordering");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", String(state.draggedPane));
+}
+
+function dropPaneOnPane(pane, event) {
+  event.preventDefault();
+  const from = state.draggedPane;
+  const to = Number(pane.dataset.pane);
+  clearPaneDragState(pane.closest(".pane-grid"));
+  movePane(from, to);
+}
+
+function dropPaneAtEdge(edge, event) {
+  event.preventDefault();
+  const from = state.draggedPane;
+  clearPaneDragState(edge.closest(".pane-grid"));
+  placePaneAtEdge(from, edge.dataset.paneDropEdge);
 }
 
 function maximisePane(index) {
@@ -2224,27 +2708,65 @@ function maximisePane(index) {
 
 function bindPaneControls() {
   $("#paneAdd")?.addEventListener("click", splitPane);
+  $("#paneLayoutSelect")?.addEventListener("change", event => setPaneLayout(event.target.value));
   $$("[data-pane-content]").forEach(select =>
     select.addEventListener("change", event => setPaneContent(Number(select.dataset.paneContent), event.target.value)));
   $$("[data-pane-max]").forEach(button =>
     button.addEventListener("click", () => maximisePane(Number(button.dataset.paneMax))));
   $$("[data-pane-close]").forEach(button =>
     button.addEventListener("click", () => closePane(Number(button.dataset.paneClose))));
-  // Each *HTML() renderer above returns a string before renderPanes() ever
-  // inserts it into the document, so any listener it used to attach to
-  // itself would have had nothing to attach to. Binding happens here
-  // instead, once per pane, keyed off what that pane is actually showing --
-  // the same bind functions the workbench room calls, so a pane and a room
-  // never end up with two different behaviours for one control.
-  state.panes.forEach(id => {
-    if (id === "files") bindWorkbenchFilesEvents();
-    if (id === "terminal") bindWorkbenchTerminalEvents();
-    if (id === "browser") bindWorkbenchBrowserEvents();
+  $$("[data-pane-divider]").forEach(divider => divider.addEventListener("pointerdown", event => startPaneDrag(divider, event)));
+  $$("[data-pane-drag]").forEach(handle => {
+    handle.addEventListener("dragstart", event => beginPaneReorder(handle, event));
+    handle.addEventListener("dragend", () => clearPaneDragState(handle.closest(".pane-grid")));
+    handle.addEventListener("keydown", event => {
+      const index = Number(handle.dataset.paneDrag);
+      const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1
+        : event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : 0;
+      if (!delta) return;
+      event.preventDefault();
+      movePane(index, Math.min(state.panes.length - 1, Math.max(0, index + delta)));
+    });
+  });
+  $$(".pane[data-pane]").forEach(pane => {
+    pane.addEventListener("dragover", event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; pane.classList.add("pane-drop-target"); });
+    pane.addEventListener("dragleave", event => { if (!pane.contains(event.relatedTarget)) pane.classList.remove("pane-drop-target"); });
+    pane.addEventListener("drop", event => dropPaneOnPane(pane, event));
+  });
+  $$("[data-pane-drop-edge]").forEach(edge => {
+    edge.addEventListener("dragover", event => { event.preventDefault(); event.stopPropagation(); edge.classList.add("active"); });
+    edge.addEventListener("dragleave", () => edge.classList.remove("active"));
+    edge.addEventListener("drop", event => { event.stopPropagation(); dropPaneAtEdge(edge, event); });
   });
 }
 
-function renderWorkbenchArtifacts(){
-  $("#workbenchContent").innerHTML=`<div class="panel"><p class="eyebrow">Office deliverables</p><h3>Create a real editable file</h3><form id="deliverableForm"><label>Project<select name="project_id"><option value="">Global</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><div class="form-grid"><label>Format<select name="format"><option>docx</option><option>xlsx</option><option>pptx</option><option>pdf</option></select></label><label>Title<input name="title" required value="Hermetrix report"></label></div><label>Content<textarea name="content" rows="8" required placeholder="Paragraphs; use tab-separated rows for XLSX or --- between PPTX slides"></textarea></label><p class="form-note neutral">DOCX/XLSX/PPTX support Unicode. Native PDF currently fails closed for non-Basic-Latin text instead of generating missing glyphs.</p><button class="primary">Build immutable deliverable</button></form></div><section class="office-preview" id="deliverablePreview"></section><div class="card-list spaced">${state.artifacts.slice(0,30).map(item=>`<article class="artifact-mini"><div class="provider-head"><div><strong>${escapeHTML(item.name)}</strong><p>${escapeHTML(item.mime_type)} · ${Number(item.byte_size).toLocaleString()} B</p></div>${pill(item.kind,"blue")}</div><div class="action-row"><a class="button-link" href="/api/artifacts/${encodeURIComponent(item.id)}/content" target="_blank" rel="noreferrer">Open / download</a></div></article>`).join("")||`<div class="probe-empty">No artifacts yet.</div>`}</div>`;
+function startPaneDrag(divider, event) {
+  const grid = divider.closest(".pane-grid");
+  if (!grid) return;
+  divider.setPointerCapture?.(event.pointerId);
+  const move = pointer => {
+    const rect = grid.getBoundingClientRect();
+    if (divider.dataset.paneDivider === "vertical") {
+      state.paneSplitX = Math.min(78, Math.max(22, (pointer.clientX - rect.left) / rect.width * 100));
+      document.documentElement.style.setProperty("--pane-split-x", `${state.paneSplitX}%`);
+    } else {
+      state.paneSplitY = Math.min(78, Math.max(22, (pointer.clientY - rect.top) / rect.height * 100));
+      document.documentElement.style.setProperty("--pane-split-y", `${state.paneSplitY}%`);
+    }
+  };
+  move(event);
+  const stop = () => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", stop);
+    saveLayout();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", stop);
+}
+
+function renderWorkbenchArtifacts(target = $(".pane-body[data-pane-kind='artifacts']") || $("#workbenchContent")){
+  if(!target)return;
+  target.innerHTML=`<div class="panel"><p class="eyebrow">Office deliverables</p><h3>Create a real editable file</h3><form id="deliverableForm"><label>Project<select name="project_id"><option value="">Global</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><div class="form-grid"><label>Format<select name="format"><option>docx</option><option>xlsx</option><option>pptx</option><option>pdf</option></select></label><label>Title<input name="title" required value="Hermetrix report"></label></div><label>Content<textarea name="content" rows="8" required placeholder="Paragraphs; use tab-separated rows for XLSX or --- between PPTX slides"></textarea></label><p class="form-note neutral">DOCX/XLSX/PPTX support Unicode. Native PDF currently fails closed for non-Basic-Latin text instead of generating missing glyphs.</p><button class="primary">Build immutable deliverable</button></form></div><section class="office-preview" id="deliverablePreview"></section><div class="card-list spaced">${state.artifacts.slice(0,30).map(item=>`<article class="artifact-mini"><div class="provider-head"><div><strong>${escapeHTML(item.name)}</strong><p>${escapeHTML(item.mime_type)} · ${Number(item.byte_size).toLocaleString()} B</p></div>${pill(item.kind,"blue")}</div><div class="action-row"><a class="button-link" href="/api/artifacts/${encodeURIComponent(item.id)}/content" target="_blank" rel="noreferrer">Open / download</a></div></article>`).join("")||`<div class="probe-empty">No artifacts yet.</div>`}</div>`;
   $("#deliverableForm")?.addEventListener("submit",createDeliverable);
   $("#deliverableForm")?.addEventListener("input",renderDeliverableDraftPreview);
   renderDeliverableDraftPreview();
@@ -2283,14 +2805,15 @@ function teamTaskRowHTML(team,index){
   return `<article class="team-task-editor" data-team-task><div class="form-grid"><label>Task ID<input data-task-field="id" required value="${id}"></label><label>Member<select data-task-field="member_id" required>${team.members.map(member=>`<option value="${escapeHTML(member.id)}">${escapeHTML(member.name)} · ${escapeHTML(member.role)}</option>`).join("")}</select></label></div><label>Title<input data-task-field="title" required placeholder="Independent review"></label><label>Depends on task IDs<input data-task-field="depends" placeholder="task-a, task-b"></label><label>Task prompt<textarea data-task-field="prompt" rows="2" required></textarea></label><button type="button" class="danger" data-remove-team-task>Remove task</button></article>`;
 }
 
-function renderWorkbenchTeam(){
+function renderWorkbenchTeam(target = $(".pane-body[data-pane-kind='team']") || $("#workbenchContent")){
+  if(!target)return;
   const team=state.teams.find(item=>item.id===state.selectedTeam);
   if(!state.teamDraft || state.teamDraft.sourceID!==(team?.id||"new"))state.teamDraft=newTeamDraft(team||null);
   const draft=state.teamDraft;
   const provider=state.providers.find(item=>item.enabled);
   const profiles=availableProfiles(provider);
   const profile=bestProfileFor(provider,profiles);
-  $("#workbenchContent").innerHTML=`<div class="panel"><div class="provider-head"><div><p class="eyebrow">Reusable roster · explicit authority</p><h3>${draft.id?"Edit":"Create"} Agent Team</h3></div>${draft.id?pill(`revision ${draft.expected_revision}`,"blue"):pill("new roster","green")}</div><label>Roster<select id="teamSelect"><option value="">＋ New team</option>${state.teams.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedTeam?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><form id="teamCreateForm"><label>Team name<input name="name" required value="${escapeHTML(draft.name)}"></label><label>Unit rules<textarea name="instructions" rows="3" required>${escapeHTML(draft.instructions)}</textarea></label><section class="team-editor-list">${renderTeamMemberRows(draft)}</section><div class="action-row"><button type="button" class="ghost" id="addTeamMember" ${draft.members.length>=12?"disabled":""}>＋ Add member</button><button class="primary">${draft.id?"Save exact revision":"Save reusable team"}</button></div></form></div>
+  target.innerHTML=`<div class="panel"><div class="provider-head"><div><p class="eyebrow">Reusable roster · explicit authority</p><h3>${draft.id?"Edit":"Create"} Agent Team</h3></div>${draft.id?pill(`revision ${draft.expected_revision}`,"blue"):pill("new roster","green")}</div><label>Roster<select id="teamSelect"><option value="">＋ New team</option>${state.teams.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===state.selectedTeam?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><form id="teamCreateForm"><label>Team name<input name="name" required value="${escapeHTML(draft.name)}"></label><label>Unit rules<textarea name="instructions" rows="3" required>${escapeHTML(draft.instructions)}</textarea></label><section class="team-editor-list">${renderTeamMemberRows(draft)}</section><div class="action-row"><button type="button" class="ghost" id="addTeamMember" ${draft.members.length>=12?"disabled":""}>＋ Add member</button><button class="primary">${draft.id?"Save exact revision":"Save reusable team"}</button></div></form></div>
   <div class="panel spaced">${team?`<div class="meta">${team.members.map(member=>pill(`${member.is_lead?"lead · ":""}${member.name} / ${member.role}`,member.is_lead?"green":"blue")).join("")}</div><form id="teamRunForm"><label>Objective<textarea name="objective" rows="4" required placeholder="What should this team solve?"></textarea></label><div class="form-grid"><label>Provider<select name="provider_id" required>${state.providers.filter(item=>item.enabled).map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===provider?.id?"selected":""}>${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select></label><label>Context<select name="context_profile" required>${profiles.map(item=>`<option value="${escapeHTML(item.name)}" ${item.name===profile?.name?"selected":""}>${escapeHTML(profileLabel(item))}</option>`).join("")}</select></label></div><label>Remote qualification reason<input name="qualification_reason" value="User-approved team run against the configured remote provider"></label><label>Parallel children<input name="max_parallel" type="number" min="1" max="4" value="3"></label><details class="team-graph"><summary>Custom task DAG · optional</summary><p class="form-note neutral">Leave empty for automatic specialist fan-out and lead synthesis. Dependencies refer to exact Task IDs.</p><div id="teamTaskRows"></div><button class="ghost" type="button" id="addTeamTask">＋ Add task</button></details><button class="primary">Start team run</button></form>`:`<div class="probe-empty">Save or select a team before starting a run.</div>`}</div>
   <div class="card-list spaced">${state.teamRuns.slice(0,20).map(run=>`<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(state.teams.find(item=>item.id===run.team_id)?.name||run.team_name||"Team run")}</h3><p>${escapeHTML(run.objective)} · ${formatDate(run.created_at)}</p></div>${pill(run.state,run.state==="completed"?"green":["failed","cancelled"].includes(run.state)?"red":"amber")}</div><div class="kv"><span>Parallel</span><strong>${run.max_parallel}</strong><span>Tokens</span><strong>${Number((run.prompt_tokens||0)+(run.completion_tokens||0)).toLocaleString()}</strong></div>${["queued","running","awaiting_approval"].includes(run.state)?`<div class="action-row"><button class="danger" data-cancel-team-run="${escapeHTML(run.id)}">Cancel team and children</button></div>`:""}${(run.tasks||[]).map(task=>`<section class="team-task"><div class="provider-head"><div><strong>${escapeHTML(task.title)}</strong><small>${escapeHTML(task.member_name||"")} · ${escapeHTML(task.member_role||"")}</small></div>${pill(task.state,task.state==="completed"?"green":["failed","cancelled"].includes(task.state)?"red":"amber")}</div>${task.state==="awaiting_approval"?`<article class="team-approval"><strong>${escapeHTML(task.approval_summary||"Child requests an exact effect")}</strong><p>${escapeHTML(task.approval_effect||"effect")}</p><pre>${escapeHTML(task.approval_preview||"No preview supplied")}</pre><div class="action-row"><button class="primary" data-team-approval="approve" data-run-id="${escapeHTML(run.id)}" data-task-id="${escapeHTML(task.id)}">Approve exact effect</button><button class="danger" data-team-approval="deny" data-run-id="${escapeHTML(run.id)}" data-task-id="${escapeHTML(task.id)}">Deny</button></div></article>`:""}${task.result?`<p>${escapeHTML(task.result.slice(0,900))}</p>`:""}${task.error?`<p class="form-note">${escapeHTML(task.error)}</p>`:""}${task.session_id?`<button class="ghost" data-team-session="${escapeHTML(task.session_id)}">Open child session</button>`:""}</section>`).join("")}</article>`).join("")||`<div class="probe-empty">No team runs yet. Default runs create parallel specialist tasks and a dependent lead synthesis.</div>`}</div>`;
   $("#teamCreateForm")?.addEventListener("submit",saveWorkbenchTeam);
@@ -2312,7 +2835,7 @@ async function saveWorkbenchTeam(event){event.preventDefault();captureTeamDraft(
 async function startWorkbenchTeamRun(event){event.preventDefault();const form=new FormData(event.currentTarget);const tasks=$$('[data-team-task]',event.currentTarget).map(row=>({id:row.querySelector('[data-task-field="id"]').value.trim(),member_id:row.querySelector('[data-task-field="member_id"]').value,title:row.querySelector('[data-task-field="title"]').value.trim(),prompt:row.querySelector('[data-task-field="prompt"]').value.trim(),depends_on:row.querySelector('[data-task-field="depends"]').value.split(",").map(value=>value.trim()).filter(Boolean)}));try{const run=await api("/api/team-runs",{method:"POST",body:JSON.stringify({team_id:state.selectedTeam,project_id:state.selectedProject||"",objective:form.get("objective"),provider_id:form.get("provider_id"),context_profile:form.get("context_profile"),qualification_reason:form.get("qualification_reason"),max_parallel:Number(form.get("max_parallel")),actor:currentActor(),tasks})});state.teamRuns.unshift(run);toast("Team run started; child sessions keep independent provenance");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 async function cancelWorkbenchTeamRun(id){const approved=await askAction({title:"Cancel this team run?",message:"Hermetrix will cancel every active child context and mark queued/running tasks cancelled. Completed child effects are not undone or retried.",confirmLabel:"Cancel team",danger:true});if(!approved)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(id)}/cancel`,{method:"POST",body:JSON.stringify({actor:currentActor()})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast("Team and active child contexts cancelled");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 async function decideWorkbenchTeamApproval(runId,taskId,decision){const response=await askAction({title:decision==="approve"?"Approve this child effect once?":"Deny this child effect?",message:"The decision is bound to the exact child approval and arguments hash. The child resumes its existing turn; Hermetrix does not replay its prompt or earlier effects.",confirmLabel:decision==="approve"?"Approve exact effect":"Deny effect",reasonLabel:decision==="deny"?"Reason":"",danger:decision==="deny"});if(!response)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/approval`,{method:"POST",body:JSON.stringify({actor:currentActor(),decision,reason:decision==="deny"?response:"approved after team preview"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast(decision==="approve"?"Child effect approved; DAG resumes from its receipt":"Child effect denied; DAG resumes without mutation");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
-async function pollTeamRuns(){if(state.workbenchTab!=="team")return;try{state.teamRuns=await api("/api/team-runs");if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function pollTeamRuns(){if(!state.panes.includes("team"))return;try{state.teamRuns=await api("/api/team-runs");if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 
 // CONFIG_SECTIONS is the settings room's navigation. Configuration used to sit
 // in the workspace as a fourteen-entry tab strip beside a five-entry sidebar,
@@ -2325,39 +2848,39 @@ async function pollTeamRuns(){if(state.workbenchTab!=="team")return;try{state.te
 // is a search box that lies about what it can find.
 const CONFIG_SECTIONS = [
   { group: "Models", items: [
-    { id:"providers", icon:"⌁", label:"Models", blurb:"Endpoints, API keys and qualification",
+    { id:"providers", icon:"model", label:"Models", blurb:"Endpoints, API keys and qualification",
       terms:"provider endpoint api key token openai compatible qualification context window local runtime ollama" }
   ]},
   { group: "Tools", items: [
-    { id:"mcp", icon:"⌘", label:"Tool Center", blurb:"MCP connections and the capability graph",
+    { id:"mcp", icon:"tools", label:"Tool Center", blurb:"MCP connections and the capability graph",
       terms:"mcp server bearer token streamable http discovery capability tool schema approval" }
   ]},
   { group: "Skills", items: [
-    { id:"library", icon:"✦", label:"Skill Studio", blurb:"Active Skills and authority policy",
+    { id:"library", icon:"skill", label:"Skill Studio", blurb:"Active Skills and authority policy",
       terms:"skill library active authority policy promote fork scope pinned" },
-    { id:"proposals", icon:"◔", label:"Proposals", blurb:"Candidates waiting for a decision",
+    { id:"proposals", icon:"review", label:"Proposals", blurb:"Candidates waiting for a decision",
       terms:"candidate proposal review promote reject quarantine", badge:"proposals" },
-    { id:"learning", icon:"◵", label:"Learning", blurb:"Background reviews of real turns",
+    { id:"learning", icon:"learning", label:"Learning", blurb:"Background reviews of real turns",
       terms:"learning review queue reviewer evidence", badge:"reviews" },
-    { id:"insights", icon:"◇", label:"Insights", blurb:"Curator findings, report only",
+    { id:"insights", icon:"insights", label:"Insights", blurb:"Curator findings, report only",
       terms:"curator finding stale duplicate consolidation relation" },
-    { id:"archive", icon:"▤", label:"Archive", blurb:"Restore archived Skills as candidates",
+    { id:"archive", icon:"archive", label:"Archive", blurb:"Restore archived Skills as candidates",
       terms:"archive restore deleted reversible" }
   ]},
   { group: "Context", items: [
-    { id:"context", icon:"◫", label:"Context", blurb:"Compile a prompt and read the ledger",
+    { id:"context", icon:"context", label:"Context", blurb:"Compile a prompt and read the ledger",
       terms:"context profile budget fragment compile ledger spill token estimate 32k 64k 128k 256k 1m" },
-    { id:"fidelity", icon:"◎", label:"Fidelity", blurb:"Evidence behind qualified capacity",
+    { id:"fidelity", icon:"fidelity", label:"Fidelity", blurb:"Evidence behind qualified capacity",
       terms:"fidelity recall evidence corpus case run positional" }
   ]},
   { group: "System", items: [
-    { id:"projects", icon:"▦", label:"Projects", blurb:"Bounded workspaces and commands",
+    { id:"projects", icon:"project", label:"Projects", blurb:"Bounded workspaces and commands",
       terms:"project workspace root command allowlist file tree" },
-    { id:"office", icon:"◷", label:"Background jobs", blurb:"Long-running work and its receipts",
+    { id:"office", icon:"jobs", label:"Background jobs", blurb:"Long-running work and its receipts",
       terms:"job background queue cancel receipt" },
-    { id:"artifacts", icon:"◧", label:"Artifacts", blurb:"Content-addressed outputs",
+    { id:"artifacts", icon:"artifact", label:"Artifacts", blurb:"Content-addressed outputs",
       terms:"artifact cas checksum deliverable docx xlsx pptx pdf" },
-    { id:"maintenance", icon:"⚙", label:"Maintenance", blurb:"Usage, memory, backup and recovery",
+    { id:"maintenance", icon:"settings", label:"Maintenance", blurb:"Usage, memory, backup and recovery",
       terms:"usage memory backup import export schedule garbage collection quarantine restore setting" }
   ]}
 ];
@@ -2383,7 +2906,7 @@ function renderConfigNav() {
   const navItemHTML = item => {
     const badge = item.badge ? counts[item.badge] || 0 : 0;
     const active = item.id === state.activeTab ? "active" : "";
-    return `<button type="button" class="config-nav-item ${active}" data-config-page="${escapeHTML(item.id)}"><span>${escapeHTML(item.icon)}</span><span><strong>${escapeHTML(item.label)}</strong><small>${escapeHTML(item.blurb)}</small></span>${badge ? `<b>${badge}</b>` : ""}</button>`;
+    return `<button type="button" class="config-nav-item ${active}" data-config-page="${escapeHTML(item.id)}"><span>${uiIcon(item.icon)}</span><span><strong>${escapeHTML(item.label)}</strong><small>${escapeHTML(item.blurb)}</small></span>${badge ? `<b>${badge}</b>` : ""}</button>`;
   };
   const groups = CONFIG_SECTIONS
     .map(section => ({ group: section.group, items: section.items.filter(item =>
@@ -2475,7 +2998,7 @@ const PALETTE_ROOMS = [
 // sessions that exist right now.
 function buildCommands() {
   const commands = [];
-  commands.push({ group: "Go to", icon: "◈", title: "Agent Workspace",
+  commands.push({ group: "Go to", icon: "chat", title: "Agent Workspace",
     subtitle: "Chat, tool calls and approvals", keywords: "chat session workspace home",
     run: closeConfig });
   for (const section of CONFIG_SECTIONS) {
@@ -2485,34 +3008,34 @@ function buildCommands() {
     }
   }
   for (const [room, title, subtitle] of PALETTE_ROOMS) {
-    commands.push({ group: "Workbench", icon: "▣", title, subtitle, keywords: `workbench ${room}`,
+    commands.push({ group: "Workbench", icon: room === "files" ? "files" : room === "artifacts" ? "artifact" : room === "team" ? "tools" : "review", title, subtitle, keywords: `workbench ${room}`,
       run: () => switchWorkbench(room) });
   }
   for (const session of state.sessions.slice(0, 6)) {
-    commands.push({ group: "Sessions", icon: "◈", title: session.title,
+    commands.push({ group: "Sessions", icon: "chat", title: session.title,
       subtitle: `${session.model} · ${session.context_profile}`, keywords: `session ${session.model}`,
       run: () => { switchTab("chat"); selectSession(session.id); } });
   }
   commands.push(
-    { group: "Actions", icon: "＋", title: "New agent session", subtitle: "Choose a provider and context envelope",
+    { group: "Actions", icon: "plus", title: "New agent session", subtitle: "Choose a provider and context envelope",
       keywords: "new session start chat", run: () => $("#railNewSession").click() },
-    { group: "Actions", icon: "✦", title: "Propose a Skill", subtitle: "Creates a candidate; never an active Skill",
+    { group: "Actions", icon: "skill", title: "Propose a Skill", subtitle: "Creates a candidate; never an active Skill",
       keywords: "new skill proposal candidate", run: openCandidateDialog },
-    { group: "Actions", icon: "⚙", title: "Open settings", subtitle: "Models, tools, skills, context and system",
+    { group: "Actions", icon: "settings", title: "Open settings", subtitle: "Models, tools, skills, context and system",
       keywords: "settings configuration preferences config", run: () => openConfig() },
-    { group: "Actions", icon: "@", title: "Mention a Skill or tool", subtitle: "Insert a capability into the composer",
+    { group: "Actions", icon: "at", title: "Mention a Skill or tool", subtitle: "Insert a capability into the composer",
       keywords: "skills tools mcp mention capability", run: () => openCapabilityPicker("all") },
-    { group: "Actions", icon: "☰", title: "Toggle the list pane", subtitle: "Show or hide the rail zone",
+    { group: "Actions", icon: "sidebar", title: "Toggle the list pane", subtitle: "Show or hide the rail zone",
       keywords: "rail sessions list toggle zone", run: () => $("#toggleRail").click() },
-    { group: "Actions", icon: "▣", title: "Toggle the evidence pane", subtitle: "Show or hide the side zone",
+    { group: "Actions", icon: "workbench", title: "Toggle the evidence pane", subtitle: "Show or hide the side zone",
       keywords: "workbench inspector toggle side zone", run: () => $("#toggleSide").click() },
-    { group: "Actions", icon: "⇔", title: "Toggle density", subtitle: "Compact for a laptop, comfortable for a desktop",
+    { group: "Actions", icon: "context", title: "Toggle density", subtitle: "Compact for a laptop, comfortable for a desktop",
       keywords: "density compact comfortable laptop desktop zoom", run: toggleDensity },
-    { group: "Actions", icon: "⌨", title: "Open a terminal pane", subtitle: "Real PTY bound to the project, in Code",
+    { group: "Actions", icon: "terminal", title: "Open a terminal pane", subtitle: "Real PTY bound to the project, in Code",
       keywords: "terminal pty shell pane code", run: () => openContentPane("terminal") },
-    { group: "Actions", icon: "◧", title: "Open a browser pane", subtitle: "Managed browser with untrusted evidence, in Code",
+    { group: "Actions", icon: "browser", title: "Open a browser pane", subtitle: "Managed browser with untrusted evidence, in Code",
       keywords: "browser pane code managed", run: () => openContentPane("browser") },
-    { group: "Actions", icon: "⟳", title: "Refresh everything", subtitle: "Reload every panel from the server",
+    { group: "Actions", icon: "refresh", title: "Refresh everything", subtitle: "Reload every panel from the server",
       keywords: "refresh reload", run: load }
   );
   return commands;
@@ -2542,7 +3065,7 @@ function renderCommandList(query) {
       currentGroup = command.group;
       markup += `<p class="command-group-label">${escapeHTML(currentGroup)}</p>`;
     }
-    markup += `<button type="button" class="command-item ${index === state.commandIndex ? "active" : ""}" data-command-index="${index}"><span>${escapeHTML(command.icon)}</span><span><strong>${escapeHTML(command.title)}</strong><small>${escapeHTML(command.subtitle)}</small></span>${command.keys ? `<kbd>${escapeHTML(command.keys)}</kbd>` : ""}</button>`;
+    markup += `<button type="button" class="command-item ${index === state.commandIndex ? "active" : ""}" data-command-index="${index}"><span>${uiIcon(command.icon)}</span><span><strong>${escapeHTML(command.title)}</strong><small>${escapeHTML(command.subtitle)}</small></span>${command.keys ? `<kbd>${escapeHTML(command.keys)}</kbd>` : ""}</button>`;
   });
   list.innerHTML = markup;
   $$("[data-command-index]", list).forEach(button =>
@@ -2608,7 +3131,7 @@ const CAPABILITY_FILTERS = [
 ];
 
 function capabilityPickHTML(kind, icon, name, title, subtitle, badge, id = "", version = "") {
-  return `<button type="button" class="capability-pick" data-mention-kind="${escapeHTML(kind)}" data-mention-name="${escapeHTML(name)}" data-mention-id="${escapeHTML(id)}" data-mention-version="${escapeHTML(version)}"><span>${escapeHTML(icon)}</span><span><strong>${escapeHTML(title)}</strong><small>${escapeHTML(subtitle || "No description")}</small></span>${badge}</button>`;
+  return `<button type="button" class="capability-pick" data-mention-kind="${escapeHTML(kind)}" data-mention-name="${escapeHTML(name)}" data-mention-id="${escapeHTML(id)}" data-mention-version="${escapeHTML(version)}"><span>${uiIcon(icon)}</span><span><strong>${escapeHTML(title)}</strong><small>${escapeHTML(subtitle || "No description")}</small></span>${badge}</button>`;
 }
 
 function renderCapabilityPicker() {
@@ -2627,7 +3150,7 @@ function renderCapabilityPicker() {
   if (filter === "all" || filter === "skills") {
     const skills = (contract.skill_catalog || []).filter(item => matches(`${item.canonical_name} ${item.summary}`));
     markup += `<section class="capability-picker-section"><header><span>Skills in this session</span><span>${skills.length}</span></header><div class="capability-picker-list">${skills.length
-      ? skills.map(item => capabilityPickHTML("skill", "✦", item.canonical_name, item.canonical_name, item.summary,
+      ? skills.map(item => capabilityPickHTML("skill", "skill", item.canonical_name, item.canonical_name, item.summary,
           selected.has(item.canonical_name) ? pill("in context", "green") : (item.pinned ? pill("pinned", "blue") : ""), item.skill_id, item.version_id)).join("")
       : `<p class="command-empty">${!session ? "Start a session first — a Skill catalog is frozen when the session opens."
           : contract.skill_catalog?.length ? "No Skill matches that search."
@@ -2636,7 +3159,7 @@ function renderCapabilityPicker() {
   if (filter === "all" || filter === "tools") {
     const tools = (contract.tool_bindings || []).filter(item => matches(`${item.name} ${item.description}`));
     markup += `<section class="capability-picker-section"><header><span>Direct tools</span><span>${tools.length}</span></header><div class="capability-picker-list">${tools.length
-      ? tools.map(item => capabilityPickHTML("tool", "⌘", item.name, item.name, item.description,
+      ? tools.map(item => capabilityPickHTML("tool", "tools", item.name, item.name, item.description,
           pill(item.requires_approval ? "approval" : item.effect || "read", item.requires_approval ? "amber" : "green"))).join("")
       : `<p class="command-empty">${!session ? "Start a session first — tool bindings are frozen into its Session Contract." : "No direct tool matches that search."}</p>`}</div></section>`;
   }
@@ -2646,7 +3169,7 @@ function renderCapabilityPicker() {
     markup += `<section class="capability-picker-section"><header><span>MCP catalog</span><span>${indexed.toLocaleString()} indexed</span></header><div class="capability-picker-list">${
       !query ? `<p class="command-empty">Type to search ${indexed.toLocaleString()} deferred tools. Only the matches you open are ever loaded.</p>`
       : state.capabilityPickerSearching ? `<p class="command-empty">Searching…</p>`
-      : results.length ? results.map(item => capabilityPickHTML("mcp", "◈", item.title || item.name, item.title || item.name, item.description,
+      : results.length ? results.map(item => capabilityPickHTML("mcp", "tools", item.title || item.name, item.title || item.name, item.description,
           `${pill(item.effect, item.requires_approval ? "amber" : "green")}${pill(item.readiness, item.readiness === "ready" ? "green" : "red")}`, item.id)).join("")
       : `<p class="command-empty">No indexed tool matches “${escapeHTML(query)}”.</p>`}</div></section>`;
   }
@@ -2772,8 +3295,9 @@ function applyDensity(density) {
   const button = $("#densityToggle");
   if (!button) return;
   const compact = density === "compact";
-  button.textContent = compact ? "Compact" : "Comfortable";
+  button.textContent = "Aa";
   button.setAttribute("aria-pressed", String(compact));
+  button.setAttribute("aria-label", compact ? "Use comfortable spacing" : "Use compact spacing");
   button.title = compact
     ? "Compact spacing, sized for a laptop display. Click for comfortable."
     : "Comfortable spacing, sized for a desktop display. Click for compact.";
@@ -2803,7 +3327,7 @@ function bindDensity() {
    looking at the screen, not from us. Each zone still has a floor and a
    ceiling: collapsing one to zero would swallow whatever is inside it, and
    letting it eat the whole window would do the same to its neighbours. */
-const ZONE_LIMITS = { rail: [150, 420], side: [220, 640] };
+const ZONE_LIMITS = { rail: [190, 380], side: [360, 1120] };
 
 // setZoneWidth writes a custom property on the root instead of an inline
 // width on the zone itself. The server sends style-src 'self', so an inline
@@ -2826,7 +3350,7 @@ function setZoneWidth(zone, px) {
 // export should not carry anyone's pane sizes. That is why this lives in
 // localStorage, keyed per project and per view, rather than in SQLite.
 function layoutKey() {
-  return `hermetrix.layout.${state.currentProject?.id || "none"}.${state.view || "chat"}`;
+  return `hermetrix.layout.v2.${state.currentProject?.id || "none"}`;
 }
 
 function saveLayout() {
@@ -2835,6 +3359,13 @@ function saveLayout() {
       zones: state.zoneWidths,
       panes: state.panes,
       maximised: state.maximisedPane,
+      paneLayout: state.paneLayout,
+      paneSplitX: state.paneSplitX,
+      paneSplitY: state.paneSplitY,
+      railProjectsOpen: state.railProjectsOpen,
+      railSetupOpen: state.railSetupOpen,
+      railProjectOpen: state.railProjectOpen,
+      sessionOptionsOpen: state.sessionOptionsOpen,
       railHidden: $("#zones")?.classList.contains("rail-hidden") || false,
       sideHidden: $("#zones")?.classList.contains("side-hidden") || false
     }));
@@ -2850,9 +3381,19 @@ function applyLayout() {
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(layoutKey()) || "null"); } catch { saved = null; }
   const zones = saved?.zones || {};
-  setZoneWidth("rail", zones.rail || 220);
-  setZoneWidth("side", zones.side || 320);
-  state.panes = Array.isArray(saved?.panes) && saved.panes.length ? saved.panes.slice(0, MAX_PANES) : ["files"];
+  setZoneWidth("rail", zones.rail || 248);
+  setZoneWidth("side", zones.side || Math.min(760, Math.max(460, Math.round(window.innerWidth * .42))));
+  const restoredPanes = Array.isArray(saved?.panes) && saved.panes.length ? saved.panes : ["files", "editor", "terminal"];
+  state.panes = [...new Set(restoredPanes.map(id => paneContent(id).id))].slice(0, MAX_PANES);
+  state.paneLayout = normalisePaneLayout(state.panes.length, saved?.paneLayout);
+  state.paneSplitX = Number.isFinite(saved?.paneSplitX) ? Math.min(78, Math.max(22, saved.paneSplitX)) : 50;
+  state.paneSplitY = Number.isFinite(saved?.paneSplitY) ? Math.min(78, Math.max(22, saved.paneSplitY)) : 50;
+  state.railProjectsOpen = saved?.railProjectsOpen !== false;
+  state.railSetupOpen = Boolean(saved?.railSetupOpen);
+  state.railProjectOpen = saved?.railProjectOpen && typeof saved.railProjectOpen === "object" ? saved.railProjectOpen : {};
+  state.sessionOptionsOpen = Boolean(saved?.sessionOptionsOpen);
+  document.documentElement.style.setProperty("--pane-split-x", `${state.paneSplitX}%`);
+  document.documentElement.style.setProperty("--pane-split-y", `${state.paneSplitY}%`);
   state.maximisedPane = Number.isInteger(saved?.maximised) && saved.maximised < state.panes.length
     ? saved.maximised : null;
   collapseZone("rail", Boolean(saved?.railHidden));

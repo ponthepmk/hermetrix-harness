@@ -15,6 +15,7 @@ tmp-*-data/
 # green and contained no program.
 /hermetrix
 coverage.out
+node_modules/
 .DS_Store
 
 # The task corpus is generated, not authored. Unlike corpus/digests, whose cases

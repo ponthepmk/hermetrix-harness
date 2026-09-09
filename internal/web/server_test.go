@@ -133,6 +133,15 @@ func TestBootstrapCollectionsAreArraysAndUIHasSecurityHeaders(t *testing.T) {
 	if logo.StatusCode != http.StatusOK || logo.Header.Get("Content-Type") != "image/png" || len(logoBytes) < 1000 {
 		t.Fatalf("brand asset response: status=%d type=%q bytes=%d", logo.StatusCode, logo.Header.Get("Content-Type"), len(logoBytes))
 	}
+	icons, err := http.Get(server.URL + "/assets/icons/hermetrix-ui.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer icons.Body.Close()
+	iconBytes, _ := io.ReadAll(icons.Body)
+	if icons.StatusCode != http.StatusOK || icons.Header.Get("Content-Type") != "image/svg+xml" || !bytes.Contains(iconBytes, []byte(`id="settings"`)) {
+		t.Fatalf("UI icon asset response: status=%d type=%q bytes=%d", icons.StatusCode, icons.Header.Get("Content-Type"), len(iconBytes))
+	}
 }
 
 func requestHandlerJSON(t *testing.T, handler http.Handler, path, method string, payload any, status int) []byte {

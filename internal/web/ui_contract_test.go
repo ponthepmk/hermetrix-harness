@@ -12,11 +12,12 @@ import (
 func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 	index := mustUIFile(t, "ui/index.html")
 	javascript := mustUIFile(t, "ui/runtime.js") + "\n" + mustUIFile(t, "ui/app.js")
-	stylesheet := mustUIFile(t, "ui/style.css")
+	stylesheet := mustUIFile(t, "ui/style.css") + "\n" + mustUIFile(t, "ui/codex-theme.css")
 	for _, marker := range []string{
-		`id="sessionDock"`, `id="workbenchContent"`, `data-workbench="review"`, `data-workbench="files"`,
-		`data-workbench="artifacts"`, `data-workbench="team"`, `id="commandButton"`, `id="commandDialog"`,
+		`id="sessionDock"`, `id="workspacePaneHost"`, `id="paneAdd"`, `id="paneCountLabel"`,
+		`id="commandButton"`, `id="commandDialog"`,
 		`id="capabilityDialog"`, `<script src="/runtime.js" defer></script>`,
+		`<link rel="stylesheet" href="/vendor/ide.css">`, `<script src="/vendor/ide.js" defer></script>`,
 	} {
 		if !strings.Contains(index, marker) {
 			t.Errorf("cockpit HTML is missing %s", marker)
@@ -25,9 +26,20 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 	for _, marker := range []string{
 		`/api/projects/`, `/api/terminals`, `/api/browser/tabs`, `/api/deliverables`, `/api/teams`,
 		`/api/team-runs`, `renderWorkbenchFiles`, `renderWorkbenchTerminal`, `renderWorkbenchBrowser`,
-		`renderWorkbenchArtifacts`, `renderWorkbenchTeam`, `resizeWorkbenchTerminal`,
+		`renderWorkbenchArtifacts`, `renderWorkbenchTeam`, `mountWorkbenchTerminal`, `resizeTerminalTo`,
+		`HermetrixIDE.createTerminal`, `HermetrixIDE.createEditor`, `codeTabs`, `terminalCursor`,
+		`data-editor-action`, `editorCommandFor`, `runEditorAction`, `codeSymbols`, `data-code-symbol`, `codeCursor`,
 		`renderDeliverableDraftPreview`, `data-team-member`, `data-team-task`, `/cancel`, `cancelWorkbenchTeamRun`,
 		`data-team-approval`, `/approval`, `decideWorkbenchTeamApproval`,
+		// The right workspace is a real 1–4 pane canvas. Every pane can choose
+		// any native work surface and both internal axes are draggable.
+		`const MAX_PANES = 4`, `const PANE_CONTENT`, `id: "review"`, `id: "artifacts"`, `id: "team"`,
+		`data-pane-content`, `data-pane-divider`, `startPaneDrag`, `--pane-split-x`, `--pane-split-y`,
+		`draggable="true"`, `data-pane-drag`, `data-pane-drop-edge`, `movePane`, `placePaneAtEdge`,
+		`bottom-wide`, `top-wide`, `left-wide`, `right-wide`, `paneLayoutSelect`,
+		// Navigation is persistent and projects own their session rows.
+		`renderRailNavigation`, `data-rail-view`, `data-rail-project`, `rail-project-sessions`,
+		`data-rail-project-toggle`, `railProjectsOpen`, `railSetupOpen`, `id="sessionSetup"`,
 		// Command palette, capability picker, paired tool receipts and density.
 		`openCommandPalette`, `openCapabilityPicker`, `mentionSkill`, `mentionCapability`, `groupTimeline`, `applyDensity`,
 		`data-use-capability`, `tool_search`, `tool_describe`, `tool_call`, `session-contract-panel`,
@@ -55,8 +67,9 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 	// has to fit a 13" laptop and a desktop display without a second stylesheet.
 	for _, marker := range []string{
 		`.zones {`, `--rail-width:`, `[data-density="compact"]`,
-		`.workbench-tabs`, `.app-shell`, `.config-nav-item`, `.config-pane`, `.command-dialog`,
+		`.workspace-pane-host`, `.pane-divider`, `.rail-primary`, `.app-shell`, `.config-nav-item`, `.config-pane`, `.command-dialog`,
 		`.capability-dialog`, `details.tool-receipt`, `.tool-center-grid`,
+		`.rail-project-toggle`, `.rail-projects[open]`, `overflow-y: auto`, `scrollbar-gutter: stable`,
 	} {
 		if !strings.Contains(stylesheet, marker) {
 			t.Fatalf("cockpit stylesheet no longer defines the three-zone shell layout: missing %s", marker)
@@ -286,8 +299,8 @@ func TestPickerIsTheFirstScreen(t *testing.T) {
 }
 
 // TestUnbuiltViewsSaySoRatherThanShowingNothing keeps the shell honest while
-// three of its four views are still specs. A tab that opens onto a blank panel
-// is a dead end wearing the clothes of a feature.
+// Work and Knowledge are still specs. Code now has a real file/terminal/browser
+// workspace, so its rail must not describe that implemented surface as spec 2.
 func TestUnbuiltViewsSaySoRatherThanShowingNothing(t *testing.T) {
 	javascript := mustUIFile(t, "ui/app.js")
 	for _, marker := range []string{"function switchView", "const VIEWS", "state.view"} {
@@ -295,7 +308,7 @@ func TestUnbuiltViewsSaySoRatherThanShowingNothing(t *testing.T) {
 			t.Errorf("view switching is missing %s", marker)
 		}
 	}
-	for _, spec := range []string{"spec 2", "spec 3", "spec 4"} {
+	for _, spec := range []string{"spec 3", "spec 4"} {
 		if !strings.Contains(javascript, spec) {
 			t.Errorf("an unbuilt view does not name the spec it is waiting on (%s)", spec)
 		}
@@ -333,10 +346,10 @@ func TestLayoutIsRememberedPerProjectAndView(t *testing.T) {
 // that needs room must be able to take it, up to a ceiling that stays testable.
 func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 	javascript := mustUIFile(t, "ui/app.js")
-	stylesheet := mustUIFile(t, "ui/style.css")
+	stylesheet := mustUIFile(t, "ui/style.css") + "\n" + mustUIFile(t, "ui/codex-theme.css")
 	for _, marker := range []string{
 		"const PANE_CONTENT", "function splitPane", "function setPaneContent",
-		"function maximisePane", "MAX_PANES",
+		"function maximisePane", "function movePane", "function placePaneAtEdge", "MAX_PANES",
 	} {
 		if !strings.Contains(javascript, marker) {
 			t.Errorf("pane support is missing %s", marker)
@@ -348,7 +361,9 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 			t.Errorf("pane content is missing %s", id)
 		}
 	}
-	if !strings.Contains(stylesheet, ".pane-grid") || !strings.Contains(stylesheet, "--pane-columns") {
+	if !strings.Contains(stylesheet, ".pane-grid") || !strings.Contains(stylesheet, "--pane-columns") ||
+		!strings.Contains(stylesheet, ".pane-arrangement-bottom-wide") ||
+		!strings.Contains(stylesheet, ".pane-arrangement-top-wide") {
 		t.Error("stylesheet does not define the pane grid")
 	}
 }

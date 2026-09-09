@@ -5,7 +5,9 @@ package assets
 
 import "embed"
 
-// Files contains the brand directory at paths such as brand/hermetrix-mark.png.
+// Files contains the brand and shared UI icon directories. Keeping the line
+// icons in the same immutable product bundle lets browser and desktop mode use
+// one visual vocabulary without a CDN or a runtime dependency.
 //
-//go:embed brand/*
+//go:embed brand/* icons/*
 var Files embed.FS

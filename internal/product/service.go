@@ -34,6 +34,7 @@ type Service struct {
 	mu          sync.Mutex
 	cancels     map[string]context.CancelFunc
 	terminals   map[string]*terminalRuntime
+	terminalWG  sync.WaitGroup
 	browser     *browserRuntime
 	browserTabs map[string]*browserTabRuntime
 	agent       teamAgentRunner
@@ -125,6 +126,7 @@ func (s *Service) Close() {
 	s.teamCancel()
 	s.teamWG.Wait()
 	s.closeTerminals()
+	s.terminalWG.Wait()
 	s.closeBrowser()
 }
 

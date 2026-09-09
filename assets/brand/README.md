@@ -11,6 +11,7 @@ Hermetrix combines four ideas:
 
 | File | Role |
 |---|---|
+| `hermetrix-mark-flat.svg` | quiet flat app/runtime mark for the document-first desktop theme |
 | `hermetrix-mark-v3.png` | current compact 1,254px transparent galactic mark |
 | `hermetrix-engine-v3.png` | current 1,322×1,190px transparent engine master |
 | `hermetrix-engine-v3-512.png` | current detailed UI emblem |
@@ -37,6 +38,11 @@ Hermetrix combines four ideas:
 | `hermetrix-engine-512.png` | optimized UI engine emblem |
 
 All masters are original raster assets generated for this project. The selected v3 identity keeps the friendly intelligent-tool silhouette and turns the central core into a restrained galactic learning nucleus. The assistant role is expressed primarily through product behavior and UX rather than adding a literal chat symbol to the brand mark. Cyan/teal remains the primary signal, lime represents continuity and violet distinguishes capability evolution. It does not reuse Aetox branding or source assets.
+
+The desktop interface uses the flat SVG mark and the line-icon sprite in
+`assets/icons/hermetrix-ui.svg`. These preserve the bracket-and-core identity
+while matching the quieter workspace theme; the detailed raster masters remain
+available for launch, marketing, and larger identity surfaces.
 
 ## Palette
 

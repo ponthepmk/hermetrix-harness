@@ -91,11 +91,13 @@ func (s *Service) StartTerminal(ctx context.Context, input StartTerminalInput) (
 	s.mu.Lock()
 	s.terminals[session.ID] = runtime
 	s.mu.Unlock()
+	s.terminalWG.Add(1)
 	go s.captureTerminal(runtime)
 	return session, nil
 }
 
 func (s *Service) captureTerminal(runtime *terminalRuntime) {
+	defer s.terminalWG.Done()
 	buffer := make([]byte, 8192)
 	for {
 		count, err := runtime.ptmx.Read(buffer)

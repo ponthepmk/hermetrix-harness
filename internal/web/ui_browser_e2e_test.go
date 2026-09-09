@@ -85,6 +85,127 @@ func TestCockpitHydratesInARealBrowser(t *testing.T) {
 	}
 }
 
+// TestIDEWorkspaceRunsInARealBrowser covers the two work surfaces whose
+// behaviour cannot be proved by source inspection: CodeMirror must mount and
+// save through the bounded file API, and xterm must send real key input to the
+// PTY while preserving terminal escape sequences on output.
+func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		if os.Getenv("HERMETRIX_REQUIRE_BROWSER_E2E") == "1" {
+			t.Fatal("Chrome is required for the UI E2E job")
+		}
+		t.Skip("Chrome is not installed")
+	}
+	root := t.TempDir()
+	filePath := filepath.Join(root, "main.go")
+	if err := os.WriteFile(filePath, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := testHTTPServer(t)
+	projectBody := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "IDE project", "root_path": root}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`openProject(%q).then(() => { switchView('code'); }); 'opened'`, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-workbench-file="main.go"]') ? 'files' : ''`, "files")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-workbench-file="main.go"]').click(); 'clicked'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.cm-editor') ? 'editor' : ''`, "editor")
+	waitBrowserValue(t, ctx, client, `document.querySelector('.xterm-helper-textarea') ? 'terminal' : ''`, "terminal")
+	waitBrowserValue(t, ctx, client, `(() => { const line=[...document.querySelectorAll('.cm-line')].find(node => node.textContent.includes('package main')); if (!line) return ''; const token=line.querySelector('span') || line; const color=getComputedStyle(token).color; return color !== 'rgb(20, 20, 20)' && color !== 'rgba(0, 0, 0, 0)' ? 'visible' : ''; })()`, "visible")
+	waitBrowserValue(t, ctx, client, `document.querySelectorAll('[data-editor-action]').length === 4 && document.querySelector('[data-code-symbol]') ? 'ide-tools' : ''`, "ide-tools")
+
+	if _, err := client.evaluate(ctx, `document.querySelector('.cm-content').focus(); document.execCommand('insertText', false, '// browser-e2e\n'); 'edited'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": "s", "code": "KeyS", "modifiers": 4}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": "s", "code": "KeyS", "modifiers": 4}, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, readErr := os.ReadFile(filePath)
+		if readErr == nil && strings.Contains(string(data), "browser-e2e") {
+			break
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil || !strings.Contains(string(data), "browser-e2e") {
+		t.Fatalf("CodeMirror Mod-S did not save through the project API: %q err=%v", data, err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-editor-action="format"]') ? 'format-ready' : ''`, "format-ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-editor-action="format"]').click(); 'format'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.xterm-rows')?.textContent.includes('gofmt -w') ? 'formatted' : ''`, "formatted")
+
+	if _, err := client.evaluate(ctx, `document.querySelector('.xterm-helper-textarea').focus(); 'focused'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.insertText", map[string]any{"text": "printf '\\033[31mPTY-E2E\\033[0m\\n'"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": "Enter", "code": "Enter"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": "Enter", "code": "Enter"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.xterm-rows')?.textContent.includes('PTY-E2E') ? 'pty' : ''`, "pty")
+}
+
+func waitBrowserValue(t *testing.T, ctx context.Context, client *e2eCDPClient, expression, want string) {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	var value string
+	var err error
+	for time.Now().Before(deadline) {
+		value, err = client.evaluate(ctx, expression)
+		if err == nil && value == want {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("browser value did not become %q: value=%q err=%v", want, value, err)
+}
+
 type e2eChromeTarget struct {
 	ID                   string `json:"id"`
 	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
