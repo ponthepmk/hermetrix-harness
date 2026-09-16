@@ -341,6 +341,20 @@ func (s *Service) GetArtifact(ctx context.Context, id string) (Artifact, []byte,
 	return item, data, err
 }
 
+// FindArtifactByOperationID resolves evidence written for one durable effect.
+// The operation id is generated locally and unique at the effect boundary;
+// callers still validate artifact kind and body before using it as evidence.
+func (s *Service) FindArtifactByOperationID(ctx context.Context, operationID string) (Artifact, []byte, error) {
+	item, err := scanArtifact(s.store.DB.QueryRowContext(ctx, `SELECT id,COALESCE(project_id,''),COALESCE(session_id,''),
+    name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at FROM artifacts
+    WHERE json_extract(metadata_json,'$.operation_id')=? ORDER BY created_at DESC,id DESC LIMIT 1`, strings.TrimSpace(operationID)))
+	if err != nil {
+		return Artifact{}, nil, err
+	}
+	data, err := s.store.Blobs.Get(item.BlobRef)
+	return item, data, err
+}
+
 func (s *Service) SaveSetting(ctx context.Context, key string, value any) (Setting, error) {
 	key = strings.TrimSpace(key)
 	if !settingKeyPattern.MatchString(key) || containsSecretField(value) {

@@ -37,6 +37,17 @@ Go (non-test)      31,685        Go (test)           18,452
 
 ## 2. Workbench ที่ทำงานจริงแล้ว
 
+### Durable Task cockpit
+
+- requirement/plan/run/attempt/effect/proposal เป็น durable state และ resume จาก exact persisted step packet
+- automatic planner map acceptance criteria และ freeze effect scope/checks
+- ถ้าไม่ระบุไฟล์เอง ระบบสร้าง manifest สูงสุด 2,000 source-like files โดยไม่ follow symlink, ข้าม secret/hidden/generated paths และไม่อ่าน content ในขั้นนี้
+- provider เลือก 1–32 path จาก manifest ผ่าน strict structured output; selection ถูก persist เป็น immutable artifact + observed effect และการเรียกซ้ำหลัง reload ใช้ผลเดิม ไม่ยิง provider ซ้ำ
+- content ของไฟล์ที่เลือกจึงค่อยเข้าขั้น proposal แยก; apply ต้องผ่าน human review, frozen verification และ independent post-test review
+- หลัง restart effect ของ command และ provider selection/proposal reconcile จาก operation-bound job/artifact ได้โดยไม่ replay; Task cockpit แสดงปุ่ม explicit reconciliation เมื่อพบ `uncertain`
+
+ขอบเขตที่ยังเหลือ: selector นี้รองรับ bounded code proposal เท่านั้น ยังไม่ใช่ generalized post-review/browser/MCP/desktop orchestration และ effect กลุ่มหลังยังต้องมี target-specific reconciliation adapter
+
 ### Files
 
 - project-bound tree/read/write/diff
@@ -115,7 +126,7 @@ auto-promote เปิดตามคำสั่งเจ้าของแล�
 
 ## 4. Context และ provider
 
-- profiles: 32k, 64k, 128k, 256k, 1M
+- profiles: 32k, 64k, 96k, 128k, 256k, 1M; 96k means 98,304 tokens and still requires runtime-specific qualification before selection
 - qualified capacity ใช้ evidence ที่ผูก exact provider/model/revision/profile ไม่เชื่อ declared context อย่างเดียว
 - SessionContract/Skill catalog/cache epoch freeze ระหว่าง session
 - typed fragments, causal-pair integrity, spill/recovery และ token ledger

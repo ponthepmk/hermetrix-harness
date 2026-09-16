@@ -52,7 +52,7 @@ Qualification intentionally separates two axes:
 
 | Axis | Values | Required evidence |
 |---|---|---|
-| Context tier | `compact-32k`, `certified-64k`, `extended-128k`, `extended-256k`, `ultra-1m`, `limited` | loaded runtime allocation plus long-context recall |
+| Context tier | `compact-32k`, `certified-64k`, `extended-96k`, `extended-128k`, `extended-256k`, `ultra-1m`, `limited` | loaded runtime allocation plus long-context recall |
 | Capability grade | A, B, C | tool/schema/recovery/deferred/cancellation behavior |
 
 The suite measures connectivity, provider usage calibration, a long-context sentinel, Thai instruction against an English JSON schema, native/sequential/malformed-recovery/deferred tools, cancellation, foreground preemption, TTFT, total latency and throughput. If a requested profile is not eligible the report sets `requires_decision`; it never changes profile/provider/tool mode silently.

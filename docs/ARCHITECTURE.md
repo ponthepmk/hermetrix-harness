@@ -13,7 +13,7 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - create/edit/improve/promote/reject/archive/restore lifecycle
 - background learning review แบบ persisted, idempotent และ proposal-only
 - provenance, activation/usage receipt และ curator report-only
-- context compiler สำหรับ 32k/64k/128k/256k/1M envelopes
+- context compiler สำหรับ 32k/64k/96k/128k/256k/1M envelopes
 - deterministic compaction, causal-pair integrity, tool-output spill และ adaptive token estimate
 - local runtime context probe สำหรับ Ollama, LM Studio, vLLM และ llama.cpp
 - provider registry ที่แยก credential ต่อ profile และ dispatch ผ่าน interface ไป OpenAI-compatible streaming, Anthropic native และ Gemini native
@@ -22,6 +22,14 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - immutable `SessionContract` ที่ freeze provider/model revision, context profile, policy/capability revision, Skill catalog, `CacheEpoch` และ `TaskBudget` ตอนเปิด session
 - persisted per-session turn lease ที่ acquire lease และ append user event ใน transaction เดียว พร้อม recovery ของ orphaned turn ตอน restart
 - `TaskBudget` แทน hard-coded step limit: model steps, tool calls, wall time และ cumulative tokens
+- durable task spine: immutable requirement/plan revisions, dependency DAG, evidence-gated step/task completion, optimistic revisions และ restart recovery ที่ pause พร้อม checkpoint โดยไม่ replay effect
+- authoritative step packet: scheduler เลือก runnable step แบบ deterministic, รวม exact revisions/requirements/evidence/checkpoint/effects, hash canonical payload และ fail closed เมื่อ packet เกินขนาดแทนการตัด constraint
+- durable execution boundary: leased task runs, exact step attempts และ operation-addressed effect intents ผ่าน local API; action ต้องอยู่ใน frozen `effect_scope`, crash ก่อน dispatch = abandoned, crash หลัง dispatch ก่อน receipt = uncertain และ resume ถูกปฏิเสธจน reconcile
+- proposal coordinator: bind packet hash + attempt + provider revision, สร้าง manifest แบบ bounded ที่ไม่ follow symlink/ไม่รวม secret/generated path, ให้ provider เลือกไม่เกิน 32 path โดยยังไม่เห็น file content และ persist เป็น immutable `task_file_selection` effect/artifact; จากนั้น hydrate เฉพาะไฟล์ที่เลือก, ตรวจ active provider credential ก่อน egress, บันทึกผลเป็น immutable `code_proposal` artifact และไม่เขียน source; การ apply/review/test ยังเป็น gate แยก
+- code review/apply gate: schema v32 เก็บ proposal และ review decision แบบ durable, ตัดสินได้ครั้งเดียว, apply ได้หลัง approved เท่านั้น, ตรวจทุก preimage hash ก่อนเขียน และ rollback ไฟล์ที่เขียนสำเร็จแล้วเมื่อ batch ล้มเหลว; ผลหลัง apply ยังเป็น `applied_unverified` จนกว่าจะผ่าน test gate
+- post-apply verification: command set ต้องครอบ frozen step checks ทุกข้อพอดี, รันผ่าน managed sandbox jobs และสร้าง immutable evidence bundle; จากนั้น provider profile ที่ต่างจาก implementer ทั้ง identity และ model/endpoint ต้อง review exact source/evidence bundle ก่อน promote requirement evidence และ complete task ส่วน test/review ที่ไม่ผ่าน rollback จาก immutable preimage artifact และ fail attempt/run/step
+- effect result lookup: workspace operation ID ถูก persist ใน background job ก่อน process start และมี unique index; provider selection/proposal artifact ผูก operation ID ใน immutable metadata; recovery จึง reconcile terminal job หรือ validated artifact โดยไม่ replay คำสั่ง/model request ส่วน post-review/browser/MCP effect ที่ยังไม่มี target-specific lookup อยู่ใน unsupported queue
+- automatic planner: provider รับเฉพาะ immutable task/requirement revision bundle, ตอบ structured plan ที่ทุก criterion ต้องถูก map, dependency/effect scope ถูก validate ซ้ำใน deterministic task engine และ planner dispatch มี durable planned/dispatched/observed/failed/uncertain state โดย recovery ไม่ retry request
 - learning trigger outbox ที่เขียน trigger ใน transaction เดียวกับ turn commit แล้ว drain เป็น review job แบบ idempotent
 - multi-step model/tool loop พร้อม bounded reads และ approval-gated atomic text write ที่มี path boundary, optimistic hash, deadline และ normalized receipt
 - deferred capability catalog ที่ prompt เห็นเพียง `tool_search`, `tool_describe`, `tool_call` โดยไม่โตตามจำนวน remote tools
@@ -43,6 +51,8 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - curator stale/duplicate findings, consolidation/replay plan, idle/AC schedules และ recoverable CAS quarantine GC
 
 ขอบเขตที่ยังไม่ควรตีความว่า production-complete:
+
+- task engine มี persistence/API/invariants, automatic planner, run/attempt/effect state machine, exact packet resume, bounded automatic file selection, proposal-only provider dispatch, review/apply, frozen-command test evidence gate, independent post-test review ก่อน requirement closure, managed-command/selection/proposal reconciliation และ Task cockpit สำหรับ create/list/inspect/plan/select/propose/review/apply/verify/post-review แล้ว แต่ยังขาด lookup/reconciliation adapter สำหรับ post-review/browser/MCP effects และ generalized orchestration loop นอก bounded code workflow
 
 - crash-resume กลาง model sampling, live interjection และ generalized idempotency นอกเหนือจาก contracts ที่ระบุ
 - command isolation ใช้ macOS Seatbelt จริง, Linux Bubblewrap เมื่อมี (หรือ fail closed ด้วย `HERMETRIX_REQUIRE_OS_SANDBOX=1`) และ Windows Job Object สำหรับ process lifetime; Windows isolation profile ยังขาด
@@ -245,18 +255,18 @@ Context ไม่เป็น string ก้อนเดียว แต่ทุ
 
 ### Budget profiles
 
-| Slice | Compact 32k | Certified 64k | Extended 128k | Extended 256k | Ultra 1M |
-|---|---:|---:|---:|---:|---:|
-| Output reserve | 4,096 | 8,192 | 16,384 | 32,768 | 65,536 |
-| Estimator uncertainty | 2,048 | 4,096 | 8,192 | 16,384 | 32,768 |
-| System/policy | 2,048 | 3,072 | 4,096 | 6,144 | 8,192 |
-| Direct tool schemas | 3,584 | 4,096 | 4,096 | 6,144 | 8,192 |
-| Selected Skill + project | 3,072 | 6,144 | 12,288 | 24,576 | 65,536 |
-| Pinned intent | 2,048 | 3,072 | 6,144 | 12,288 | 32,768 |
-| Active history + next-tool burst | 15,872 | 36,864 | 79,872 | 163,840 | 835,584 |
-| **Total** | **32,768** | **65,536** | **131,072** | **262,144** | **1,048,576** |
+| Slice | Compact 32k | Certified 64k | Extended 96k | Extended 128k | Extended 256k | Ultra 1M |
+|---|---:|---:|---:|---:|---:|---:|
+| Output reserve | 4,096 | 8,192 | 12,288 | 16,384 | 32,768 | 65,536 |
+| Estimator uncertainty | 2,048 | 4,096 | 6,144 | 8,192 | 16,384 | 32,768 |
+| System/policy | 2,048 | 3,072 | 3,584 | 4,096 | 6,144 | 8,192 |
+| Direct tool schemas | 3,584 | 4,096 | 4,096 | 4,096 | 6,144 | 8,192 |
+| Selected Skill + project | 3,072 | 6,144 | 9,216 | 12,288 | 24,576 | 65,536 |
+| Pinned intent | 2,048 | 3,072 | 4,608 | 6,144 | 12,288 | 32,768 |
+| Active history + next-tool burst | 15,872 | 36,864 | 58,368 | 79,872 | 163,840 | 835,584 |
+| **Total** | **32,768** | **65,536** | **98,304** | **131,072** | **262,144** | **1,048,576** |
 
-64k คือ minimum ของเป้าหมาย Certified Agent Mode; 32k เก็บไว้เป็น Compact compatibility/stress profile ส่วน 128k, 256k และ 1M เป็น selectable extended envelopes สำหรับ runtime ที่ probe allocation ได้จริง การมี window ใหญ่ไม่ทำให้ direct tool schemas โตตามสัดส่วน—เพดานยังอยู่ที่ 4k–8k เพื่อรักษา progressive capability exposure และ prompt-cache efficiency
+64k คือ minimum ของเป้าหมาย Certified Agent Mode; 32k เก็บไว้เป็น Compact compatibility/stress profile และ 96k ใช้ความหมายแบบ binary 96 × 1,024 = 98,304 tokens สำหรับเครื่อง local ที่มี context จำกัด ส่วน 128k, 256k และ 1M เป็น selectable extended envelopes ทุก profile เลือกได้ต่อเมื่อ runtime นั้นมี allocation/qualification ที่ตรงกัน การมี window ใหญ่ไม่ทำให้ direct tool schemas โตตามสัดส่วน—เพดานยังอยู่ที่ 4k–8k เพื่อรักษา progressive capability exposure และ prompt-cache efficiency
 
 ### Compile pipeline
 

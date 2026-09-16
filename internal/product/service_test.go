@@ -111,6 +111,28 @@ func TestWorkbenchFileOptimisticWriteAndAuditReceipt(t *testing.T) {
 	}
 }
 
+func TestManagedCommandCanBeLookedUpByDurableOperationID(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Lookup", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, OperationID: "operation-test-1",
+		Actor: "test", Executable: "ls", WorkingDir: ".", TimeoutSeconds: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := service.FindJobByOperationID(ctx, "operation-test-1")
+	if err != nil || found.ID != job.ID || found.Payload["operation_id"] != "operation-test-1" {
+		t.Fatalf("found=%+v err=%v", found, err)
+	}
+	if _, err = service.StartCommand(ctx, CommandInput{ProjectID: project.ID, OperationID: "operation-test-1",
+		Actor: "test", Executable: "ls", WorkingDir: ".", TimeoutSeconds: 10}); err == nil {
+		t.Fatal("duplicate durable operation id created a second job")
+	}
+}
+
 func TestBackgroundCommandIsDirectBoundedAuditableAndCancelable(t *testing.T) {
 	service, _, _ := testProductService(t)
 	ctx := context.Background()

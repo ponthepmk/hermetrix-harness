@@ -1,0 +1,6 @@
+{
+  "brief": "Fix Add so it returns the sum of both integers. Change only sum.go. The caller will independently run regression tests. Submit the change using submit_changes.",
+  "files": {
+    "sum.go": "package sum\n\nfunc Add(a, b int) int { return a - b }\n"
+  }
+}

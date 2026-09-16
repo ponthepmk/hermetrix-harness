@@ -125,6 +125,29 @@ func TestRunNextReportsEmptyQueue(t *testing.T) {
 	}
 }
 
+func TestRunQueuedAdvancesOnlyItsBoundedBatch(t *testing.T) {
+	service, _, _ := setupLearning(t, StructuredReviewer{})
+	ctx := context.Background()
+	for index := 0; index < 3; index++ {
+		if _, _, err := service.Enqueue(ctx, EnqueueInput{SessionID: "session-batch", MilestoneID: string(rune('a' + index)),
+			TriggerKind: "batch", Digest: Digest{GoalAndConstraints: "review bounded evidence"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	processed, err := service.RunQueued(ctx, 2)
+	if err != nil || processed != 2 {
+		t.Fatalf("processed=%d err=%v", processed, err)
+	}
+	completed, err := service.List(ctx, StateCompleted)
+	if err != nil || len(completed) != 2 {
+		t.Fatalf("completed=%d err=%v", len(completed), err)
+	}
+	queued, err := service.List(ctx, StateQueued)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queued=%d err=%v", len(queued), err)
+	}
+}
+
 func TestInterruptedReviewIsRecoveredAfterRestart(t *testing.T) {
 	service, _, _ := setupLearning(t, StructuredReviewer{})
 	ctx := context.Background()

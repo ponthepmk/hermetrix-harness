@@ -27,6 +27,8 @@ import (
 	"hermetrix-harness/internal/qualification"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
+	"hermetrix-harness/internal/taskcoord"
+	"hermetrix-harness/internal/taskengine"
 )
 
 //go:embed ui/*
@@ -46,6 +48,8 @@ type Server struct {
 	fidelity  *fidelity.Service
 	qualifier *qualification.Service
 	product   *product.Service
+	tasks     *taskengine.Service
+	coord     *taskcoord.Service
 	store     *store.Store
 	logger    *slog.Logger
 	auth      *authenticator
@@ -58,6 +62,16 @@ func (s *Server) WithAuthentication(token, principal string, secureCookie bool) 
 
 func (s *Server) WithProduct(service *product.Service) *Server {
 	s.product = service
+	return s
+}
+
+func (s *Server) WithTaskEngine(service *taskengine.Service) *Server {
+	s.tasks = service
+	return s
+}
+
+func (s *Server) WithTaskCoordinator(service *taskcoord.Service) *Server {
+	s.coord = service
 	return s
 }
 
@@ -172,6 +186,35 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/turns", s.runTurn)
 	mux.HandleFunc("POST /api/approvals/{id}/decisions", s.decideApproval)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
+	mux.HandleFunc("GET /api/tasks", s.listDurableTasks)
+	mux.HandleFunc("POST /api/tasks", s.createDurableTask)
+	mux.HandleFunc("GET /api/tasks/{id}", s.getDurableTask)
+	mux.HandleFunc("GET /api/tasks/{id}/next-packet", s.getTaskNextPacket)
+	mux.HandleFunc("GET /api/tasks/{id}/execution", s.getTaskExecution)
+	mux.HandleFunc("POST /api/tasks/{id}/auto-plan", s.autoPlanTask)
+	mux.HandleFunc("POST /api/tasks/{id}/runs", s.beginTaskRun)
+	mux.HandleFunc("POST /api/task-runs/{id}/lease", s.renewTaskRunLease)
+	mux.HandleFunc("POST /api/task-runs/{id}/attempts", s.beginTaskAttempt)
+	mux.HandleFunc("POST /api/task-attempts/{id}/effects", s.planTaskEffect)
+	mux.HandleFunc("POST /api/task-attempts/{id}/select-files", s.selectTaskFiles)
+	mux.HandleFunc("POST /api/task-attempts/{id}/proposals", s.createTaskProposal)
+	mux.HandleFunc("GET /api/task-code-proposals/{id}", s.getTaskCodeProposal)
+	mux.HandleFunc("POST /api/task-code-proposals/{id}/decision", s.decideTaskCodeProposal)
+	mux.HandleFunc("POST /api/task-code-proposals/{id}/apply", s.applyTaskCodeProposal)
+	mux.HandleFunc("POST /api/task-code-proposals/{id}/verify", s.verifyTaskCodeProposal)
+	mux.HandleFunc("POST /api/task-code-proposals/{id}/verify-frozen", s.verifyFrozenTaskCodeProposal)
+	mux.HandleFunc("POST /api/task-code-proposals/{id}/post-review", s.postReviewTaskCodeProposal)
+	mux.HandleFunc("POST /api/task-effects/{operation}/transitions", s.transitionTaskEffect)
+	mux.HandleFunc("POST /api/task-effects/{operation}/reconcile-workspace-run", s.reconcileWorkspaceRunEffect)
+	mux.HandleFunc("POST /api/task-effects/{operation}/reconcile", s.reconcileTaskEffect)
+	mux.HandleFunc("POST /api/task-effects/reconcile-uncertain", s.reconcileUncertainEffects)
+	mux.HandleFunc("POST /api/task-attempts/{id}/complete", s.completeTaskAttempt)
+	mux.HandleFunc("POST /api/tasks/{id}/requirements", s.reviseTaskRequirements)
+	mux.HandleFunc("POST /api/tasks/{id}/plans", s.createTaskPlan)
+	mux.HandleFunc("POST /api/tasks/{id}/steps/{step}/transitions", s.transitionTaskStep)
+	mux.HandleFunc("POST /api/tasks/{id}/validations", s.recordTaskValidation)
+	mux.HandleFunc("POST /api/tasks/{id}/checkpoints", s.createTaskCheckpoint)
+	mux.HandleFunc("POST /api/tasks/{id}/complete", s.completeDurableTask)
 	mux.HandleFunc("GET /api/filesystem/directories", s.browseDirectories)
 	mux.HandleFunc("GET /api/elicitations", s.listElicitations)
 	mux.HandleFunc("POST /api/elicitations/{id}/answer", s.answerElicitation)
@@ -203,6 +246,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("POST /api/artifacts", s.createArtifact)
+	mux.HandleFunc("POST /api/artifacts/upload", s.uploadImageArtifact)
 	mux.HandleFunc("POST /api/deliverables", s.createDeliverable)
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.getArtifactContent)
 	mux.HandleFunc("GET /api/settings", s.listSettings)

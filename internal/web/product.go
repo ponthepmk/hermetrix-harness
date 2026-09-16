@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -416,6 +417,59 @@ func (s *Server) createArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item, err := s.product.CreateArtifact(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// uploadImageArtifact stores a composer-attached image as an immutable CAS
+// artifact and returns it for reference. The model cannot see pixels yet —
+// providers are text-only — so the message carries an artifact reference the
+// human can open, not a silent promise of vision.
+func (s *Server) uploadImageArtifact(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		ProjectID string `json:"project_id"`
+		SessionID string `json:"session_id"`
+		Name      string `json:"name"`
+		MIMEType  string `json:"mime_type"`
+		Base64    string `json:"base64"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	mime := strings.ToLower(strings.TrimSpace(input.MIMEType))
+	extensions := map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+	extension, ok := extensions[mime]
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "only png, jpeg, webp or gif images are accepted"})
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(input.Base64)
+	if err != nil || len(raw) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "image body is not valid base64"})
+		return
+	}
+	if len(raw) > 8<<20 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "image exceeds the 8 MiB composer limit"})
+		return
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "pasted-image"
+	}
+	if !strings.Contains(name, ".") {
+		name += "." + extension
+	}
+	item, err := s.product.CreateArtifact(r.Context(), product.ArtifactInput{
+		ProjectID: input.ProjectID, SessionID: input.SessionID,
+		Name: name, Kind: "image", MIMEType: mime,
+		Content: string(raw), Metadata: map[string]any{"source": "composer-drop"},
+	})
 	if err != nil {
 		writeError(w, err)
 		return

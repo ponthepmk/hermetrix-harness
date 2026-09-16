@@ -394,39 +394,17 @@ func contextTier(allocated int, recall bool) string {
 	if !recall {
 		return "limited"
 	}
-	if allocated >= 1048576 {
-		return "ultra-1m"
-	}
-	if allocated >= 262144 {
-		return "extended-256k"
-	}
-	if allocated >= 131072 {
-		return "extended-128k"
-	}
-	if allocated >= 65536 {
-		return "certified-64k"
-	}
-	if allocated >= 32768 {
-		return "compact-32k"
+	if profile, ok := ctxcompiler.BestProfileForCapacity(allocated); ok {
+		return profile.Name
 	}
 	return "limited"
 }
 
 func contextCapacity(tier string) int {
-	switch tier {
-	case "ultra-1m":
-		return 1048576
-	case "extended-256k":
-		return 262144
-	case "extended-128k":
-		return 131072
-	case "certified-64k":
-		return 65536
-	case "compact-32k":
-		return 32768
-	default:
-		return 0
+	if profile, ok := ctxcompiler.ProfileByName(tier); ok {
+		return profile.Total
 	}
+	return 0
 }
 
 func capabilityGrade(result Results) string {

@@ -129,6 +129,36 @@ func mustUIFile(t *testing.T, name string) string {
 	return string(data)
 }
 
+// TestDurableTaskCockpitIsWiredToTheTaskAPI guards the first usable task
+// cockpit slice: a project-scoped task can be created, selected, inspected and
+// sent to the automatic planner without falling back to transient browser
+// state. Deeper execution/review controls are deliberately covered by the task
+// engine and coordinator tests rather than implied by this UI contract.
+func TestDurableTaskCockpitIsWiredToTheTaskAPI(t *testing.T) {
+	javascript := mustUIFile(t, "ui/app.js")
+	for _, marker := range []string{
+		`id: "tasks"`,
+		`function renderTaskCockpit`,
+		`/api/tasks?limit=100`,
+		`/execution`,
+		`/auto-plan`,
+		`expected_task_revision`,
+		`function startTaskProposal`,
+		`/select-files`,
+		`Leave empty for bounded automatic selection`,
+		`taskReconcileEffects`,
+		`Reconciliation only inspects durable local evidence`,
+		`data-task-proposal-decision`,
+		`taskApplyProposal`,
+		`verify-frozen`,
+		`taskReviewerProvider`,
+	} {
+		if !strings.Contains(javascript, marker) {
+			t.Errorf("durable task cockpit is missing %s", marker)
+		}
+	}
+}
+
 // TestShellHasOneViewSwitchAndDraggableZones pins the shape the redesign exists
 // for. Two switchers is the mistake the mockup made; a zone that cannot be
 // resized is the mistake the first draft made when it put a terminal in 320px.
@@ -517,7 +547,7 @@ var (
 	// currentColor names "whatever --text/--accent/etc already resolved
 	// to" rather than answering "what is this colour" a second time.
 	colourKeywordPattern = regexp.MustCompile(`(?i)\b(` + strings.Join(cssColourKeywords, "|") + `)\b`)
-	cssColourKeywords     = []string{
+	cssColourKeywords    = []string{
 		"aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
 		"blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
 		"chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan",

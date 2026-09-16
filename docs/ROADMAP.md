@@ -15,7 +15,7 @@ Roadmap นี้วางลำดับจาก correctness ไป product br
 - Skill candidates/versions/checks/promotion/archive/restore
 - background review queue + foreground priority
 - curator report-only + usage/provenance
-- 32k/64k/128k/256k/1M context compiler + diagnostics
+- 32k/64k/96k/128k/256k/1M context compiler + diagnostics
 - allocated-context runtime probe
 - local Skill Control Center
 

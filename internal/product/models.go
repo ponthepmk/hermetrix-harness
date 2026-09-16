@@ -305,6 +305,7 @@ type Job struct {
 
 type CommandInput struct {
 	ProjectID      string   `json:"project_id"`
+	OperationID    string   `json:"operation_id,omitempty"`
 	Actor          string   `json:"actor"`
 	Executable     string   `json:"executable"`
 	Arguments      []string `json:"arguments"`

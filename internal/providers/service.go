@@ -224,6 +224,22 @@ func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatR
 	return adapter.StreamChat(ctx, profile, key, request, emit)
 }
 
+// CredentialAppearsIn lets an egress boundary reject source or prompts that
+// contain the active provider credential without exposing that credential to
+// the caller. It is deliberately an equality/containment guard, not a getter.
+func (s *Service) CredentialAppearsIn(profile Profile, values ...string) bool {
+	key, err := s.credential(profile)
+	if err != nil || key == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.Contains(value, key) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) Test(ctx context.Context, id string) (TestResult, error) {
 	profile, err := s.Get(ctx, id)
 	if err != nil {

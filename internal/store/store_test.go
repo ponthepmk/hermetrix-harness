@@ -40,11 +40,23 @@ func TestMigrationFromV1AddsLearningAgentAndBindingTables(t *testing.T) {
 			t.Fatalf("provider_profiles is missing column %s: found=%d err=%v", column, found, err)
 		}
 	}
-	for _, table := range []string{"learning_reviews", "learning_trigger_outbox", "curator_runs", "provider_profiles", "agent_sessions", "agent_events", "context_snapshots", "event_embeddings", "step_bindings", "tool_approvals", "mcp_servers", "mcp_tools", "skill_replay_runs", "skill_replay_cases", "candidate_capability_reviews", "context_eval_cases", "context_eval_runs", "model_qualification_runs", "projects", "artifacts", "background_jobs", "settings", "memories", "backup_runs", "curator_findings", "maintenance_schedules", "gc_runs", "skill_authority_policy", "skill_authority_actions", "terminal_sessions", "browser_tabs", "agent_teams", "agent_team_members", "agent_team_runs", "agent_team_tasks"} {
+	for _, table := range []string{"learning_reviews", "learning_trigger_outbox", "curator_runs", "provider_profiles", "agent_sessions", "agent_events", "context_snapshots", "event_embeddings", "step_bindings", "tool_approvals", "mcp_servers", "mcp_tools", "skill_replay_runs", "skill_replay_cases", "candidate_capability_reviews", "context_eval_cases", "context_eval_runs", "model_qualification_runs", "projects", "artifacts", "background_jobs", "settings", "memories", "backup_runs", "curator_findings", "maintenance_schedules", "gc_runs", "skill_authority_policy", "skill_authority_actions", "terminal_sessions", "browser_tabs", "agent_teams", "agent_team_members", "agent_team_runs", "agent_team_tasks", "durable_tasks", "task_requirement_revisions", "task_plan_revisions", "task_steps", "task_checkpoints", "task_validations", "task_runs", "task_step_attempts", "task_effect_intents", "task_code_proposals", "task_code_reviews", "task_planner_runs"} {
 		var found string
 		if err := dataStore.DB.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&found); err != nil {
 			t.Fatalf("missing %s: %v", table, err)
 		}
+	}
+	var operationIndex string
+	if err := dataStore.DB.QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_background_jobs_operation'`).Scan(&operationIndex); err != nil {
+		t.Fatalf("missing operation lookup index: %v", err)
+	}
+	var packetColumn int
+	if err := dataStore.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task_step_attempts') WHERE name='packet_json'`).Scan(&packetColumn); err != nil || packetColumn != 1 {
+		t.Fatalf("task_step_attempts is missing packet_json: found=%d err=%v", packetColumn, err)
+	}
+	var requirementIDsColumn int
+	if err := dataStore.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('task_steps') WHERE name='requirement_ids_json'`).Scan(&requirementIDsColumn); err != nil || requirementIDsColumn != 1 {
+		t.Fatalf("task_steps is missing requirement_ids_json: found=%d err=%v", requirementIDsColumn, err)
 	}
 	var sourceColumn int
 	rows, err := dataStore.DB.Query(`PRAGMA table_info(skill_candidates)`)

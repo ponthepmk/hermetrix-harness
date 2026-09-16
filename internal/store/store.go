@@ -220,6 +220,41 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v29: %w", err)
 		}
 	}
+	if version < 30 {
+		if _, err := tx.ExecContext(ctx, schemaV30); err != nil {
+			return fmt.Errorf("apply schema v30: %w", err)
+		}
+	}
+	if version < 31 {
+		if _, err := tx.ExecContext(ctx, schemaV31); err != nil {
+			return fmt.Errorf("apply schema v31: %w", err)
+		}
+	}
+	if version < 32 {
+		if _, err := tx.ExecContext(ctx, schemaV32); err != nil {
+			return fmt.Errorf("apply schema v32: %w", err)
+		}
+	}
+	if version < 33 {
+		if err := migrateV33(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v33: %w", err)
+		}
+	}
+	if version < 34 {
+		if _, err := tx.ExecContext(ctx, schemaV34); err != nil {
+			return fmt.Errorf("apply schema v34: %w", err)
+		}
+	}
+	if version < 35 {
+		if _, err := tx.ExecContext(ctx, schemaV35); err != nil {
+			return fmt.Errorf("apply schema v35: %w", err)
+		}
+	}
+	if version < 36 {
+		if _, err := tx.ExecContext(ctx, schemaV36); err != nil {
+			return fmt.Errorf("apply schema v36: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -232,7 +267,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 29
+const CurrentSchemaVersion = 36
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -1299,6 +1334,265 @@ ALTER TABLE agent_team_tasks ADD COLUMN approval_summary TEXT NOT NULL DEFAULT '
 ALTER TABLE agent_team_tasks ADD COLUMN approval_preview TEXT NOT NULL DEFAULT '';
 ALTER TABLE agent_team_tasks ADD COLUMN approval_effect TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_agent_team_tasks_approval ON agent_team_tasks(approval_id,state);
+`
+
+// schemaV30 is the durable task spine. It deliberately stores immutable
+// requirement/plan revisions separately from mutable execution state: a
+// resumed run can point at the exact contract it was executing instead of a
+// summary that changed while it was offline.
+const schemaV30 = `
+CREATE TABLE IF NOT EXISTS durable_tasks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  title TEXT NOT NULL,
+  objective TEXT NOT NULL,
+  original_request TEXT NOT NULL,
+  state TEXT NOT NULL,
+  active_requirement_revision INTEGER NOT NULL DEFAULT 1,
+  active_plan_revision INTEGER NOT NULL DEFAULT 0,
+  revision INTEGER NOT NULL DEFAULT 1,
+  pause_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_requirement_revisions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  constraints_json TEXT NOT NULL DEFAULT '[]',
+  unknowns_json TEXT NOT NULL DEFAULT '[]',
+  criteria_json TEXT NOT NULL DEFAULT '[]',
+  supersedes_id TEXT NOT NULL DEFAULT '',
+  actor TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(task_id, revision),
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS task_plan_revisions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  requirement_revision INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(task_id, revision),
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS task_steps (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  plan_revision INTEGER NOT NULL,
+  step_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  dependencies_json TEXT NOT NULL DEFAULT '[]',
+  checks_json TEXT NOT NULL DEFAULT '[]',
+  effect_scope_json TEXT NOT NULL DEFAULT '[]',
+  state TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  UNIQUE(task_id, plan_revision, step_key),
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS task_checkpoints (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  plan_revision INTEGER NOT NULL,
+  task_revision INTEGER NOT NULL,
+  completed_steps_json TEXT NOT NULL,
+  pending_steps_json TEXT NOT NULL,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  unresolved_effects_json TEXT NOT NULL DEFAULT '[]',
+  next_action TEXT NOT NULL,
+  resume_prerequisites_json TEXT NOT NULL DEFAULT '[]',
+  reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS task_validations (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  step_id TEXT NOT NULL DEFAULT '',
+  requirement_id TEXT NOT NULL DEFAULT '',
+  check_id TEXT NOT NULL,
+  subject_revision TEXT NOT NULL,
+  status TEXT NOT NULL,
+  expected TEXT NOT NULL DEFAULT '',
+  actual TEXT NOT NULL DEFAULT '',
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  severity TEXT NOT NULL DEFAULT '',
+  confidence REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_durable_tasks_state ON durable_tasks(state, updated_at);
+CREATE INDEX IF NOT EXISTS idx_task_steps_active ON task_steps(task_id, plan_revision, state, sort_order);
+CREATE INDEX IF NOT EXISTS idx_task_checkpoints_latest ON task_checkpoints(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_validations_subject ON task_validations(task_id, step_id, check_id, subject_revision, created_at DESC);
+`
+
+// schemaV31 records the boundary around every durable execution and external
+// effect. An operation that crossed dispatch without an observed receipt is
+// uncertain after restart, never silently replayed.
+const schemaV31 = `
+CREATE TABLE IF NOT EXISTS task_runs (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  plan_revision INTEGER NOT NULL,
+  requirement_revision INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  lease_token TEXT NOT NULL,
+  lease_expires_at TEXT NOT NULL,
+  stop_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS task_step_attempts (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  step_revision INTEGER NOT NULL,
+  state TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  output TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS task_effect_intents (
+  id TEXT PRIMARY KEY,
+  attempt_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  operation_id TEXT NOT NULL UNIQUE,
+  action TEXT NOT NULL,
+  target TEXT NOT NULL,
+  authority TEXT NOT NULL,
+  state TEXT NOT NULL,
+  receipt_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(attempt_id) REFERENCES task_step_attempts(id) ON DELETE CASCADE,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_one_live_run ON task_runs(task_id) WHERE state='running';
+CREATE INDEX IF NOT EXISTS idx_task_runs_lease ON task_runs(state, lease_expires_at);
+CREATE INDEX IF NOT EXISTS idx_task_attempts_run ON task_step_attempts(run_id, state, started_at);
+CREATE INDEX IF NOT EXISTS idx_task_effects_reconcile ON task_effect_intents(task_id, state, updated_at);
+`
+
+// schemaV32 makes code proposals and their review decisions durable. Model
+// output cannot become an applied change merely because an artifact exists.
+const schemaV32 = `
+CREATE TABLE IF NOT EXISTS task_code_proposals (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  packet_hash TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  provider_revision TEXT NOT NULL,
+  artifact_id TEXT NOT NULL,
+  result_hash TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE CASCADE,
+  FOREIGN KEY(attempt_id) REFERENCES task_step_attempts(id) ON DELETE CASCADE,
+  FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS task_code_reviews (
+  id TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL,
+  reviewer TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  rationale TEXT NOT NULL,
+  findings_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(proposal_id) REFERENCES task_code_proposals(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_code_proposals_task ON task_code_proposals(task_id,state,created_at);
+CREATE INDEX IF NOT EXISTS idx_task_code_reviews_proposal ON task_code_reviews(proposal_id,created_at);
+`
+
+// schemaV33 makes managed command result lookup deterministic after a crash.
+// The operation id is persisted in the job payload before the process starts;
+// one effect can therefore be reconciled without replaying the command.
+const schemaV33 = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_background_jobs_operation
+ON background_jobs(json_extract(payload_json,'$.operation_id'))
+WHERE json_extract(payload_json,'$.operation_id') IS NOT NULL;
+`
+
+func migrateV33(ctx context.Context, tx *sql.Tx) error {
+	var tables int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='background_jobs'`).Scan(&tables); err != nil {
+		return err
+	}
+	if tables == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, schemaV33)
+	return err
+}
+
+const schemaV34 = `
+CREATE TABLE IF NOT EXISTS task_planner_runs (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  requirement_revision INTEGER NOT NULL,
+  expected_task_revision INTEGER NOT NULL,
+  provider_id TEXT NOT NULL,
+  provider_revision TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  state TEXT NOT NULL,
+  artifact_id TEXT,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_task_planner_runs_task ON task_planner_runs(task_id,created_at DESC);
+`
+
+// schemaV35 persists the exact authoritative packet beside a step attempt.
+// The hash alone proves identity but cannot resume a proposal after the UI or
+// coordinator restarts; storing the bounded packet makes that handoff durable
+// without reconstructing authority from newer task state.
+const schemaV35 = `
+ALTER TABLE task_step_attempts ADD COLUMN packet_json TEXT NOT NULL DEFAULT '';
+`
+
+// schemaV36 keeps the planner's acceptance-criterion mapping on the immutable
+// step revision. Verification can then bind observed command evidence to the
+// criterion the plan named instead of letting a UI guess after execution.
+const schemaV36 = `
+ALTER TABLE task_steps ADD COLUMN requirement_ids_json TEXT NOT NULL DEFAULT '[]';
 `
 
 // migrateV29TableSwap rebuilds the projects table when it already exists in

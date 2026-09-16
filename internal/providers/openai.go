@@ -63,8 +63,8 @@ func (a *OpenAIAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 		if apiKey != "" {
 			clean = strings.ReplaceAll(clean, apiKey, "[redacted]")
 		}
-		return Completion{}, fmt.Errorf("provider returned HTTP %d: %s", response.StatusCode,
-			summariseErrorBody(response.Header.Get("Content-Type"), clean))
+		return Completion{}, &HTTPError{Provider: "provider", StatusCode: response.StatusCode,
+			BodySummary: summariseErrorBody(response.Header.Get("Content-Type"), clean)}
 	}
 
 	mediaType := response.Header.Get("Content-Type")

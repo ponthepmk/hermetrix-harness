@@ -24,7 +24,7 @@ func testCompiler(t *testing.T) *Compiler {
 
 func TestProfilesConsumeExactWindow(t *testing.T) {
 	profiles := Profiles()
-	wantTotals := []int{32768, 65536, 131072, 262144, 1048576}
+	wantTotals := []int{32768, 65536, 98304, 131072, 262144, 1048576}
 	if len(profiles) != len(wantTotals) {
 		t.Fatalf("profiles = %d, want %d", len(profiles), len(wantTotals))
 	}
@@ -37,6 +37,25 @@ func TestProfilesConsumeExactWindow(t *testing.T) {
 		}
 		if profile.DirectToolBudget > 8192 {
 			t.Fatalf("%s lets direct tool schemas grow to %d tokens", profile.Name, profile.DirectToolBudget)
+		}
+	}
+}
+
+func TestBestProfileForCapacityUsesTheCompilerRegistry(t *testing.T) {
+	for _, test := range []struct {
+		capacity int
+		name     string
+		ok       bool
+	}{
+		{capacity: 32767},
+		{capacity: 32768, name: "compact-32k", ok: true},
+		{capacity: 98303, name: "certified-64k", ok: true},
+		{capacity: 98304, name: "extended-96k", ok: true},
+		{capacity: 120000, name: "extended-96k", ok: true},
+	} {
+		profile, ok := BestProfileForCapacity(test.capacity)
+		if ok != test.ok || profile.Name != test.name {
+			t.Fatalf("capacity %d = %q/%v, want %q/%v", test.capacity, profile.Name, ok, test.name, test.ok)
 		}
 	}
 }

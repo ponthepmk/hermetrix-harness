@@ -30,6 +30,8 @@ import (
 	"hermetrix-harness/internal/secrets"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
+	"hermetrix-harness/internal/taskcoord"
+	"hermetrix-harness/internal/taskengine"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -91,9 +93,101 @@ func testHandler(t *testing.T) http.Handler {
 		t.Fatal(err)
 	}
 	qualificationService := qualification.NewService(dataStore, providerService, localmodel.NewProber(), gate, estimator)
+	taskService := taskengine.NewService(dataStore)
+	taskCoordinator := taskcoord.New(taskService, productService, providerService)
 	return New(skillService, learningService, curatorService, compiler, estimator,
 		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
-		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).Handler()
+		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).Handler()
+}
+
+func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
+	server := testHTTPServer(t)
+	createdBody := requestJSON(t, server.URL+"/api/tasks", http.MethodPost, taskengine.CreateTaskInput{
+		Title: "API task", Objective: "prove persistence", OriginalRequest: "continue after restart", Actor: "owner",
+		Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "state is durable"}},
+	}, http.StatusCreated)
+	var task taskengine.Task
+	if err := json.Unmarshal(createdBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	plannedBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/plans", http.MethodPost, taskengine.CreatePlanInput{
+		ExpectedTaskRevision: task.Revision, RequirementRevision: task.ActiveRequirementRevision,
+		Reason: "bounded plan", Actor: "planner", Steps: []taskengine.StepSpec{{Key: "verify", Title: "Verify", Instructions: "run check", Checks: []string{"test"}, EffectScope: []string{"workspace.run"}}},
+	}, http.StatusCreated)
+	if err := json.Unmarshal(plannedBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.State != taskengine.StateReady || len(task.Plan.Steps) != 1 {
+		t.Fatalf("planned task=%+v", task)
+	}
+	packetBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/next-packet", http.MethodGet, nil, http.StatusOK)
+	var packet taskengine.StepPacket
+	if err := json.Unmarshal(packetBody, &packet); err != nil {
+		t.Fatal(err)
+	}
+	if packet.Step.Key != "verify" || packet.CanonicalPacketHash == "" || packet.TaskRevision != task.Revision {
+		t.Fatalf("next packet=%+v", packet)
+	}
+	runBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/runs", http.MethodPost, map[string]any{
+		"expected_task_revision": task.Revision, "owner": "api-worker", "lease_seconds": 60,
+	}, http.StatusCreated)
+	var runResponse struct {
+		Run  taskengine.Run  `json:"run"`
+		Task taskengine.Task `json:"task"`
+	}
+	if err := json.Unmarshal(runBody, &runResponse); err != nil {
+		t.Fatal(err)
+	}
+	attemptBody := requestJSON(t, server.URL+"/api/task-runs/"+runResponse.Run.ID+"/attempts", http.MethodPost, taskengine.BeginAttemptInput{
+		LeaseToken: runResponse.Run.LeaseToken, StepKey: "verify", ExpectedTaskRevision: runResponse.Task.Revision,
+		ExpectedStepRevision: runResponse.Task.Plan.Steps[0].Revision, InputHash: packet.CanonicalPacketHash, Packet: &packet,
+	}, http.StatusCreated)
+	var attempt taskengine.StepAttempt
+	if err := json.Unmarshal(attemptBody, &attempt); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/effects", http.MethodPost, map[string]any{
+		"action": "desktop.delete", "target": "customer-data", "authority": "task-plan",
+	}, http.StatusBadRequest)
+	effectBody := requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/effects", http.MethodPost, map[string]any{
+		"action": "workspace.run", "target": "go test ./...", "authority": "task-plan",
+	}, http.StatusCreated)
+	var effect taskengine.EffectIntent
+	if err := json.Unmarshal(effectBody, &effect); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.URL+"/api/task-effects/"+effect.OperationID+"/transitions", http.MethodPost,
+		map[string]any{"action": "dispatch"}, http.StatusOK)
+	requestJSON(t, server.URL+"/api/task-effects/"+effect.OperationID+"/transitions", http.MethodPost,
+		map[string]any{"action": "observe", "receipt": map[string]any{"exit_code": 0, "artifact": "test-log"}}, http.StatusOK)
+	executionBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/execution", http.MethodGet, nil, http.StatusOK)
+	var execution taskengine.ExecutionSnapshot
+	if err := json.Unmarshal(executionBody, &execution); err != nil || execution.Run == nil || execution.Run.ID != runResponse.Run.ID ||
+		execution.Attempt == nil || execution.Attempt.ID != attempt.ID || execution.Attempt.Packet == nil ||
+		execution.Attempt.Packet.CanonicalPacketHash != packet.CanonicalPacketHash || len(execution.Effects) != 1 || execution.Effects[0].OperationID != effect.OperationID {
+		t.Fatalf("execution snapshot=%+v err=%v", execution, err)
+	}
+	completedAttemptBody := requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/complete", http.MethodPost,
+		map[string]any{"output": "test passed"}, http.StatusOK)
+	if err := json.Unmarshal(completedAttemptBody, &attempt); err != nil || attempt.State != taskengine.AttemptCompleted {
+		t.Fatalf("completed attempt=%+v err=%v", attempt, err)
+	}
+	response, err := http.Post(server.URL+"/api/tasks/"+task.ID+"/complete", "application/json",
+		strings.NewReader(`{"expected_task_revision":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("stale complete status=%d body=%s", response.StatusCode, body)
+	}
+	listed := requestJSON(t, server.URL+"/api/tasks?limit=5", http.MethodGet, nil, http.StatusOK)
+	var tasks []taskengine.Task
+	if err = json.Unmarshal(listed, &tasks); err != nil || len(tasks) != 1 {
+		t.Fatalf("tasks=%d err=%v", len(tasks), err)
+	}
 }
 
 func TestBootstrapCollectionsAreArraysAndUIHasSecurityHeaders(t *testing.T) {

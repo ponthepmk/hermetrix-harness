@@ -32,6 +32,7 @@ var allowedExecutables = map[string]bool{
 
 func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, error) {
 	input.Actor = strings.TrimSpace(input.Actor)
+	input.OperationID = strings.TrimSpace(input.OperationID)
 	input.Executable = strings.TrimSpace(input.Executable)
 	if input.Actor == "" || !allowedExecutables[input.Executable] || filepath.Base(input.Executable) != input.Executable {
 		return Job{}, fmt.Errorf("actor and an allowed executable without a path are required")
@@ -74,6 +75,9 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	payload := map[string]any{"project_id": project.ID, "actor": input.Actor, "executable": input.Executable,
 		"arguments": input.Arguments, "working_dir": input.WorkingDir, "timeout_seconds": input.TimeoutSeconds,
 		"shell": false, "environment": "minimal"}
+	if input.OperationID != "" {
+		payload["operation_id"] = input.OperationID
+	}
 	payloadJSON, _ := json.Marshal(payload)
 	job := Job{ID: identity.New("job"), Kind: "command", State: "queued", Payload: payload, Result: map[string]any{}, CreatedAt: now}
 	if _, err := s.store.DB.ExecContext(ctx, `INSERT INTO background_jobs(id,kind,state,progress,payload_json,created_at)
@@ -210,6 +214,16 @@ func (s *Service) CancelJob(ctx context.Context, id string) (Job, error) {
 func (s *Service) GetJob(ctx context.Context, id string) (Job, error) {
 	return scanJob(s.store.DB.QueryRowContext(ctx, `SELECT id,kind,state,progress,payload_json,result_json,error,
     cancel_requested,created_at,started_at,completed_at FROM background_jobs WHERE id=?`, id))
+}
+
+func (s *Service) FindJobByOperationID(ctx context.Context, operationID string) (Job, error) {
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return Job{}, fmt.Errorf("operation id is required")
+	}
+	return scanJob(s.store.DB.QueryRowContext(ctx, `SELECT id,kind,state,progress,payload_json,result_json,error,
+    cancel_requested,created_at,started_at,completed_at FROM background_jobs
+    WHERE json_extract(payload_json,'$.operation_id')=?`, operationID))
 }
 
 func (s *Service) ListJobs(ctx context.Context, limit int) ([]Job, error) {

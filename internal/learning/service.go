@@ -336,6 +336,30 @@ func (s *Service) RunNext(ctx context.Context) (Job, error) {
 	return s.get(persistCtx, job.ID)
 }
 
+// RunQueued advances a bounded number of persisted reviews. It stops when
+// foreground inference preempts a review and RunNext requeues it, avoiding a
+// hot loop that would immediately reclaim the same job.
+func (s *Service) RunQueued(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 1
+	}
+	processed := 0
+	for processed < limit {
+		job, err := s.RunNext(ctx)
+		if errors.Is(err, ErrNoQueuedReview) {
+			return processed, nil
+		}
+		if err != nil {
+			return processed, err
+		}
+		processed++
+		if job.State == StateQueued {
+			return processed, nil
+		}
+	}
+	return processed, nil
+}
+
 func (s *Service) claimNext(ctx context.Context) (Job, error) {
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {

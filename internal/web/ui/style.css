@@ -287,6 +287,12 @@ pre { border: 1px solid var(--line); background: var(--surface-well); border-rad
 .chat-welcome img { width: 118px; height: 118px; object-fit: contain; filter: drop-shadow(0 0 28px color-mix(in srgb, var(--accent) 18%, transparent)); }
 .chat-welcome h3 { color: var(--text); margin: var(--space-2) 0; }
 .chat-welcome p { font-size: var(--text-xs); line-height: var(--leading-xs); }
+.first-run { list-style: none; margin: var(--space-4) 0 0; padding: 0; display: grid; gap: var(--space-2); text-align: left; }
+.first-run li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-2) var(--space-3); font-size: var(--text-xs); }
+.first-run li.done { color: var(--muted); }
+.first-run li.next { border-color: var(--accent); color: var(--text); }
+.first-run li.todo { opacity: .6; }
+.composer.drop-target { outline: 2px dashed var(--accent); outline-offset: 4px; }
 .provider-grid { display: grid; grid-template-columns: minmax(280px,.7fr) minmax(360px,1.3fr); gap: var(--space-3); align-items: start; }
 .provider-grid .panel form > label { display: grid; gap: var(--space-2); color: var(--muted); font-size: var(--text-2xs); line-height: var(--leading-2xs); margin: var(--space-3) 0; }
 .provider-card { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: var(--space-4); }
@@ -435,7 +441,7 @@ body {
 .pane-hidden { display: none; }
 .pane-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2); border-bottom: 1px solid var(--line); }
 .pane-head select { flex: 1; min-width: 0; padding: var(--space-1) var(--space-2); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
-.pane-body { overflow: auto; padding: var(--space-2); min-height: 0; }
+.pane-body { overflow: auto; padding: var(--space-2); min-height: 0; container-type: inline-size; container-name: pane-body; }
 .pane-add { margin-top: var(--space-2); }
 /* 74px is the app header (46px) plus the main zone's own top and bottom
    padding (14px each); the sticky topbar this once measured against is gone. */
@@ -669,6 +675,9 @@ details.tool-receipt { padding: 0; overflow: hidden; }
 @container stage (max-width: 620px) {
   .form-grid { grid-template-columns: minmax(0,1fr); }
   .stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@container pane-body (max-width: 760px) {
+  .task-cockpit .workbench-grid { grid-template-columns: minmax(0,1fr); }
 }
 /* The aside column is narrow by construction, so its form never gets the
    two-column treatment regardless of how wide the stage is. */

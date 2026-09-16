@@ -23,6 +23,17 @@ func Certified64K() Profile {
 		SummaryTarget: 2048, MaxInlineTool: 2000}
 }
 
+// Extended96K is the primary constrained-local envelope. 96 Ki tokens means
+// 96 * 1024 = 98,304, matching the binary capacities used by the other
+// profiles. It leaves enough active space for repository evidence while still
+// reserving one eighth of the window for the answer.
+func Extended96K() Profile {
+	return Profile{Name: "extended-96k", Total: 98304, OutputReserve: 12288,
+		UncertaintyReserve: 6144, SystemBudget: 3584, DirectToolBudget: 4096,
+		SkillProjectBudget: 9216, PinnedBudget: 4608, ActiveBudget: 58368,
+		SummaryTarget: 3072, MaxInlineTool: 3000}
+}
+
 func Extended128K() Profile {
 	return Profile{Name: "extended-128k", Total: 131072, OutputReserve: 16384,
 		UncertaintyReserve: 8192, SystemBudget: 4096, DirectToolBudget: 4096,
@@ -52,7 +63,7 @@ func Compact32K() Profile {
 }
 
 func Profiles() []Profile {
-	return []Profile{Compact32K(), Certified64K(), Extended128K(), Extended256K(), Ultra1M()}
+	return []Profile{Compact32K(), Certified64K(), Extended96K(), Extended128K(), Extended256K(), Ultra1M()}
 }
 
 func ProfileByName(name string) (Profile, bool) {
@@ -62,6 +73,20 @@ func ProfileByName(name string) (Profile, bool) {
 		}
 	}
 	return Profile{}, false
+}
+
+// BestProfileForCapacity returns the largest selectable envelope that fits in
+// an observed allocation. Qualification uses this same registry as the
+// compiler and UI, so a profile cannot exist in one subsystem and disappear
+// in another.
+func BestProfileForCapacity(capacity int) (Profile, bool) {
+	var best Profile
+	for _, profile := range Profiles() {
+		if profile.Total <= capacity && profile.Total > best.Total {
+			best = profile
+		}
+	}
+	return best, best.Total > 0
 }
 
 func (p Profile) Validate() error {

@@ -174,7 +174,26 @@ func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-editor-action="format"]').click(); 'format'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `document.querySelector('.xterm-rows')?.textContent.includes('gofmt -w') ? 'formatted' : ''`, "formatted")
+	deadline = time.Now().Add(8 * time.Second)
+	formatted := ""
+	for time.Now().Before(deadline) {
+		formatted, err = client.evaluate(ctx, `document.querySelector('.xterm-rows')?.textContent.includes('gofmt -w') ? 'formatted' : ''`)
+		if err == nil && formatted == "formatted" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if formatted != "formatted" {
+		diagnostic, _ := client.evaluate(ctx, `JSON.stringify({
+			terminal: document.querySelector('.xterm-rows')?.textContent || '',
+			toasts: [...document.querySelectorAll('.toast')].map(node => node.textContent),
+			selectedTerminal: state.selectedTerminal,
+			terminals: state.terminals.map(item => ({id:item.id,state:item.state,error:item.error})),
+			panes: state.panes,
+			file: state.projectFile && {path:state.projectFile.path, content:state.projectFile.content, originalContent:state.projectFile.originalContent}
+		})`)
+		t.Fatalf("format command did not reach the PTY: value=%q err=%v diagnostic=%s", formatted, err, diagnostic)
+	}
 
 	if _, err := client.evaluate(ctx, `document.querySelector('.xterm-helper-textarea').focus(); 'focused'`); err != nil {
 		t.Fatal(err)

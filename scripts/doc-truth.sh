@@ -106,10 +106,15 @@ terminal-tail-appends-incrementally|func \(s \*Service\) appendTerminalOutput|in
 durability-errors-are-observed|func \(operation Exec\) Observe|internal/durability/observe.go
 ui-real-browser-e2e|func TestCockpitHydratesInARealBrowser|internal/web/ui_browser_e2e_test.go
 task-budget|MaxCumulativeTokens|internal/agent/service.go
+durable-task-requirements|func \(s \*Service\) ReviseRequirements|internal/taskengine/service.go
+durable-task-acceptance-gate|func \(s \*Service\) CompleteTask|internal/taskengine/service.go
+durable-task-recovery-no-retry|func \(s \*Service\) RecoverInterrupted|internal/taskengine/service.go
+durable-effect-dispatch-boundary|func \(s \*Service\) DispatchEffect|internal/taskengine/execution.go
+durable-effect-blocks-resume|uncertain effects to reconcile|internal/taskengine/execution.go
 loop-detector|third identical call|internal/agent/service.go
 qualification-exact-binding|AND provider_revision=\? AND requested_profile=\?|internal/agent/service.go
 override-expiry|override expired|internal/agent/service.go
-tier-ultra-1m|ultra-1m|internal/qualification/service.go
+tier-registry-shared|BestProfileForCapacity|internal/qualification/service.go
 recall-positions|RecallPositions|internal/qualification/service.go
 exact-tool-accounting|func \(t ToolSpec\) BillableText|internal/context/types.go
 gc-compensating-rollback|RestoreFromQuarantine\(prior.Ref|internal/curator/maintenance.go

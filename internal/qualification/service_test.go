@@ -149,20 +149,16 @@ func TestUnverifiedRuntimeNeverSilentlyCertifiesDeclaredContext(t *testing.T) {
 }
 
 func TestContextTierCoversEverySelectableEnvelope(t *testing.T) {
-	cases := []struct {
-		allocated int
-		tier      string
-	}{
-		{32768, "compact-32k"}, {65536, "certified-64k"}, {131072, "extended-128k"},
-		{262144, "extended-256k"}, {1048576, "ultra-1m"},
+	for _, profile := range ctxcompiler.Profiles() {
+		if got := contextTier(profile.Total, true); got != profile.Name {
+			t.Fatalf("allocated=%d tier=%s want=%s", profile.Total, got, profile.Name)
+		}
+		if got := contextCapacity(profile.Name); got != profile.Total {
+			t.Fatalf("tier=%s capacity=%d want=%d", profile.Name, got, profile.Total)
+		}
 	}
-	for _, item := range cases {
-		if got := contextTier(item.allocated, true); got != item.tier {
-			t.Fatalf("allocated=%d tier=%s want=%s", item.allocated, got, item.tier)
-		}
-		if got := contextCapacity(item.tier); got != item.allocated {
-			t.Fatalf("tier=%s capacity=%d want=%d", item.tier, got, item.allocated)
-		}
+	if got := contextTier(98304, true); got != "extended-96k" {
+		t.Fatalf("96k allocation tier=%s", got)
 	}
 }
 

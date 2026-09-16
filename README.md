@@ -5,7 +5,7 @@
 Hermetrix is a local-first, provider-flexible agent harness built around three hard problems:
 
 1. a reviewable, reversible learning lifecycle for skills;
-2. token-efficient context compilation across 32k, 64k, 128k, 256k and 1M envelopes while keeping declared, probed and qualified context evidence distinct.
+2. token-efficient context compilation across 32k, 64k, 96k, 128k, 256k and 1M envelopes while keeping declared, probed and qualified context evidence distinct.
 3. an auditable agent loop that freezes model, context and capabilities before every sampling step.
 
 The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
@@ -24,7 +24,7 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - duplicate/overlap candidate analysis with version-bound evidence
 - persisted background reviews that yield to foreground inference and create candidates only
 - versioned curator runs in report-only mode
-- typed context fragments, 32k/64k/128k/256k/1M profiles and reserve-aware compilation
+- typed context fragments, 32k/64k/96k/128k/256k/1M profiles and reserve-aware compilation
 - deterministic deduplication, tool-output spill, structured checkpoints and pluggable semantic compaction
 - runtime-allocation probes for Ollama, LM Studio, vLLM and llama.cpp
 - provider registry with per-profile vault/environment credentials and adapters for OpenAI-compatible streaming, native Anthropic Messages and native Gemini generateContent
@@ -33,12 +33,23 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - an immutable session contract that freezes the provider revision, model, context profile, policy and capability revisions, Skill catalog, cache epoch and task budget when the session opens
 - a persisted per-session turn lease so two concurrent requests cannot both commit a user message, with orphaned turns recovered on restart
 - a task budget of model steps, tool calls, wall time and cumulative tokens instead of a hard-coded step limit
-- a learning trigger outbox written in the same transaction as the turn commit and drained into idempotent review jobs
+- a durable task spine with immutable requirement/plan revisions, dependency-checked steps, exact-revision validation evidence, optimistic transitions and restart checkpoints; the current bounded code path can plan, select files, propose, review, apply, verify and independently review, while generalized browser/MCP orchestration remains later breadth
+- deterministic, size-bounded next-step packets with stable hashes, authoritative requirements, evidence, checkpoints and unresolved effects; oversized authority is rejected instead of silently truncated
+- durable run leases, step attempts and effect intents exposed through the local API: every effect action must be present in the step's frozen scope, pre-dispatch intents become abandoned after restart, and post-dispatch effects become uncertain and block resume until reconciled
+- a proposal-only task coordinator that binds an exact packet hash and attempt to 1–32 explicit or automatically selected project files, rejects the active provider credential before egress, records provider dispatch/receipt, persists immutable file-selection/code-proposal artifacts and never writes the source workspace before approval
+- durable code-proposal review decisions and an explicit apply gate: unreviewed output cannot write source, every preimage hash must still match, multi-file failure rolls already-written files back, and apply effects remain recoverable/inspectable
+- post-apply command verification that must cover every frozen step check exactly once, persists an immutable evidence bundle, and rolls the proposal back on mandatory failure; a distinct provider profile using a different model or endpoint must then independently approve the exact source/evidence bundle before criterion evidence is promoted and the task can close
+- deterministic effect reconciliation keyed by the durable operation ID: managed commands look up the existing job/receipt, file-selection/proposal provider calls look up immutable operation-bound artifacts, and neither path replays an uncertain action; unsupported post-review/browser/MCP effect types remain explicitly unresolved
+- bounded automatic planning tied to the exact task/requirement revision, with durable pre/post-dispatch states, strict structured output, dependency validation, explicit acceptance-criterion coverage and an allowlist of executable effect scopes
+- a project-scoped Task cockpit in the split workspace for creating durable requirements, automatic planning, secret-filtered bounded file selection, restart-safe run/attempt recovery, bounded provider proposals, one-shot human review/apply, frozen-command verification and independent post-test review
+- exact authoritative step packets and planner acceptance-criterion mappings persisted with attempts/steps, so a restarted client resumes from durable authority rather than rebuilding it from a newer task state
+- a learning trigger outbox written in the same transaction as the turn commit, drained into idempotent review jobs, and advanced by a bounded background reviewer that yields to foreground inference
 - learning digests that distinguish measured command success (`verified_by`) from an outcome merely claimed in conversation
 - bounded workspace read tools plus approval-gated atomic text writes with optimistic SHA-256 checks
 - persisted one-shot effect grants, denial receipts and restart recovery that marks interrupted effects `uncertain` instead of retrying
 - deferred capability catalog with fixed-size `tool_search`, `tool_describe` and `tool_call` prompt primitives
 - a 13-tool direct waist: four bounded file tools, four Skill/context tools, three deferred-catalog tools, `workspace.run` and `browser`
+- composer image drop/paste stored as immutable CAS artifacts (providers are text-only, so the model cannot see pixels yet — the message carries an auditable artifact reference instead)
 - MCP Streamable HTTP client for current stateless `2026-07-28` plus automatic legacy `2025-11-25` handshake fallback
 - MCP pagination, JSON/SSE responses, request cancellation, timeout/error taxonomy, current `x-mcp-header` support and no automatic tool-call retry
 - MCP connection/tool snapshot persistence with environment-only secrets, exact tool revisions, conservative risk classification and credential redaction
@@ -65,6 +76,12 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 ```bash
 go run ./cmd/hermetrix serve --data ./.hermetrix --listen 127.0.0.1:7331
 ```
+
+Shortcuts via `make`: `run` (same as above), `smoke` (read-only liveness
+check against the running server), `test` (full suite below), `backup`
+(timestamped SQLite copy into `backups/`). First-run seeds live in
+`scripts/seed-starter-skills.sh` — they create Skill candidates only, never
+active versions.
 
 Then open <http://127.0.0.1:7331>. `serve` is a local web server and the
 terminal stays attached to it until `Ctrl+C`. Add `--open` to launch the

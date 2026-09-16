@@ -176,6 +176,6 @@ func nativeProviderHTTPError(name string, response *http.Response, apiKey string
 	if apiKey != "" {
 		clean = strings.ReplaceAll(clean, apiKey, "[redacted]")
 	}
-	return fmt.Errorf("%s returned HTTP %d: %s", name, response.StatusCode,
-		summariseErrorBody(response.Header.Get("Content-Type"), clean))
+	return &HTTPError{Provider: name, StatusCode: response.StatusCode,
+		BodySummary: summariseErrorBody(response.Header.Get("Content-Type"), clean)}
 }

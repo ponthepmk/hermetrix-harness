@@ -1,5 +1,5 @@
 const { escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline } = HermetrixRuntime;
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, railProjectsOpen: true, railSetupOpen: false, railProjectOpen: {}, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, paneLayout: "bottom-wide", draggedPane: null, paneSplitX: 50, paneSplitY: 50, authPrincipal: "" };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], durableTasks:[], selectedDurableTask:null, taskExecutions:{}, settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, railProjectsOpen: true, railSetupOpen: false, railProjectOpen: {}, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, paneLayout: "bottom-wide", draggedPane: null, paneSplitX: 50, paneSplitY: 50, authPrincipal: "" };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const UI_ICON_NAMES = new Set(["search","plus","close","sidebar","workbench","refresh","settings","file","files","terminal","browser","activity","model","tools","skill","review","learning","insights","archive","context","fidelity","project","jobs","artifact","chat","at","expand","contract","grip"]);
@@ -229,12 +229,12 @@ function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "",
 
 async function load() {
   try {
-    const [data, projects, jobs, artifacts, terminals, browserTabs, teams, teamRuns, settings, memories, backups, usage, fidelityCases, fidelityRuns, qualifications, curatorFindings, schedules, gcRuns, skillAuthority, authorityActions] = await Promise.all([
+    const [data, projects, jobs, artifacts, terminals, browserTabs, teams, teamRuns, settings, memories, backups, usage, fidelityCases, fidelityRuns, qualifications, curatorFindings, schedules, gcRuns, skillAuthority, authorityActions, durableTasks] = await Promise.all([
       api("/api/bootstrap"), api("/api/projects"), api("/api/jobs"), api("/api/artifacts"),
       api("/api/terminals"), api("/api/browser/tabs"), api("/api/teams"), api("/api/team-runs"), api("/api/settings"),
       api("/api/memories"), api("/api/backups"), api("/api/usage"), api("/api/fidelity/cases"), api("/api/fidelity/runs"),
       api("/api/qualifications"), api("/api/curator/findings"), api("/api/maintenance/schedules"), api("/api/maintenance/gc"),
-      api("/api/skill-authority"), api("/api/skill-authority/actions")
+      api("/api/skill-authority"), api("/api/skill-authority/actions"), api("/api/tasks?limit=100")
     ]);
     Object.assign(state, data);
     // Belt to the server's braces: one endpoint answering null instead of []
@@ -244,7 +244,7 @@ async function load() {
       settings: asList(settings), memories: asList(memories), backups: asList(backups), usage: usage || {},
       fidelityCases: asList(fidelityCases), fidelityRuns: asList(fidelityRuns), qualifications: asList(qualifications),
       curatorFindings: asList(curatorFindings), schedules: asList(schedules), gcRuns: asList(gcRuns),
-      skillAuthority, authorityActions: asList(authorityActions) });
+      skillAuthority, authorityActions: asList(authorityActions), durableTasks:asList(durableTasks) });
     if (!state.selectedProject && state.projects.length) state.selectedProject = state.projects[0].id;
     if (!state.selectedTerminal && state.terminals.length) state.selectedTerminal = state.terminals.find(item => item.state === "running")?.id || state.terminals[0].id;
     if (!state.selectedBrowserTab && state.browserTabs.length) state.selectedBrowserTab = state.browserTabs.find(item => item.state === "ready")?.id || state.browserTabs[0].id;
@@ -607,7 +607,7 @@ async function restoreArchive(id) {
 }
 
 function profileLabel(profile) {
-  const labels = { "compact-32k":"Compact 32k", "certified-64k":"Certified 64k", "extended-128k":"Extended 128k", "extended-256k":"Extended 256k", "ultra-1m":"Ultra 1M" };
+  const labels = { "compact-32k":"Compact 32k", "certified-64k":"Certified 64k", "extended-96k":"Extended 96k", "extended-128k":"Extended 128k", "extended-256k":"Extended 256k", "ultra-1m":"Ultra 1M" };
   return labels[profile.name] || profile.name;
 }
 
@@ -718,6 +718,12 @@ function renderTimelineEvent(event) {
   if (event.event_kind === "approval_decision") {
     const approved = event.metadata?.decision === "approve";
     return `<article class="approval-decision">${pill(approved ? "approved once" : "denied", approved ? "green" : "red")}<span>${escapeHTML(event.metadata?.reason || "No reason supplied")}</span><small>${escapeHTML(event.metadata?.actor || "user")}</small></article>`;
+  }
+  // A failed turn used to render as nothing at all: the user saw an empty
+  // conversation and assumed the model replied nonsense. Say what happened
+  // and what to do next instead.
+  if (event.event_kind === "turn_failed") {
+    return `<article class="chat-message assistant"><div class="message-role">Hermetrix</div><div class="message-body">${pill("turn failed", "red")} ${escapeHTML(event.content || "Turn failed")}<br><small>งานนี้ใหญ่เกินงบ 12 model steps — ลองถามแคบลงเป็นงานเดียว (เช่น สรุปไฟล์เดียว แทนทั้ง repo) แล้วดู tool receipts ใน Review ว่าเงินหมดตรงไหน</small></div></article>`;
   }
   return "";
 }
@@ -860,7 +866,7 @@ function renderChat() {
   const canStart = Boolean(draftProvider && draftProfile && draftProvider.credential_ready &&
     (admission.admitted || (needsOverride && overrideReason.length >= 8)));
   const selectedID = state.sessionDetail?.session?.id || state.selectedSession;
-  const timeline = (state.sessionDetail?.events || []).filter(event => ["message", "tool_call", "tool_result", "approval_required", "approval_decision"].includes(event.event_kind));
+  const timeline = (state.sessionDetail?.events || []).filter(event => ["message", "tool_call", "tool_result", "approval_required", "approval_decision", "turn_failed"].includes(event.event_kind));
   // An MCP server can stop mid tool call to ask a question. It is waiting on
   // the answer right now, so it is rendered after the transcript rather than
   // inside it: it is not history yet.
@@ -918,7 +924,7 @@ function renderChat() {
   root.innerHTML = `<div class="chat-layout"><section class="chat-stage">
       ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">Skills <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">Direct tools <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP ready <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
         <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
-        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>Skills & tools</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>Files</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>Terminal</span></button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, Shift+Enter adds a line, @ picks a Skill or tool" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p>${enabledProviders.length ? "" : `<button class="primary" id="openProvidersButton">Connect a model</button>`}</div>`}
+        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>Skills & tools</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>Files</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>Terminal</span></button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, drop or paste images to attach" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p><ol class="first-run">${enabledProviders.length ? `<li class="done"><span>1 · Model connected ✓</span></li>` : `<li class="next"><span>1 · Connect a model</span><button class="primary" id="openProvidersButton">Connect</button></li>`}${!enabledProviders.length ? `<li class="todo"><span>2 · Open your first session</span></li>` : state.sessions.length ? `<li class="done"><span>2 · Session opened ✓</span></li>` : `<li class="next"><span>2 · Open your first session</span><button class="primary" id="checklistNewSession">New session</button></li>`}${state.skills.length ? `<li class="done"><span>3 · First Skill in place ✓</span></li>` : (enabledProviders.length && state.sessions.length) ? `<li class="next"><span>3 · Add your first Skill</span><button class="primary" id="checklistOpenSkills">Skill Studio</button></li>` : `<li class="todo"><span>3 · Add your first Skill</span></li>`}</ol></div>`}
     </section></div>`;
   $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
   $("#chatProjectSelect")?.addEventListener("change", event => { state.draftProjectID = event.target.value; });
@@ -963,6 +969,8 @@ function renderChat() {
   bindComposer();
   $("#chatForm")?.addEventListener("submit", sendTurn);
   $("#openProvidersButton")?.addEventListener("click", () => switchTab("providers"));
+  $("#checklistNewSession")?.addEventListener("click", () => $("#railNewSession")?.click());
+  $("#checklistOpenSkills")?.addEventListener("click", () => switchTab("library"));
   requestAnimationFrame(() => {
     const list = $("#messageList");
     if (!list) return;
@@ -1210,6 +1218,57 @@ function bindComposer() {
     state.draftMessage = event.target.value;
   });
 
+  // Images can be dropped or pasted into the composer. They are stored as
+  // immutable artifacts and referenced in the message text; the model cannot
+  // see pixels yet (providers are text-only), so the upload says so instead
+  // of pretending the picture was understood.
+  const attachComposerImages = async files => {
+    const images = [...files].filter(file => file.type.startsWith("image/"));
+    if (!images.length) { if (files.length) toast("รับเฉพาะไฟล์รูป png/jpeg/webp/gif", true); return; }
+    for (const file of images.slice(0, 4)) {
+      if (file.size > 8 * 1024 * 1024) { toast(`${file.name || "รูป"}: เกิน 8 MiB`, true); continue; }
+      const dataURL = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      }).catch(() => "");
+      const match = String(dataURL).match(/^data:(image\/[a-z+.-]+);base64,(.*)$/s);
+      if (!match) { toast(`${file.name || "รูป"}: อ่านไฟล์ไม่ได้`, true); continue; }
+      try {
+        const artifact = await api("/api/artifacts/upload", { method:"POST", body:JSON.stringify({
+          project_id: state.currentProject?.id || "",
+          session_id: state.sessionDetail?.session?.id || "",
+          name: file.name || "pasted-image", mime_type: match[1], base64: match[2] }) });
+        const token = `[attached image "${artifact.name}" (artifact ${artifact.id})]`;
+        input.value = (input.value.replace(/\s+$/, "") ? input.value.replace(/\s+$/, "") + "\n" : "") + token + "\n";
+        state.draftMessage = input.value;
+        toast("แนบรูปแล้ว — รุ่นนี้ยังดูพิกเซลไม่ได้ เปิดดูได้ใน Artifacts");
+      } catch (error) { toast(error.message, true); }
+    }
+  };
+  input.addEventListener("paste", event => {
+    if (event.clipboardData?.files?.length) {
+      event.preventDefault();
+      void attachComposerImages(event.clipboardData.files);
+    }
+  });
+  const composerForm = $("#chatForm");
+  composerForm?.addEventListener("dragover", event => {
+    if ([...event.dataTransfer.types].includes("Files")) {
+      event.preventDefault();
+      composerForm.classList.add("drop-target");
+    }
+  });
+  composerForm?.addEventListener("dragleave", () => composerForm.classList.remove("drop-target"));
+  composerForm?.addEventListener("drop", event => {
+    composerForm.classList.remove("drop-target");
+    if (event.dataTransfer?.files?.length) {
+      event.preventDefault();
+      void attachComposerImages(event.dataTransfer.files);
+    }
+  });
+
   input.addEventListener("keydown", event => {
     if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.isComposing) {
       // Cmd/Ctrl-Enter keeps working: it was the only way to send for a while
@@ -1348,6 +1407,10 @@ async function sendTurn(event) {
   const input = $("#chatInput");
   const content = input.value.trim();
   if (!content) return;
+  // Clear the mounted box BEFORE renderChat: renderChat calls
+  // captureComposer, which would otherwise read the old DOM value back into
+  // state.draftMessage and resurrect the text in the fresh markup.
+  input.value = "";
   state.draftMessage = "";
   state.composerCaret = 0;
   state.composerFocused = true;
@@ -1365,6 +1428,8 @@ async function sendTurn(event) {
     await selectSession(sessionID);
   } catch (error) {
     toast(error.message, true);
+    // The turn never committed, so hand the text back instead of eating it.
+    state.draftMessage = content;
     await selectSession(sessionID).catch(() => {});
   } finally {
     state.sending = false;
@@ -2049,12 +2114,21 @@ function rememberCodeTab(projectID, path) {
 }
 function captureCodeDraft() {
   const document = state.projectFile;
-  const content = activeCodeEditor?.documentKey === codeDraftKey(document?.projectID, document?.path)
+  const key = codeDraftKey(document?.projectID, document?.path);
+  const content = activeCodeEditor?.documentKey === key
     ? activeCodeEditor.getValue()
     : $("#workbenchFileContent")?.value;
   if (document && typeof content === "string") {
+    // A mounted editor that never reported a change and reads back empty is
+    // "not ready", not "the user deleted everything" (a real clear-all always
+    // fires onChange first). Letting that empty read through would poison the
+    // cached draft and blank the file on every later render.
+    if (activeCodeEditor?.documentKey === key && content === "" &&
+        activeCodeEditor?.changed !== true &&
+        (codeDrafts.get(key)?.content || document.content)) return;
     const draft = { ...document, content };
-    codeDrafts.set(codeDraftKey(document.projectID, document.path), draft);
+    if (activeCodeEditor?.documentKey === key && activeCodeEditor?.changed === true) draft.touched = true;
+    codeDrafts.set(key, draft);
     state.projectFile = draft;
   }
 }
@@ -2146,13 +2220,16 @@ function renderCodeEditor(body) {
   const host = $("#workbenchFileContent");
   if (!window.HermetrixIDE?.createEditor) {
     host.innerHTML = `<textarea aria-label="Code editor fallback" spellcheck="false">${escapeHTML(document.content)}</textarea>`;
-    activeCodeEditor = { documentKey:codeDraftKey(document.projectID, document.path), getValue:() => host.querySelector("textarea").value, focus:() => host.querySelector("textarea").focus(), dispose:() => {} };
+    const area = host.querySelector("textarea");
+    activeCodeEditor = { documentKey:codeDraftKey(document.projectID, document.path), changed:!document.content, getValue:() => area.value, focus:() => area.focus(), dispose:() => {} };
+    area.addEventListener("input", () => { activeCodeEditor.changed = true; });
   } else {
-    activeCodeEditor = window.HermetrixIDE.createEditor(host, {
+    const editor = window.HermetrixIDE.createEditor(host, {
       doc: document.content,
       path: document.path,
       onChange: content => {
-        const draft = { ...state.projectFile, content };
+        editor.changed = true;
+        const draft = { ...state.projectFile, content, touched:true };
         codeDrafts.set(codeDraftKey(document.projectID, document.path), draft);
         state.projectFile = draft;
         $("#codeSaveState").textContent = content === document.originalContent ? "Saved" : "Unsaved";
@@ -2160,7 +2237,21 @@ function renderCodeEditor(body) {
       onCursor: (line, column) => { const status=$("#codeCursor"); if(status) status.textContent=`Ln ${line}, Col ${column}`; },
       onSave: () => $("#workbenchFileForm")?.requestSubmit()
     });
-    activeCodeEditor.documentKey = codeDraftKey(document.projectID, document.path);
+    editor.documentKey = codeDraftKey(document.projectID, document.path);
+    editor.changed = !document.content;
+    activeCodeEditor = editor;
+    // Self-heal a mount that came up empty on a non-empty document: fall back
+    // to the plain textarea rather than showing a blank file.
+    let mounted = "";
+    try { mounted = editor.getValue?.() ?? ""; } catch {}
+    if (document.content && !mounted) {
+      try { editor.dispose?.(); } catch {}
+      host.innerHTML = `<textarea aria-label="Code editor fallback" spellcheck="false">${escapeHTML(document.content)}</textarea>`;
+      const area = host.querySelector("textarea");
+      activeCodeEditor = { documentKey:editor.documentKey, changed:true, getValue:() => area.value, focus:() => area.focus(), dispose:() => {} };
+      area.addEventListener("input", () => {});
+      toast("Rich editor mounted empty — using the plain editor. Reload the file if this persists.", true);
+    }
   }
   $("#workbenchFileForm").addEventListener("submit", saveWorkbenchFile);
   $("#codeReview").addEventListener("click", () => {
@@ -2189,7 +2280,10 @@ async function runEditorAction(action) {
   const id = terminal?.id || projectTerminals().find(item => item.state === "running")?.id;
   if (!id) return;
   state.selectedTerminal = id;
-  await sendRawTerminalInput(`${command}\n`, id);
+  // A PTY is an interactive terminal, not a pipe. Enter is carriage return
+  // (the same byte xterm emits); newline can be displayed without submitting
+  // the canonical input buffer on zsh and other real shells.
+  await sendRawTerminalInput(`${command}\r`, id);
   if (action === "format") setTimeout(() => reloadCodeDocument(document.projectID, document.path), 500);
 }
 
@@ -2254,7 +2348,12 @@ async function openWorkbenchFile(path) {
   if (!projectID) return;
   rememberCodeTab(projectID, path);
   try {
-    const document = codeDrafts.get(codeDraftKey(projectID, path)) || await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path)}`);
+    // A cached draft that is empty over a non-empty original without ever
+    // being touched is a stale poisoned read, not the user's work — refetch.
+    const cached = codeDrafts.get(codeDraftKey(projectID, path));
+    const document = (cached && !(cached.content === "" && cached.originalContent && !cached.touched))
+      ? cached
+      : await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path)}`);
     if (state.currentProject?.id !== projectID) return;
     state.projectFile = { ...document, projectID, originalContent: document.originalContent ?? document.content };
     state.projectFileDiff = "";
@@ -2414,6 +2513,11 @@ function sendRawTerminalInput(input, id = state.selectedTerminal) {
 }
 function resizeTerminalTo(id, columns, rows) {
   clearTimeout(terminalResizeTimer);
+  // ResizeObserver fires once while a pane is still being laid out. xterm can
+  // report 2x1 in that frame; it is not a usable terminal size and the server
+  // intentionally rejects it. Wait for the next stable observation instead
+  // of showing a false error toast.
+  if (columns < 20 || columns > 500 || rows < 5 || rows > 200) return;
   terminalResizeTimer = setTimeout(() => {
     void api(`/api/terminals/${encodeURIComponent(id)}/resize`, {method:"POST",body:JSON.stringify({columns,rows})})
       .catch(error => toast(error.message,true));
@@ -2483,6 +2587,237 @@ function renderPaneOutputHTML() {
   </div>`;
 }
 
+function projectDurableTasks() {
+  return state.durableTasks.filter(item => !state.currentProject?.id || item.project_id === state.currentProject.id);
+}
+
+function taskExecutionHTML(task, execution) {
+  if (execution === undefined || execution === null) return `<div class="probe-empty">Loading durable execution state…</div>`;
+  if (execution.error) return `<div class="probe-empty">${escapeHTML(execution.error)}</div>`;
+  const proposal = execution.proposal;
+	const uncertainEffects = (execution.effects || []).filter(effect => effect.state === "uncertain");
+	const canStart = task.state === "ready" || (task.state === "paused" && !uncertainEffects.length) || (execution.run?.state === "running" && (!execution.attempt || execution.attempt.state === "running"));
+  let action = "";
+	if (uncertainEffects.length) {
+		action = `<div class="probe-empty">${uncertainEffects.length} effect(s) have an unknown post-restart outcome. Reconciliation only inspects durable local evidence; it never replays the action.</div><button class="primary" id="taskReconcileEffects">Reconcile safe effects</button>`;
+	} else if (canStart && !proposal) {
+    action = `<form id="taskProposalForm"><label>Files for this bounded step · optional, one project-relative path per line<textarea name="files" rows="4" placeholder="Leave empty for bounded automatic selection&#10;internal/service.go&#10;internal/service_test.go"></textarea></label>
+      <label>Implementer provider<select name="provider_id" required>${state.providers.filter(item => item.enabled).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select></label>
+      <button class="primary" ${state.providers.some(item => item.enabled) ? "" : "disabled"}>Select files & start proposal</button></form>`;
+  } else if (proposal?.state === "pending_review") {
+    action = `<div class="action-row"><button class="primary" data-task-proposal-decision="approved">Approve proposal</button><button class="danger" data-task-proposal-decision="rejected">Reject proposal</button></div>`;
+  } else if (proposal?.state === "approved") {
+    action = `<button class="primary" id="taskApplyProposal">Apply reviewed change</button>`;
+  } else if (proposal?.state === "applied") {
+    action = `<div class="probe-empty">Run the exact commands and acceptance-criterion mappings frozen in this step. Shell control syntax is refused.</div><button class="primary" id="taskVerifyProposal">Run frozen verification</button>`;
+  } else if (proposal?.state === "awaiting_post_review") {
+    const reviewers = state.providers.filter(item => item.enabled && item.id !== proposal.provider_id);
+    action = `<label>Independent reviewer provider<select id="taskReviewerProvider">${reviewers.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select></label><button class="primary" id="taskPostReview" ${reviewers.length ? "" : "disabled"}>Run independent review</button>`;
+  }
+  return `<section class="inspect-section"><div class="provider-head"><div><p class="eyebrow">Durable execution</p><h3>${escapeHTML(execution.run ? `Run · ${execution.run.state}` : "Not started")}</h3></div>${proposal ? pill(proposal.state, proposal.state === "verified" ? "green" : proposal.state.includes("failed") || proposal.state.includes("rejected") ? "red" : "amber") : ""}</div>
+    <div class="kv"><span>Run</span><strong>${escapeHTML(execution.run?.id || "—")}</strong><span>Attempt</span><strong>${escapeHTML(execution.attempt?.state || "—")}</strong><span>Proposal</span><strong>${escapeHTML(proposal?.id || "—")}</strong><span>Effects</span><strong>${execution.effects.length}</strong></div>${action}</section>`;
+}
+
+function renderTaskCockpit(body) {
+  const tasks = projectDurableTasks();
+  let selected = tasks.find(item => item.id === state.selectedDurableTask);
+  if (!selected && tasks.length) {
+    selected = tasks[0];
+    state.selectedDurableTask = selected.id;
+  }
+  const steps = selected?.plan?.steps || [];
+  const execution = selected ? state.taskExecutions[selected.id] : undefined;
+  body.innerHTML = `<div class="panel task-cockpit"><div class="provider-head"><div><p class="eyebrow">Durable task cockpit</p><h3>${escapeHTML(selected?.title || "Plan work from requirements")}</h3><p>Requirements, plan revisions and evidence survive model turns and app restarts.</p></div>${selected ? pill(selected.state, selected.state === "completed" ? "green" : selected.state === "paused" ? "red" : "amber") : ""}</div>
+    <div class="workbench-grid"><div><form id="durableTaskForm">
+      <label>Title<input name="title" required maxlength="160" placeholder="Fix customer login regression"></label>
+      <label>Objective<textarea name="objective" required rows="2" placeholder="Observable outcome"></textarea></label>
+      <label>Original request<textarea name="original_request" required rows="3" placeholder="Preserve the user's wording and constraints"></textarea></label>
+      <label>Acceptance criteria · one per line<textarea name="criteria" required rows="4" placeholder="Login succeeds with a valid account&#10;Invalid password remains rejected"></textarea></label>
+      <button class="primary" ${state.currentProject?.id ? "" : "disabled"}>Create task</button>
+    </form></div><div><div class="card-list spaced">${tasks.map(task => `<button class="session-item ${task.id === selected?.id ? "active" : ""}" data-durable-task="${escapeHTML(task.id)}"><strong>${escapeHTML(task.title)}</strong><span>${escapeHTML(task.state)} · requirement r${task.active_requirement_revision} · plan r${task.active_plan_revision}</span></button>`).join("") || `<div class="probe-empty">No durable task for this project yet.</div>`}</div></div></div>
+    ${selected ? `<section class="inspect-section"><div class="provider-head"><div><h3>${escapeHTML(selected.objective)}</h3><small>task revision ${selected.revision}</small></div><div class="action-row"><select id="taskPlannerProvider" aria-label="Planner provider">${state.providers.filter(item => item.enabled).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select><button class="ghost" id="taskAutoPlan" ${selected.state === "completed" || !state.providers.some(item => item.enabled) ? "disabled" : ""}>Auto-plan</button></div></div>
+      <div class="kv"><span>Requirement</span><strong>r${selected.active_requirement_revision}</strong><span>Plan</span><strong>${selected.active_plan_revision ? `r${selected.active_plan_revision}` : "not planned"}</strong><span>Constraints</span><span>${escapeHTML((selected.requirement?.constraints || []).join(" · ") || "none")}</span></div>
+      <div class="card-list spaced">${steps.map(step => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(step.step_key || step.key)} · ${escapeHTML(step.title)}</strong>${pill(step.state, step.state === "completed" ? "green" : step.state === "failed" ? "red" : "amber")}</div><p>${escapeHTML(step.instructions)}</p><small>${escapeHTML((step.checks || []).join(" · ") || "No checks")}</small></article>`).join("") || `<div class="probe-empty">Create an automatic or reviewed manual plan to begin.</div>`}</div>
+    </section>${selected ? taskExecutionHTML(selected, execution) : ""}` : ""}</div>`;
+  $("#durableTaskForm")?.addEventListener("submit", createDurableTask);
+  $$('[data-durable-task]', body).forEach(button => button.addEventListener("click", async () => {
+    state.selectedDurableTask = button.dataset.durableTask;
+    await loadTaskExecution(state.selectedDurableTask);
+    renderTaskCockpit(body);
+  }));
+  $("#taskAutoPlan")?.addEventListener("click", () => autoPlanDurableTask(body));
+  $("#taskProposalForm")?.addEventListener("submit", event => startTaskProposal(event, body));
+  $$('[data-task-proposal-decision]', body).forEach(button => button.addEventListener("click", () => decideTaskProposal(button.dataset.taskProposalDecision, body)));
+  $("#taskApplyProposal")?.addEventListener("click", () => applyTaskProposal(body));
+  $("#taskVerifyProposal")?.addEventListener("click", () => verifyTaskProposal(body));
+  $("#taskPostReview")?.addEventListener("click", () => postReviewTaskProposal(body));
+	$("#taskReconcileEffects")?.addEventListener("click", () => reconcileTaskEffects(body));
+  if (selected && !Object.prototype.hasOwnProperty.call(state.taskExecutions, selected.id)) {
+    state.taskExecutions[selected.id] = null;
+    loadTaskExecution(selected.id).then(() => renderTaskCockpit(body));
+  }
+}
+
+async function reconcileTaskEffects(body) {
+	const taskID = state.selectedDurableTask;
+	const effects = (state.taskExecutions[taskID]?.effects || []).filter(effect => effect.state === "uncertain");
+	if (!taskID || !effects.length) return;
+	try {
+		for (const effect of effects) {
+			await api(`/api/task-effects/${encodeURIComponent(effect.operation_id)}/reconcile`, {method:"POST", body:"{}"});
+		}
+		await refreshDurableTask(taskID, body);
+		toast("Effects reconciled from durable local evidence; no action was replayed");
+	} catch (error) {
+		toast(error.message, true);
+		await refreshDurableTask(taskID, body);
+	}
+}
+
+async function loadTaskExecution(taskID) {
+  if (!taskID) return;
+  try { state.taskExecutions[taskID] = await api(`/api/tasks/${encodeURIComponent(taskID)}/execution`); }
+  catch (error) { state.taskExecutions[taskID] = {error:error.message, effects:[]}; }
+}
+
+async function refreshDurableTask(taskID, body) {
+  const [task, execution] = await Promise.all([
+    api(`/api/tasks/${encodeURIComponent(taskID)}`), api(`/api/tasks/${encodeURIComponent(taskID)}/execution`)
+  ]);
+  state.durableTasks = state.durableTasks.map(item => item.id === taskID ? task : item);
+  state.taskExecutions[taskID] = execution;
+  renderTaskCockpit(body);
+}
+
+async function startTaskProposal(event, body) {
+  event.preventDefault();
+	const submitButton = event.currentTarget.querySelector('button[type="submit"], button:not([type])');
+	if (submitButton?.disabled) return;
+	if (submitButton) submitButton.disabled = true;
+  const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
+  const form = new FormData(event.currentTarget);
+  const files = String(form.get("files") || "").split("\n").map(value => value.trim()).filter(Boolean);
+  const providerID = String(form.get("provider_id") || "");
+  if (!task || !providerID) { if (submitButton) submitButton.disabled = false; return; }
+  try {
+    let execution = state.taskExecutions[task.id] || {effects:[]};
+    let run = execution.run?.state === "running" ? execution.run : null;
+    let attempt = execution.attempt?.state === "running" ? execution.attempt : null;
+    let packet = attempt?.packet || null;
+    if (!run) {
+      packet = await api(`/api/tasks/${encodeURIComponent(task.id)}/next-packet`);
+      const started = await api(`/api/tasks/${encodeURIComponent(task.id)}/runs`, {method:"POST", body:JSON.stringify({
+        expected_task_revision:task.revision, owner:currentActor(), lease_seconds:300
+      })});
+      run = started.run;
+      state.durableTasks = state.durableTasks.map(item => item.id === task.id ? started.task : item);
+    }
+    if (!attempt) {
+      packet = packet || await api(`/api/tasks/${encodeURIComponent(task.id)}/next-packet`);
+      const current = state.durableTasks.find(item => item.id === task.id);
+      attempt = await api(`/api/task-runs/${encodeURIComponent(run.id)}/attempts`, {method:"POST", body:JSON.stringify({
+        lease_token:run.lease_token, step_key:packet.step.key, expected_task_revision:current.revision,
+        expected_step_revision:packet.step.revision, input_hash:packet.canonical_packet_hash, packet
+      })});
+    }
+    if (!attempt.packet) throw new Error("This legacy attempt has no durable step packet; recover or restart it before provider dispatch.");
+    if (!files.length) {
+      const selection = await api(`/api/task-attempts/${encodeURIComponent(attempt.id)}/select-files`, {method:"POST", body:JSON.stringify({provider_id:providerID})});
+      files.push(...(selection.result?.files || []));
+      if (!files.length) throw new Error("Automatic file selection returned no eligible files.");
+    }
+    await api(`/api/task-attempts/${encodeURIComponent(attempt.id)}/proposals`, {method:"POST", body:JSON.stringify({provider_id:providerID, files})});
+    await refreshDurableTask(task.id, body);
+    toast("Bounded proposal is ready for review");
+  } catch (error) { toast(error.message, true); await loadTaskExecution(task.id); renderTaskCockpit(body); }
+	finally { if (submitButton?.isConnected) submitButton.disabled = false; }
+}
+
+async function decideTaskProposal(verdict, body) {
+  const taskID = state.selectedDurableTask;
+  const proposal = state.taskExecutions[taskID]?.proposal;
+  if (!proposal) return;
+  const rationale = await askAction({title:verdict === "approved" ? "Approve this proposal?" : "Reject this proposal?",
+    message:"The decision is durable and can be made only once.", confirmLabel:verdict === "approved" ? "Approve" : "Reject",
+    reasonLabel:"Review rationale", danger:verdict === "rejected"});
+  if (!rationale) return;
+  try {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/decision`, {method:"POST", body:JSON.stringify({
+      actor:currentActor(), verdict, rationale, findings:[]
+    })});
+    await refreshDurableTask(taskID, body);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function applyTaskProposal(body) {
+  const taskID = state.selectedDurableTask;
+  const proposal = state.taskExecutions[taskID]?.proposal;
+  if (!proposal) return;
+  const confirmed = await askAction({title:"Apply reviewed source changes?", message:"Hermetrix will verify preimage hashes and create rollback evidence before writing.", confirmLabel:"Apply change"});
+  if (!confirmed) return;
+  try {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/apply`, {method:"POST", body:JSON.stringify({actor:currentActor()})});
+    await refreshDurableTask(taskID, body);
+    toast("Reviewed change applied; verification is still required");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function verifyTaskProposal(body) {
+  const taskID = state.selectedDurableTask;
+  const proposal = state.taskExecutions[taskID]?.proposal;
+  if (!proposal) return;
+  const confirmed = await askAction({title:"Run frozen verification?", message:"Each command runs directly without a shell and must produce actual evidence for the frozen step checks.", confirmLabel:"Run checks"});
+  if (!confirmed) return;
+  try {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/verify-frozen`, {method:"POST", body:JSON.stringify({actor:currentActor()})});
+    await refreshDurableTask(taskID, body);
+    toast("Verification evidence recorded");
+  } catch (error) { toast(error.message, true); await refreshDurableTask(taskID, body); }
+}
+
+async function postReviewTaskProposal(body) {
+  const taskID = state.selectedDurableTask;
+  const proposal = state.taskExecutions[taskID]?.proposal;
+  const providerID = $("#taskReviewerProvider")?.value;
+  if (!proposal || !providerID) return;
+  try {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/post-review`, {method:"POST", body:JSON.stringify({provider_id:providerID})});
+    await refreshDurableTask(taskID, body);
+    toast("Independent review completed");
+  } catch (error) { toast(error.message, true); await refreshDurableTask(taskID, body); }
+}
+
+async function createDurableTask(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const criteria = String(form.get("criteria") || "").split("\n").map(value => value.trim()).filter(Boolean)
+    .map((description, index) => ({ id:`AC-${index + 1}`, description }));
+  if (!criteria.length || !state.currentProject?.id) return;
+  try {
+    const task = await api("/api/tasks", {method:"POST", body:JSON.stringify({project_id:state.currentProject.id,
+      title:form.get("title"), objective:form.get("objective"), original_request:form.get("original_request"),
+      criteria, actor:currentActor()})});
+    state.durableTasks.unshift(task);
+    state.selectedDurableTask = task.id;
+    renderPanes();
+    toast("Durable task created");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function autoPlanDurableTask(body) {
+  const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
+  const providerID = $("#taskPlannerProvider")?.value;
+  if (!task || !providerID) return;
+  try {
+    const output = await api(`/api/tasks/${encodeURIComponent(task.id)}/auto-plan`, {method:"POST", body:JSON.stringify({
+      expected_task_revision:task.revision, provider_id:providerID, actor:currentActor()
+    })});
+    state.durableTasks = state.durableTasks.map(item => item.id === task.id ? output.task : item);
+    renderTaskCockpit(body);
+    toast(`Plan r${output.task.active_plan_revision} created`);
+  } catch (error) { toast(error.message, true); }
+}
+
 // Four is the ceiling because a fifth pane on one screen is smaller than the
 // thing inside it, and because a bounded number is a number that can be
 // tested. This is a split, not a tiling manager.
@@ -2493,6 +2828,7 @@ const MAX_PANES = 4;
 // already open in another slot swaps the two instead of creating duplicate
 // controls with ambiguous event targets.
 const PANE_CONTENT = [
+  { id: "tasks", icon: "activity", label: "Tasks" },
   { id: "editor", icon: "file", label: "Code" },
   { id: "review", icon: "review", label: "Review" },
   { id: "files", icon: "files", label: "Files" },
@@ -2552,6 +2888,7 @@ function paneDropGuidesHTML(count) {
 }
 
 function mountPaneContent(body, id) {
+  if (id === "tasks") { renderTaskCockpit(body); return; }
   if (id === "editor") { renderCodeEditor(body); return; }
   if (id === "review") { renderWorkbenchReview(body); return; }
   if (id === "files") { body.innerHTML = renderWorkbenchFilesHTML(); bindWorkbenchFilesEvents(); return; }

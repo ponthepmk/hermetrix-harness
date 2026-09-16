@@ -31,6 +31,8 @@ import (
 	"hermetrix-harness/internal/secrets"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
+	"hermetrix-harness/internal/taskcoord"
+	"hermetrix-harness/internal/taskengine"
 	toolruntime "hermetrix-harness/internal/tools"
 	"hermetrix-harness/internal/web"
 )
@@ -149,6 +151,7 @@ func runServe(args []string) {
 	skillService := skills.NewService(dataStore)
 	gate := runtime.NewInferenceGate()
 	learningService := learning.NewService(dataStore, skillService, gate, learning.StructuredReviewer{})
+	taskService := taskengine.NewService(dataStore)
 	curatorService := curator.NewService(dataStore, skillService)
 	productService := product.NewService(dataStore, skillService)
 	defer productService.Close()
@@ -185,6 +188,7 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 	providerService := providers.NewService(dataStore, nil).WithVault(vault)
+	taskCoordinator := taskcoord.New(taskService, productService, providerService)
 	localProber := localmodel.NewProber()
 	qualificationService := qualification.NewService(dataStore, providerService, localProber, gate, estimator)
 	capabilityCatalog := capabilities.NewCatalog()
@@ -262,9 +266,16 @@ func runServe(args []string) {
 	} else if recovered > 0 {
 		logger.Info("requeued interrupted learning reviews", "count", recovered)
 	}
+	if recovered, recoverErr := taskService.RecoverInterrupted(ctx); recoverErr != nil {
+		logger.Error("recover interrupted durable tasks", "error", recoverErr)
+		os.Exit(1)
+	} else if recovered > 0 {
+		logger.Warn("paused interrupted durable tasks for effect reconciliation", "count", recovered)
+	}
 	webServer := web.New(skillService, learningService, curatorService, compiler, estimator,
 		localProber, providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
-		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService)
+		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator)
 	if authEnabled {
 		webServer.WithAuthentication(authToken, strings.TrimSpace(*authPrincipal), tlsEnabled)
 	}
@@ -289,6 +300,11 @@ func runServe(args []string) {
 					logger.Warn("drain committed learning triggers", "error", drainErr)
 				} else if processed > 0 {
 					logger.Info("queued committed learning reviews", "count", processed)
+				}
+				if reviewed, reviewErr := learningService.RunQueued(ctx, 1); reviewErr != nil {
+					logger.Warn("run queued learning review", "error", reviewErr)
+				} else if reviewed > 0 {
+					logger.Info("processed queued learning review", "count", reviewed)
 				}
 				state := curator.DetectSystemState(ctx)
 				executions, runErr := curatorService.RunDue(ctx, state)
