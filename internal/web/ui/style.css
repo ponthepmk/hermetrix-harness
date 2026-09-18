@@ -442,12 +442,25 @@ body {
 .pane-head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2); border-bottom: 1px solid var(--line); }
 .pane-head select { flex: 1; min-width: 0; padding: var(--space-1) var(--space-2); font-size: var(--text-2xs); line-height: var(--leading-2xs); }
 .pane-body { overflow: auto; padding: var(--space-2); min-height: 0; container-type: inline-size; container-name: pane-body; }
+.pane-body[data-pane-kind="chat"] { display: flex; flex-direction: column; gap: var(--space-2); }
+.pane-chat-head { display: grid; gap: 2px; }
+.pane-chat-head small { color: var(--muted); }
+.pane-chat-log { flex: 1; min-height: 80px; overflow: auto; display: grid; gap: var(--space-2); align-content: start; }
+.pane-chat-msg { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
+.pane-chat-msg span { font-size: var(--text-2xs); color: var(--muted); }
+.pane-chat-msg p { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; }
+.pane-chat-form { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); align-items: end; }
+.pane-chat-empty { color: var(--muted); }
 .pane-add { margin-top: var(--space-2); }
 /* 74px is the app header (46px) plus the main zone's own top and bottom
    padding (14px each); the sticky topbar this once measured against is gone. */
 .chat-layout { display: block; min-height: calc(100vh - 74px); border: 0; border-radius: 0; background: transparent; }
 .chat-stage { min-height: calc(100vh - 74px); border: 0; border-radius: var(--radius); overflow: hidden; background: var(--surface-well); }
 .chat-head { background: var(--chrome-glass); }
+.context-meter { margin-top: var(--space-2); max-width: 420px; }
+.context-meter-track { height: var(--space-2); border-radius: var(--radius-pill); background: var(--surface-2); overflow: hidden; }
+.context-meter-fill { height: 100%; background: var(--accent); }
+.context-meter small { color: var(--muted); }
 .message-list { min-height: 0; }
 .file-editor { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .file-editor textarea { min-height: 340px; resize: vertical; font: var(--text-2xs)/var(--leading-2xs) ui-monospace,SFMono-Regular,Menlo,monospace; tab-size: 2; }

@@ -144,6 +144,15 @@ async function openProject(id) {
     applyLayoutForView();
     if (state.view === "code") renderPanes();
     await load();
+    // Land on this workspace's own conversation. Opening a project while a
+    // different project's session is selected leaves chat showing someone
+    // else's transcript — or nothing at all — with no hint why.
+    if (state.sessionDetail?.session?.project_id !== id) {
+      const own = state.sessions.filter(item => item.project_id === id)
+        .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+      if (own.length) await selectSession(own[0].id);
+      else { state.selectedSession = null; state.sessionDetail = null; renderChat(); }
+    }
   } catch (error) { toast(error.message, true); }
 }
 
@@ -488,7 +497,7 @@ function renderProposals() {
     return `<article class="proposal-card"><div class="proposal-head"><div><div class="row-title"><h3>${escapeHTML(item.canonical_name)}</h3>${pill(item.change_kind,"blue")}${pill(item.state,item.state === "needs_review" ? "green" : "red")}</div><p>${escapeHTML(item.reason || "No rationale supplied")}</p></div><span class="hash">r${item.revision} · ${shortHash(item.candidate_hash)}</span></div>
       <div class="meta">${pill(`by ${item.created_by}`)}${pill(item.trigger_kind)}${pill(`${item.checks.token_estimate} tokens`)}</div>
       ${(item.checks.findings || []).length ? `<ul class="findings">${item.checks.findings.map(f => `<li class="${f.level}"><strong>${escapeHTML(f.code)}</strong> — ${escapeHTML(f.message)}</li>`).join("")}</ul>` : ""}
-      <div class="action-row"><button class="ghost" data-review="${escapeHTML(item.id)}">Inspect content</button><button class="primary" data-promote="${escapeHTML(item.id)}" ${errors.length || !item.checks.passed ? "disabled" : ""}>Approve & promote</button><button class="danger" data-reject="${escapeHTML(item.id)}">Reject</button></div></article>`;
+      <div class="action-row"><button class="ghost" data-review="${escapeHTML(item.id)}">Inspect content</button><button class="primary" data-promote="${escapeHTML(item.id)}" title="${errors.length ? `Blocked by ${errors[0].code} — see findings above` : !item.checks.passed ? "Checks must pass before promotion" : "Promote this candidate to an immutable active version"}" ${errors.length || !item.checks.passed ? "disabled" : ""}>Approve & promote</button><button class="danger" data-reject="${escapeHTML(item.id)}">Reject</button></div></article>`;
   }).join("")}</div>`;
   $$('[data-review]', root).forEach(button => button.addEventListener("click", () => inspectCandidate(button.dataset.review)));
   $$('[data-promote]', root).forEach(button => button.addEventListener("click", () => promoteCandidate(button.dataset.promote)));
@@ -498,7 +507,7 @@ function renderProposals() {
 function renderLearning() {
   const root = $("#view-learning");
   const queued = state.reviews.filter(item => item.state === "queued").length;
-  root.innerHTML = `<div class="panel"><div class="proposal-head"><div><h3>Background review queue</h3><p>Jobs persist across restart, use structured digests, yield to foreground inference, and can create only checked candidates.</p></div><button class="primary" id="runReviewButton" ${queued ? "" : "disabled"}>Run next review</button></div></div>
+  root.innerHTML = `<div class="panel"><div class="proposal-head"><div><h3>Background review queue</h3><p>Jobs persist across restart, use structured digests, yield to foreground inference, and can create only checked candidates.</p></div><button class="primary" id="runReviewButton" title="${queued ? "Run the oldest queued background review now" : "No queued reviews — new milestones, corrections and explicit learn requests enqueue here"}" ${queued ? "" : "disabled"}>Run next review</button></div></div>
     <div class="card-list spaced">${state.reviews.length ? state.reviews.map(item => `<article class="proposal-card"><div class="proposal-head"><div><div class="row-title"><h3>${escapeHTML(item.trigger_kind)}</h3>${pill(item.state, item.state === "completed" ? "green" : item.state === "failed" ? "red" : "amber")}</div><p>${escapeHTML(item.digest.goal_and_constraints || "Structured milestone digest")}</p></div><span class="hash">${escapeHTML(item.reviewer_revision)}</span></div><div class="meta">${pill(`session ${item.session_id}`)}${pill(`${item.attempts} attempts`)}${item.decision?.kind ? pill(item.decision.kind,"blue") : ""}${item.candidate_id ? pill("candidate created","green") : ""}</div>${item.error ? `<ul class="findings"><li class="error">${escapeHTML(item.error)}</li></ul>` : ""}</article>`).join("") : `<div class="empty"><h3>No learning reviews yet</h3><p>The agent runtime will enqueue successful milestones, repeated corrections, explicit learn requests, and skill-related failures. Empty is a valid state.</p></div>`}</div>`;
   $("#runReviewButton").addEventListener("click", runNextReview);
 }
@@ -873,6 +882,17 @@ function renderChat() {
   const questions = state.elicitations.filter(item => item.session_id === selectedID);
   const session = state.sessionDetail?.session;
   const contract = session?.contract || {};
+  // Context meter: provider-reported input tokens of the latest sampled step
+  // against this session's envelope. It is a measured high-water mark, not a
+  // prediction — output reserve and estimator error are not folded in.
+  const contextProfile = state.profiles.find(item => item.name === session?.context_profile);
+  const contextUsages = (state.sessionDetail?.events || [])
+    .map(item => Number(item.metadata?.usage?.prompt_tokens || 0))
+    .filter(value => value > 0);
+  const contextLast = contextUsages.length ? contextUsages[contextUsages.length - 1] : 0;
+  const contextMax = contextUsages.length ? Math.max(...contextUsages) : 0;
+  const contextTotal = Number(contextProfile?.total || 0);
+  const contextBar = session && contextTotal ? `<div class="context-meter" title="Provider-reported input tokens, latest sampled step"><div class="context-meter-track"><div class="context-meter-fill" style="width:${Math.min(100, Math.round(contextLast / contextTotal * 100))}%"></div></div><small>context ${contextLast.toLocaleString()} / ${contextTotal.toLocaleString()}${contextMax > contextLast ? ` · max ${contextMax.toLocaleString()}` : ""}</small></div>` : "";
   const skillCatalog = contract.skill_catalog || [];
   const selectedSkills = contract.selected_skills || [];
   const directTools = contract.tool_bindings || [];
@@ -922,7 +942,7 @@ function renderChat() {
   // line's job, not the button's.
   railStart.innerHTML = `${uiIcon("plus")}<span>New session</span>`;
   root.innerHTML = `<div class="chat-layout"><section class="chat-stage">
-      ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">Skills <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">Direct tools <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP ready <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
+      ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">Skills <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">Direct tools <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP ready <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div>${contextBar}</header>
         <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
         <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>Skills & tools</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>Files</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>Terminal</span></button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, drop or paste images to attach" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p><ol class="first-run">${enabledProviders.length ? `<li class="done"><span>1 · Model connected ✓</span></li>` : `<li class="next"><span>1 · Connect a model</span><button class="primary" id="openProvidersButton">Connect</button></li>`}${!enabledProviders.length ? `<li class="todo"><span>2 · Open your first session</span></li>` : state.sessions.length ? `<li class="done"><span>2 · Session opened ✓</span></li>` : `<li class="next"><span>2 · Open your first session</span><button class="primary" id="checklistNewSession">New session</button></li>`}${state.skills.length ? `<li class="done"><span>3 · First Skill in place ✓</span></li>` : (enabledProviders.length && state.sessions.length) ? `<li class="next"><span>3 · Add your first Skill</span><button class="primary" id="checklistOpenSkills">Skill Studio</button></li>` : `<li class="todo"><span>3 · Add your first Skill</span></li>`}</ol></div>`}
     </section></div>`;
@@ -1414,8 +1434,20 @@ async function sendTurn(event) {
   state.draftMessage = "";
   state.composerCaret = 0;
   state.composerFocused = true;
+  const ok = await submitChatText(content);
+  // The turn never committed, so hand the text back instead of eating it.
+  if (!ok) state.draftMessage = content;
+}
+
+// submitChatText is the shared turn pipeline behind both composers: the full
+// Chat view box and the Workspace chat pane. It touches no DOM input itself —
+// callers own their draft — and every render it triggers is a safe no-op in a
+// view whose zone is not mounted. Returns true when the turn committed.
+async function submitChatText(content) {
+  if (state.sending || !state.sessionDetail?.session) return false;
   state.sending = true;
   renderChat();
+  refreshPaneChat();
   setTimeout(pollElicitations, 600);
   const sessionID = state.sessionDetail.session.id;
   try {
@@ -1426,15 +1458,16 @@ async function sendTurn(event) {
     }
     await consumeAgentStream(response);
     await selectSession(sessionID);
+    return true;
   } catch (error) {
     toast(error.message, true);
-    // The turn never committed, so hand the text back instead of eating it.
-    state.draftMessage = content;
     await selectSession(sessionID).catch(() => {});
+    return false;
   } finally {
     state.sending = false;
     state.elicitations = [];
     renderChat();
+    refreshPaneChat();
   }
 }
 
@@ -1542,7 +1575,7 @@ function renderProviders() {
     [qualified.toLocaleString(), "qualified"]
   ];
   const hero = `<section class="capability-hero"><div class="capability-hero-head"><div><p class="eyebrow">Models</p><h3>${list.length ? `${list.length} model${list.length === 1 ? "" : "s"} connected` : "No model connected yet"}</h3><p>Connect OpenAI-compatible gateways or native Anthropic and Gemini endpoints. Credentials remain isolated per profile.</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
-  const cards = list.length ? list.map(provider => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(provider.name)}</h3>${pill(provider.adapter_kind, "blue")}${pill(provider.enabled ? "enabled" : "disabled", provider.enabled ? "green" : "amber")}${pill(provider.context_evidence, provider.context_evidence === "qualified" ? "green" : "amber")}</div><p>${escapeHTML(provider.base_url)}</p></div>${pill(provider.credential_stored ? "key saved" : provider.api_key_env ? "key from environment" : "no key set", provider.credential_stored || provider.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(provider.model)}</strong><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><span>${provider.max_output_tokens.toLocaleString()}</span><span>Key source</span><span>${provider.credential_stored ? "saved on this machine" : provider.api_key_env ? `environment · ${escapeHTML(provider.api_key_env)}` : "none required"}</span></div><div class="action-row"><button class="ghost" data-provider-key="${escapeHTML(provider.id)}">${provider.credential_stored ? "Replace API key" : "Set API key"}</button><button class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Test connection</button><button class="primary" data-qualify-provider="${escapeHTML(provider.id)}" ${provider.credential_ready ? "" : "disabled"}>Full qualification</button></div></article>`).join("") : `<div class="empty"><h3>No model connected</h3><p>Open the Model registry panel and connect one. A hosted endpoint needs its API key; a local runtime usually needs none.</p></div>`;
+  const cards = list.length ? list.map(provider => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(provider.name)}</h3>${pill(provider.adapter_kind, "blue")}${pill(provider.enabled ? "enabled" : "disabled", provider.enabled ? "green" : "amber")}${pill(provider.context_evidence, provider.context_evidence === "qualified" ? "green" : "amber")}</div><p>${escapeHTML(provider.base_url)}</p></div>${pill(provider.credential_stored ? "key saved" : provider.api_key_env ? "key from environment" : "no key set", provider.credential_stored || provider.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(provider.model)}</strong><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><span>${provider.max_output_tokens.toLocaleString()}</span><span>Key source</span><span>${provider.credential_stored ? "saved on this machine" : provider.api_key_env ? `environment · ${escapeHTML(provider.api_key_env)}` : "none required"}</span></div><div class="action-row"><button class="ghost" data-provider-key="${escapeHTML(provider.id)}">${provider.credential_stored ? "Replace API key" : "Set API key"}</button><button class="ghost" data-test-provider="${escapeHTML(provider.id)}" title="${provider.credential_ready ? "Send one cheap request to prove the endpoint, model and key work together" : "Set the API key first — a provider without credentials cannot be tested"}" ${provider.credential_ready ? "" : "disabled"}>Test connection</button><button class="primary" data-qualify-provider="${escapeHTML(provider.id)}" title="${provider.credential_ready ? "Run the full context-tier and capability-grade suite" : "Set the API key first — qualification needs a working credential"}" ${provider.credential_ready ? "" : "disabled"}>Full qualification</button></div></article>`).join("") : `<div class="empty"><h3>No model connected</h3><p>Open the Model registry panel and connect one. A hosted endpoint needs its API key; a local runtime usually needs none.</p></div>`;
   const flow = `<div class="panel"><p class="eyebrow">How connecting works</p><div class="tool-flow">${MODEL_FLOW.map(([title, detail], index) => `<article><b>${index + 1}</b><div><strong>${escapeHTML(title)}</strong><small>${escapeHTML(detail)}</small></div></article>`).join("")}</div></div>`;
   const setup = `<details class="panel connection-setup" ${list.length ? "" : "open"}><summary><div><p class="eyebrow">Model registry</p><h3>Connect a model</h3></div></summary><div class="connection-setup-body"><form id="providerForm">
       <label>Name<input name="name" required maxlength="80" placeholder="OpenAI, my local gateway…"></label>
@@ -2075,7 +2108,7 @@ function renderWorkbenchReview(target = $(".pane-body[data-pane-kind='review']")
   const selectedSkills = contract.selected_skills || [];
   const pendingApprovals = (state.sessionDetail?.approvals || []).filter(item => item.state === "pending");
   const sessionPanel = session ? `<div class="panel session-contract-panel"><div class="provider-head"><div><p class="eyebrow">Current Session Contract</p><h3>${escapeHTML(session.title)}</h3></div>${pill(session.state, session.state === "active" ? "green" : "amber")}</div><div class="kv"><span>Model</span><strong>${escapeHTML(session.model)}</strong><span>Context</span><strong>${escapeHTML(session.context_profile)}</strong><span>Project</span><strong>${escapeHTML(state.projects.find(item => item.id === session.project_id)?.name || "chat only")}</strong><span>Skills in context</span><strong>${selectedSkills.length}</strong><span>Direct tools</span><strong>${(contract.tool_bindings || []).length}</strong><span>Pending approvals</span><strong>${pendingApprovals.length}</strong><span>Contract</span><code>${escapeHTML(shortHash(session.contract_revision))}</code><span>Capability revision</span><code>${escapeHTML(shortHash(contract.capability_revision))}</code></div>${selectedSkills.length ? `<div class="meta session-skill-list">${selectedSkills.map(item => pill(item.canonical_name,"blue")).join("")}</div>` : `<p class="form-note neutral">No Skill body is injected yet; the session can still retrieve a frozen Skill with skill_search and skill_view.</p>`}<div class="action-row"><button class="primary" id="reviewOpenCapabilities">Skills & tools</button><button class="ghost" id="reviewOpenTools">Tool Center</button></div></div>` : `<div class="panel"><p class="eyebrow">Session review</p><h3>Start or select a session</h3><p class="dialog-message">Its immutable model, context envelope, Skill catalog, direct tools and approval state will appear here beside the conversation.</p></div>`;
-  target.innerHTML = `${sessionPanel}<div class="panel"><p class="eyebrow">Authority & background work</p><h3>Evidence before authority</h3><p class="dialog-message">Skill candidates, write approvals, background reviews and command receipts stay inspectable here. Agents cannot widen authority through this room.</p><div class="kv"><span>Proposals</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>Review jobs</span><strong>${queued.length}</strong><span>Policy</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">Open Skill Studio</button><button class="ghost" id="reviewRunNext" ${queued.length ? "" : "disabled"}>Run next review</button></div></div>
+  target.innerHTML = `${sessionPanel}<div class="panel"><p class="eyebrow">Authority & background work</p><h3>Evidence before authority</h3><p class="dialog-message">Skill candidates, write approvals, background reviews and command receipts stay inspectable here. Agents cannot widen authority through this room.</p><div class="kv"><span>Proposals</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>Review jobs</span><strong>${queued.length}</strong><span>Policy</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">Open Skill Studio</button><button class="ghost" id="reviewRunNext" title="${queued.length ? "Run the oldest queued background review now" : "No queued reviews — new milestones, corrections and explicit learn requests enqueue here"}" ${queued.length ? "" : "disabled"}>Run next review</button></div></div>
   <div class="card-list spaced">${state.jobs.slice(0,5).map(job => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(job.payload?.executable || job.kind)}</strong>${pill(job.state,job.state === "completed" ? "green" : job.state === "failed" ? "red" : "amber")}</div><small>${formatDate(job.created_at)} · ${escapeHTML(job.result?.artifact_id || "receipt pending")}</small></article>`).join("") || `<div class="probe-empty">No recent execution receipts.</div>`}</div>`;
   $("#reviewOpenCapabilities")?.addEventListener("click", () => openCapabilityPicker("all"));
   $("#reviewOpenTools")?.addEventListener("click", () => switchTab("mcp"));
@@ -2157,7 +2190,12 @@ function codeSymbols(path, content) {
     ? [/^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/, /^\s*type\s+([A-Za-z_]\w*)\s+/]
     : extension === "py"
       ? [/^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/, /^\s*class\s+([A-Za-z_]\w*)/]
-      : [ /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/, /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)/, /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/ ];
+      : ["yml", "yaml"].includes(extension)
+        // Top-level mapping keys only: indented lines are values, not sections.
+        ? [/^([A-Za-z_][\w.-]*)\s*:/]
+        : extension === "mod"
+          ? [/^module\s+(\S+)/, /^\s+([A-Za-z0-9_./-]+)\s+v/]
+          : [ /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/, /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)/, /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(/ ];
   return String(content || "").split("\n").flatMap((line, index) => {
     for (const pattern of patterns) {
       const match = line.match(pattern);
@@ -2189,6 +2227,11 @@ function editorCommandFor(action, document) {
       debug:`python3 -m pdb ${file}`
     },
     js: { run:`node ${file}`, test:"npm test", debug:`node --inspect-brk ${file}` },
+    mod: {
+      format:`go mod edit -fmt ${file}`,
+      run:`go build ./...`,
+      test:"go test ./..."
+    },
     mjs: { run:`node ${file}`, test:"npm test", debug:`node --inspect-brk ${file}` },
     cjs: { run:`node ${file}`, test:"npm test", debug:`node --inspect-brk ${file}` },
     ts: { run:`npm exec --offline -- tsx ${file}`, test:"npm test", debug:`node --inspect-brk --import tsx ${file}` }
@@ -2212,7 +2255,7 @@ function renderCodeEditor(body) {
       const dirty = draft && draft.content !== draft.originalContent;
       return `<span class="code-tab ${path === document.path ? "active" : ""}" role="tab" aria-selected="${path === document.path}"><button type="button" data-code-tab="${escapeHTML(path)}" title="${escapeHTML(path)}">${escapeHTML(path.split("/").pop())}${dirty ? `<i aria-label="Unsaved">•</i>` : ""}</button><button type="button" class="code-tab-close" data-code-tab-close="${escapeHTML(path)}" aria-label="Close ${escapeHTML(path)}">×</button></span>`;
     }).join("")}</div>
-    <div class="code-editor-toolbar"><code>${escapeHTML(document.path)}</code><button class="ghost" type="button" data-editor-action="format" ${editorCommandFor("format", document) ? "" : "disabled"}>Format</button><button class="ghost" type="button" data-editor-action="run" ${editorCommandFor("run", document) ? "" : "disabled"}>Run</button><button class="ghost" type="button" data-editor-action="test" ${editorCommandFor("test", document) ? "" : "disabled"}>Test</button><button class="ghost" type="button" data-editor-action="debug" ${editorCommandFor("debug", document) ? "" : "disabled"}>Debug</button><button class="ghost" type="button" id="codeReview">Review</button><span id="codeSaveState">${document.content !== document.originalContent ? "Unsaved" : "Saved"}</span><button class="primary">Save</button></div>
+    <div class="code-editor-toolbar"><code>${escapeHTML(document.path)}</code><button class="ghost" type="button" data-editor-action="format" title="${editorCommandFor("format", document) ? "Format with the project's own toolchain" : "No formatter configured for this file type (go/mod/py/js/ts supported)"}" ${editorCommandFor("format", document) ? "" : "disabled"}>Format</button><button class="ghost" type="button" data-editor-action="run" title="${editorCommandFor("run", document) ? "Run in the project terminal" : "Run is not configured for this file type"}" ${editorCommandFor("run", document) ? "" : "disabled"}>Run</button><button class="ghost" type="button" data-editor-action="test" title="${editorCommandFor("test", document) ? "Run tests in the project terminal" : "Test is not configured for this file type"}" ${editorCommandFor("test", document) ? "" : "disabled"}>Test</button><button class="ghost" type="button" data-editor-action="debug" title="${editorCommandFor("debug", document) ? "Debug in the project terminal" : "Debug is not configured for this file type"}" ${editorCommandFor("debug", document) ? "" : "disabled"}>Debug</button><button class="ghost" type="button" id="codeReview">Review</button><span id="codeSaveState">${document.content !== document.originalContent ? "Unsaved" : "Saved"}</span><button class="primary">Save</button></div>
     <div class="code-workarea"><aside class="code-outline"><strong>Outline</strong>${symbols.map(symbol => `<button type="button" data-code-symbol="${symbol.line}"><span>${escapeHTML(symbol.name)}</span><small>${symbol.line}</small></button>`).join("") || `<small>No symbols found</small>`}</aside><div id="workbenchFileContent" class="code-editor-host" aria-label="Code editor"></div></div>
     <footer class="code-status"><span>${escapeHTML(document.path.split(".").pop().toUpperCase())}</span><span id="codeCursor">Ln 1, Col 1</span><span>Spaces: 2</span><span>UTF-8</span></footer>
     <details class="code-review" id="codeReviewPanel"><summary>Changes</summary><pre class="diff-view" id="codeDiff"></pre></details>
@@ -2227,6 +2270,7 @@ function renderCodeEditor(body) {
     const editor = window.HermetrixIDE.createEditor(host, {
       doc: document.content,
       path: document.path,
+      wrap: ["md", "markdown", "txt", "yml", "yaml"].includes(document.path.split(".").pop().toLowerCase()),
       onChange: content => {
         editor.changed = true;
         const draft = { ...state.projectFile, content, touched:true };
@@ -2828,6 +2872,7 @@ const MAX_PANES = 4;
 // already open in another slot swaps the two instead of creating duplicate
 // controls with ambiguous event targets.
 const PANE_CONTENT = [
+  { id: "chat", icon: "chat", label: "Chat" },
   { id: "tasks", icon: "activity", label: "Tasks" },
   { id: "editor", icon: "file", label: "Code" },
   { id: "review", icon: "review", label: "Review" },
@@ -2887,7 +2932,63 @@ function paneDropGuidesHTML(count) {
   </div>`;
 }
 
+// A chat pane brings the conversation into the Workspace view: the same
+// turn pipeline as the Chat view composer, with a compact read-only tail of
+// the selected session. Full receipts stay in Chat; this pane is for asking
+// next to the code.
+function paneChatHTML() {
+  const session = state.sessionDetail?.session;
+  if (!session) return `<div class="pane-chat-empty"><h3>No session selected</h3><p>Pick one in the rail — new turns always land on the selected session.</p></div>`;
+  const messages = (state.sessionDetail?.events || [])
+    .filter(item => item.event_kind === "message" && (item.role === "user" || item.role === "assistant"))
+    .slice(-8);
+  return `<div class="pane-chat-head"><strong>${escapeHTML(session.title)}</strong><small>${escapeHTML(session.provider_name)} · ${escapeHTML(session.context_profile)}</small></div>
+  <div class="pane-chat-log">${messages.map(item => `<article class="pane-chat-msg ${item.role}"><span>${item.role === "user" ? "You" : "Hermetrix"}</span><p>${escapeHTML((item.content || "").slice(0, 600))}</p></article>`).join("") || `<p class="form-note neutral">No messages yet — ask below.</p>`}</div>
+  <form class="pane-chat-form"><textarea class="pane-chat-input" rows="2" maxlength="1048576" placeholder="Ask Hermetrix… Enter sends" ${state.sending ? "disabled" : ""}>${escapeHTML(state.paneChatDraft || "")}</textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>`;
+}
+function renderPaneChat(body) {
+  body.innerHTML = paneChatHTML();
+  bindPaneChat(body);
+}
+function bindPaneChat(body) {
+  const input = body.querySelector(".pane-chat-input");
+  const form = body.querySelector(".pane-chat-form");
+  if (!input || !form) return;
+  input.addEventListener("input", () => { state.paneChatDraft = input.value; });
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.isComposing) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+    const content = input.value.trim();
+    if (!content || state.sending) return;
+    input.value = "";
+    state.paneChatDraft = "";
+    const ok = await submitChatText(content);
+    if (!ok) {
+      state.paneChatDraft = content;
+      const box = body.querySelector(".pane-chat-input");
+      if (box) box.value = content;
+    }
+    refreshPaneChat();
+  });
+  const log = body.querySelector(".pane-chat-log");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+// refreshPaneChat redraws mounted chat panes without a full renderPanes — a
+// full rebuild would destroy the CodeMirror instance next door on every turn.
+// A pane holding keyboard focus is left alone so typing is never clobbered.
+function refreshPaneChat() {
+  for (const body of document.querySelectorAll('.pane-body[data-pane-kind="chat"]')) {
+    if (body.contains(document.activeElement)) continue;
+    renderPaneChat(body);
+  }
+}
 function mountPaneContent(body, id) {
+  if (id === "chat") { renderPaneChat(body); return; }
   if (id === "tasks") { renderTaskCockpit(body); return; }
   if (id === "editor") { renderCodeEditor(body); return; }
   if (id === "review") { renderWorkbenchReview(body); return; }
@@ -2928,10 +3029,10 @@ function renderPanes() {
             PANE_CONTENT.map(option =>
               `<option value="${option.id}" ${option.id === id ? "selected" : ""}>${escapeHTML(option.label)}</option>`).join("")
           }</select>
-          <button class="ghost compact" data-pane-max="${index}" aria-label="Maximise this pane">${
+          <button class="ghost compact" data-pane-max="${index}" aria-label="Maximise this pane" title="Maximise this pane">${
             uiIcon(state.maximisedPane === index ? "contract" : "expand")}</button>
           ${state.panes.length > 1
-            ? `<button class="ghost compact" data-pane-close="${index}" aria-label="Close this pane">${uiIcon("close")}</button>` : ""}
+            ? `<button class="ghost compact" data-pane-close="${index}" aria-label="Close this pane" title="Close this pane">${uiIcon("close")}</button>` : ""}
         </header>
         <div class="pane-body" data-pane-kind="${item.id}"></div>
       </section>`;

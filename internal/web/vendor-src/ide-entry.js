@@ -92,6 +92,7 @@ export function createEditor(parent, options = {}) {
     parent,
     extensions: [
       basicSetup,
+      options.wrap ? EditorView.lineWrapping : [],
       keymap.of([{ key: "Mod-s", run: onSave }, indentWithTab]),
       EditorState.tabSize.of(2),
       languageFor(options.path),
