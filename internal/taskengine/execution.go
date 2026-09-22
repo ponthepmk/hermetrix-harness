@@ -39,6 +39,7 @@ type Run struct {
 	State               string     `json:"state"`
 	Owner               string     `json:"owner"`
 	LeaseToken          string     `json:"lease_token,omitempty"`
+	LeaseGeneration     int        `json:"lease_generation"`
 	LeaseExpiresAt      time.Time  `json:"lease_expires_at"`
 	StopReason          string     `json:"stop_reason,omitempty"`
 	CreatedAt           time.Time  `json:"created_at"`
@@ -62,18 +63,25 @@ type StepAttempt struct {
 }
 
 type EffectIntent struct {
-	ID          string         `json:"id"`
-	AttemptID   string         `json:"attempt_id"`
-	TaskID      string         `json:"task_id"`
-	OperationID string         `json:"operation_id"`
-	Action      string         `json:"action"`
-	Target      string         `json:"target"`
-	Authority   string         `json:"authority"`
-	State       string         `json:"state"`
-	Receipt     map[string]any `json:"receipt,omitempty"`
-	Error       string         `json:"error,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	ID              string         `json:"id"`
+	AttemptID       string         `json:"attempt_id"`
+	TaskID          string         `json:"task_id"`
+	RunID           string         `json:"run_id"`
+	LeaseGeneration int            `json:"lease_generation"`
+	OperationID     string         `json:"operation_id"`
+	Action          string         `json:"action"`
+	Target          string         `json:"target"`
+	Authority       string         `json:"authority"`
+	State           string         `json:"state"`
+	Receipt         map[string]any `json:"receipt,omitempty"`
+	Error           string         `json:"error,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+type RunAuthority struct {
+	RunID      string `json:"run_id"`
+	LeaseToken string `json:"lease_token"`
 }
 
 // ExecutionSnapshot is the durable resume view for one task. It intentionally
@@ -93,6 +101,12 @@ type BeginRunInput struct {
 	ExpectedTaskRevision int           `json:"expected_task_revision"`
 	Owner                string        `json:"owner"`
 	LeaseDuration        time.Duration `json:"-"`
+}
+
+type RecoverExpiredRunInput struct {
+	TaskID               string `json:"task_id"`
+	ExpectedTaskRevision int    `json:"expected_task_revision"`
+	Actor                string `json:"actor"`
 }
 
 type BeginAttemptInput struct {
@@ -146,7 +160,7 @@ func (s *Service) BeginRun(ctx context.Context, input BeginRunInput) (Run, error
 	now := time.Now().UTC()
 	run := Run{ID: identity.New("taskrun"), TaskID: input.TaskID, PlanRevision: planRevision,
 		RequirementRevision: requirementRevision, State: RunRunning, Owner: strings.TrimSpace(input.Owner),
-		LeaseToken: identity.New("lease"), LeaseExpiresAt: now.Add(duration), CreatedAt: now, UpdatedAt: now}
+		LeaseToken: identity.New("lease"), LeaseGeneration: 1, LeaseExpiresAt: now.Add(duration), CreatedAt: now, UpdatedAt: now}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO task_runs
 		(id,task_id,plan_revision,requirement_revision,state,owner,lease_token,lease_expires_at,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?)`, run.ID, run.TaskID, run.PlanRevision, run.RequirementRevision, run.State,
@@ -179,6 +193,145 @@ func (s *Service) RenewRunLease(ctx context.Context, runID, leaseToken string, d
 		return Run{}, fmt.Errorf("run lease is stale or expired")
 	}
 	return s.getRun(ctx, runID)
+}
+
+// RecoverExpiredRun renews one expired execution authority without replaying
+// any effect. Pre-dispatch intents are abandoned. If an effect crossed the
+// dispatch boundary, it becomes uncertain and the task pauses for explicit
+// reconciliation; otherwise the same durable attempt can continue safely.
+func (s *Service) RecoverExpiredRun(ctx context.Context, input RecoverExpiredRunInput) (Task, error) {
+	input.Actor = strings.TrimSpace(input.Actor)
+	if strings.TrimSpace(input.TaskID) == "" || input.ExpectedTaskRevision < 1 || input.Actor == "" {
+		return Task{}, fmt.Errorf("task, expected revision and actor are required")
+	}
+	nowTime := time.Now().UTC()
+	now := formatTime(nowTime)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	var taskRevision, activePlan int
+	var taskState string
+	if err = tx.QueryRowContext(ctx, `SELECT revision,active_plan_revision,state FROM durable_tasks WHERE id=?`, input.TaskID).
+		Scan(&taskRevision, &activePlan, &taskState); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Task{}, ErrNotFound
+		}
+		return Task{}, err
+	}
+	if taskRevision != input.ExpectedTaskRevision {
+		return Task{}, ErrStaleRevision
+	}
+	if taskState != StateRunning && taskState != StateVerifying {
+		return Task{}, fmt.Errorf("task has no active run to recover from state %s", taskState)
+	}
+	var runID, leaseExpiry string
+	if err = tx.QueryRowContext(ctx, `SELECT id,lease_expires_at FROM task_runs
+		WHERE task_id=? AND plan_revision=? AND state='running' ORDER BY created_at DESC LIMIT 1`, input.TaskID, activePlan).
+		Scan(&runID, &leaseExpiry); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Task{}, fmt.Errorf("task has no running execution to recover")
+		}
+		return Task{}, err
+	}
+	expires, parseErr := parseTime(leaseExpiry)
+	if parseErr != nil || expires.After(nowTime) {
+		return Task{}, fmt.Errorf("run lease is still live")
+	}
+	var dispatched int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE run_id=? AND state='dispatched'`, runID).Scan(&dispatched); err != nil {
+		return Task{}, err
+	}
+	reason := "run lease expired; saved evidence retained and effects were not replayed"
+	if _, err = tx.ExecContext(ctx, `UPDATE task_effect_intents SET state='abandoned',error=?,updated_at=?
+		WHERE run_id=? AND state='planned'`, reason+"; intent ended before dispatch", now, runID); err != nil {
+		return Task{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE task_effect_intents SET state='uncertain',error=?,updated_at=?
+		WHERE run_id=? AND state='dispatched'`, reason+"; inspect the target before continuing", now, runID); err != nil {
+		return Task{}, err
+	}
+	if dispatched == 0 {
+		newLease := identity.New("lease")
+		newExpiry := formatTime(nowTime.Add(15 * time.Minute))
+		result, updateErr := tx.ExecContext(ctx, `UPDATE task_runs SET lease_token=?,lease_generation=lease_generation+1,
+			lease_expires_at=?,stop_reason='',updated_at=? WHERE id=? AND state='running' AND lease_expires_at<=?`,
+			newLease, newExpiry, now, runID, now)
+		if updateErr != nil {
+			return Task{}, updateErr
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return Task{}, fmt.Errorf("run lease changed before recovery")
+		}
+		result, updateErr = tx.ExecContext(ctx, `UPDATE durable_tasks SET pause_reason='',revision=revision+1,updated_at=?
+			WHERE id=? AND revision=? AND state IN ('running','verifying')`, now, input.TaskID, input.ExpectedTaskRevision)
+		if updateErr != nil {
+			return Task{}, updateErr
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return Task{}, ErrStaleRevision
+		}
+		if err = tx.Commit(); err != nil {
+			return Task{}, err
+		}
+		continued, getErr := s.Get(ctx, input.TaskID)
+		if getErr != nil {
+			return Task{}, getErr
+		}
+		if _, checkpointErr := s.writeCheckpoint(ctx, continued, CheckpointInput{TaskID: continued.ID, ExpectedTaskRevision: continued.Revision,
+			NextAction: "continue the saved attempt with renewed run authority", ResumePrerequisites: []string{"inspect saved attempt and proposal evidence"},
+			Reason: reason + "; authority renewed by " + input.Actor}); checkpointErr != nil {
+			return Task{}, checkpointErr
+		}
+		return continued, nil
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE task_steps SET state='blocked',revision=revision+1,last_error=?,updated_at=?
+		WHERE id IN (SELECT step_id FROM task_step_attempts WHERE run_id=? AND state='running')`, reason, now, runID); err != nil {
+		return Task{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE task_step_attempts SET state='interrupted',error=?,completed_at=?
+		WHERE run_id=? AND state='running'`, reason, now, runID); err != nil {
+		return Task{}, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE task_runs SET state='paused',stop_reason=?,updated_at=?,completed_at=?
+		WHERE id=? AND state='running' AND lease_expires_at<=?`, reason, now, now, runID, now)
+	if err != nil {
+		return Task{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return Task{}, fmt.Errorf("run lease changed before recovery")
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE durable_tasks SET state='paused',pause_reason=?,revision=revision+1,updated_at=?
+		WHERE id=? AND revision=? AND state IN ('running','verifying')`, reason, now, input.TaskID, input.ExpectedTaskRevision)
+	if err != nil {
+		return Task{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return Task{}, ErrStaleRevision
+	}
+	if err = tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	paused, err := s.Get(ctx, input.TaskID)
+	if err != nil {
+		return Task{}, err
+	}
+	var uncertain int
+	if err = s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE run_id=? AND state='uncertain'`, runID).Scan(&uncertain); err != nil {
+		return Task{}, err
+	}
+	prerequisites := []string{"inspect saved attempt and proposal evidence"}
+	nextAction := "start a new run from the saved checkpoint"
+	if uncertain > 0 {
+		prerequisites = append(prerequisites, "reconcile uncertain effects")
+		nextAction = "reconcile every uncertain effect, then start a new run"
+	}
+	if _, err = s.writeCheckpoint(ctx, paused, CheckpointInput{TaskID: paused.ID, ExpectedTaskRevision: paused.Revision,
+		NextAction: nextAction, ResumePrerequisites: prerequisites, Reason: reason + "; recovered by " + input.Actor}); err != nil {
+		return Task{}, err
+	}
+	return paused, nil
 }
 
 func (s *Service) BeginStepAttempt(ctx context.Context, input BeginAttemptInput) (StepAttempt, error) {
@@ -272,18 +425,36 @@ func (s *Service) BeginStepAttempt(ctx context.Context, input BeginAttemptInput)
 	return attempt, nil
 }
 
-func (s *Service) PlanEffect(ctx context.Context, attemptID, action, target, authority string) (EffectIntent, error) {
+func (s *Service) PlanEffect(ctx context.Context, runAuthority RunAuthority, attemptID, action, target, authority string) (EffectIntent, error) {
 	if strings.TrimSpace(action) == "" || strings.TrimSpace(target) == "" || strings.TrimSpace(authority) == "" {
 		return EffectIntent{}, fmt.Errorf("effect action, target and authority are required")
 	}
-	var taskID, attemptState, effectScopeJSON string
-	if err := s.store.DB.QueryRowContext(ctx, `SELECT a.task_id,a.state,s.effect_scope_json
-		FROM task_step_attempts a JOIN task_steps s ON s.id=a.step_id WHERE a.id=?`, attemptID).
-		Scan(&taskID, &attemptState, &effectScopeJSON); err != nil {
+	if strings.TrimSpace(runAuthority.RunID) == "" || strings.TrimSpace(runAuthority.LeaseToken) == "" {
+		return EffectIntent{}, fmt.Errorf("run authority is required")
+	}
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
 		return EffectIntent{}, err
 	}
-	if attemptState != AttemptRunning {
-		return EffectIntent{}, fmt.Errorf("attempt is not running")
+	defer tx.Rollback()
+	var taskID, runID, attemptState, effectScopeJSON, runState, storedLease, leaseExpiry, taskState string
+	var attemptStepRevision, stepRevision, stepPlanRevision, runPlanRevision, activePlanRevision, leaseGeneration int
+	if err = tx.QueryRowContext(ctx, `SELECT a.task_id,a.run_id,a.state,a.step_revision,s.effect_scope_json,s.revision,s.plan_revision,
+		r.state,r.lease_token,r.lease_expires_at,r.lease_generation,r.plan_revision,t.state,t.active_plan_revision
+		FROM task_step_attempts a
+		JOIN task_steps s ON s.id=a.step_id
+		JOIN task_runs r ON r.id=a.run_id
+		JOIN durable_tasks t ON t.id=a.task_id
+		WHERE a.id=?`, attemptID).Scan(&taskID, &runID, &attemptState, &attemptStepRevision, &effectScopeJSON,
+		&stepRevision, &stepPlanRevision, &runState, &storedLease, &leaseExpiry, &leaseGeneration, &runPlanRevision,
+		&taskState, &activePlanRevision); err != nil {
+		return EffectIntent{}, err
+	}
+	expires, _ := parseTime(leaseExpiry)
+	if attemptState != AttemptRunning || runID != runAuthority.RunID || runState != RunRunning ||
+		storedLease != runAuthority.LeaseToken || !expires.After(time.Now().UTC()) || taskState != StateRunning ||
+		stepPlanRevision != runPlanRevision || activePlanRevision != runPlanRevision || stepRevision != attemptStepRevision {
+		return EffectIntent{}, fmt.Errorf("run authority is stale or expired")
 	}
 	var effectScope []string
 	if err := json.Unmarshal([]byte(effectScopeJSON), &effectScope); err != nil {
@@ -301,15 +472,57 @@ func (s *Service) PlanEffect(ctx context.Context, attemptID, action, target, aut
 		return EffectIntent{}, fmt.Errorf("effect action %q is outside the step effect scope", action)
 	}
 	now := time.Now().UTC()
-	item := EffectIntent{ID: identity.New("effect"), AttemptID: attemptID, TaskID: taskID, OperationID: identity.New("operation"),
+	item := EffectIntent{ID: identity.New("effect"), AttemptID: attemptID, TaskID: taskID, RunID: runID,
+		LeaseGeneration: leaseGeneration, OperationID: identity.New("operation"),
 		Action: action, Target: strings.TrimSpace(target), Authority: strings.TrimSpace(authority), State: EffectPlanned, CreatedAt: now, UpdatedAt: now}
-	_, err := s.store.DB.ExecContext(ctx, `INSERT INTO task_effect_intents(id,attempt_id,task_id,operation_id,action,target,authority,state,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,'planned',?,?)`, item.ID, item.AttemptID, item.TaskID, item.OperationID, item.Action, item.Target, item.Authority, formatTime(now), formatTime(now))
-	return item, err
+	result, err := tx.ExecContext(ctx, `INSERT INTO task_effect_intents(
+		id,attempt_id,task_id,run_id,lease_generation,operation_id,action,target,authority,state,created_at,updated_at)
+		SELECT ?,a.id,a.task_id,r.id,r.lease_generation,?,?,?,?, 'planned',?,?
+		FROM task_step_attempts a
+		JOIN task_steps s ON s.id=a.step_id
+		JOIN task_runs r ON r.id=a.run_id
+		JOIN durable_tasks t ON t.id=a.task_id
+		WHERE a.id=? AND a.state='running' AND a.run_id=? AND a.step_revision=s.revision
+		AND r.id=? AND r.state='running' AND r.lease_token=? AND r.lease_expires_at>?
+		AND r.lease_generation=? AND s.plan_revision=r.plan_revision
+		AND t.state='running' AND t.active_plan_revision=r.plan_revision`, item.ID, item.OperationID, item.Action,
+		item.Target, item.Authority, formatTime(now), formatTime(now), item.AttemptID, item.RunID, runAuthority.RunID,
+		runAuthority.LeaseToken, formatTime(now), item.LeaseGeneration)
+	if err != nil {
+		return EffectIntent{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return EffectIntent{}, fmt.Errorf("run authority is stale or expired")
+	}
+	if err = tx.Commit(); err != nil {
+		return EffectIntent{}, err
+	}
+	return item, nil
 }
 
-func (s *Service) DispatchEffect(ctx context.Context, operationID string) (EffectIntent, error) {
-	return s.transitionEffect(ctx, operationID, []string{EffectPlanned}, EffectDispatched, nil, "")
+func (s *Service) DispatchEffect(ctx context.Context, runAuthority RunAuthority, operationID string) (EffectIntent, error) {
+	if strings.TrimSpace(runAuthority.RunID) == "" || strings.TrimSpace(runAuthority.LeaseToken) == "" {
+		return EffectIntent{}, fmt.Errorf("run authority is required")
+	}
+	now := time.Now().UTC()
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE task_effect_intents AS e SET state='dispatched',receipt_json='null',error='',updated_at=?
+		WHERE e.operation_id=? AND e.state='planned' AND e.run_id=? AND EXISTS (
+			SELECT 1 FROM task_step_attempts a
+			JOIN task_steps s ON s.id=a.step_id
+			JOIN task_runs r ON r.id=a.run_id
+			JOIN durable_tasks t ON t.id=a.task_id
+			WHERE a.id=e.attempt_id AND a.state='running' AND a.run_id=e.run_id AND a.step_revision=s.revision
+			AND r.id=? AND r.state='running' AND r.lease_token=? AND r.lease_expires_at>?
+			AND r.lease_generation=e.lease_generation AND s.plan_revision=r.plan_revision
+			AND t.state='running' AND t.active_plan_revision=r.plan_revision
+		)`, formatTime(now), operationID, runAuthority.RunID, runAuthority.RunID, runAuthority.LeaseToken, formatTime(now))
+	if err != nil {
+		return EffectIntent{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return EffectIntent{}, fmt.Errorf("effect dispatch is stale or run authority is expired")
+	}
+	return s.getEffect(ctx, operationID)
 }
 
 func (s *Service) AbandonEffect(ctx context.Context, operationID, reason string) (EffectIntent, error) {
@@ -350,21 +563,38 @@ func (s *Service) transitionEffect(ctx context.Context, operationID string, from
 	return s.getEffect(ctx, operationID)
 }
 
-func (s *Service) CompleteAttempt(ctx context.Context, attemptID, output string) (StepAttempt, error) {
+func (s *Service) CompleteAttempt(ctx context.Context, runAuthority RunAuthority, attemptID, output string) (StepAttempt, error) {
+	if strings.TrimSpace(runAuthority.RunID) == "" || strings.TrimSpace(runAuthority.LeaseToken) == "" {
+		return StepAttempt{}, fmt.Errorf("run authority is required")
+	}
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return StepAttempt{}, err
+	}
+	defer tx.Rollback()
 	var unresolved int
-	if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE attempt_id=? AND state IN ('planned','dispatched','uncertain')`, attemptID).Scan(&unresolved); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE attempt_id=? AND state IN ('planned','dispatched','uncertain')`, attemptID).Scan(&unresolved); err != nil {
 		return StepAttempt{}, err
 	}
 	if unresolved > 0 {
 		return StepAttempt{}, fmt.Errorf("attempt has %d unresolved effects", unresolved)
 	}
 	now := time.Now().UTC()
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE task_step_attempts SET state='completed',output=?,completed_at=? WHERE id=? AND state='running'`, output, formatTime(now), attemptID)
+	result, err := tx.ExecContext(ctx, `UPDATE task_step_attempts AS a SET state='completed',output=?,completed_at=?
+		WHERE a.id=? AND a.state='running' AND a.run_id=? AND EXISTS (
+			SELECT 1 FROM task_steps s JOIN task_runs r ON r.id=a.run_id JOIN durable_tasks t ON t.id=a.task_id
+			WHERE s.id=a.step_id AND a.step_revision=s.revision AND r.id=? AND r.state='running'
+			AND r.lease_token=? AND r.lease_expires_at>? AND s.plan_revision=r.plan_revision
+			AND t.state='running' AND t.active_plan_revision=r.plan_revision
+		)`, output, formatTime(now), attemptID, runAuthority.RunID, runAuthority.RunID, runAuthority.LeaseToken, formatTime(now))
 	if err != nil {
 		return StepAttempt{}, err
 	}
 	if changed, _ := result.RowsAffected(); changed != 1 {
-		return StepAttempt{}, fmt.Errorf("attempt is not running")
+		return StepAttempt{}, fmt.Errorf("attempt is not running or run authority is stale or expired")
+	}
+	if err = tx.Commit(); err != nil {
+		return StepAttempt{}, err
 	}
 	return s.getAttempt(ctx, attemptID)
 }
@@ -400,8 +630,8 @@ func (s *Service) getRun(ctx context.Context, id string) (Run, error) {
 	var item Run
 	var expires, created, updated string
 	var completed sql.NullString
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id,task_id,plan_revision,requirement_revision,state,owner,lease_token,lease_expires_at,stop_reason,created_at,updated_at,completed_at FROM task_runs WHERE id=?`, id).
-		Scan(&item.ID, &item.TaskID, &item.PlanRevision, &item.RequirementRevision, &item.State, &item.Owner, &item.LeaseToken, &expires, &item.StopReason, &created, &updated, &completed)
+	err := s.store.DB.QueryRowContext(ctx, `SELECT id,task_id,plan_revision,requirement_revision,state,owner,lease_token,lease_generation,lease_expires_at,stop_reason,created_at,updated_at,completed_at FROM task_runs WHERE id=?`, id).
+		Scan(&item.ID, &item.TaskID, &item.PlanRevision, &item.RequirementRevision, &item.State, &item.Owner, &item.LeaseToken, &item.LeaseGeneration, &expires, &item.StopReason, &created, &updated, &completed)
 	if err != nil {
 		return item, err
 	}
@@ -537,7 +767,7 @@ func (s *Service) UncertainEffects(ctx context.Context, limit int) ([]EffectInte
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,attempt_id,task_id,operation_id,action,target,authority,state,
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,attempt_id,task_id,run_id,lease_generation,operation_id,action,target,authority,state,
 		receipt_json,error,created_at,updated_at FROM task_effect_intents WHERE state='uncertain' ORDER BY created_at LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -547,7 +777,7 @@ func (s *Service) UncertainEffects(ctx context.Context, limit int) ([]EffectInte
 	for rows.Next() {
 		var item EffectIntent
 		var receiptJSON, created, updated string
-		if err = rows.Scan(&item.ID, &item.AttemptID, &item.TaskID, &item.OperationID, &item.Action, &item.Target,
+		if err = rows.Scan(&item.ID, &item.AttemptID, &item.TaskID, &item.RunID, &item.LeaseGeneration, &item.OperationID, &item.Action, &item.Target,
 			&item.Authority, &item.State, &receiptJSON, &item.Error, &created, &updated); err != nil {
 			return nil, err
 		}
@@ -562,8 +792,8 @@ func (s *Service) UncertainEffects(ctx context.Context, limit int) ([]EffectInte
 func (s *Service) getEffect(ctx context.Context, operationID string) (EffectIntent, error) {
 	var item EffectIntent
 	var receiptJSON, created, updated string
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id,attempt_id,task_id,operation_id,action,target,authority,state,receipt_json,error,created_at,updated_at FROM task_effect_intents WHERE operation_id=?`, operationID).
-		Scan(&item.ID, &item.AttemptID, &item.TaskID, &item.OperationID, &item.Action, &item.Target, &item.Authority, &item.State, &receiptJSON, &item.Error, &created, &updated)
+	err := s.store.DB.QueryRowContext(ctx, `SELECT id,attempt_id,task_id,run_id,lease_generation,operation_id,action,target,authority,state,receipt_json,error,created_at,updated_at FROM task_effect_intents WHERE operation_id=?`, operationID).
+		Scan(&item.ID, &item.AttemptID, &item.TaskID, &item.RunID, &item.LeaseGeneration, &item.OperationID, &item.Action, &item.Target, &item.Authority, &item.State, &receiptJSON, &item.Error, &created, &updated)
 	if err != nil {
 		return item, err
 	}

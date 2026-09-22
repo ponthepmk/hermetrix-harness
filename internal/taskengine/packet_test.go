@@ -79,11 +79,12 @@ func TestBuildNextStepPacketCarriesRecoveryAndUncertainEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	effect, err := service.PlanEffect(ctx, attempt.ID, "write", "workspace:test.go", "workspace.write")
+	authority := RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}
+	effect, err := service.PlanEffect(ctx, authority, attempt.ID, "write", "workspace:test.go", "workspace.write")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.DispatchEffect(ctx, effect.OperationID); err != nil {
+	if _, err = service.DispatchEffect(ctx, authority, effect.OperationID); err != nil {
 		t.Fatal(err)
 	}
 	if recovered, recoverErr := service.RecoverInterrupted(ctx); recoverErr != nil || recovered != 1 {

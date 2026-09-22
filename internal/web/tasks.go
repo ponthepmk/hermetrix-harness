@@ -173,14 +173,15 @@ func (s *Server) planTaskEffect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Action    string `json:"action"`
-		Target    string `json:"target"`
-		Authority string `json:"authority"`
+		Action       string                  `json:"action"`
+		Target       string                  `json:"target"`
+		Authority    string                  `json:"authority"`
+		RunAuthority taskengine.RunAuthority `json:"run_authority"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	effect, err := s.tasks.PlanEffect(r.Context(), r.PathValue("id"), input.Action, input.Target, input.Authority)
+	effect, err := s.tasks.PlanEffect(r.Context(), input.RunAuthority, r.PathValue("id"), input.Action, input.Target, input.Authority)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -264,12 +265,13 @@ func (s *Server) applyTaskCodeProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Actor string `json:"actor"`
+		Actor     string                  `json:"actor"`
+		Authority taskengine.RunAuthority `json:"authority"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	output, err := s.coord.Apply(r.Context(), r.PathValue("id"), effectiveActor(r.Context(), input.Actor))
+	output, err := s.coord.Apply(r.Context(), input.Authority, r.PathValue("id"), effectiveActor(r.Context(), input.Actor))
 	if err != nil {
 		taskError(w, err)
 		return
@@ -283,13 +285,14 @@ func (s *Server) verifyTaskCodeProposal(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var input struct {
-		Actor  string                   `json:"actor"`
-		Checks []taskcoord.CommandCheck `json:"checks"`
+		Actor     string                   `json:"actor"`
+		Authority taskengine.RunAuthority  `json:"authority"`
+		Checks    []taskcoord.CommandCheck `json:"checks"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	output, err := s.coord.Verify(r.Context(), r.PathValue("id"), effectiveActor(r.Context(), input.Actor), input.Checks)
+	output, err := s.coord.Verify(r.Context(), input.Authority, r.PathValue("id"), effectiveActor(r.Context(), input.Actor), input.Checks)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -303,12 +306,13 @@ func (s *Server) verifyFrozenTaskCodeProposal(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var input struct {
-		Actor string `json:"actor"`
+		Actor     string                  `json:"actor"`
+		Authority taskengine.RunAuthority `json:"authority"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	output, err := s.coord.VerifyFrozen(r.Context(), r.PathValue("id"), effectiveActor(r.Context(), input.Actor))
+	output, err := s.coord.VerifyFrozen(r.Context(), input.Authority, r.PathValue("id"), effectiveActor(r.Context(), input.Actor))
 	if err != nil {
 		taskError(w, err)
 		return
@@ -322,12 +326,13 @@ func (s *Server) postReviewTaskCodeProposal(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
-		ProviderID string `json:"provider_id"`
+		ProviderID string                  `json:"provider_id"`
+		Authority  taskengine.RunAuthority `json:"authority"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	output, err := s.coord.Review(r.Context(), r.PathValue("id"), input.ProviderID)
+	output, err := s.coord.Review(r.Context(), input.Authority, r.PathValue("id"), input.ProviderID)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -340,9 +345,10 @@ func (s *Server) transitionTaskEffect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Action  string         `json:"action"`
-		Receipt map[string]any `json:"receipt"`
-		Error   string         `json:"error"`
+		Action    string                  `json:"action"`
+		Authority taskengine.RunAuthority `json:"authority"`
+		Receipt   map[string]any          `json:"receipt"`
+		Error     string                  `json:"error"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -351,7 +357,7 @@ func (s *Server) transitionTaskEffect(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch input.Action {
 	case "dispatch":
-		effect, err = s.tasks.DispatchEffect(r.Context(), r.PathValue("operation"))
+		effect, err = s.tasks.DispatchEffect(r.Context(), input.Authority, r.PathValue("operation"))
 	case "observe":
 		effect, err = s.tasks.ObserveEffect(r.Context(), r.PathValue("operation"), input.Receipt)
 	case "reconcile":
@@ -417,12 +423,13 @@ func (s *Server) completeTaskAttempt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Output string `json:"output"`
+		Output    string                  `json:"output"`
+		Authority taskengine.RunAuthority `json:"authority"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	attempt, err := s.tasks.CompleteAttempt(r.Context(), r.PathValue("id"), input.Output)
+	attempt, err := s.tasks.CompleteAttempt(r.Context(), input.Authority, r.PathValue("id"), input.Output)
 	if err != nil {
 		taskError(w, err)
 		return

@@ -125,13 +125,14 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	authority := taskengine.RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}
 	coordinator := New(tasks, productService, providerService)
-	selection, err := coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID})
+	selection, err := coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority})
 	if err != nil || adapter.selectionCalls != 1 || selection.Artifact.Kind != "task_file_selection" ||
 		selection.Effect.State != taskengine.EffectObserved || len(selection.Result.Files) != 2 {
 		t.Fatalf("selection=%+v calls=%d err=%v", selection, adapter.selectionCalls, err)
 	}
-	reused, err := coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID})
+	reused, err := coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority})
 	if err != nil || adapter.selectionCalls != 1 || reused.Artifact.ID != selection.Artifact.ID {
 		t.Fatalf("reused selection=%+v calls=%d err=%v", reused, adapter.selectionCalls, err)
 	}
@@ -142,12 +143,12 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if err != nil || recoveredSelection.Outcome != "artifact_recovered" || recoveredSelection.Effect.State != taskengine.EffectReconciled {
 		t.Fatalf("recovered selection=%+v err=%v", recoveredSelection, err)
 	}
-	reused, err = coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID})
+	reused, err = coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority})
 	if err != nil || adapter.selectionCalls != 1 || reused.Artifact.ID != selection.Artifact.ID {
 		t.Fatalf("reconciled selection was replayed: %+v calls=%d err=%v", reused, adapter.selectionCalls, err)
 	}
 	output, err := coordinator.Propose(ctx, ProposalInput{
-		AttemptID: attempt.ID, ProviderID: profile.ID, Files: selection.Result.Files,
+		AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority, Files: selection.Result.Files,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -155,11 +156,11 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if adapter.calls != 1 || output.Result.Status != "proposed_unverified" || output.Artifact.Kind != "code_proposal" || output.Effect.State != taskengine.EffectObserved || output.Proposal.State != taskengine.ProposalPendingReview {
 		t.Fatalf("proposal output=%+v calls=%d", output, adapter.calls)
 	}
-	reusedProposal, err := coordinator.Propose(ctx, ProposalInput{AttemptID: attempt.ID, ProviderID: profile.ID, Files: selection.Result.Files})
+	reusedProposal, err := coordinator.Propose(ctx, ProposalInput{AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority, Files: selection.Result.Files})
 	if err != nil || adapter.calls != 1 || reusedProposal.Proposal.ID != output.Proposal.ID || reusedProposal.Artifact.ID != output.Artifact.ID {
 		t.Fatalf("proposal was replayed instead of reused: %+v calls=%d err=%v", reusedProposal, adapter.calls, err)
 	}
-	if _, err = New(tasks, productService, providerService).Apply(ctx, output.Proposal.ID, "owner"); err == nil {
+	if _, err = New(tasks, productService, providerService).Apply(ctx, authority, output.Proposal.ID, "owner"); err == nil {
 		t.Fatal("unreviewed proposal was applied")
 	}
 	approved, err := tasks.DecideCodeProposal(ctx, output.Proposal.ID, "astra-reviewer", taskengine.ProposalApproved,
@@ -182,7 +183,7 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if err != nil || len(artifactBody) == 0 {
 		t.Fatalf("proposal artifact missing: bytes=%d err=%v", len(artifactBody), err)
 	}
-	applied, err := New(tasks, productService, providerService).Apply(ctx, output.Proposal.ID, "owner")
+	applied, err := New(tasks, productService, providerService).Apply(ctx, authority, output.Proposal.ID, "owner")
 	if err != nil || applied.Proposal.State != taskengine.ProposalApplied || applied.Effect.State != taskengine.EffectObserved || len(applied.Receipts) != 1 {
 		t.Fatalf("apply output=%+v err=%v", applied, err)
 	}
@@ -190,12 +191,12 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if err != nil || string(after) != "package sample\n\nfunc add(a, b int) int { return a+b }\n" {
 		t.Fatalf("applied source=%q err=%v", after, err)
 	}
-	if _, err = New(tasks, productService, providerService).Verify(ctx, output.Proposal.ID, "owner", []CommandCheck{{
+	if _, err = New(tasks, productService, providerService).Verify(ctx, authority, output.Proposal.ID, "owner", []CommandCheck{{
 		ID: "go test ./...", Executable: "go", Arguments: []string{"test", "./..."}, WorkingDir: ".", TimeoutSeconds: 60,
 	}}); err == nil {
 		t.Fatal("final-step verification ran without acceptance-criterion coverage")
 	}
-	verified, err := New(tasks, productService, providerService).VerifyFrozen(ctx, output.Proposal.ID, "owner")
+	verified, err := New(tasks, productService, providerService).VerifyFrozen(ctx, authority, output.Proposal.ID, "owner")
 	if err != nil || verified.Proposal.State != taskengine.ProposalAwaitingReview || verified.RolledBack || len(verified.Jobs) != 1 || len(verified.Validations) != 1 || verified.Evidence.Kind != "code_verification_bundle" {
 		t.Fatalf("verify output=%+v err=%v", verified, err)
 	}
@@ -206,10 +207,10 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if err != nil || reconciled.Effect.State != taskengine.EffectReconciled || reconciled.Job == nil || reconciled.Job.ID != verified.Jobs[0].ID {
 		t.Fatalf("reconciled=%+v err=%v", reconciled, err)
 	}
-	if _, err = New(tasks, productService, providerService).Review(ctx, output.Proposal.ID, profile.ID); err == nil {
+	if _, err = New(tasks, productService, providerService).Review(ctx, authority, output.Proposal.ID, profile.ID); err == nil {
 		t.Fatal("implementer provider was allowed to review its own proposal")
 	}
-	reviewed, err := New(tasks, productService, providerService).Review(ctx, output.Proposal.ID, reviewerProfile.ID)
+	reviewed, err := New(tasks, productService, providerService).Review(ctx, authority, output.Proposal.ID, reviewerProfile.ID)
 	if err != nil || reviewed.Proposal.State != taskengine.ProposalVerified || reviewed.Review.Verdict != "approve" || adapter.reviewCalls != 1 {
 		t.Fatalf("reviewed output=%+v calls=%d err=%v", reviewed, adapter.reviewCalls, err)
 	}
@@ -284,7 +285,7 @@ func TestProposalWorkerRejectsProviderCredentialBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, err := New(tasks, productService, providerService).Propose(ctx, ProposalInput{
-		AttemptID: attempt.ID, ProviderID: profile.ID, Packet: packet, Files: []string{"leak.txt"},
+		AttemptID: attempt.ID, ProviderID: profile.ID, Authority: taskengine.RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}, Packet: packet, Files: []string{"leak.txt"},
 	})
 	if err == nil || adapter.calls != 0 || output.Effect.State != taskengine.EffectAbandoned {
 		t.Fatalf("credential guard err=%v calls=%d effect=%+v", err, adapter.calls, output.Effect)

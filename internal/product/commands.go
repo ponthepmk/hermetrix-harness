@@ -278,7 +278,7 @@ func (b *boundedBuffer) String() string {
 }
 
 func minimalEnvironment() []string {
-	keys := []string{"PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT"}
+	keys := []string{"PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "TEMP", "TMP", "GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT"}
 	values := []string{}
 	found := map[string]bool{}
 	for _, key := range keys {

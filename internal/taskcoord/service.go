@@ -35,10 +35,11 @@ type Service struct {
 }
 
 type ProposalInput struct {
-	AttemptID  string                `json:"attempt_id"`
-	ProviderID string                `json:"provider_id"`
-	Packet     taskengine.StepPacket `json:"packet"`
-	Files      []string              `json:"files"`
+	AttemptID  string                  `json:"attempt_id"`
+	ProviderID string                  `json:"provider_id"`
+	Authority  taskengine.RunAuthority `json:"authority"`
+	Packet     taskengine.StepPacket   `json:"packet"`
+	Files      []string                `json:"files"`
 }
 
 type ProposalOutput struct {
@@ -49,8 +50,9 @@ type ProposalOutput struct {
 }
 
 type SelectFilesInput struct {
-	AttemptID  string `json:"attempt_id"`
-	ProviderID string `json:"provider_id"`
+	AttemptID  string                  `json:"attempt_id"`
+	ProviderID string                  `json:"provider_id"`
+	Authority  taskengine.RunAuthority `json:"authority"`
 }
 
 type SelectFilesOutput struct {
@@ -272,7 +274,7 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	for _, criterion := range packet.Requirement.Criteria {
 		criteria = append(criteria, criterion.ID+": "+criterion.Description)
 	}
-	effect, err := s.tasks.PlanEffect(ctx, attempt.ID, selectionEffect, profile.ID+":"+profile.Model, "task-packet:"+packet.CanonicalPacketHash)
+	effect, err := s.tasks.PlanEffect(ctx, input.Authority, attempt.ID, selectionEffect, profile.ID+":"+profile.Model, "task-packet:"+packet.CanonicalPacketHash)
 	if err != nil {
 		return SelectFilesOutput{}, err
 	}
@@ -283,7 +285,7 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 		Constraints: packet.Requirement.Constraints, Candidates: candidates,
 		MaxOutputTokens: minPositive(profile.MaxOutputTokens, 4096),
 	}, worker.Options{BeforeProviderRequest: func() error {
-		updated, dispatchErr := s.tasks.DispatchEffect(ctx, effect.OperationID)
+		updated, dispatchErr := s.tasks.DispatchEffect(ctx, input.Authority, effect.OperationID)
 		if dispatchErr == nil {
 			effect, dispatched = updated, true
 		}
@@ -408,7 +410,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Files:              files,
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 32768),
 	}
-	effect, err := s.tasks.PlanEffect(ctx, input.AttemptID, proposalEffect, profile.ID+":"+profile.Model,
+	effect, err := s.tasks.PlanEffect(ctx, input.Authority, input.AttemptID, proposalEffect, profile.ID+":"+profile.Model,
 		"task-packet:"+input.Packet.CanonicalPacketHash)
 	if err != nil {
 		return ProposalOutput{}, err
@@ -416,7 +418,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	dispatched := false
 	result, runErr := worker.RunWithProviderService(ctx, s.providers, profile, workerTask, worker.Options{
 		BeforeProviderRequest: func() error {
-			updated, dispatchErr := s.tasks.DispatchEffect(ctx, effect.OperationID)
+			updated, dispatchErr := s.tasks.DispatchEffect(ctx, input.Authority, effect.OperationID)
 			if dispatchErr == nil {
 				effect, dispatched = updated, true
 			}
@@ -481,7 +483,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	return ProposalOutput{Result: result, Artifact: artifact, Effect: effect, Proposal: proposal}, nil
 }
 
-func (s *Service) Apply(ctx context.Context, proposalID, actor string) (ApplyOutput, error) {
+func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string) (ApplyOutput, error) {
 	actor = strings.TrimSpace(actor)
 	if actor == "" {
 		return ApplyOutput{}, fmt.Errorf("apply actor is required")
@@ -529,7 +531,7 @@ func (s *Service) Apply(ctx context.Context, proposalID, actor string) (ApplyOut
 	if err != nil {
 		return ApplyOutput{}, err
 	}
-	effect, err := s.tasks.PlanEffect(ctx, proposal.AttemptID, "workspace.apply", "proposal:"+proposal.ID, "review:"+proposal.ID)
+	effect, err := s.tasks.PlanEffect(ctx, authority, proposal.AttemptID, "workspace.apply", "proposal:"+proposal.ID, "review:"+proposal.ID)
 	if err != nil {
 		return ApplyOutput{}, err
 	}
@@ -538,7 +540,7 @@ func (s *Service) Apply(ctx context.Context, proposalID, actor string) (ApplyOut
 		_, _ = s.tasks.AbandonEffect(ctx, effect.OperationID, "proposal state changed before apply")
 		return ApplyOutput{Effect: effect, RollbackArtifact: rollbackArtifact}, err
 	}
-	effect, err = s.tasks.DispatchEffect(ctx, effect.OperationID)
+	effect, err = s.tasks.DispatchEffect(ctx, authority, effect.OperationID)
 	if err != nil {
 		_, _ = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalApplying, taskengine.ProposalApplyFailed)
 		return ApplyOutput{Proposal: proposal, Effect: effect, RollbackArtifact: rollbackArtifact}, err
@@ -577,7 +579,7 @@ func (s *Service) Apply(ctx context.Context, proposalID, actor string) (ApplyOut
 	return ApplyOutput{Proposal: proposal, Effect: effect, Receipts: receipts, RollbackArtifact: rollbackArtifact}, err
 }
 
-func (s *Service) Verify(ctx context.Context, proposalID, actor string, checks []CommandCheck) (VerifyOutput, error) {
+func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string, checks []CommandCheck) (VerifyOutput, error) {
 	actor = strings.TrimSpace(actor)
 	proposal, err := s.tasks.GetCodeProposal(ctx, proposalID)
 	if err != nil {
@@ -645,11 +647,11 @@ func (s *Service) Verify(ctx context.Context, proposalID, actor string, checks [
 	}
 	output := VerifyOutput{}
 	for _, check := range checks {
-		effect, planErr := s.tasks.PlanEffect(ctx, proposal.AttemptID, "workspace.run", check.Executable+" "+strings.Join(check.Arguments, " "), "review:"+proposal.ID)
+		effect, planErr := s.tasks.PlanEffect(ctx, authority, proposal.AttemptID, "workspace.run", check.Executable+" "+strings.Join(check.Arguments, " "), "review:"+proposal.ID)
 		if planErr != nil {
 			return output, planErr
 		}
-		effect, err = s.tasks.DispatchEffect(ctx, effect.OperationID)
+		effect, err = s.tasks.DispatchEffect(ctx, authority, effect.OperationID)
 		if err != nil {
 			return output, err
 		}
@@ -706,7 +708,7 @@ func (s *Service) Verify(ctx context.Context, proposalID, actor string, checks [
 // It never invokes a shell: each command is parsed into one executable plus
 // argv, and shell control syntax is rejected. Requirement mappings come from
 // the immutable step revision rather than being invented by a client.
-func (s *Service) VerifyFrozen(ctx context.Context, proposalID, actor string) (VerifyOutput, error) {
+func (s *Service) VerifyFrozen(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string) (VerifyOutput, error) {
 	proposal, err := s.tasks.GetCodeProposal(ctx, proposalID)
 	if err != nil {
 		return VerifyOutput{}, err
@@ -737,7 +739,7 @@ func (s *Service) VerifyFrozen(ctx context.Context, proposalID, actor string) (V
 		checks = append(checks, CommandCheck{ID: command, RequirementIDs: append([]string(nil), step.RequirementIDs...),
 			Executable: argv[0], Arguments: argv[1:], WorkingDir: ".", TimeoutSeconds: 120})
 	}
-	return s.Verify(ctx, proposalID, actor, checks)
+	return s.Verify(ctx, authority, proposalID, actor, checks)
 }
 
 func parseFrozenCommand(command string) ([]string, error) {
@@ -796,7 +798,7 @@ func parseFrozenCommand(command string) ([]string, error) {
 	return args, nil
 }
 
-func (s *Service) Review(ctx context.Context, proposalID, reviewerProviderID string) (ReviewOutput, error) {
+func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority, proposalID, reviewerProviderID string) (ReviewOutput, error) {
 	proposal, err := s.tasks.GetCodeProposal(ctx, proposalID)
 	if err != nil {
 		return ReviewOutput{}, err
@@ -879,7 +881,7 @@ func (s *Service) Review(ctx context.Context, proposalID, reviewerProviderID str
 	for _, evidence := range bundle.Evidence {
 		testEvidence = append(testEvidence, evidence.CheckID+": "+evidence.Actual+" ["+strings.Join(evidence.EvidenceRefs, ", ")+"]")
 	}
-	effect, err := s.tasks.PlanEffect(ctx, proposal.AttemptID, "provider.review", profile.ID+":"+profile.Model, "verification:"+bundleArtifact.ID)
+	effect, err := s.tasks.PlanEffect(ctx, authority, proposal.AttemptID, "provider.review", profile.ID+":"+profile.Model, "verification:"+bundleArtifact.ID)
 	if err != nil {
 		return ReviewOutput{}, err
 	}
@@ -888,7 +890,7 @@ func (s *Service) Review(ctx context.Context, proposalID, reviewerProviderID str
 		ProposalID: proposal.ID, Objective: task.Objective, AcceptanceCriteria: criteria, Constraints: task.Requirement.Constraints,
 		Files: files, TestEvidence: testEvidence, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}, worker.Options{
 		BeforeProviderRequest: func() error {
-			updated, dispatchErr := s.tasks.DispatchEffect(ctx, effect.OperationID)
+			updated, dispatchErr := s.tasks.DispatchEffect(ctx, authority, effect.OperationID)
 			if dispatchErr == nil {
 				effect, dispatched = updated, true
 			}
@@ -958,7 +960,7 @@ func (s *Service) Review(ctx context.Context, proposalID, reviewerProviderID str
 			}
 		}
 	}
-	if _, err = s.tasks.CompleteAttempt(ctx, proposal.AttemptID, "mandatory checks and independent review passed"); err != nil {
+	if _, err = s.tasks.CompleteAttempt(ctx, authority, proposal.AttemptID, "mandatory checks and independent review passed"); err != nil {
 		return ReviewOutput{Review: review, Artifact: reviewArtifact, Effect: effect}, err
 	}
 	task, err = s.tasks.Get(ctx, task.ID)

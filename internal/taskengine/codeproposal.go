@@ -12,32 +12,67 @@ import (
 )
 
 const (
-	ProposalPendingReview  = "pending_review"
-	ProposalApproved       = "approved"
-	ProposalRejected       = "rejected"
-	ProposalApplying       = "applying"
-	ProposalApplied        = "applied"
-	ProposalApplyFailed    = "apply_failed"
-	ProposalAwaitingReview = "awaiting_post_review"
-	ProposalVerified       = "verified"
-	ProposalVerifyFailed   = "verification_failed"
-	ProposalReviewRejected = "post_review_rejected"
+	ProposalPendingReview    = "pending_review"
+	ProposalApproved         = "approved"
+	ProposalRejected         = "rejected"
+	ProposalApplying         = "applying"
+	ProposalApplied          = "applied"
+	ProposalApplyFailed      = "apply_failed"
+	ProposalAwaitingReview   = "awaiting_post_review"
+	ProposalVerified         = "verified"
+	ProposalVerifyFailed     = "verification_failed"
+	ProposalReviewRejected   = "post_review_rejected"
+	ProposalRecoveryRequired = "recovery_required"
 )
 
 type CodeProposal struct {
-	ID               string    `json:"id"`
-	TaskID           string    `json:"task_id"`
-	StepID           string    `json:"step_id"`
-	AttemptID        string    `json:"attempt_id"`
-	ProjectID        string    `json:"project_id"`
-	PacketHash       string    `json:"packet_hash"`
-	ProviderID       string    `json:"provider_id"`
-	ProviderRevision string    `json:"provider_revision"`
-	ArtifactID       string    `json:"artifact_id"`
-	ResultHash       string    `json:"result_hash"`
-	State            string    `json:"state"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                     string    `json:"id"`
+	TaskID                 string    `json:"task_id"`
+	StepID                 string    `json:"step_id"`
+	AttemptID              string    `json:"attempt_id"`
+	ProjectID              string    `json:"project_id"`
+	PacketHash             string    `json:"packet_hash"`
+	ProviderID             string    `json:"provider_id"`
+	ProviderRevision       string    `json:"provider_revision"`
+	ArtifactID             string    `json:"artifact_id"`
+	RollbackArtifactID     string    `json:"rollback_artifact_id,omitempty"`
+	VerificationArtifactID string    `json:"verification_artifact_id,omitempty"`
+	ResultHash             string    `json:"result_hash"`
+	State                  string    `json:"state"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+func (s *Service) BeginCodeProposalApply(ctx context.Context, proposalID, rollbackArtifactID string) (CodeProposal, error) {
+	if strings.TrimSpace(rollbackArtifactID) == "" {
+		return CodeProposal{}, fmt.Errorf("rollback artifact is required before apply")
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE task_code_proposals
+		SET state='applying',rollback_artifact_id=?,updated_at=? WHERE id=? AND state='approved'`,
+		rollbackArtifactID, formatTime(time.Now().UTC()), proposalID)
+	if err != nil {
+		return CodeProposal{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return CodeProposal{}, fmt.Errorf("proposal apply binding is stale or invalid")
+	}
+	return s.GetCodeProposal(ctx, proposalID)
+}
+
+func (s *Service) BindCodeProposalVerification(ctx context.Context, proposalID, verificationArtifactID string) (CodeProposal, error) {
+	if strings.TrimSpace(verificationArtifactID) == "" {
+		return CodeProposal{}, fmt.Errorf("verification artifact is required before post-review")
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE task_code_proposals
+		SET state='awaiting_post_review',verification_artifact_id=?,updated_at=? WHERE id=? AND state='applied'`,
+		verificationArtifactID, formatTime(time.Now().UTC()), proposalID)
+	if err != nil {
+		return CodeProposal{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return CodeProposal{}, fmt.Errorf("proposal verification binding is stale or invalid")
+	}
+	return s.GetCodeProposal(ctx, proposalID)
 }
 
 func (s *Service) TransitionCodeProposal(ctx context.Context, proposalID, from, to string) (CodeProposal, error) {
@@ -162,9 +197,10 @@ func (s *Service) GetCodeProposal(ctx context.Context, id string) (CodeProposal,
 	var item CodeProposal
 	var created, updated string
 	err := s.store.DB.QueryRowContext(ctx, `SELECT id,task_id,step_id,attempt_id,project_id,packet_hash,provider_id,
-		provider_revision,artifact_id,result_hash,state,created_at,updated_at FROM task_code_proposals WHERE id=?`, id).
+		provider_revision,artifact_id,result_hash,COALESCE(rollback_artifact_id,''),COALESCE(verification_artifact_id,''),state,created_at,updated_at FROM task_code_proposals WHERE id=?`, id).
 		Scan(&item.ID, &item.TaskID, &item.StepID, &item.AttemptID, &item.ProjectID, &item.PacketHash, &item.ProviderID,
-			&item.ProviderRevision, &item.ArtifactID, &item.ResultHash, &item.State, &created, &updated)
+			&item.ProviderRevision, &item.ArtifactID, &item.ResultHash, &item.RollbackArtifactID, &item.VerificationArtifactID,
+			&item.State, &created, &updated)
 	if err == sql.ErrNoRows {
 		return item, ErrNotFound
 	}

@@ -3,19 +3,23 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 
 	"hermetrix-harness/internal/blob"
+	"hermetrix-harness/internal/identity"
 )
 
 type Store struct {
 	DB    *sql.DB
 	Blobs *blob.Store
 	Root  string
+	lock  *dataRootLock
 }
 
 func Open(ctx context.Context, root string) (*Store, error) {
@@ -25,6 +29,16 @@ func Open(ctx context.Context, root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("create data root: %w", err)
 	}
+	rootLock, err := acquireDataRootLock(filepath.Join(root, ".hermetrix.lock"))
+	if err != nil {
+		return nil, fmt.Errorf("lock data root: %w", err)
+	}
+	keepLock := false
+	defer func() {
+		if !keepLock {
+			_ = rootLock.close()
+		}
+	}()
 	blobs, err := blob.Open(filepath.Join(root, "blobs", "sha256"))
 	if err != nil {
 		return nil, err
@@ -39,14 +53,22 @@ func Open(ctx context.Context, root string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("configure sqlite: %w", err)
 	}
-	if err := migrate(ctx, db); err != nil {
+	if err := migrate(ctx, db, blobs); err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &Store{DB: db, Blobs: blobs, Root: root}, nil
+	keepLock = true
+	return &Store{DB: db, Blobs: blobs, Root: root, lock: rootLock}, nil
 }
 
-func (s *Store) Close() error { return s.DB.Close() }
+func (s *Store) Close() error {
+	dbErr := s.DB.Close()
+	lockErr := s.lock.close()
+	if dbErr != nil {
+		return dbErr
+	}
+	return lockErr
+}
 
 // SchemaVersion reports what the open database actually says, not what the
 // build intended. Those are the same number when migration succeeded and
@@ -59,7 +81,7 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 	return version, nil
 }
 
-func migrate(ctx context.Context, db *sql.DB) error {
+func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 	// migrateV29TableSwap has to run before the shared transaction below opens
 	// and commit on its own. See its comment for why.
 	if err := migrateV29TableSwap(ctx, db); err != nil {
@@ -255,6 +277,26 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("apply schema v36: %w", err)
 		}
 	}
+	if version < 37 {
+		if err := migrateV37(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v37: %w", err)
+		}
+	}
+	if version < 38 {
+		if err := migrateV38(ctx, tx, blobs); err != nil {
+			return fmt.Errorf("apply schema v38: %w", err)
+		}
+	}
+	if version < 39 {
+		if err := migrateV39(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v39: %w", err)
+		}
+	}
+	if version < 40 {
+		if _, err := tx.ExecContext(ctx, schemaV40); err != nil {
+			return fmt.Errorf("apply schema v40: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -267,7 +309,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 36
+const CurrentSchemaVersion = 40
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -1501,8 +1543,260 @@ CREATE INDEX IF NOT EXISTS idx_task_attempts_run ON task_step_attempts(run_id, s
 CREATE INDEX IF NOT EXISTS idx_task_effects_reconcile ON task_effect_intents(task_id, state, updated_at);
 `
 
-// schemaV32 makes code proposals and their review decisions durable. Model
-// output cannot become an applied change merely because an artifact exists.
+// migrateV37 binds every durable effect to the exact run generation that
+// planned it. Observation and reconciliation remain possible after expiry,
+// while planning and dispatch can now prove a live owner transactionally.
+func migrateV37(ctx context.Context, tx *sql.Tx) error {
+	var orphaned int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents e
+		LEFT JOIN task_step_attempts a ON a.id=e.attempt_id
+		LEFT JOIN task_runs r ON r.id=a.run_id
+		WHERE a.id IS NULL OR r.id IS NULL`).Scan(&orphaned); err != nil {
+		return fmt.Errorf("inspect effect authority backfill: %w", err)
+	}
+	if orphaned != 0 {
+		return fmt.Errorf("cannot bind %d effect intents to a run", orphaned)
+	}
+	const migration = `
+ALTER TABLE task_runs ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 1;
+
+ALTER TABLE task_effect_intents RENAME TO task_effect_intents_v36;
+CREATE TABLE task_effect_intents (
+  id TEXT PRIMARY KEY,
+  attempt_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  lease_generation INTEGER NOT NULL,
+  operation_id TEXT NOT NULL UNIQUE,
+  action TEXT NOT NULL,
+  target TEXT NOT NULL,
+  authority TEXT NOT NULL,
+  state TEXT NOT NULL,
+  receipt_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(attempt_id) REFERENCES task_step_attempts(id) ON DELETE CASCADE,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY(run_id) REFERENCES task_runs(id) ON DELETE CASCADE
+);
+INSERT INTO task_effect_intents(
+  id,attempt_id,task_id,run_id,lease_generation,operation_id,action,target,authority,state,receipt_json,error,created_at,updated_at
+)
+SELECT e.id,e.attempt_id,e.task_id,a.run_id,1,e.operation_id,e.action,e.target,e.authority,e.state,e.receipt_json,e.error,e.created_at,e.updated_at
+FROM task_effect_intents_v36 e JOIN task_step_attempts a ON a.id=e.attempt_id;
+DROP TABLE task_effect_intents_v36;
+CREATE INDEX idx_task_effects_reconcile ON task_effect_intents(task_id,state,updated_at);
+CREATE INDEX idx_task_effects_run_state ON task_effect_intents(run_id,state,updated_at);
+`
+	if _, err := tx.ExecContext(ctx, migration); err != nil {
+		return err
+	}
+	var table, rowID, parent string
+	var foreignKeyID int
+	err := tx.QueryRowContext(ctx, `SELECT "table",rowid,parent,fkid FROM pragma_foreign_key_check LIMIT 1`).
+		Scan(&table, &rowID, &parent, &foreignKeyID)
+	if err == nil {
+		return fmt.Errorf("foreign key check failed: table=%s row=%s parent=%s key=%d", table, rowID, parent, foreignKeyID)
+	}
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("run foreign key check: %w", err)
+	}
+	return nil
+}
+
+func migrateV38(ctx context.Context, tx *sql.Tx, blobs *blob.Store) error {
+	const mutationSchema = `
+CREATE TABLE file_mutation_intents (
+  id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  before_sha256 TEXT NOT NULL,
+  after_sha256 TEXT NOT NULL,
+  state TEXT NOT NULL,
+  receipt_artifact_id TEXT,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY(receipt_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_file_mutation_recovery ON file_mutation_intents(state,updated_at);
+`
+	if _, err := tx.ExecContext(ctx, mutationSchema); err != nil {
+		return err
+	}
+	var proposalsTable, artifactsTable int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_code_proposals'`).Scan(&proposalsTable); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='artifacts'`).Scan(&artifactsTable); err != nil {
+		return err
+	}
+	if proposalsTable == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE task_code_proposals ADD COLUMN rollback_artifact_id TEXT REFERENCES artifacts(id) ON DELETE RESTRICT;
+		ALTER TABLE task_code_proposals ADD COLUMN verification_artifact_id TEXT REFERENCES artifacts(id) ON DELETE RESTRICT;`); err != nil {
+		return err
+	}
+	// Some aged migration fixtures intentionally contain only the subsystem
+	// tables that existed at their version. There is no artifact authority to
+	// bind in such a fixture, so the new nullable columns are the complete and
+	// honest migration result.
+	if artifactsTable == 0 {
+		return nil
+	}
+	// Bind every artifact that has one unambiguous proposal relationship. JSON
+	// metadata remains descriptive; after this migration workflows use only the
+	// relational columns below as authority evidence.
+	if _, err := tx.ExecContext(ctx, `UPDATE task_code_proposals AS p SET rollback_artifact_id=(
+		SELECT MIN(a.id) FROM artifacts a WHERE a.kind='code_proposal_rollback'
+		AND json_extract(a.metadata_json,'$.proposal_id')=p.id)
+		WHERE (SELECT COUNT(*) FROM artifacts a WHERE a.kind='code_proposal_rollback'
+		AND json_extract(a.metadata_json,'$.proposal_id')=p.id)=1`); err != nil {
+		return fmt.Errorf("backfill rollback artifact bindings: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE task_code_proposals AS p SET verification_artifact_id=(
+		SELECT MIN(a.id) FROM artifacts a WHERE a.kind='code_verification_bundle'
+		AND json_extract(a.metadata_json,'$.proposal_id')=p.id)
+		WHERE (SELECT COUNT(*) FROM artifacts a WHERE a.kind='code_verification_bundle'
+		AND json_extract(a.metadata_json,'$.proposal_id')=p.id)=1`); err != nil {
+		return fmt.Errorf("backfill verification artifact bindings: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,project_id,state,
+		CASE WHEN rollback_artifact_id IS NULL AND state IN ('applying','applied','awaiting_post_review') THEN 1 ELSE 0 END,
+		CASE WHEN verification_artifact_id IS NULL AND state='awaiting_post_review' THEN 1 ELSE 0 END
+		FROM task_code_proposals
+		WHERE (rollback_artifact_id IS NULL AND state IN ('applying','applied','awaiting_post_review'))
+		OR (verification_artifact_id IS NULL AND state='awaiting_post_review')`)
+	if err != nil {
+		return fmt.Errorf("find proposals requiring recovery: %w", err)
+	}
+	type recoveryProposal struct {
+		id, projectID, state string
+		missingRollback      int
+		missingVerification  int
+	}
+	var recovery []recoveryProposal
+	for rows.Next() {
+		var item recoveryProposal
+		if err = rows.Scan(&item.id, &item.projectID, &item.state, &item.missingRollback, &item.missingVerification); err != nil {
+			rows.Close()
+			return err
+		}
+		recovery = append(recovery, item)
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range recovery {
+		now := time.Now().UTC()
+		record := map[string]any{"proposal_id": item.id, "former_state": item.state,
+			"missing_rollback_artifact":     item.missingRollback != 0,
+			"missing_verification_artifact": item.missingVerification != 0,
+			"migration":                     38, "recorded_at": now.Format(time.RFC3339Nano)}
+		body, _ := json.Marshal(record)
+		ref, putErr := blobs.Put(body)
+		if putErr != nil {
+			return fmt.Errorf("persist proposal recovery audit: %w", putErr)
+		}
+		artifactID := identity.New("artifact")
+		metadata, _ := json.Marshal(map[string]any{"proposal_id": item.id, "former_state": item.state, "migration": 38})
+		if _, err = tx.ExecContext(ctx, `INSERT INTO artifacts(id,project_id,name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?)`, artifactID, item.projectID, item.id+".recovery.json", "proposal_recovery_audit",
+			"application/vnd.hermetrix.proposal-recovery+json", ref, len(body), ref, string(metadata), now.Format(time.RFC3339Nano)); err != nil {
+			return fmt.Errorf("record proposal recovery audit: %w", err)
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE task_code_proposals SET state='recovery_required',updated_at=? WHERE id=? AND state=?`,
+			now.Format(time.RFC3339Nano), item.id, item.state); err != nil {
+			return fmt.Errorf("hold proposal for recovery: %w", err)
+		}
+	}
+	var table, rowID, parent string
+	var foreignKeyID int
+	err = tx.QueryRowContext(ctx, `SELECT "table",rowid,parent,fkid FROM pragma_foreign_key_check LIMIT 1`).
+		Scan(&table, &rowID, &parent, &foreignKeyID)
+	if err == nil {
+		return fmt.Errorf("foreign key check failed: table=%s row=%s parent=%s key=%d", table, rowID, parent, foreignKeyID)
+	}
+	if err != sql.ErrNoRows {
+		return fmt.Errorf("run foreign key check: %w", err)
+	}
+	return nil
+}
+
+// migrateV39 moves newly compiled context payloads to the content-addressed
+// blob store while preserving historical inline snapshots. Checkpoints are
+// derived state and can always be rebuilt from canonical agent_events.
+func migrateV39(ctx context.Context, tx *sql.Tx) error {
+	var snapshots int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='context_snapshots'`).Scan(&snapshots); err != nil {
+		return err
+	}
+	if snapshots != 0 {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE context_snapshots ADD COLUMN compiled_blob_ref TEXT NOT NULL DEFAULT '';
+			ALTER TABLE context_snapshots ADD COLUMN manifest_hash TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS session_context_checkpoints (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		source_through_sequence INTEGER NOT NULL,
+		contract_revision TEXT NOT NULL,
+		compiler_revision TEXT NOT NULL,
+		estimator_revision TEXT NOT NULL,
+		checkpoint_blob_ref TEXT NOT NULL,
+		manifest_hash TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		UNIQUE(session_id,source_through_sequence,contract_revision,compiler_revision,estimator_revision),
+		FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_context_checkpoints_session ON session_context_checkpoints(session_id,source_through_sequence DESC);`)
+	return err
+}
+
+const schemaV40 = `
+CREATE TABLE IF NOT EXISTS inference_usage_ledger (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL UNIQUE,
+  owner_kind TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  session_id TEXT,
+  turn_id TEXT,
+  usage_source TEXT NOT NULL,
+  resource_key_hash TEXT NOT NULL,
+  reserved_prompt_tokens INTEGER NOT NULL,
+  reserved_output_tokens INTEGER NOT NULL,
+  charged_prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  charged_output_tokens INTEGER NOT NULL DEFAULT 0,
+  usage_quality TEXT NOT NULL,
+  state TEXT NOT NULL,
+  active_started_at TEXT,
+  active_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  deadline_at TEXT NOT NULL,
+  terminal_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_inference_usage_owner
+  ON inference_usage_ledger(owner_kind,owner_id,created_at);
+
+CREATE TABLE IF NOT EXISTS event_lexical_features (
+  event_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  features_blob BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(event_id) REFERENCES agent_events(id) ON DELETE CASCADE,
+  FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_event_lexical_session ON event_lexical_features(session_id,revision);
+`
+
 const schemaV32 = `
 CREATE TABLE IF NOT EXISTS task_code_proposals (
   id TEXT PRIMARY KEY,

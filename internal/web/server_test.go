@@ -147,18 +147,19 @@ func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 	if err := json.Unmarshal(attemptBody, &attempt); err != nil {
 		t.Fatal(err)
 	}
+	authority := taskengine.RunAuthority{RunID: runResponse.Run.ID, LeaseToken: runResponse.Run.LeaseToken}
 	requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/effects", http.MethodPost, map[string]any{
-		"action": "desktop.delete", "target": "customer-data", "authority": "task-plan",
+		"action": "desktop.delete", "target": "customer-data", "authority": "task-plan", "run_authority": authority,
 	}, http.StatusBadRequest)
 	effectBody := requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/effects", http.MethodPost, map[string]any{
-		"action": "workspace.run", "target": "go test ./...", "authority": "task-plan",
+		"action": "workspace.run", "target": "go test ./...", "authority": "task-plan", "run_authority": authority,
 	}, http.StatusCreated)
 	var effect taskengine.EffectIntent
 	if err := json.Unmarshal(effectBody, &effect); err != nil {
 		t.Fatal(err)
 	}
 	requestJSON(t, server.URL+"/api/task-effects/"+effect.OperationID+"/transitions", http.MethodPost,
-		map[string]any{"action": "dispatch"}, http.StatusOK)
+		map[string]any{"action": "dispatch", "authority": authority}, http.StatusOK)
 	requestJSON(t, server.URL+"/api/task-effects/"+effect.OperationID+"/transitions", http.MethodPost,
 		map[string]any{"action": "observe", "receipt": map[string]any{"exit_code": 0, "artifact": "test-log"}}, http.StatusOK)
 	executionBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/execution", http.MethodGet, nil, http.StatusOK)
@@ -169,7 +170,7 @@ func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 		t.Fatalf("execution snapshot=%+v err=%v", execution, err)
 	}
 	completedAttemptBody := requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/complete", http.MethodPost,
-		map[string]any{"output": "test passed"}, http.StatusOK)
+		map[string]any{"output": "test passed", "authority": authority}, http.StatusOK)
 	if err := json.Unmarshal(completedAttemptBody, &attempt); err != nil || attempt.State != taskengine.AttemptCompleted {
 		t.Fatalf("completed attempt=%+v err=%v", attempt, err)
 	}
