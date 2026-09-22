@@ -1,0 +1,6 @@
+{
+  "contract_version": "agent-platform/v1",
+  "profiles": [{"message_type": "TaskAssignment", "schema_revision": 2}, {"message_type": "RunUpdate", "schema_revision": 3}, {"message_type": "ACK", "schema_revision": 1}],
+  "transport": "fixture",
+  "real_pi_contacted": false
+}

@@ -24,69 +24,19 @@ type Service struct{ store *store.Store }
 func NewService(dataStore *store.Store) *Service { return &Service{store: dataStore} }
 
 func (s *Service) Create(ctx context.Context, input CreateTaskInput) (Task, error) {
-	if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.Objective) == "" || strings.TrimSpace(input.OriginalRequest) == "" {
-		return Task{}, fmt.Errorf("task title, objective and original request are required")
-	}
-	if strings.TrimSpace(input.Actor) == "" {
-		return Task{}, fmt.Errorf("task actor is required")
-	}
-	if err := validateCriteria(input.Criteria); err != nil {
-		return Task{}, err
-	}
-	egressPolicy := strings.TrimSpace(input.EgressPolicy)
-	if egressPolicy == "" {
-		egressPolicy = "local_only"
-	}
-	if egressPolicy != "local_only" && egressPolicy != "remote_allowed" {
-		return Task{}, fmt.Errorf("egress_policy must be local_only or remote_allowed")
-	}
-	if egressPolicy == "remote_allowed" && (input.RemoteEgressApproval == nil ||
-		strings.TrimSpace(input.RemoteEgressApproval.Actor) == "" || strings.TrimSpace(input.RemoteEgressApproval.Reason) == "") {
-		return Task{}, fmt.Errorf("remote_allowed requires explicit egress approval with actor and reason")
-	}
-	now := time.Now().UTC()
-	taskID, requirementID := identity.New("task"), identity.New("reqrev")
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
-	var ownerID string
-	principalID := identity.Principal(ctx)
-	ownerQuery := `SELECT id FROM local_principals WHERE kind='local' ORDER BY created_at LIMIT 1`
-	var ownerArgs []any
-	if principalID != "" {
-		ownerQuery = `SELECT id FROM local_principals WHERE id=?`
-		ownerArgs = []any{principalID}
-	}
-	if err := tx.QueryRowContext(ctx, ownerQuery, ownerArgs...).Scan(&ownerID); err != nil {
-		return Task{}, fmt.Errorf("resolve task owner: %w", err)
-	}
-	if strings.TrimSpace(input.ProjectID) != "" {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id=? AND owner_principal_id=?`, input.ProjectID, ownerID).Scan(&exists); err != nil {
-			return Task{}, fmt.Errorf("task project is unavailable to this principal")
-		}
-	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO durable_tasks
-		(id,project_id,title,objective,original_request,state,created_at,updated_at,owner_principal_id,egress_policy)
-		VALUES(?,?,?,?,?,'draft',?,?,?,?)`, taskID, nullable(input.ProjectID), strings.TrimSpace(input.Title),
-		strings.TrimSpace(input.Objective), input.OriginalRequest, formatTime(now), formatTime(now), ownerID, egressPolicy); err != nil {
-		return Task{}, err
-	}
-	constraints, _ := json.Marshal(cleanStrings(input.Constraints))
-	unknowns, _ := json.Marshal(cleanStrings(input.Unknowns))
-	criteria, _ := json.Marshal(input.Criteria)
-	if _, err = tx.ExecContext(ctx, `INSERT INTO task_requirement_revisions
-		(id,task_id,revision,constraints_json,unknowns_json,criteria_json,actor,created_at)
-		VALUES(?,?,1,?,?,?,?,?)`, requirementID, taskID, string(constraints), string(unknowns), string(criteria),
-		strings.TrimSpace(input.Actor), formatTime(now)); err != nil {
+	created, err := s.CreateInTx(ctx, tx, input)
+	if err != nil {
 		return Task{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		return Task{}, err
 	}
-	return s.Get(ctx, taskID)
+	return s.Get(ctx, created.TaskID)
 }
 
 // ReviseRequirements appends an immutable requirement revision and invalidates
