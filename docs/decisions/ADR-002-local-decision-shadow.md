@@ -1,0 +1,5 @@
+# ADR-002: Evaluate local model decisions in a non-executing shadow path
+Date: 2026-09-21 · Status: Accepted
+Context: `RuleDecision` provides a deterministic baseline, but admitting a local model requires observable evidence for validity, agreement, latency and token use without granting the model execution authority.
+Decision: Add `BonsaiDecision` in `taskcoord`, accept enabled loopback provider profiles only, send the bounded `CompactState` and generated candidates through one strict `submit_decision` tool, and reject every action outside that candidate enum. Run it only through a revision-gated shadow endpoint. Persist immutable schema-v47 receipts and expose history and aggregate metrics. Model errors remain observations beside the usable rule baseline.
+Consequences: Real local-model behavior can be measured across task states while all existing task, policy, lease, approval and effect gates remain authoritative. A shadow result cannot execute an action or mutate a task. Promotion to an active read-only path still requires a fixture corpus and an explicit admission threshold.

@@ -453,7 +453,7 @@ func TestMigrationV29RebuildsProjectsWithRealForeignKeyChildren(t *testing.T) {
 	}
 }
 
-func TestMigrationV43ToV46PreservesPopulatedDatabase(t *testing.T) {
+func TestMigrationV43ToV48PreservesPopulatedDatabase(t *testing.T) {
 	root := t.TempDir()
 	dataStore, err := Open(context.Background(), root)
 	if err != nil {

@@ -348,6 +348,17 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 			return fmt.Errorf("apply schema v46: %w", err)
 		}
 	}
+	if version < 47 {
+		if err := migrateV47(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v47: %w", err)
+		}
+	}
+	if version < 48 {
+		if err := migrateV48(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v48: %w", err)
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -360,7 +371,7 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 46
+const CurrentSchemaVersion = 48
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -2250,6 +2261,71 @@ CREATE TABLE workspace_migration_maps (
 	return err
 }
 
+func migrateV47(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS task_decision_shadow_runs (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  task_revision INTEGER NOT NULL,
+  provider_id TEXT NOT NULL,
+  provider_revision TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  state_json TEXT NOT NULL,
+  candidates_json TEXT NOT NULL,
+  baseline_json TEXT NOT NULL,
+  model_json TEXT,
+  agreement INTEGER NOT NULL CHECK(agreement IN (0,1)),
+  valid INTEGER NOT NULL CHECK(valid IN (0,1)),
+  latency_ms INTEGER NOT NULL,
+  prompt_tokens INTEGER NOT NULL,
+  completion_tokens INTEGER NOT NULL,
+  model_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_task_decision_shadow_task ON task_decision_shadow_runs(task_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_decision_shadow_provider ON task_decision_shadow_runs(provider_id,created_at DESC);
+`)
+	return err
+}
+
+func migrateV48(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS decision_benchmark_runs (
+  id TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  provider_revision TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  decision_revision TEXT NOT NULL,
+  results_json TEXT NOT NULL,
+  total_cases INTEGER NOT NULL,
+  valid_cases INTEGER NOT NULL,
+  correct_cases INTEGER NOT NULL,
+  accuracy REAL NOT NULL,
+  invalid_rate REAL NOT NULL,
+  average_latency_ms REAL NOT NULL,
+  passed INTEGER NOT NULL CHECK(passed IN (0,1)),
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decision_benchmark_provider ON decision_benchmark_runs(provider_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS decision_admission_policies (
+  provider_id TEXT PRIMARY KEY,
+  provider_revision TEXT NOT NULL,
+  benchmark_run_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+  allowed_risks_json TEXT NOT NULL DEFAULT '["read"]',
+  actor TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(benchmark_run_id) REFERENCES decision_benchmark_runs(id) ON DELETE RESTRICT
+);
+`)
+	return err
+}
+
+// schemaV32 makes code proposals and their review decisions durable. Model
+// output cannot become an applied change merely because an artifact exists.
 const schemaV32 = `
 CREATE TABLE IF NOT EXISTS task_code_proposals (
   id TEXT PRIMARY KEY,

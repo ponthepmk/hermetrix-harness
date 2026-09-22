@@ -1,0 +1,5 @@
+# ADR-001: Derive bounded next-action decisions from durable task state
+Date: 2026-09-21 · Status: Accepted
+Context: Local-first execution needs a pluggable next-action decision boundary, but Hermetrix already has authoritative durable tasks, exact revisions, evidence gates, effect reconciliation and planner escalation. A parallel state machine would duplicate authority and create unsafe drift.
+Decision: Derive `CompactState` from the active durable task revision and existing evidence records. A `DecisionEngine` may select only from generated `CandidateAction` values and never executes them. Start with deterministic `RuleDecision` and expose its read-only result through a revision-gated API. Keep Bonsai out of execution until shadow evaluation demonstrates useful accuracy and latency.
+Consequences: Existing policy, leases, approval and completion gates remain authoritative. Decisions are inspectable and reversible, while model-backed selection can be added behind the interface. The first slice cannot autonomously execute actions or escalate to a remote model.
