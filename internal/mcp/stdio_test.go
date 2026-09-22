@@ -125,6 +125,20 @@ func TestStdioCommandRefusesWhatIsNotALauncher(t *testing.T) {
 	}
 }
 
+func TestStructuredStdioCommandPreservesArgumentBoundaries(t *testing.T) {
+	encoded, err := encodeStdioCommand("node", []string{"server.js", "--label", "two words", `quote\"inside`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, arguments, err := StdioCommand(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executable != "node" || len(arguments) != 4 || arguments[2] != "two words" || arguments[3] != `quote\"inside` {
+		t.Fatalf("structured command round trip = %q %#v", executable, arguments)
+	}
+}
+
 // TestStdioEnvironmentHidesTheParentCredentials proves a launched server sees
 // only what it needs plus its own token, not every other secret this process
 // happens to hold.

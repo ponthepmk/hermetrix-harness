@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,10 +125,26 @@ func TestTimedOutStdioCallKillsItsSessionAndReleasesThePool(t *testing.T) {
 	t.Cleanup(client.Close)
 	server := Server{ID: "hanging", Name: "Hanging", TransportKind: TransportStdio,
 		Endpoint: "python3 " + script, APIKeyEnv: "HANG_MARKER", RequestTimeoutMS: 15000, Enabled: true}
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	started := time.Now()
-	_, err := client.CallToolStdio(ctx, server, marker, "hang", []byte(`{}`))
+	callDone := make(chan error, 1)
+	go func() {
+		_, callErr := client.CallToolStdio(ctx, server, marker, "hang", []byte(`{}`))
+		callDone <- callErr
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, statErr := os.Stat(marker); errors.Is(statErr, os.ErrNotExist) {
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("stdio fixture never entered the hanging tools/call")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	cancel()
+	err := <-callDone
 	if err == nil {
 		t.Fatal("a stdio server that never answered did not time out")
 	}

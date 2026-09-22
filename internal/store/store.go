@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -79,6 +81,25 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return version, nil
+}
+
+func (s *Store) LocalPrincipalID(ctx context.Context) (string, error) {
+	var id string
+	err := s.DB.QueryRowContext(ctx, `SELECT id FROM local_principals WHERE kind='local' ORDER BY created_at LIMIT 1`).Scan(&id)
+	return id, err
+}
+
+// OwnerPrincipalID returns the trusted principal bound by an ingress boundary,
+// or the installation-local principal for internal/background work.
+func (s *Store) OwnerPrincipalID(ctx context.Context) (string, error) {
+	if id := identity.Principal(ctx); id != "" {
+		var exists int
+		if err := s.DB.QueryRowContext(ctx, `SELECT 1 FROM local_principals WHERE id=?`, id).Scan(&exists); err != nil {
+			return "", fmt.Errorf("unknown principal: %w", err)
+		}
+		return id, nil
+	}
+	return s.LocalPrincipalID(ctx)
 }
 
 func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
@@ -297,6 +318,36 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 			return fmt.Errorf("apply schema v40: %w", err)
 		}
 	}
+	if version < 41 {
+		if err := migrateV41(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v41: %w", err)
+		}
+	}
+	if version < 42 {
+		if err := migrateV42(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v42: %w", err)
+		}
+	}
+	if version < 43 {
+		if err := migrateV43(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v43: %w", err)
+		}
+	}
+	if version < 44 {
+		if err := migrateV44(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v44: %w", err)
+		}
+	}
+	if version < 45 {
+		if err := migrateV45(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v45: %w", err)
+		}
+	}
+	if version < 46 {
+		if err := migrateV46(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v46: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -309,7 +360,7 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 40
+const CurrentSchemaVersion = 46
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
@@ -1796,6 +1847,408 @@ CREATE TABLE IF NOT EXISTS event_lexical_features (
 );
 CREATE INDEX IF NOT EXISTS idx_event_lexical_session ON event_lexical_features(session_id,revision);
 `
+
+func migrateV41(ctx context.Context, tx *sql.Tx) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	principalID := identity.New("principal")
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS local_principals (
+		id TEXT PRIMARY KEY,
+		kind TEXT NOT NULL UNIQUE CHECK(kind='local'),
+		label TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS share_policy_audits (
+		id TEXT PRIMARY KEY,
+		principal_id TEXT NOT NULL,
+		object_kind TEXT NOT NULL,
+		object_id TEXT NOT NULL,
+		from_visibility TEXT NOT NULL,
+		to_visibility TEXT NOT NULL,
+		expected_revision INTEGER NOT NULL,
+		actor TEXT NOT NULL,
+		reason TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT
+	);`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO local_principals(id,kind,label,created_at)
+		SELECT ?,'local','Local installation',? WHERE NOT EXISTS(SELECT 1 FROM local_principals WHERE kind='local')`, principalID, now); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM local_principals WHERE kind='local'`).Scan(&principalID); err != nil {
+		return err
+	}
+	type ownershipTable struct {
+		name  string
+		extra []string
+	}
+	tables := []ownershipTable{
+		{"projects", nil},
+		{"agent_sessions", []string{"egress_policy TEXT NOT NULL DEFAULT 'local_only'"}},
+		{"durable_tasks", []string{"egress_policy TEXT NOT NULL DEFAULT 'local_only'"}},
+		{"artifacts", []string{"source_lineage_json TEXT NOT NULL DEFAULT '[]'"}},
+		{"memories", nil},
+		{"skills", nil},
+		{"skill_candidates", nil},
+	}
+	for _, table := range tables {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table.name).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			continue
+		}
+		statements := []string{
+			"ALTER TABLE " + table.name + " ADD COLUMN owner_principal_id TEXT NOT NULL DEFAULT ''",
+			"ALTER TABLE " + table.name + " ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'",
+			"ALTER TABLE " + table.name + " ADD COLUMN export_policy TEXT NOT NULL DEFAULT 'deny'",
+			"ALTER TABLE " + table.name + " ADD COLUMN sharing_revision INTEGER NOT NULL DEFAULT 1",
+		}
+		for _, column := range table.extra {
+			statements = append(statements, "ALTER TABLE "+table.name+" ADD COLUMN "+column)
+		}
+		for _, statement := range statements {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("add ownership to %s: %w", table.name, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE "+table.name+" SET owner_principal_id=? WHERE owner_principal_id=''", principalID); err != nil {
+			return err
+		}
+		triggerPrefix := "ownership_" + table.name
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`CREATE TRIGGER %s_insert AFTER INSERT ON %s
+			WHEN NEW.owner_principal_id='' BEGIN
+			UPDATE %s SET owner_principal_id=(SELECT id FROM local_principals WHERE kind='local') WHERE rowid=NEW.rowid;
+			END;
+			CREATE TRIGGER %s_policy_insert BEFORE INSERT ON %s
+			WHEN NEW.visibility NOT IN ('private','project_shared') OR NEW.export_policy NOT IN ('deny','explicit_selection')
+			BEGIN SELECT RAISE(ABORT,'invalid visibility or export policy'); END;
+			CREATE TRIGGER %s_policy_update BEFORE UPDATE OF visibility,export_policy ON %s
+			WHEN NEW.visibility NOT IN ('private','project_shared') OR NEW.export_policy NOT IN ('deny','explicit_selection')
+			BEGIN SELECT RAISE(ABORT,'invalid visibility or export policy'); END;`,
+			triggerPrefix, table.name, table.name, triggerPrefix, table.name, triggerPrefix, table.name)); err != nil {
+			return err
+		}
+	}
+	_, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_share_policy_object ON share_policy_audits(object_kind,object_id,created_at)`)
+	return err
+}
+
+func migrateV42(ctx context.Context, tx *sql.Tx) error {
+	const schema = `
+CREATE TABLE runtime_fingerprints (
+  id TEXT PRIMARY KEY,
+  digest TEXT NOT NULL UNIQUE,
+  runtime_kind TEXT NOT NULL,
+  endpoint_identity TEXT NOT NULL,
+  build_revision TEXT NOT NULL DEFAULT '',
+  model_id TEXT NOT NULL,
+  model_checksums_json TEXT NOT NULL DEFAULT '[]',
+  projector_checksum TEXT NOT NULL DEFAULT '',
+  chat_template_hash TEXT NOT NULL DEFAULT '',
+  tokenizer_revision TEXT NOT NULL DEFAULT '',
+  kv_settings_json TEXT NOT NULL DEFAULT '{}',
+  context_capacity INTEGER NOT NULL DEFAULT 0,
+  device_mapping_json TEXT NOT NULL DEFAULT '[]',
+  config_digest TEXT NOT NULL,
+  evidence_quality TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE inference_presets (
+  id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  context_target INTEGER NOT NULL,
+  context_max INTEGER NOT NULL,
+  reasoning_mode TEXT NOT NULL,
+  reasoning_token_cap INTEGER NOT NULL,
+  answer_reserve INTEGER NOT NULL,
+  generation_cap INTEGER NOT NULL,
+  temperature REAL NOT NULL,
+  schema_version INTEGER NOT NULL,
+  content_digest TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(id,revision)
+);
+CREATE TRIGGER inference_presets_immutable_update BEFORE UPDATE ON inference_presets
+BEGIN SELECT RAISE(ABORT,'inference presets are immutable'); END;
+CREATE TRIGGER inference_presets_immutable_delete BEFORE DELETE ON inference_presets
+BEGIN SELECT RAISE(ABORT,'inference presets are immutable'); END;
+`
+	if _, err := tx.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	alters := map[string][]string{
+		"provider_profiles":        {"resource_group TEXT NOT NULL DEFAULT ''", "runtime_fingerprint_id TEXT NOT NULL DEFAULT ''"},
+		"model_qualification_runs": {"runtime_fingerprint_id TEXT REFERENCES runtime_fingerprints(id) ON DELETE RESTRICT", "modalities_json TEXT NOT NULL DEFAULT '[\"text\"]'", "controls_json TEXT NOT NULL DEFAULT '{}'"},
+		"step_bindings":            {"preset_id TEXT NOT NULL DEFAULT 'legacy-chat'", "preset_revision INTEGER NOT NULL DEFAULT 0", "runtime_fingerprint_id TEXT NOT NULL DEFAULT ''", "effective_parameter_digest TEXT NOT NULL DEFAULT ''"},
+		"task_step_attempts":       {"inference_role TEXT NOT NULL DEFAULT 'worker'", "preset_id TEXT NOT NULL DEFAULT 'legacy-worker'", "preset_revision INTEGER NOT NULL DEFAULT 0", "runtime_fingerprint_id TEXT NOT NULL DEFAULT ''"},
+		"inference_usage_ledger":   {"preset_id TEXT NOT NULL DEFAULT ''", "preset_revision INTEGER NOT NULL DEFAULT 0", "runtime_fingerprint_id TEXT NOT NULL DEFAULT ''", "effective_parameter_digest TEXT NOT NULL DEFAULT ''"},
+	}
+	for table, columns := range alters {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			continue
+		}
+		for _, column := range columns {
+			if _, err := tx.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column); err != nil {
+				return err
+			}
+		}
+	}
+	type preset struct {
+		ID                string  `json:"id"`
+		Revision          int     `json:"revision"`
+		Role              string  `json:"role"`
+		ContextTarget     int     `json:"context_target"`
+		ContextMax        int     `json:"context_max"`
+		ReasoningMode     string  `json:"reasoning_mode"`
+		ReasoningTokenCap int     `json:"reasoning_token_cap"`
+		AnswerReserve     int     `json:"answer_reserve"`
+		GenerationCap     int     `json:"generation_cap"`
+		Temperature       float64 `json:"temperature"`
+		SchemaVersion     int     `json:"schema_version"`
+	}
+	presets := []preset{
+		{"planner", 1, "planner", 40000, 60000, "bounded", 3072, 2048, 5120, 0.2, 1},
+		{"worker", 1, "worker", 16000, 30000, "disabled", 0, 1500, 1500, 0.1, 1},
+		{"worker-debug", 1, "worker-debug", 20000, 30000, "bounded", 1024, 1500, 2524, 0.1, 1},
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, item := range presets {
+		encoded, _ := json.Marshal(item)
+		sum := sha256.Sum256(encoded)
+		digest := hex.EncodeToString(sum[:])
+		if _, err := tx.ExecContext(ctx, `INSERT INTO inference_presets(id,revision,role,context_target,context_max,reasoning_mode,
+			reasoning_token_cap,answer_reserve,generation_cap,temperature,schema_version,content_digest,created_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID, item.Revision, item.Role, item.ContextTarget, item.ContextMax, item.ReasoningMode,
+			item.ReasoningTokenCap, item.AnswerReserve, item.GenerationCap, item.Temperature, item.SchemaVersion, digest, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateV43(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+CREATE TABLE agent_event_parts (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK(ordinal >= 0 AND ordinal < 32),
+  kind TEXT NOT NULL CHECK(kind IN ('text','image')),
+  text_content TEXT,
+  artifact_id TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}' CHECK(length(metadata_json) <= 16384),
+  created_at TEXT NOT NULL,
+  UNIQUE(event_id,ordinal),
+  CHECK((kind='text' AND text_content IS NOT NULL AND length(text_content)>0 AND artifact_id IS NULL) OR
+        (kind='image' AND text_content IS NULL AND artifact_id IS NOT NULL)),
+  FOREIGN KEY(event_id) REFERENCES agent_events(id) ON DELETE CASCADE,
+  FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_agent_event_parts_event ON agent_event_parts(event_id,ordinal);
+CREATE INDEX idx_agent_event_parts_artifact ON agent_event_parts(artifact_id) WHERE artifact_id IS NOT NULL;
+CREATE TABLE artifact_derivations (
+  id TEXT PRIMARY KEY,
+  owner_principal_id TEXT NOT NULL,
+  source_artifact_id TEXT NOT NULL,
+  result_artifact_id TEXT NOT NULL,
+  relation_kind TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  result_hash TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(source_artifact_id,result_artifact_id,relation_kind),
+  FOREIGN KEY(owner_principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT,
+  FOREIGN KEY(source_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT,
+  FOREIGN KEY(result_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_artifact_derivations_source ON artifact_derivations(source_artifact_id,created_at);
+CREATE INDEX idx_artifact_derivations_result ON artifact_derivations(result_artifact_id,created_at);
+`)
+	return err
+}
+
+func migrateV44(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+CREATE TABLE media_jobs (
+  id TEXT PRIMARY KEY,
+  owner_principal_id TEXT NOT NULL,
+  source_artifact_id TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  processor_kind TEXT NOT NULL CHECK(processor_kind IN ('image_inspect','audio_transcribe','video_extract')),
+  processor_revision TEXT NOT NULL,
+  model_revision TEXT NOT NULL DEFAULT '',
+  settings_digest TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('queued','running','completed','failed','cancelled','interrupted')),
+  progress REAL NOT NULL DEFAULT 0 CHECK(progress >= 0 AND progress <= 1),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+  result_artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+  error_code TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1)),
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE(owner_principal_id,operation_id,idempotency_key),
+  FOREIGN KEY(owner_principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT,
+  FOREIGN KEY(source_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_media_jobs_owner_state ON media_jobs(owner_principal_id,state,created_at);
+CREATE INDEX idx_media_jobs_source ON media_jobs(source_artifact_id,created_at);
+
+CREATE TABLE task_planning_decisions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  task_revision INTEGER NOT NULL,
+  classifier_revision INTEGER NOT NULL,
+  decision TEXT NOT NULL CHECK(decision IN ('existing_plan','deterministic_plan','planner_required')),
+  evidence_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(task_id,task_revision,classifier_revision),
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE
+);
+CREATE TABLE task_step_failures (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  normalized_signature TEXT NOT NULL,
+  failure_kind TEXT NOT NULL CHECK(failure_kind IN ('execution','test','transport','configuration','uncertain_effect')),
+  diff_artifact_id TEXT,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  prior_change_refs_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  UNIQUE(attempt_id),
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE CASCADE,
+  FOREIGN KEY(attempt_id) REFERENCES task_step_attempts(id) ON DELETE CASCADE,
+  FOREIGN KEY(diff_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_task_step_failures_signature ON task_step_failures(step_id,normalized_signature,created_at);
+CREATE TABLE task_step_escalations (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  normalized_signature TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 2),
+  state TEXT NOT NULL CHECK(state IN ('awaiting_plan','resolved','limit_exceeded')),
+  evidence_json TEXT NOT NULL,
+  planner_run_id TEXT,
+  plan_revision INTEGER,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  UNIQUE(step_id,ordinal),
+  FOREIGN KEY(task_id) REFERENCES durable_tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE CASCADE,
+  FOREIGN KEY(planner_run_id) REFERENCES task_planner_runs(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_task_step_escalations_state ON task_step_escalations(task_id,state,created_at);
+`)
+	return err
+}
+
+func migrateV45(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+CREATE TABLE share_previews (
+  id TEXT PRIMARY KEY,
+  owner_principal_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  manifest_blob_ref TEXT NOT NULL,
+  manifest_digest TEXT NOT NULL,
+  source_revision_digest TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('ready','expired','consumed','invalidated')),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  FOREIGN KEY(owner_principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_share_previews_owner_project ON share_previews(owner_principal_id,project_id,state,expires_at);
+CREATE TABLE share_export_jobs (
+  id TEXT PRIMARY KEY,
+  owner_principal_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  preview_id TEXT NOT NULL,
+  manifest_digest TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('queued','running','completed','failed','cancelled','interrupted')),
+  package_blob_ref TEXT,
+  package_checksum TEXT,
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE(owner_principal_id,idempotency_key),
+  FOREIGN KEY(owner_principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY(preview_id) REFERENCES share_previews(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_share_exports_owner_state ON share_export_jobs(owner_principal_id,state,created_at);
+CREATE TABLE share_import_staging (
+  id TEXT PRIMARY KEY,
+  owner_principal_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  package_blob_ref TEXT NOT NULL,
+  package_checksum TEXT NOT NULL,
+  manifest_digest TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('awaiting_apply','applying','completed','failed','expired')),
+  summary_json TEXT NOT NULL,
+  destination_project_id TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(owner_principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT,
+  FOREIGN KEY(destination_project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_share_imports_owner_state ON share_import_staging(owner_principal_id,state,created_at);
+`)
+	return err
+}
+
+func migrateV46(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+CREATE TABLE workspace_migration_jobs (
+  id TEXT PRIMARY KEY,
+  owner_principal_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('export','import_preview','import_apply')),
+  state TEXT NOT NULL CHECK(state IN ('running','awaiting_apply','completed','failed','interrupted')),
+  format_version INTEGER NOT NULL,
+  package_blob_ref TEXT,
+  package_checksum TEXT,
+  source_principal_id TEXT,
+  destination_principal_id TEXT,
+  summary_json TEXT NOT NULL DEFAULT '{}',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  FOREIGN KEY(owner_principal_id) REFERENCES local_principals(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_workspace_migrations_owner_state ON workspace_migration_jobs(owner_principal_id,state,created_at);
+CREATE TABLE workspace_migration_maps (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL,
+  object_kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  destination_id TEXT NOT NULL,
+  source_root TEXT NOT NULL DEFAULT '',
+  destination_root TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  UNIQUE(job_id,object_kind,source_id),
+  FOREIGN KEY(job_id) REFERENCES workspace_migration_jobs(id) ON DELETE CASCADE
+);
+`)
+	return err
+}
 
 const schemaV32 = `
 CREATE TABLE IF NOT EXISTS task_code_proposals (

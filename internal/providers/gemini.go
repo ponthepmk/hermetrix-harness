@@ -3,9 +3,9 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,8 +89,8 @@ func (a *GeminiAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 			Total      int `json:"totalTokenCount"`
 		} `json:"usageMetadata"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, maxProviderResponseBytes)).Decode(&decoded); err != nil {
-		return Completion{}, fmt.Errorf("decode Gemini response: %w", err)
+	if err := decodeSingleProviderJSON(response.Body, "Gemini", &decoded); err != nil {
+		return Completion{}, err
 	}
 	if len(decoded.Candidates) == 0 {
 		return Completion{}, fmt.Errorf("Gemini response contains no candidates")
@@ -110,6 +110,9 @@ func (a *GeminiAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 				ID: fmt.Sprintf("gemini-call-%d", index), Type: "function", Name: part.FunctionCall.Name, Arguments: string(arguments)})
 		}
 	}
+	if reason := validateGeminiCompletion(candidate.FinishReason, completion); reason != "" {
+		return completion, &IncompleteCompletionError{Reason: reason, Partial: completion}
+	}
 	if emit != nil {
 		delta := Delta{Content: completion.Content, Reasoning: completion.Reasoning, ToolCalls: completion.ToolCalls}
 		if delta.Content != "" || delta.Reasoning != "" || len(delta.ToolCalls) > 0 {
@@ -119,6 +122,17 @@ func (a *GeminiAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 		}
 	}
 	return completion, nil
+}
+
+func validateGeminiCompletion(finishReason string, completion Completion) string {
+	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
+	case "STOP", "MAX_TOKENS", "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII":
+	case "":
+		return "Gemini response ended without a finish reason"
+	default:
+		return fmt.Sprintf("unsupported Gemini finish reason %q", finishReason)
+	}
+	return validateCompletionToolCalls(completion)
 }
 
 func geminiContents(input []Message) (string, []map[string]any) {
@@ -154,6 +168,14 @@ func geminiContents(input []Message) (string, []map[string]any) {
 		if message.Content != "" {
 			parts = append(parts, map[string]any{"text": message.Content})
 		}
+		for _, part := range message.Parts {
+			if part.Kind == "text" {
+				parts = append(parts, map[string]any{"text": part.Text})
+				continue
+			}
+			parts = append(parts, map[string]any{"inline_data": map[string]any{"mime_type": part.MediaType,
+				"data": base64.StdEncoding.EncodeToString(part.Data)}})
+		}
 		for _, call := range message.ToolCalls {
 			callNames[call.ID] = call.Function.Name
 			var arguments map[string]any
@@ -173,6 +195,8 @@ func geminiFinishReason(reason string) string {
 		return "length"
 	case "STOP":
 		return "stop"
+	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII":
+		return "content_filter"
 	default:
 		return strings.ToLower(reason)
 	}

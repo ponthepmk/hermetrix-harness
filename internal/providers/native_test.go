@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -82,6 +83,65 @@ func TestGeminiNativeAdapterTranslatesFunctionCallsWithoutCredentialInURL(t *tes
 		completion.Usage.TotalTokens != 27 || len(completion.ToolCalls) != 1 ||
 		!strings.Contains(completion.ToolCalls[0].Arguments, `"q":"safe"`) {
 		t.Fatalf("normalized Gemini completion = %+v", completion)
+	}
+}
+
+func TestNativeAdaptersRejectIncompleteTerminalResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		profile Profile
+		adapter func(*http.Client) Adapter
+	}{
+		{name: "anthropic missing stop reason", body: `{"content":[{"type":"text","text":"partial"}],"stop_reason":""}`,
+			profile: Profile{Model: "claude-test"}, adapter: func(client *http.Client) Adapter { return NewAnthropicAdapter(client) }},
+		{name: "anthropic incomplete tool input", body: `{"content":[{"type":"tool_use","id":"call_a","name":"lookup","input":null}],"stop_reason":"tool_use"}`,
+			profile: Profile{Model: "claude-test"}, adapter: func(client *http.Client) Adapter { return NewAnthropicAdapter(client) }},
+		{name: "gemini missing finish reason", body: `{"candidates":[{"content":{"parts":[{"text":"partial"}]},"finishReason":""}]}`,
+			profile: Profile{Model: "gemini-test"}, adapter: func(client *http.Client) Adapter { return NewGeminiAdapter(client) }},
+		{name: "gemini incomplete function call", body: `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup"}}]},"finishReason":"STOP"}]}`,
+			profile: Profile{Model: "gemini-test"}, adapter: func(client *http.Client) Adapter { return NewGeminiAdapter(client) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, test.body)
+			}))
+			defer server.Close()
+			test.profile.BaseURL = server.URL
+			_, err := test.adapter(server.Client()).StreamChat(context.Background(), test.profile, "", ChatRequest{}, nil)
+			var incomplete *IncompleteCompletionError
+			if !errors.As(err, &incomplete) {
+				t.Fatalf("error=%v, want IncompleteCompletionError", err)
+			}
+		})
+	}
+}
+
+func TestNativeAdaptersRequireExactlyOneJSONDocument(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		profile Profile
+		adapter func(*http.Client) Adapter
+	}{
+		{name: "anthropic", body: `{"content":[],"stop_reason":"end_turn"}{}`, profile: Profile{Model: "claude-test"},
+			adapter: func(client *http.Client) Adapter { return NewAnthropicAdapter(client) }},
+		{name: "gemini", body: `{"candidates":[{"finishReason":"STOP"}]}{}`, profile: Profile{Model: "gemini-test"},
+			adapter: func(client *http.Client) Adapter { return NewGeminiAdapter(client) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprint(w, test.body)
+			}))
+			defer server.Close()
+			test.profile.BaseURL = server.URL
+			if _, err := test.adapter(server.Client()).StreamChat(context.Background(), test.profile, "", ChatRequest{}, nil); err == nil {
+				t.Fatal("multiple provider JSON documents were accepted")
+			}
+		})
 	}
 }
 

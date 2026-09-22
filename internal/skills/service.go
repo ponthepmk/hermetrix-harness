@@ -57,6 +57,29 @@ func (s *Service) CreateCandidate(ctx context.Context, in CreateCandidateInput) 
 	return candidate, nil
 }
 
+// CreateCandidateInTx stages a create-only candidate inside a caller-owned
+// transaction. Importers use this so the new project, its draft objects and
+// Skill candidates become visible together. CAS writes may precede rollback;
+// bounded GC owns any unreferenced blob left by a failed transaction.
+func (s *Service) CreateCandidateInTx(ctx context.Context, tx *sql.Tx, in CreateCandidateInput) (Candidate, error) {
+	if tx == nil || (in.ChangeKind != "" && in.ChangeKind != "create") {
+		return Candidate{}, fmt.Errorf("transactional candidate staging supports create only")
+	}
+	in.ChangeKind = "create"
+	candidate, err := s.prepareCandidate(in)
+	if err != nil {
+		return Candidate{}, err
+	}
+	if err = s.insertCandidate(ctx, tx, candidate); err != nil {
+		return Candidate{}, err
+	}
+	if err = s.appendEvent(ctx, tx, eventInput{CandidateID: candidate.ID, Kind: "candidate_created", ActorKind: candidate.CreatedBy,
+		Payload: map[string]any{"state": candidate.State, "trigger": candidate.TriggerKind}}); err != nil {
+		return Candidate{}, err
+	}
+	return candidate, nil
+}
+
 func (s *Service) prepareCandidate(in CreateCandidateInput) (Candidate, error) {
 	in.CanonicalName = strings.TrimSpace(in.CanonicalName)
 	if in.ScopeKind == "" {
@@ -109,31 +132,55 @@ func (s *Service) prepareCandidate(in CreateCandidateInput) (Candidate, error) {
 }
 
 func (s *Service) insertCandidate(ctx context.Context, tx *sql.Tx, candidate Candidate) error {
+	ownerID, err := ownerPrincipalInTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	candidate.OwnerPrincipalID, candidate.Visibility, candidate.ExportPolicy, candidate.SharingRevision = ownerID, "private", "deny", 1
 	evidenceJSON, _ := json.Marshal(candidate.EvidenceRefs)
 	checksJSON, _ := json.Marshal(candidate.Checks)
-	_, err := tx.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO skill_candidates(
 		 id, canonical_name, scope_kind, scope_ref, origin, owner, change_kind,
 		 target_skill_id, base_version_id, candidate_blob_ref, candidate_hash,
 		 created_by, trigger_kind, reason, evidence_json, state, checks_json,
-		 revision, created_at, updated_at, source_review_id)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 revision, created_at, updated_at, source_review_id,owner_principal_id)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		candidate.ID, candidate.CanonicalName, candidate.ScopeKind, candidate.ScopeRef,
 		candidate.Origin, candidate.Owner, candidate.ChangeKind, nullIfEmpty(candidate.TargetSkillID),
 		nullIfEmpty(candidate.BaseVersionID), candidate.CandidateBlobRef, candidate.CandidateHash,
 		candidate.CreatedBy, candidate.TriggerKind, candidate.Reason, string(evidenceJSON), candidate.State,
-		string(checksJSON), candidate.Revision, formatTime(candidate.CreatedAt), formatTime(candidate.UpdatedAt), nullIfEmpty(candidate.SourceReviewID))
+		string(checksJSON), candidate.Revision, formatTime(candidate.CreatedAt), formatTime(candidate.UpdatedAt), nullIfEmpty(candidate.SourceReviewID), ownerID)
 	if err != nil {
 		return fmt.Errorf("insert candidate: %w", err)
 	}
 	return nil
 }
 
+func ownerPrincipalInTx(ctx context.Context, tx *sql.Tx) (string, error) {
+	ownerID := identity.Principal(ctx)
+	if ownerID != "" {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM local_principals WHERE id=?`, ownerID).Scan(&exists); err != nil {
+			return "", err
+		}
+		return ownerID, nil
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM local_principals WHERE kind='local'`).Scan(&ownerID); err != nil {
+		return "", err
+	}
+	return ownerID, nil
+}
+
 func (s *Service) ListCandidates(ctx context.Context, state string) ([]Candidate, error) {
-	query := candidateSelect
-	args := []any{}
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := candidateSelect + ` WHERE owner_principal_id=?`
+	args := []any{ownerID}
 	if state != "" {
-		query += ` WHERE state = ?`
+		query += ` AND state = ?`
 		args = append(args, state)
 	}
 	query += ` ORDER BY created_at DESC`
@@ -154,7 +201,11 @@ func (s *Service) ListCandidates(ctx context.Context, state string) ([]Candidate
 }
 
 func (s *Service) GetCandidate(ctx context.Context, id string) (Candidate, error) {
-	c, err := scanCandidate(s.store.DB.QueryRowContext(ctx, candidateSelect+` WHERE id = ?`, id))
+	ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
+	if ownerErr != nil {
+		return Candidate{}, ownerErr
+	}
+	c, err := scanCandidate(s.store.DB.QueryRowContext(ctx, candidateSelect+` WHERE id = ? AND owner_principal_id=?`, id, ownerID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Candidate{}, ErrNotFound
 	}
@@ -173,7 +224,11 @@ func (s *Service) GetCandidateBySourceReview(ctx context.Context, reviewID strin
 	if strings.TrimSpace(reviewID) == "" {
 		return Candidate{}, ErrNotFound
 	}
-	c, err := scanCandidate(s.store.DB.QueryRowContext(ctx, candidateSelect+` WHERE source_review_id = ?`, reviewID))
+	ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
+	if ownerErr != nil {
+		return Candidate{}, ownerErr
+	}
+	c, err := scanCandidate(s.store.DB.QueryRowContext(ctx, candidateSelect+` WHERE source_review_id = ? AND owner_principal_id=?`, reviewID, ownerID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Candidate{}, ErrNotFound
 	}
@@ -491,18 +546,23 @@ func (s *Service) RejectCandidate(ctx context.Context, id, actor, reason string,
 }
 
 func (s *Service) ListSkills(ctx context.Context, includeArchived bool) ([]Skill, error) {
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	query := `SELECT s.id, s.canonical_name, s.scope_kind, s.scope_ref, s.origin, s.owner, s.state,
 		COALESCE(s.current_version_id,''), s.enabled, s.pinned, s.protected, COALESCE(s.absorbed_into_id,''),
 		s.created_at, s.updated_at, COALESCE(v.manifest_json,'{}'), COUNT(a.id),
 		COALESCE(SUM(a.body_injected),0), COALESCE(SUM(CASE WHEN a.outcome='success' THEN 1 ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN a.outcome='failure' THEN 1 ELSE 0 END),0), MAX(a.created_at)
+		COALESCE(SUM(CASE WHEN a.outcome='failure' THEN 1 ELSE 0 END),0), MAX(a.created_at),
+		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision
 		FROM skills s LEFT JOIN skill_versions v ON v.id=s.current_version_id
-		LEFT JOIN skill_activations a ON a.skill_id=s.id`
+		LEFT JOIN skill_activations a ON a.skill_id=s.id WHERE s.owner_principal_id=?`
 	if !includeArchived {
-		query += ` WHERE s.state <> 'archived'`
+		query += ` AND s.state <> 'archived'`
 	}
 	query += ` GROUP BY s.id ORDER BY s.pinned DESC, s.updated_at DESC, s.canonical_name`
-	rows, err := s.store.DB.QueryContext(ctx, query)
+	rows, err := s.store.DB.QueryContext(ctx, query, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -516,7 +576,8 @@ func (s *Service) ListSkills(ctx context.Context, includeArchived bool) ([]Skill
 		if err := rows.Scan(&item.ID, &item.CanonicalName, &item.ScopeKind, &item.ScopeRef, &item.Origin,
 			&item.Owner, &item.State, &item.CurrentVersionID, &item.Enabled, &item.Pinned, &item.Protected,
 			&item.AbsorbedIntoID, &created, &updated, &manifestJSON, &item.SelectedCount, &item.InjectedCount,
-			&item.SuccessCount, &item.FailureCount, &last); err != nil {
+			&item.SuccessCount, &item.FailureCount, &last, &item.OwnerPrincipalID, &item.Visibility,
+			&item.ExportPolicy, &item.SharingRevision); err != nil {
 			return nil, err
 		}
 		item.CreatedAt, _ = parseTime(created)
@@ -909,7 +970,7 @@ const candidateSelect = `SELECT id, canonical_name, scope_kind, scope_ref, origi
 	COALESCE(target_skill_id,''), COALESCE(base_version_id,''), candidate_blob_ref, candidate_hash,
 	created_by, trigger_kind, reason, evidence_json, state, checks_json, revision,
 		COALESCE(reviewed_by,''), COALESCE(review_reason,''), created_at, updated_at,
-		COALESCE(source_review_id,'') FROM skill_candidates`
+		COALESCE(source_review_id,''),owner_principal_id,visibility,export_policy,sharing_revision FROM skill_candidates`
 
 type scanner interface{ Scan(...any) error }
 
@@ -919,7 +980,8 @@ func scanCandidate(row scanner) (Candidate, error) {
 	if err := row.Scan(&c.ID, &c.CanonicalName, &c.ScopeKind, &c.ScopeRef, &c.Origin, &c.Owner,
 		&c.ChangeKind, &c.TargetSkillID, &c.BaseVersionID, &c.CandidateBlobRef, &c.CandidateHash,
 		&c.CreatedBy, &c.TriggerKind, &c.Reason, &evidenceJSON, &c.State, &checksJSON, &c.Revision,
-		&c.ReviewedBy, &c.ReviewReason, &created, &updated, &c.SourceReviewID); err != nil {
+		&c.ReviewedBy, &c.ReviewReason, &created, &updated, &c.SourceReviewID,
+		&c.OwnerPrincipalID, &c.Visibility, &c.ExportPolicy, &c.SharingRevision); err != nil {
 		return Candidate{}, err
 	}
 	_ = json.Unmarshal([]byte(evidenceJSON), &c.EvidenceRefs)

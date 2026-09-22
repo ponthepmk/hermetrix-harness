@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"hermetrix-harness/internal/identity"
 )
 
 const authCookieName = "hermetrix_session"
-
-type principalContextKey struct{}
 
 type authenticator struct {
 	tokenHash [32]byte
@@ -36,8 +36,7 @@ func newAuthenticator(token, principal string, secure bool) *authenticator {
 // PrincipalFromContext returns the authenticated local/network identity. An
 // empty value means authentication was not configured for this server.
 func PrincipalFromContext(ctx context.Context) string {
-	value, _ := ctx.Value(principalContextKey{}).(string)
-	return value
+	return identity.Principal(ctx)
 }
 
 func (a *authenticator) validToken(token string) bool {
@@ -46,10 +45,15 @@ func (a *authenticator) validToken(token string) bool {
 }
 
 func (a *authenticator) authorized(r *http.Request) bool {
-	if scheme, token, ok := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " "); ok &&
-		strings.EqualFold(scheme, "Bearer") && a.validToken(strings.TrimSpace(token)) {
-		return true
-	}
+	return a.hasValidBearer(r) || a.hasValidCookie(r)
+}
+
+func (a *authenticator) hasValidBearer(r *http.Request) bool {
+	scheme, token, ok := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
+	return ok && strings.EqualFold(scheme, "Bearer") && a.validToken(strings.TrimSpace(token))
+}
+
+func (a *authenticator) hasValidCookie(r *http.Request) bool {
 	cookie, err := r.Cookie(authCookieName)
 	return err == nil && a.validCookie(cookie.Value, time.Now())
 }
@@ -90,7 +94,7 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("X-Hermetrix-Principal", a.principal)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalContextKey{}, a.principal)))
+		next.ServeHTTP(w, r.WithContext(identity.WithPrincipal(r.Context(), a.principal)))
 	})
 }
 
@@ -100,9 +104,10 @@ func (a *authenticator) session(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Token string `json:"token"`
 		}
-		decoder := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&input); err != nil || !a.validToken(input.Token) {
+		if !decodeJSONLimit(w, r, &input, 64<<10) {
+			return
+		}
+		if !a.validToken(input.Token) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid authentication token"})
 			return
 		}

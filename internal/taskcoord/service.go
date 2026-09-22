@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"hermetrix-harness/internal/inference"
+	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/product"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/taskengine"
@@ -28,10 +30,13 @@ const (
 	proposalEffect  = "provider.propose"
 )
 
+var ErrReviewerRequired = errors.New("reviewer_required")
+
 type Service struct {
 	tasks     *taskengine.Service
 	products  *product.Service
 	providers *providers.Service
+	learning  *learning.Service
 }
 
 type ProposalInput struct {
@@ -133,6 +138,22 @@ func New(tasks *taskengine.Service, products *product.Service, providerService *
 	return &Service{tasks: tasks, products: products, providers: providerService}
 }
 
+func (s *Service) WithLearning(service *learning.Service) *Service {
+	s.learning = service
+	return s
+}
+
+func validateTaskEgress(task taskengine.Task, profile providers.Profile) error {
+	policy := task.EgressPolicy
+	if policy == "" {
+		policy = "local_only"
+	}
+	if policy == "local_only" && !providers.IsLocalProfile(profile) {
+		return fmt.Errorf("task egress policy is local_only; remote provider dispatch is blocked")
+	}
+	return nil
+}
+
 func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOutput, error) {
 	input.Actor = strings.TrimSpace(input.Actor)
 	if input.Actor == "" || strings.TrimSpace(input.ProviderID) == "" {
@@ -149,20 +170,62 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 	if err != nil {
 		return AutoPlanOutput{}, err
 	}
+	if err := validateTaskEgress(task, profile); err != nil {
+		return AutoPlanOutput{}, err
+	}
+	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "planner", 1)
+	if err != nil {
+		return AutoPlanOutput{}, err
+	}
 	criteria := make([]string, 0, len(task.Requirement.Criteria))
 	for _, criterion := range task.Requirement.Criteria {
 		criteria = append(criteria, criterion.ID+": "+criterion.Description)
 	}
 	planTask := worker.PlanTask{TaskID: task.ID, Objective: task.Objective, OriginalRequest: task.OriginalRequest,
 		Constraints: task.Requirement.Constraints, Unknowns: task.Requirement.Unknowns, Criteria: criteria,
-		MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}
+		AllowedExecutables: product.AvailableCommandExecutables(),
+		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 8192)}
+	if task.ProjectID != "" {
+		manifest, manifestErr := s.products.ProjectFileManifest(ctx, task.ProjectID, 512)
+		if manifestErr != nil {
+			return AutoPlanOutput{}, fmt.Errorf("build planner repository manifest: %w", manifestErr)
+		}
+		for index, item := range manifest {
+			planTask.RepositoryFiles = append(planTask.RepositoryFiles, worker.PlanFile{Path: item.Path, Bytes: item.Bytes})
+			encoded, marshalErr := json.Marshal(planTask)
+			if marshalErr != nil {
+				return AutoPlanOutput{}, marshalErr
+			}
+			if len(encoded) > 48*1024 {
+				planTask.RepositoryFiles = planTask.RepositoryFiles[:len(planTask.RepositoryFiles)-1]
+				planTask.RepositoryFilesTruncated = true
+				break
+			}
+			if index == len(manifest)-1 && len(manifest) == 512 {
+				planTask.RepositoryFilesTruncated = true
+			}
+		}
+	}
+	if escalation, escalationErr := s.tasks.PendingEscalation(ctx, task.ID); escalationErr != nil {
+		return AutoPlanOutput{}, escalationErr
+	} else if escalation != nil {
+		planTask.Escalation = &worker.PlanningEscalation{Ordinal: escalation.Ordinal, StepID: escalation.StepID,
+			NormalizedSignature: escalation.NormalizedSignature, FailureIDs: escalation.FailureIDs,
+			EvidenceRefs: escalation.EvidenceRefs, PriorChangeRefs: escalation.PriorChangeRefs,
+			DiffArtifactID: escalation.DiffArtifactID}
+	}
 	encodedInput, _ := json.Marshal(planTask)
 	run, err := s.tasks.BeginPlannerRun(ctx, task.ID, task.Revision, profile.ID, profile.Revision, worker.Hash(string(encodedInput)))
 	if err != nil {
 		return AutoPlanOutput{}, err
 	}
 	dispatched := false
-	result, planErr := worker.PlanWithProviderService(ctx, s.providers, profile, planTask, worker.Options{BeforeProviderRequest: func() error {
+	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: task.ID, Source: "planner", Priority: inference.PriorityTask,
+		PresetID: preset.ID, PresetRevision: preset.Revision, PresetRole: preset.Role, RuntimeFingerprintID: profile.RuntimeFingerprintID})
+	result, planErr := worker.PlanWithProviderService(dispatchCtx, s.providers, profile, planTask, worker.Options{BeforeProviderRequest: func() error {
+		if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
+			return bindingErr
+		}
 		updated, dispatchErr := s.tasks.DispatchPlannerRun(ctx, run.ID)
 		if dispatchErr == nil {
 			run, dispatched = updated, true
@@ -178,11 +241,26 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		return AutoPlanOutput{Run: run}, planErr
 	}
 	planBody, _ := json.Marshal(result)
+	allowedEffects := []string{}
+	seenEffects := map[string]bool{}
+	for _, step := range result.Steps {
+		for _, effect := range step.EffectScope {
+			if !seenEffects[effect] {
+				seenEffects[effect] = true
+				allowedEffects = append(allowedEffects, effect)
+			}
+		}
+	}
+	sort.Strings(allowedEffects)
 	artifact, err := s.products.CreateArtifact(ctx, product.ArtifactInput{ProjectID: task.ProjectID,
 		Name: task.ID + "-r" + fmt.Sprint(task.ActiveRequirementRevision) + ".plan.json", Kind: "task_plan_proposal",
 		MIMEType: "application/vnd.hermetrix.task-plan+json", Content: string(planBody),
 		Metadata: map[string]any{"task_id": task.ID, "requirement_revision": task.ActiveRequirementRevision,
-			"task_revision": task.Revision, "provider_id": profile.ID, "provider_revision": profile.Revision},
+			"task_revision": task.Revision, "plan_revision": task.ActivePlanRevision + 1, "planning_packet_hash": worker.Hash(string(encodedInput)),
+			"allowed_file_scope": []string{}, "allowed_effect_scope": allowedEffects, "provider_id": profile.ID,
+			"provider_revision": profile.Revision, "runtime_fingerprint_id": profile.RuntimeFingerprintID,
+			"preset_id": preset.ID, "preset_revision": preset.Revision, "generation_budget": preset.GenerationCap,
+			"input_token_ceiling": preset.ContextMax},
 	})
 	if err != nil {
 		run, _ = s.tasks.FailPlannerRun(ctx, run.ID, taskengine.PlannerDispatched, err.Error())
@@ -194,13 +272,18 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 	}
 	steps := make([]taskengine.StepSpec, 0, len(result.Steps))
 	for _, step := range result.Steps {
-		steps = append(steps, taskengine.StepSpec{Key: step.Key, Title: step.Title, Instructions: step.Instructions,
+		// The proposal worker receives the structured mutation intent as part
+		// of the frozen step packet; it cannot be lost between planning and execution.
+		instructions := "Workspace change: " + strings.TrimSpace(step.WorkspaceChange) + "\n\n" + strings.TrimSpace(step.Instructions)
+		steps = append(steps, taskengine.StepSpec{Key: step.Key, Title: step.Title, Instructions: instructions,
 			RequirementIDs: step.RequirementIDs, Dependencies: step.Dependencies, Checks: step.Checks, EffectScope: step.EffectScope})
 	}
 	task, err = s.tasks.CreatePlan(ctx, taskengine.CreatePlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision,
 		RequirementRevision: task.ActiveRequirementRevision, Reason: result.Reason, Actor: input.Actor, Steps: steps})
 	if err != nil {
 		run, _ = s.tasks.RejectPlannerRun(ctx, run.ID, err.Error())
+	} else {
+		_ = s.tasks.ResolvePendingEscalation(ctx, task.ID, run.ID, task.ActivePlanRevision)
 	}
 	return AutoPlanOutput{Result: result, Run: run, Artifact: artifact, Task: task}, err
 }
@@ -259,6 +342,20 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	if err != nil {
 		return SelectFilesOutput{}, err
 	}
+	task, err := s.tasks.Get(ctx, packet.TaskID)
+	if err != nil {
+		return SelectFilesOutput{}, err
+	}
+	if err := validateTaskEgress(task, profile); err != nil {
+		return SelectFilesOutput{}, err
+	}
+	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "worker", 1)
+	if err != nil {
+		return SelectFilesOutput{}, err
+	}
+	if err := s.tasks.BindAttemptInference(ctx, attempt.ID, "worker", preset.ID, preset.Revision, profile.RuntimeFingerprintID); err != nil {
+		return SelectFilesOutput{}, err
+	}
 	manifest, err := s.products.ProjectFileManifest(ctx, packet.ProjectID, 2000)
 	if err != nil {
 		return SelectFilesOutput{}, err
@@ -279,12 +376,17 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 		return SelectFilesOutput{}, err
 	}
 	dispatched := false
-	result, selectErr := worker.SelectFilesWithProviderService(ctx, s.providers, profile, worker.FileSelectionTask{
+	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: packet.TaskID, Source: "file_selector", Priority: inference.PriorityTask,
+		PresetID: preset.ID, PresetRevision: preset.Revision, PresetRole: preset.Role, RuntimeFingerprintID: profile.RuntimeFingerprintID})
+	result, selectErr := worker.SelectFilesWithProviderService(dispatchCtx, s.providers, profile, worker.FileSelectionTask{
 		TaskID: packet.TaskID, Objective: packet.Objective, StepTitle: packet.Step.Title,
 		StepInstructions: packet.Step.Instructions, AcceptanceCriteria: criteria,
 		Constraints: packet.Requirement.Constraints, Candidates: candidates,
 		MaxOutputTokens: minPositive(profile.MaxOutputTokens, 4096),
 	}, worker.Options{BeforeProviderRequest: func() error {
+		if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
+			return bindingErr
+		}
 		updated, dispatchErr := s.tasks.DispatchEffect(ctx, input.Authority, effect.OperationID)
 		if dispatchErr == nil {
 			effect, dispatched = updated, true
@@ -347,6 +449,10 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	if input.Packet.ProjectID == "" {
 		return ProposalOutput{}, fmt.Errorf("code proposal requires a task-bound project")
 	}
+	task, err := s.tasks.Get(ctx, input.Packet.TaskID)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
 	effects, err := s.tasks.AttemptEffects(ctx, attempt.ID)
 	if err != nil {
 		return ProposalOutput{}, err
@@ -379,6 +485,16 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	}
 	profile, err := s.providers.Get(ctx, input.ProviderID)
 	if err != nil {
+		return ProposalOutput{}, err
+	}
+	if err := validateTaskEgress(task, profile); err != nil {
+		return ProposalOutput{}, err
+	}
+	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "worker", 1)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
+	if err := s.tasks.BindAttemptInference(ctx, attempt.ID, "worker", preset.ID, preset.Revision, profile.RuntimeFingerprintID); err != nil {
 		return ProposalOutput{}, err
 	}
 	files := make(map[string]string, len(input.Files))
@@ -416,8 +532,13 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		return ProposalOutput{}, err
 	}
 	dispatched := false
-	result, runErr := worker.RunWithProviderService(ctx, s.providers, profile, workerTask, worker.Options{
+	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: input.Packet.TaskID, Source: "code_proposer", Priority: inference.PriorityTask,
+		PresetID: preset.ID, PresetRevision: preset.Revision, PresetRole: preset.Role, RuntimeFingerprintID: profile.RuntimeFingerprintID})
+	result, runErr := worker.RunWithProviderService(dispatchCtx, s.providers, profile, workerTask, worker.Options{
 		BeforeProviderRequest: func() error {
+			if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
+				return bindingErr
+			}
 			updated, dispatchErr := s.tasks.DispatchEffect(ctx, input.Authority, effect.OperationID)
 			if dispatchErr == nil {
 				effect, dispatched = updated, true
@@ -535,7 +656,7 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	if err != nil {
 		return ApplyOutput{}, err
 	}
-	proposal, err = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalApproved, taskengine.ProposalApplying)
+	proposal, err = s.tasks.BeginCodeProposalApply(ctx, proposal.ID, rollbackArtifact.ID)
 	if err != nil {
 		_, _ = s.tasks.AbandonEffect(ctx, effect.OperationID, "proposal state changed before apply")
 		return ApplyOutput{Effect: effect, RollbackArtifact: rollbackArtifact}, err
@@ -545,31 +666,33 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 		_, _ = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalApplying, taskengine.ProposalApplyFailed)
 		return ApplyOutput{Proposal: proposal, Effect: effect, RollbackArtifact: rollbackArtifact}, err
 	}
-	receipts := make([]product.WriteFileResult, 0, len(result.Changes))
+	writeInputs := make([]product.WriteFileInput, 0, len(result.Changes))
 	for _, change := range result.Changes {
-		receipt, writeErr := s.products.WriteProjectFile(ctx, proposal.ProjectID, product.WriteFileInput{
+		writeInputs = append(writeInputs, product.WriteFileInput{
 			Path: change.Path, Content: change.Content, ExpectedSHA256: change.BeforeSHA256, Actor: actor,
 		})
-		if writeErr != nil {
-			rollbackOK := true
-			for index := len(receipts) - 1; index >= 0; index-- {
-				applied := receipts[index]
-				original := preimages[applied.Document.Path]
-				if _, rollbackErr := s.products.WriteProjectFile(ctx, proposal.ProjectID, product.WriteFileInput{
-					Path: original.Path, Content: original.Content, ExpectedSHA256: applied.Document.SHA256, Actor: actor + ":rollback",
-				}); rollbackErr != nil {
-					rollbackOK = false
+	}
+	batch, writeErr := s.products.WriteProjectFiles(ctx, proposal.ProjectID, writeInputs)
+	receipts := batch.Receipts
+	if writeErr != nil {
+		status := "apply_failed_before_write"
+		if len(receipts) > 0 {
+			status = "rollback_complete"
+			if len(batch.Rollback) != len(receipts) {
+				status = "rollback_incomplete"
+			} else {
+				for _, rollback := range batch.Rollback {
+					if rollback.State != "restored" {
+						status = "rollback_incomplete"
+						break
+					}
 				}
 			}
-			status := "rollback_complete"
-			if !rollbackOK {
-				status = "rollback_incomplete"
-			}
-			effect, _ = s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": status, "error": writeErr.Error()})
-			proposal, _ = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalApplying, taskengine.ProposalApplyFailed)
-			return ApplyOutput{Proposal: proposal, Effect: effect, Receipts: receipts, RollbackArtifact: rollbackArtifact}, writeErr
 		}
-		receipts = append(receipts, receipt)
+		effect, _ = s.tasks.ObserveEffect(context.WithoutCancel(ctx), effect.OperationID,
+			map[string]any{"status": status, "error": writeErr.Error(), "rollback": batch.Rollback})
+		proposal, _ = s.tasks.TransitionCodeProposal(context.WithoutCancel(ctx), proposal.ID, taskengine.ProposalApplying, taskengine.ProposalApplyFailed)
+		return ApplyOutput{Proposal: proposal, Effect: effect, Receipts: receipts, RollbackArtifact: rollbackArtifact}, writeErr
 	}
 	effect, err = s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "applied_unverified", "files": len(receipts), "rollback_artifact_id": rollbackArtifact.ID})
 	if err != nil {
@@ -699,7 +822,7 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 	if err != nil {
 		return output, err
 	}
-	proposal, err = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalApplied, taskengine.ProposalAwaitingReview)
+	proposal, err = s.tasks.BindCodeProposalVerification(ctx, proposal.ID, output.Evidence.ID)
 	output.Proposal = proposal
 	return output, err
 }
@@ -807,7 +930,8 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 		return ReviewOutput{}, fmt.Errorf("proposal is not awaiting post-test review")
 	}
 	if strings.TrimSpace(reviewerProviderID) == "" || reviewerProviderID == proposal.ProviderID {
-		return ReviewOutput{}, fmt.Errorf("post-test review requires a different provider profile from the implementer")
+		_ = s.tasks.MarkReviewerRequired(ctx, proposal.ID, "reviewer_required:different_provider_profile")
+		return ReviewOutput{}, fmt.Errorf("%w: post-test review requires a different provider profile from the implementer", ErrReviewerRequired)
 	}
 	profile, err := s.providers.Get(ctx, reviewerProviderID)
 	if err != nil {
@@ -819,10 +943,14 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	}
 	if strings.EqualFold(strings.TrimSpace(profile.BaseURL), strings.TrimSpace(implementerProfile.BaseURL)) &&
 		strings.EqualFold(strings.TrimSpace(profile.Model), strings.TrimSpace(implementerProfile.Model)) {
-		return ReviewOutput{}, fmt.Errorf("post-test reviewer must use a different model or provider endpoint from the implementer")
+		_ = s.tasks.MarkReviewerRequired(ctx, proposal.ID, "reviewer_required:different_model_or_endpoint")
+		return ReviewOutput{}, fmt.Errorf("%w: post-test reviewer must use a different model or provider endpoint from the implementer", ErrReviewerRequired)
 	}
 	task, err := s.tasks.Get(ctx, proposal.TaskID)
 	if err != nil {
+		return ReviewOutput{}, err
+	}
+	if err := validateTaskEgress(task, profile); err != nil {
 		return ReviewOutput{}, err
 	}
 	var step taskengine.Step
@@ -835,23 +963,16 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	if step.ID == "" || step.State != taskengine.StepRunning {
 		return ReviewOutput{}, fmt.Errorf("proposal step is not running")
 	}
-	artifacts, err := s.products.ListArtifacts(ctx, proposal.ProjectID)
-	if err != nil {
-		return ReviewOutput{}, err
-	}
-	var bundleArtifact product.Artifact
-	for _, artifact := range artifacts {
-		if artifact.Kind == "code_verification_bundle" && artifact.Metadata["proposal_id"] == proposal.ID {
-			bundleArtifact = artifact
-			break
-		}
-	}
-	if bundleArtifact.ID == "" {
+	if proposal.VerificationArtifactID == "" {
 		return ReviewOutput{}, fmt.Errorf("proposal has no immutable verification bundle")
 	}
-	_, bundleBody, err := s.products.GetArtifact(ctx, bundleArtifact.ID)
+	bundleArtifact, bundleBody, err := s.products.GetArtifact(ctx, proposal.VerificationArtifactID)
 	if err != nil {
 		return ReviewOutput{}, err
+	}
+	if bundleArtifact.Kind != "code_verification_bundle" || bundleArtifact.ProjectID != proposal.ProjectID ||
+		bundleArtifact.Metadata["proposal_id"] != proposal.ID {
+		return ReviewOutput{}, fmt.Errorf("proposal verification artifact binding is invalid")
 	}
 	var bundle verificationBundle
 	if err = json.Unmarshal(bundleBody, &bundle); err != nil || bundle.ProposalID != proposal.ID {
@@ -881,15 +1002,24 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	for _, evidence := range bundle.Evidence {
 		testEvidence = append(testEvidence, evidence.CheckID+": "+evidence.Actual+" ["+strings.Join(evidence.EvidenceRefs, ", ")+"]")
 	}
+	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "worker-debug", 1)
+	if err != nil {
+		return ReviewOutput{}, err
+	}
 	effect, err := s.tasks.PlanEffect(ctx, authority, proposal.AttemptID, "provider.review", profile.ID+":"+profile.Model, "verification:"+bundleArtifact.ID)
 	if err != nil {
 		return ReviewOutput{}, err
 	}
 	dispatched := false
-	review, reviewErr := worker.ReviewWithProviderService(ctx, s.providers, profile, worker.ReviewTask{TaskID: task.ID,
+	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: task.ID, Source: "code_reviewer", Priority: inference.PriorityTask,
+		PresetID: preset.ID, PresetRevision: preset.Revision, PresetRole: preset.Role, RuntimeFingerprintID: profile.RuntimeFingerprintID})
+	review, reviewErr := worker.ReviewWithProviderService(dispatchCtx, s.providers, profile, worker.ReviewTask{TaskID: task.ID,
 		ProposalID: proposal.ID, Objective: task.Objective, AcceptanceCriteria: criteria, Constraints: task.Requirement.Constraints,
 		Files: files, TestEvidence: testEvidence, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}, worker.Options{
 		BeforeProviderRequest: func() error {
+			if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
+				return bindingErr
+			}
 			updated, dispatchErr := s.tasks.DispatchEffect(ctx, authority, effect.OperationID)
 			if dispatchErr == nil {
 				effect, dispatched = updated, true
@@ -980,9 +1110,57 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 		if task, err = s.tasks.CompleteTask(ctx, task.ID, task.Revision); err != nil {
 			return ReviewOutput{Review: review, Artifact: reviewArtifact, Effect: effect}, err
 		}
+		s.enqueueVerifiedTaskLearning(context.WithoutCancel(ctx), task, proposal, reviewArtifact, bundle)
 	}
 	proposal, err = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalAwaitingReview, taskengine.ProposalVerified)
+	if err == nil {
+		_ = s.tasks.ClearReviewerRequired(ctx, proposal.ID)
+	}
 	return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task, Effect: effect}, err
+}
+
+func (s *Service) enqueueVerifiedTaskLearning(ctx context.Context, task taskengine.Task, proposal taskengine.CodeProposal,
+	reviewArtifact product.Artifact, bundle verificationBundle) {
+	if s.learning == nil {
+		return
+	}
+	decisions, receipts := []string{}, []string{}
+	for _, step := range task.Plan.Steps {
+		decisions = append(decisions, step.Title+": "+step.Instructions)
+	}
+	for _, evidence := range bundle.Evidence {
+		receipts = append(receipts, evidence.EvidenceRefs...)
+	}
+	verified := append([]string(nil), receipts...)
+	verified = append(verified, "artifact:"+reviewArtifact.ID)
+	artifacts := []string{"artifact:" + reviewArtifact.ID}
+	if proposal.ArtifactID != "" {
+		artifacts = append(artifacts, "artifact:"+proposal.ArtifactID)
+	}
+	if proposal.VerificationArtifactID != "" {
+		artifacts = append(artifacts, "artifact:"+proposal.VerificationArtifactID)
+	}
+	_, _, _ = s.learning.Enqueue(ctx, learning.EnqueueInput{SessionID: "task:" + task.ID,
+		MilestoneID: "task-complete:" + fmt.Sprint(task.Revision), TriggerKind: "successful_milestone",
+		Digest: learning.Digest{GoalAndConstraints: task.Objective + "\n" + strings.Join(task.Requirement.Constraints, "\n"),
+			Outcome: "completed", Decisions: decisions, ToolReceipts: receipts, VerifiedBy: verified, Artifacts: artifacts}})
+}
+
+func (s *Service) validateProviderBinding(ctx context.Context, expected providers.Profile) error {
+	current, err := s.providers.Get(ctx, expected.ID)
+	if err != nil {
+		return fmt.Errorf("reload task provider before dispatch: %w", err)
+	}
+	if current.ID != expected.ID || current.Revision != expected.Revision || providers.Revision(current) != expected.Revision {
+		return fmt.Errorf("task provider revision changed before dispatch; create a new task operation with the current provider contract")
+	}
+	if !current.Enabled {
+		return fmt.Errorf("task provider was disabled before dispatch")
+	}
+	if !current.CredentialReady {
+		return fmt.Errorf("task provider credential became unavailable before dispatch")
+	}
+	return nil
 }
 
 func requirementByID(criteria []taskengine.Criterion, id string) taskengine.Criterion {
@@ -1157,6 +1335,16 @@ func (s *Service) failVerification(ctx context.Context, proposal taskengine.Code
 			}
 		}
 	}
+	evidenceRefs := []string{}
+	for _, validation := range output.Validations {
+		evidenceRefs = append(evidenceRefs, validation.EvidenceRefs...)
+	}
+	if output.Evidence.ID != "" {
+		evidenceRefs = append(evidenceRefs, "artifact:"+output.Evidence.ID)
+	}
+	_, _ = s.tasks.RecordConfirmedFailure(ctx, taskengine.ConfirmedFailureInput{AttemptID: proposal.AttemptID,
+		FailureKind: "test", Message: cause.Error(), DiffArtifactID: proposal.ArtifactID,
+		EvidenceRefs: evidenceRefs, PriorChangeRefs: []string{"artifact:" + proposal.ArtifactID}})
 	output.Proposal, output.RolledBack = proposal, rolledBack
 	return output, cause
 }
@@ -1172,33 +1360,30 @@ func (s *Service) rollbackProposal(ctx context.Context, proposal taskengine.Code
 			}
 		}
 	}
-	artifacts, _ := s.products.ListArtifacts(ctx, proposal.ProjectID)
-	for _, artifact := range artifacts {
-		if artifact.Kind != "code_proposal_rollback" || artifact.Metadata["proposal_id"] != proposal.ID {
+	if proposal.RollbackArtifactID == "" {
+		return false
+	}
+	artifact, body, getErr := s.products.GetArtifact(ctx, proposal.RollbackArtifactID)
+	if getErr != nil || artifact.Kind != "code_proposal_rollback" || artifact.ProjectID != proposal.ProjectID ||
+		artifact.Metadata["proposal_id"] != proposal.ID {
+		return false
+	}
+	var originals map[string]product.FileDocument
+	if json.Unmarshal(body, &originals) != nil {
+		return false
+	}
+	rolledBack = true
+	for path, original := range originals {
+		current, readErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, path)
+		if readErr != nil || expectedApplied[path] == "" || current.SHA256 != expectedApplied[path] {
+			rolledBack = false
 			continue
 		}
-		_, body, getErr := s.products.GetArtifact(ctx, artifact.ID)
-		if getErr != nil {
-			break
+		if _, writeErr := s.products.WriteProjectFile(ctx, proposal.ProjectID, product.WriteFileInput{
+			Path: path, Content: original.Content, ExpectedSHA256: current.SHA256, Actor: "verification-rollback",
+		}); writeErr != nil {
+			rolledBack = false
 		}
-		var originals map[string]product.FileDocument
-		if json.Unmarshal(body, &originals) != nil {
-			break
-		}
-		rolledBack = true
-		for path, original := range originals {
-			current, readErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, path)
-			if readErr != nil || expectedApplied[path] == "" || current.SHA256 != expectedApplied[path] {
-				rolledBack = false
-				continue
-			}
-			if _, writeErr := s.products.WriteProjectFile(ctx, proposal.ProjectID, product.WriteFileInput{
-				Path: path, Content: original.Content, ExpectedSHA256: current.SHA256, Actor: "verification-rollback",
-			}); writeErr != nil {
-				rolledBack = false
-			}
-		}
-		break
 	}
 	return rolledBack
 }

@@ -3,10 +3,12 @@
 package product
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -49,27 +51,67 @@ func configureProcessTermination(command *exec.Cmd) bool {
 // above; closing the Job after the root exits is the OS-enforced backstop that
 // kills descendants even if they re-parented away from the original process.
 func runCommandProcess(command *exec.Cmd) (error, bool) {
+	if command.SysProcAttr == nil {
+		command.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	command.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
 	if err := command.Start(); err != nil {
+		return err, false
+	}
+	failClosed := func(err error) (error, bool) {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		_ = command.Wait()
 		return err, false
 	}
 	job, jobErr := windows.CreateJobObject(nil, nil)
 	if jobErr != nil {
-		return command.Wait(), false
+		return failClosed(jobErr)
 	}
 	defer windows.CloseHandle(job)
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
-		return command.Wait(), false
+		return failClosed(err)
 	}
 	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(command.Process.Pid))
 	if err != nil {
-		return command.Wait(), false
+		return failClosed(err)
 	}
 	defer windows.CloseHandle(process)
 	if err := windows.AssignProcessToJobObject(job, process); err != nil {
-		return command.Wait(), false
+		return failClosed(err)
 	}
+	thread, err := suspendedProcessThread(uint32(command.Process.Pid))
+	if err != nil {
+		return failClosed(err)
+	}
+	if _, err = windows.ResumeThread(thread); err != nil {
+		windows.CloseHandle(thread)
+		return failClosed(err)
+	}
+	windows.CloseHandle(thread)
 	return command.Wait(), true
+}
+
+func suspendedProcessThread(processID uint32) (windows.Handle, error) {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseHandle(snapshot)
+	entry := windows.ThreadEntry32{Size: uint32(unsafe.Sizeof(windows.ThreadEntry32{}))}
+	if err = windows.Thread32First(snapshot, &entry); err != nil {
+		return 0, err
+	}
+	for {
+		if entry.OwnerProcessID == processID {
+			return windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+		}
+		if err = windows.Thread32Next(snapshot, &entry); err != nil {
+			return 0, fmt.Errorf("find suspended primary thread for process %d: %w", processID, err)
+		}
+	}
 }

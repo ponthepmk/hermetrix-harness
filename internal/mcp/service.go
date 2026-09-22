@@ -124,6 +124,21 @@ func (s *Service) Save(ctx context.Context, input SaveInput) (Server, error) {
 	if input.RequestTimeoutMS == 0 {
 		input.RequestTimeoutMS = defaultTimeoutMS
 	}
+	if input.TransportKind == TransportStdio {
+		executable, arguments := input.Executable, input.Arguments
+		if strings.TrimSpace(executable) == "" {
+			var parseErr error
+			executable, arguments, parseErr = StdioCommand(input.Endpoint)
+			if parseErr != nil {
+				return Server{}, parseErr
+			}
+		}
+		structured, encodeErr := encodeStdioCommand(executable, arguments)
+		if encodeErr != nil {
+			return Server{}, encodeErr
+		}
+		input.Endpoint = structured
+	}
 	if err := validateServerInput(input); err != nil {
 		return Server{}, err
 	}
@@ -740,6 +755,19 @@ func scanServer(row scanner, vault CredentialVault) (Server, error) {
 		&trusted, &enabled, &item.RequestTimeoutMS, &item.Status, &item.LastError, &item.LastProtocol, &item.ToolCount,
 		&lastDiscovered, &created, &updated); err != nil {
 		return Server{}, err
+	}
+	if item.TransportKind == TransportStdio {
+		stored := strings.TrimSpace(item.Endpoint)
+		executable, arguments, err := StdioCommand(stored)
+		if err != nil {
+			return Server{}, fmt.Errorf("read MCP stdio command %s: %w", item.ID, err)
+		}
+		item.Executable = executable
+		item.Arguments = arguments
+		item.LegacyNeedsReview = !strings.HasPrefix(stored, "{")
+		// Endpoint remains a human-readable compatibility field. New writes are
+		// persisted as structured JSON and execution uses the parsed fields.
+		item.Endpoint = displayStdioCommand(executable, arguments)
 	}
 	item.TrustAnnotations = trusted != 0
 	item.Enabled = enabled != 0

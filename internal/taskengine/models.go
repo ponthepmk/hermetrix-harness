@@ -93,6 +93,11 @@ type Task struct {
 	Plan                      PlanRevision        `json:"plan"`
 	CreatedAt                 time.Time           `json:"created_at"`
 	UpdatedAt                 time.Time           `json:"updated_at"`
+	OwnerPrincipalID          string              `json:"owner_principal_id"`
+	Visibility                string              `json:"visibility"`
+	ExportPolicy              string              `json:"export_policy"`
+	SharingRevision           int                 `json:"sharing_revision"`
+	EgressPolicy              string              `json:"egress_policy"`
 }
 
 type Checkpoint struct {
@@ -127,14 +132,21 @@ type Validation struct {
 }
 
 type CreateTaskInput struct {
-	ProjectID       string      `json:"project_id,omitempty"`
-	Title           string      `json:"title"`
-	Objective       string      `json:"objective"`
-	OriginalRequest string      `json:"original_request"`
-	Constraints     []string    `json:"constraints,omitempty"`
-	Unknowns        []string    `json:"unknowns,omitempty"`
-	Criteria        []Criterion `json:"criteria"`
-	Actor           string      `json:"actor"`
+	ProjectID            string              `json:"project_id,omitempty"`
+	Title                string              `json:"title"`
+	Objective            string              `json:"objective"`
+	OriginalRequest      string              `json:"original_request"`
+	Constraints          []string            `json:"constraints,omitempty"`
+	Unknowns             []string            `json:"unknowns,omitempty"`
+	Criteria             []Criterion         `json:"criteria"`
+	Actor                string              `json:"actor"`
+	EgressPolicy         string              `json:"egress_policy,omitempty"`
+	RemoteEgressApproval *TaskEgressApproval `json:"remote_egress_approval,omitempty"`
+}
+
+type TaskEgressApproval struct {
+	Actor  string `json:"actor"`
+	Reason string `json:"reason"`
 }
 
 type CreatePlanInput struct {

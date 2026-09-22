@@ -9,7 +9,22 @@ import (
 type Input struct {
 	ProviderID       string                   `json:"provider_id"`
 	RuntimeProbe     *localmodel.ProbeRequest `json:"runtime_probe,omitempty"`
+	RuntimeIdentity  RuntimeIdentityInput     `json:"runtime_identity,omitempty"`
 	RequestedProfile string                   `json:"requested_profile"`
+}
+
+// RuntimeIdentityInput carries evidence that runtime discovery APIs cannot
+// provide consistently. Empty values remain unknown; callers must never use a
+// model name as a stand-in for a checksum.
+type RuntimeIdentityInput struct {
+	BuildRevision     string         `json:"build_revision,omitempty"`
+	ModelChecksums    []string       `json:"model_checksums,omitempty"`
+	ProjectorChecksum string         `json:"projector_checksum,omitempty"`
+	ChatTemplateHash  string         `json:"chat_template_hash,omitempty"`
+	TokenizerRevision string         `json:"tokenizer_revision,omitempty"`
+	KVSettings        map[string]any `json:"kv_settings,omitempty"`
+	DeviceMapping     []string       `json:"device_mapping,omitempty"`
+	ConfigDigest      string         `json:"config_digest,omitempty"`
 }
 
 type Check struct {
@@ -51,25 +66,28 @@ type RecallPosition struct {
 }
 
 type Run struct {
-	ID               string     `json:"id"`
-	ProviderID       string     `json:"provider_id"`
-	ProviderName     string     `json:"provider_name"`
-	RuntimeKind      string     `json:"runtime_kind,omitempty"`
-	RuntimeEndpoint  string     `json:"runtime_endpoint,omitempty"`
-	Model            string     `json:"model"`
-	SuiteRevision    string     `json:"suite_revision"`
-	ProviderRevision string     `json:"provider_revision"`
-	State            string     `json:"state"`
-	DeclaredContext  int        `json:"declared_context"`
-	AllocatedContext int        `json:"allocated_context"`
-	ContextTier      string     `json:"context_tier"`
-	CapabilityGrade  string     `json:"capability_grade"`
-	RequestedProfile string     `json:"requested_profile"`
-	Eligible         bool       `json:"eligible"`
-	RequiresDecision bool       `json:"requires_decision"`
-	Results          Results    `json:"results"`
-	Remediation      []string   `json:"remediation"`
-	Error            string     `json:"error,omitempty"`
-	StartedAt        time.Time  `json:"started_at"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	ID                   string          `json:"id"`
+	ProviderID           string          `json:"provider_id"`
+	ProviderName         string          `json:"provider_name"`
+	RuntimeKind          string          `json:"runtime_kind,omitempty"`
+	RuntimeEndpoint      string          `json:"runtime_endpoint,omitempty"`
+	Model                string          `json:"model"`
+	SuiteRevision        string          `json:"suite_revision"`
+	ProviderRevision     string          `json:"provider_revision"`
+	RuntimeFingerprintID string          `json:"runtime_fingerprint_id,omitempty"`
+	Modalities           []string        `json:"modalities"`
+	Controls             map[string]bool `json:"controls"`
+	State                string          `json:"state"`
+	DeclaredContext      int             `json:"declared_context"`
+	AllocatedContext     int             `json:"allocated_context"`
+	ContextTier          string          `json:"context_tier"`
+	CapabilityGrade      string          `json:"capability_grade"`
+	RequestedProfile     string          `json:"requested_profile"`
+	Eligible             bool            `json:"eligible"`
+	RequiresDecision     bool            `json:"requires_decision"`
+	Results              Results         `json:"results"`
+	Remediation          []string        `json:"remediation"`
+	Error                string          `json:"error,omitempty"`
+	StartedAt            time.Time       `json:"started_at"`
+	CompletedAt          *time.Time      `json:"completed_at,omitempty"`
 }

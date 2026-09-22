@@ -29,19 +29,24 @@ const maxArtifactBytes = 16 << 20
 var settingKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,80}$`)
 
 type Service struct {
-	store       *store.Store
-	skills      *skills.Service
-	mu          sync.Mutex
-	cancels     map[string]context.CancelFunc
-	terminals   map[string]*terminalRuntime
-	terminalWG  sync.WaitGroup
-	browser     *browserRuntime
-	browserTabs map[string]*browserTabRuntime
-	agent       teamAgentRunner
-	teamCtx     context.Context
-	teamCancel  context.CancelFunc
-	teamRuns    map[string]teamRunHandle
-	teamWG      sync.WaitGroup
+	store          *store.Store
+	skills         *skills.Service
+	mu             sync.Mutex
+	cancels        map[string]context.CancelFunc
+	commandOutputs map[string]*boundedBuffer
+	commandWG      sync.WaitGroup
+	closing        bool
+	terminals      map[string]*terminalRuntime
+	terminalWG     sync.WaitGroup
+	browser        *browserRuntime
+	browserTabs    map[string]*browserTabRuntime
+	agent          teamAgentRunner
+	teamCtx        context.Context
+	teamCancel     context.CancelFunc
+	teamRuns       map[string]teamRunHandle
+	teamWG         sync.WaitGroup
+	pathLocks      *pathLockManager
+	mediaSem       chan struct{}
 }
 
 type teamAgentRunner interface {
@@ -57,9 +62,11 @@ type teamRunHandle struct {
 
 func NewService(dataStore *store.Store, skillService *skills.Service) *Service {
 	teamCtx, teamCancel := context.WithCancel(context.Background())
-	return &Service{store: dataStore, skills: skillService, cancels: map[string]context.CancelFunc{},
+	service := &Service{store: dataStore, skills: skillService, cancels: map[string]context.CancelFunc{},
 		terminals: map[string]*terminalRuntime{}, browserTabs: map[string]*browserTabRuntime{},
-		teamCtx: teamCtx, teamCancel: teamCancel, teamRuns: map[string]teamRunHandle{}}
+		teamCtx: teamCtx, teamCancel: teamCancel, teamRuns: map[string]teamRunHandle{}, pathLocks: newPathLockManager(),
+		mediaSem: make(chan struct{}, 1)}
+	return service
 }
 
 func (s *Service) WithAgentRunner(runner teamAgentRunner) *Service {
@@ -68,15 +75,30 @@ func (s *Service) WithAgentRunner(runner teamAgentRunner) *Service {
 }
 
 func (s *Service) RecoverInterruptedJobs(ctx context.Context) (int64, error) {
+	mutations, err := s.RecoverFileMutations(ctx)
+	if err != nil {
+		return 0, err
+	}
 	result, err := s.store.DB.ExecContext(ctx, `UPDATE background_jobs SET state='interrupted',error='process interrupted; command was not retried',
       completed_at=? WHERE state IN ('queued','running')`, formatTime(time.Now().UTC()))
 	if err != nil {
-		return 0, err
+		return mutations, err
 	}
 	jobs, err := result.RowsAffected()
 	if err != nil {
 		return 0, err
 	}
+	mediaJobs, mediaErr := s.store.DB.ExecContext(ctx, `UPDATE media_jobs SET state='interrupted',error_code='process_interrupted',
+		error='local media processor stopped before completion',updated_at=?,completed_at=? WHERE state IN ('queued','running')`,
+		formatTime(time.Now().UTC()), formatTime(time.Now().UTC()))
+	if mediaErr != nil {
+		return mutations + jobs, mediaErr
+	}
+	mediaCount, mediaErr := mediaJobs.RowsAffected()
+	if mediaErr != nil {
+		return mutations + jobs, mediaErr
+	}
+	jobs += mediaCount
 	terminals, err := s.store.DB.ExecContext(ctx, `UPDATE terminal_sessions SET state='interrupted',
 		error='terminal process ended when Hermetrix stopped',updated_at=?,completed_at=? WHERE state='running'`,
 		formatTime(time.Now().UTC()), formatTime(time.Now().UTC()))
@@ -119,11 +141,22 @@ func (s *Service) RecoverInterruptedJobs(ctx context.Context) (int64, error) {
 		return jobs + terminalCount + browserCount + taskCount, err
 	}
 	runCount, err := teamRuns.RowsAffected()
-	return jobs + terminalCount + browserCount + taskCount + runCount, err
+	return mutations + jobs + terminalCount + browserCount + taskCount + runCount, err
 }
 
 func (s *Service) Close() {
 	s.teamCancel()
+	s.mu.Lock()
+	s.closing = true
+	commandCancels := make([]context.CancelFunc, 0, len(s.cancels))
+	for _, cancel := range s.cancels {
+		commandCancels = append(commandCancels, cancel)
+	}
+	s.mu.Unlock()
+	for _, cancel := range commandCancels {
+		cancel()
+	}
+	s.commandWG.Wait()
 	s.teamWG.Wait()
 	s.closeTerminals()
 	s.terminalWG.Wait()
@@ -140,14 +173,18 @@ func (s *Service) SaveProject(ctx context.Context, input ProjectInput) (Project,
 		return Project{}, err
 	}
 	now := time.Now().UTC()
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Project{}, err
+	}
 	if input.ID == "" {
 		input.ID = identity.New("project")
-		_, err = s.store.DB.ExecContext(ctx, `INSERT INTO projects(id,name,root_path,state,created_at,updated_at)
-      VALUES(?,?,?,'active',?,?)`, input.ID, input.Name, root, formatTime(now), formatTime(now))
+		_, err = s.store.DB.ExecContext(ctx, `INSERT INTO projects(id,name,root_path,state,created_at,updated_at,owner_principal_id)
+	  VALUES(?,?,?,'active',?,?,?)`, input.ID, input.Name, root, formatTime(now), formatTime(now), ownerID)
 	} else {
 		var changed sql.Result
-		changed, err = s.store.DB.ExecContext(ctx, `UPDATE projects SET name=?,root_path=?,updated_at=? WHERE id=?`,
-			input.Name, root, formatTime(now), input.ID)
+		changed, err = s.store.DB.ExecContext(ctx, `UPDATE projects SET name=?,root_path=?,updated_at=? WHERE id=? AND owner_principal_id=?`,
+			input.Name, root, formatTime(now), input.ID, ownerID)
 		if err == nil {
 			if count, _ := changed.RowsAffected(); count != 1 {
 				err = sql.ErrNoRows
@@ -181,15 +218,19 @@ func (s *Service) EnsureWorkspaceProject(ctx context.Context, root string) (Proj
 // projectColumns is shared by ListProjects and GetProject so the two queries
 // can never drift into different column orders under scanProject's single Scan.
 const projectColumns = `p.id,p.name,p.root_path,p.state,p.pinned,p.last_opened_at,p.created_at,p.updated_at,
-    (SELECT COUNT(*) FROM agent_sessions s WHERE s.project_id=p.id)`
+	(SELECT COUNT(*) FROM agent_sessions s WHERE s.project_id=p.id),p.owner_principal_id,p.visibility,p.export_policy,p.sharing_revision`
 
 func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// The picker is ordered the way someone actually reaches for a project:
 	// pinned first, then whichever was opened most recently. A project never
 	// opened falls back to when it was created, so it still lands somewhere
 	// sensible instead of sorting as if it were infinitely old.
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT `+projectColumns+`
-    FROM projects p ORDER BY p.pinned DESC, COALESCE(p.last_opened_at,p.created_at) DESC`)
+	FROM projects p WHERE p.owner_principal_id=? ORDER BY p.pinned DESC, COALESCE(p.last_opened_at,p.created_at) DESC`, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -206,15 +247,23 @@ func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
 }
 
 func (s *Service) GetProject(ctx context.Context, id string) (Project, error) {
-	return scanProject(s.store.DB.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects p WHERE p.id=?`, id))
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Project{}, err
+	}
+	return scanProject(s.store.DB.QueryRowContext(ctx, `SELECT `+projectColumns+` FROM projects p WHERE p.id=? AND p.owner_principal_id=?`, id, ownerID))
 }
 
 // PinProject keeps a project at the top of the picker. It is a per-machine
 // preference stored with the project because the picker is the same on every
 // screen this database serves.
 func (s *Service) PinProject(ctx context.Context, id string, pinned bool) (Project, error) {
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET pinned=?,updated_at=? WHERE id=?`,
-		boolInt(pinned), formatTime(time.Now().UTC()), id)
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Project{}, err
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET pinned=?,updated_at=? WHERE id=? AND owner_principal_id=?`,
+		boolInt(pinned), formatTime(time.Now().UTC()), id, ownerID)
 	if err != nil {
 		return Project{}, err
 	}
@@ -228,8 +277,12 @@ func (s *Service) PinProject(ctx context.Context, id string, pinned bool) (Proje
 // in the picker is ordered by. Opening is not editing, so updated_at is left
 // alone: otherwise every project would look freshly changed.
 func (s *Service) MarkProjectOpened(ctx context.Context, id string) (Project, error) {
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET last_opened_at=? WHERE id=?`,
-		formatTime(time.Now().UTC()), id)
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Project{}, err
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET last_opened_at=? WHERE id=? AND owner_principal_id=?`,
+		formatTime(time.Now().UTC()), id, ownerID)
 	if err != nil {
 		return Project{}, err
 	}
@@ -295,23 +348,38 @@ func (s *Service) CreateArtifact(ctx context.Context, input ArtifactInput) (Arti
 		return Artifact{}, err
 	}
 	now := time.Now().UTC()
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if input.SessionID != "" {
+		var sessionOwner string
+		if err := s.store.DB.QueryRowContext(ctx, `SELECT owner_principal_id FROM agent_sessions WHERE id=?`, input.SessionID).Scan(&sessionOwner); err != nil || sessionOwner != ownerID {
+			return Artifact{}, fmt.Errorf("artifact session is unavailable to this principal")
+		}
+	}
 	item := Artifact{ID: identity.New("artifact"), ProjectID: input.ProjectID, SessionID: input.SessionID,
 		Name: input.Name, Kind: input.Kind, MIMEType: input.MIMEType, BlobRef: ref, ByteSize: len(input.Content),
-		Checksum: ref, Metadata: input.Metadata, CreatedAt: now}
+		Checksum: ref, Metadata: input.Metadata, CreatedAt: now, OwnerPrincipalID: ownerID,
+		Visibility: "private", ExportPolicy: "deny", SharingRevision: 1}
 	metadata, _ := json.Marshal(item.Metadata)
 	_, err = s.store.DB.ExecContext(ctx, `INSERT INTO artifacts(id,project_id,session_id,name,kind,mime_type,blob_ref,
-      byte_size,checksum,metadata_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, item.ID, nullIfEmpty(item.ProjectID),
+	  byte_size,checksum,metadata_json,created_at,owner_principal_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID, nullIfEmpty(item.ProjectID),
 		nullIfEmpty(item.SessionID), item.Name, item.Kind, item.MIMEType, item.BlobRef, item.ByteSize, item.Checksum,
-		string(metadata), formatTime(now))
+		string(metadata), formatTime(now), ownerID)
 	return item, err
 }
 
 func (s *Service) ListArtifacts(ctx context.Context, projectID string) ([]Artifact, error) {
 	query := `SELECT id,COALESCE(project_id,''),COALESCE(session_id,''),name,kind,mime_type,blob_ref,byte_size,
-    checksum,metadata_json,created_at FROM artifacts`
-	args := []any{}
+	checksum,metadata_json,created_at,owner_principal_id,visibility,export_policy,sharing_revision,source_lineage_json FROM artifacts WHERE owner_principal_id=?`
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	args := []any{ownerID}
 	if projectID != "" {
-		query += ` WHERE project_id=?`
+		query += ` AND project_id=?`
 		args = append(args, projectID)
 	}
 	query += ` ORDER BY created_at DESC LIMIT 500`
@@ -332,8 +400,13 @@ func (s *Service) ListArtifacts(ctx context.Context, projectID string) ([]Artifa
 }
 
 func (s *Service) GetArtifact(ctx context.Context, id string) (Artifact, []byte, error) {
+	ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
+	if ownerErr != nil {
+		return Artifact{}, nil, ownerErr
+	}
 	item, err := scanArtifact(s.store.DB.QueryRowContext(ctx, `SELECT id,COALESCE(project_id,''),COALESCE(session_id,''),
-    name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at FROM artifacts WHERE id=?`, id))
+	name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at,owner_principal_id,visibility,export_policy,sharing_revision,source_lineage_json
+	FROM artifacts WHERE id=? AND owner_principal_id=?`, id, ownerID))
 	if err != nil {
 		return Artifact{}, nil, err
 	}
@@ -345,9 +418,13 @@ func (s *Service) GetArtifact(ctx context.Context, id string) (Artifact, []byte,
 // The operation id is generated locally and unique at the effect boundary;
 // callers still validate artifact kind and body before using it as evidence.
 func (s *Service) FindArtifactByOperationID(ctx context.Context, operationID string) (Artifact, []byte, error) {
+	ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
+	if ownerErr != nil {
+		return Artifact{}, nil, ownerErr
+	}
 	item, err := scanArtifact(s.store.DB.QueryRowContext(ctx, `SELECT id,COALESCE(project_id,''),COALESCE(session_id,''),
-    name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at FROM artifacts
-    WHERE json_extract(metadata_json,'$.operation_id')=? ORDER BY created_at DESC,id DESC LIMIT 1`, strings.TrimSpace(operationID)))
+	name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at,owner_principal_id,visibility,export_policy,sharing_revision,source_lineage_json FROM artifacts
+	WHERE json_extract(metadata_json,'$.operation_id')=? AND owner_principal_id=? ORDER BY created_at DESC,id DESC LIMIT 1`, strings.TrimSpace(operationID), ownerID))
 	if err != nil {
 		return Artifact{}, nil, err
 	}
@@ -407,17 +484,27 @@ func (s *Service) SaveMemory(ctx context.Context, input MemoryInput) (Memory, er
 		}
 	}
 	now := time.Now().UTC()
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Memory{}, err
+	}
 	item := Memory{ID: identity.New("memory"), ScopeKind: input.ScopeKind, ScopeRef: input.ScopeRef,
-		MemoryKind: input.MemoryKind, Content: input.Content, Source: input.Source, State: "active", CreatedAt: now, UpdatedAt: now}
-	_, err := s.store.DB.ExecContext(ctx, `INSERT INTO memories(id,scope_kind,scope_ref,memory_kind,content,source,state,
-    created_at,updated_at) VALUES(?,?,?,?,?,?,'active',?,?)`, item.ID, item.ScopeKind, item.ScopeRef, item.MemoryKind,
-		item.Content, item.Source, formatTime(now), formatTime(now))
+		MemoryKind: input.MemoryKind, Content: input.Content, Source: input.Source, State: "active", CreatedAt: now, UpdatedAt: now,
+		OwnerPrincipalID: ownerID, Visibility: "private", ExportPolicy: "deny", SharingRevision: 1}
+	_, err = s.store.DB.ExecContext(ctx, `INSERT INTO memories(id,scope_kind,scope_ref,memory_kind,content,source,state,
+	created_at,updated_at,owner_principal_id) VALUES(?,?,?,?,?,?,'active',?,?,?)`, item.ID, item.ScopeKind, item.ScopeRef, item.MemoryKind,
+		item.Content, item.Source, formatTime(now), formatTime(now), ownerID)
 	return item, err
 }
 
 func (s *Service) ListMemories(ctx context.Context, scopeKind, scopeRef string) ([]Memory, error) {
-	query := `SELECT id,scope_kind,scope_ref,memory_kind,content,source,state,created_at,updated_at FROM memories WHERE 1=1`
-	args := []any{}
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id,scope_kind,scope_ref,memory_kind,content,source,state,created_at,updated_at,owner_principal_id,
+	visibility,export_policy,sharing_revision FROM memories WHERE owner_principal_id=?`
+	args := []any{ownerID}
 	if scopeKind != "" {
 		query += ` AND scope_kind=?`
 		args = append(args, scopeKind)
@@ -437,7 +524,7 @@ func (s *Service) ListMemories(ctx context.Context, scopeKind, scopeRef string) 
 		var item Memory
 		var created, updated string
 		if err := rows.Scan(&item.ID, &item.ScopeKind, &item.ScopeRef, &item.MemoryKind, &item.Content, &item.Source,
-			&item.State, &created, &updated); err != nil {
+			&item.State, &created, &updated, &item.OwnerPrincipalID, &item.Visibility, &item.ExportPolicy, &item.SharingRevision); err != nil {
 			return nil, err
 		}
 		item.CreatedAt, _ = parseTime(created)
@@ -448,8 +535,12 @@ func (s *Service) ListMemories(ctx context.Context, scopeKind, scopeRef string) 
 }
 
 func (s *Service) ArchiveMemory(ctx context.Context, id string) error {
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE memories SET state='archived',updated_at=? WHERE id=? AND state='active'`,
-		formatTime(time.Now().UTC()), id)
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return err
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE memories SET state='archived',updated_at=? WHERE id=? AND state='active' AND owner_principal_id=?`,
+		formatTime(time.Now().UTC()), id, ownerID)
 	if err != nil {
 		return err
 	}
@@ -582,7 +673,8 @@ func scanProject(row projectScanner) (Project, error) {
 	// Every caller selects the session count alongside the rest of the row, so
 	// there is exactly one shape to scan and no risk of the two call sites
 	// (list and get) drifting apart on column order.
-	if err := row.Scan(&item.ID, &item.Name, &item.RootPath, &item.State, &pinned, &lastOpened, &created, &updated, &item.SessionCount); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.RootPath, &item.State, &pinned, &lastOpened, &created, &updated, &item.SessionCount,
+		&item.OwnerPrincipalID, &item.Visibility, &item.ExportPolicy, &item.SharingRevision); err != nil {
 		return Project{}, err
 	}
 	item.Pinned = pinned != 0
@@ -599,12 +691,14 @@ type artifactScanner interface{ Scan(...any) error }
 
 func scanArtifact(row artifactScanner) (Artifact, error) {
 	var item Artifact
-	var metadata, created string
+	var metadata, created, lineage string
 	if err := row.Scan(&item.ID, &item.ProjectID, &item.SessionID, &item.Name, &item.Kind, &item.MIMEType,
-		&item.BlobRef, &item.ByteSize, &item.Checksum, &metadata, &created); err != nil {
+		&item.BlobRef, &item.ByteSize, &item.Checksum, &metadata, &created, &item.OwnerPrincipalID, &item.Visibility,
+		&item.ExportPolicy, &item.SharingRevision, &lineage); err != nil {
 		return Artifact{}, err
 	}
 	_ = json.Unmarshal([]byte(metadata), &item.Metadata)
+	_ = json.Unmarshal([]byte(lineage), &item.SourceLineage)
 	item.CreatedAt, _ = parseTime(created)
 	return item, nil
 }

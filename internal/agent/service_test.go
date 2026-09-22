@@ -591,6 +591,71 @@ func TestDecideApprovalRoutesOnExactWorkspaceWriteFileNameNotPrefix(t *testing.T
 	}
 }
 
+func TestApprovalReceiptSurvivesProviderDriftButContinuationIsBlocked(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		request := requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if request == 1 {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-drift\",\"type\":\"function\",\"function\":{\"name\":\"workspace.write_file\",\"arguments\":\"{\\\"path\\\":\\\"approved.txt\\\",\\\"content\\\":\\\"approved\\\",\\\"expected_sha256\\\":\\\"absent\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"must not run\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	workspace := t.TempDir()
+	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
+	defer cleanup()
+	projectID := createTestProject(t, service, workspace)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "write approved.txt"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Approval == nil {
+		t.Fatal("turn did not pause for approval")
+	}
+	if _, err = service.store.DB.Exec(`UPDATE provider_profiles SET model='changed-after-approval',updated_at=? WHERE id=?`,
+		time.Now().UTC().Format(time.RFC3339Nano), provider.ID); err != nil {
+		t.Fatal(err)
+	}
+	var blocked StreamEvent
+	result, err := service.DecideApproval(context.Background(), paused.Approval.ID,
+		ApprovalDecisionInput{Actor: "user", Decision: "approve", Reason: "reviewed exact write"}, func(event StreamEvent) error {
+			if event.Type == "continuation_blocked" {
+				blocked = event
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinishReason != "continuation_blocked" || blocked.Code != "contract_drift" || requests.Load() != 1 {
+		t.Fatalf("result=%+v blocked=%+v requests=%d", result, blocked, requests.Load())
+	}
+	content, err := os.ReadFile(filepath.Join(workspace, "approved.txt"))
+	if err != nil || string(content) != "approved" {
+		t.Fatalf("approved effect receipt was lost: content=%q err=%v", content, err)
+	}
+	detail, err := service.GetSessionDetail(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Session.State != "active" || detail.Approvals[0].State != "executed" {
+		t.Fatalf("session=%+v approval=%+v", detail.Session, detail.Approvals[0])
+	}
+	foundBlocked := false
+	for _, event := range detail.Events {
+		foundBlocked = foundBlocked || event.EventKind == "continuation_blocked"
+	}
+	if !foundBlocked {
+		t.Fatal("contract drift was not persisted")
+	}
+}
+
 // interruptedWriteFixture drives a turn to the point where a write is approved
 // and executing, then hands back the pieces so a test can decide what the file
 // looks like when Hermetrix restarts.
@@ -929,6 +994,48 @@ func successProviderServer(t *testing.T) *httptest.Server {
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ครับ\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":48,\"completion_tokens\":2,\"total_tokens\":50}}\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
+}
+
+func TestIncompleteProviderStreamIsEvidenceNotAnAssistantAnswer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"partial answer\"}}]}\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failed StreamEvent
+	if _, err = service.RunTurn(context.Background(), session.ID, TurnInput{Content: "answer this"}, func(event StreamEvent) error {
+		if event.Type == "failed" {
+			failed = event
+		}
+		return nil
+	}); err == nil {
+		t.Fatal("truncated provider stream completed the turn")
+	}
+	if failed.Code != "provider_stream_incomplete" {
+		t.Fatalf("failed event=%+v", failed)
+	}
+	detail, err := service.GetSessionDetail(context.Background(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundIncomplete, foundCompletedAnswer := false, false
+	for _, event := range detail.Events {
+		if event.EventKind == "provider_incomplete" && event.Content == "partial answer" && event.Metadata["untrusted_partial"] == true {
+			foundIncomplete = true
+		}
+		if event.EventKind == "message" && event.Role == "assistant" && event.Content == "partial answer" {
+			foundCompletedAnswer = true
+		}
+	}
+	if !foundIncomplete || foundCompletedAnswer || detail.Session.State != "active" {
+		t.Fatalf("incomplete=%v completed=%v state=%s events=%+v", foundIncomplete, foundCompletedAnswer, detail.Session.State, detail.Events)
+	}
 }
 
 func testAgentService(t *testing.T, server *httptest.Server) (*Service, providers.Profile, func()) {
@@ -2048,14 +2155,12 @@ func TestCompleteOutputCarriesNoTruncationFlag(t *testing.T) {
 	}
 }
 
-// --- O-13: a malformed tool call must not kill the turn ---
+// --- PRV-003: malformed tool arguments fail closed ---
 //
 // A model that runs out of output budget mid-arguments emits unparseable JSON.
-// The registry rejects it and writes a failure receipt, which is correct. What
-// was not correct was replaying those bytes to the provider on the next step:
-// the provider rejected the whole request, so one recoverable bad call ended
-// the turn. Observed live against a gateway, on a file-write task.
-func TestMalformedToolArgumentsDoNotPoisonTheNextRequest(t *testing.T) {
+// The adapter retains the partial bytes as untrusted evidence but must not
+// dispatch the tool or ask the model to reinterpret them on another step.
+func TestMalformedToolArgumentsFailClosedWithoutASecondRequest(t *testing.T) {
 	step := 0
 	var replayed []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2100,29 +2205,24 @@ func TestMalformedToolArgumentsDoNotPoisonTheNextRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "write a file"}, nil)
-	if err != nil {
-		t.Fatalf("a malformed tool call ended the turn: %v", err)
+	if _, err = service.RunTurn(ctx, session.ID, TurnInput{Content: "write a file"}, nil); err == nil ||
+		!strings.Contains(err.Error(), "provider stream incomplete") {
+		t.Fatalf("malformed tool arguments did not fail closed: %v", err)
 	}
-	if result.AssistantEvent.Content != "recovered" {
-		t.Fatalf("the turn did not continue past the bad call: %+v", result.AssistantEvent)
+	if step != 1 || len(replayed) != 0 {
+		t.Fatalf("provider requests=%d replayed=%v", step, replayed)
 	}
-	if len(replayed) == 0 {
-		t.Fatal("the bad call never reached history, so this test proves nothing")
-	}
-	// The receipt, not the arguments, is what tells the model it failed.
 	detail, err := service.GetSessionDetail(ctx, session.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sawFailure := false
+	sawIncomplete, sawToolCall := false, false
 	for _, event := range detail.Events {
-		if event.EventKind == "tool_result" && strings.Contains(event.Content, "invalid arguments") {
-			sawFailure = true
-		}
+		sawIncomplete = sawIncomplete || event.EventKind == "provider_incomplete"
+		sawToolCall = sawToolCall || event.EventKind == "tool_call"
 	}
-	if !sawFailure {
-		t.Fatal("no failure receipt explained the malformed call to the model")
+	if !sawIncomplete || sawToolCall {
+		t.Fatalf("incomplete=%v tool_call=%v events=%+v", sawIncomplete, sawToolCall, detail.Events)
 	}
 }
 

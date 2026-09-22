@@ -16,7 +16,11 @@ type Project struct {
 	// SessionCount is the only per-project count the picker shows, because it is
 	// the only one with a store behind it. Tasks and notes have no table yet, so
 	// they carry no field here rather than a zero that would read as an answer.
-	SessionCount int `json:"session_count"`
+	SessionCount     int    `json:"session_count"`
+	OwnerPrincipalID string `json:"owner_principal_id"`
+	Visibility       string `json:"visibility"`
+	ExportPolicy     string `json:"export_policy"`
+	SharingRevision  int    `json:"sharing_revision"`
 }
 
 type ProjectInput struct {
@@ -54,7 +58,56 @@ type WriteFileResult struct {
 	Document        FileDocument `json:"document"`
 	BeforeSHA256    string       `json:"before_sha256,omitempty"`
 	Diff            string       `json:"diff"`
+	OperationID     string       `json:"operation_id"`
 	ReceiptArtifact Artifact     `json:"receipt_artifact"`
+}
+
+type FileMutationIntent struct {
+	ID                string    `json:"id"`
+	OperationID       string    `json:"operation_id"`
+	ProjectID         string    `json:"project_id"`
+	Path              string    `json:"path"`
+	Actor             string    `json:"actor"`
+	BeforeSHA256      string    `json:"before_sha256"`
+	AfterSHA256       string    `json:"after_sha256"`
+	State             string    `json:"state"`
+	ReceiptArtifactID string    `json:"receipt_artifact_id,omitempty"`
+	Error             string    `json:"error,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type PreimageChangedError struct {
+	Path           string
+	ExpectedSHA256 string
+	CurrentSHA256  string
+}
+
+func (e *PreimageChangedError) Error() string {
+	return "file changed since it was opened; reload before saving"
+}
+
+type MutationCommittedReceiptFailed struct {
+	Result           WriteFileResult
+	ReceiptErrorCode string
+	Cause            error
+}
+
+func (e *MutationCommittedReceiptFailed) Error() string {
+	return "file mutation committed but receipt persistence failed"
+}
+
+func (e *MutationCommittedReceiptFailed) Unwrap() error { return e.Cause }
+
+type FileRollbackResult struct {
+	Path  string `json:"path"`
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
+}
+
+type BatchWriteResult struct {
+	Receipts []WriteFileResult    `json:"receipts"`
+	Rollback []FileRollbackResult `json:"rollback,omitempty"`
 }
 
 type TerminalSession struct {
@@ -136,17 +189,22 @@ type BrowserActionInput struct {
 }
 
 type Artifact struct {
-	ID        string         `json:"id"`
-	ProjectID string         `json:"project_id,omitempty"`
-	SessionID string         `json:"session_id,omitempty"`
-	Name      string         `json:"name"`
-	Kind      string         `json:"kind"`
-	MIMEType  string         `json:"mime_type"`
-	BlobRef   string         `json:"blob_ref"`
-	ByteSize  int            `json:"byte_size"`
-	Checksum  string         `json:"checksum"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
+	ID               string         `json:"id"`
+	ProjectID        string         `json:"project_id,omitempty"`
+	SessionID        string         `json:"session_id,omitempty"`
+	Name             string         `json:"name"`
+	Kind             string         `json:"kind"`
+	MIMEType         string         `json:"mime_type"`
+	BlobRef          string         `json:"blob_ref"`
+	ByteSize         int            `json:"byte_size"`
+	Checksum         string         `json:"checksum"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+	OwnerPrincipalID string         `json:"owner_principal_id"`
+	Visibility       string         `json:"visibility"`
+	ExportPolicy     string         `json:"export_policy"`
+	SharingRevision  int            `json:"sharing_revision"`
+	SourceLineage    []string       `json:"source_lineage,omitempty"`
 }
 
 type ArtifactInput struct {
@@ -320,15 +378,19 @@ type Setting struct {
 }
 
 type Memory struct {
-	ID         string    `json:"id"`
-	ScopeKind  string    `json:"scope_kind"`
-	ScopeRef   string    `json:"scope_ref"`
-	MemoryKind string    `json:"memory_kind"`
-	Content    string    `json:"content"`
-	Source     string    `json:"source"`
-	State      string    `json:"state"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID               string    `json:"id"`
+	ScopeKind        string    `json:"scope_kind"`
+	ScopeRef         string    `json:"scope_ref"`
+	MemoryKind       string    `json:"memory_kind"`
+	Content          string    `json:"content"`
+	Source           string    `json:"source"`
+	State            string    `json:"state"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	OwnerPrincipalID string    `json:"owner_principal_id"`
+	Visibility       string    `json:"visibility"`
+	ExportPolicy     string    `json:"export_policy"`
+	SharingRevision  int       `json:"sharing_revision"`
 }
 
 type MemoryInput struct {
@@ -337,6 +399,27 @@ type MemoryInput struct {
 	MemoryKind string `json:"memory_kind"`
 	Content    string `json:"content"`
 	Source     string `json:"source"`
+}
+
+type VisibilityInput struct {
+	ObjectKind       string `json:"object_kind"`
+	ObjectID         string `json:"object_id"`
+	Visibility       string `json:"visibility"`
+	ExportPolicy     string `json:"export_policy"`
+	ExpectedRevision int    `json:"expected_revision"`
+	Actor            string `json:"actor"`
+	Reason           string `json:"reason"`
+}
+
+type VisibilityReceipt struct {
+	AuditID      string    `json:"audit_id"`
+	ObjectKind   string    `json:"object_kind"`
+	ObjectID     string    `json:"object_id"`
+	Visibility   string    `json:"visibility"`
+	ExportPolicy string    `json:"export_policy"`
+	Revision     int       `json:"revision"`
+	Actor        string    `json:"actor"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type UsageSummary struct {
@@ -383,4 +466,184 @@ type ImportResult struct {
 	// discover from an empty session list that their conversations were in the
 	// file and were dropped on the floor.
 	NotRestored map[string]int `json:"not_restored,omitempty"`
+}
+
+type MediaUploadInput struct {
+	ProjectID string `json:"project_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Name      string `json:"name"`
+	MIMEType  string `json:"mime_type,omitempty"`
+	Data      []byte `json:"-"`
+}
+
+type MediaJobInput struct {
+	SourceArtifactID  string         `json:"source_artifact_id"`
+	ProcessorKind     string         `json:"processor_kind"`
+	ProcessorRevision string         `json:"processor_revision,omitempty"`
+	ModelRevision     string         `json:"model_revision,omitempty"`
+	Options           map[string]any `json:"options,omitempty"`
+	OperationID       string         `json:"operation_id"`
+	IdempotencyKey    string         `json:"idempotency_key"`
+}
+
+type MediaJob struct {
+	ID                string     `json:"id"`
+	OwnerPrincipalID  string     `json:"owner_principal_id"`
+	SourceArtifactID  string     `json:"source_artifact_id"`
+	SourceHash        string     `json:"source_hash"`
+	ProcessorKind     string     `json:"processor_kind"`
+	ProcessorRevision string     `json:"processor_revision"`
+	ModelRevision     string     `json:"model_revision,omitempty"`
+	SettingsDigest    string     `json:"settings_digest"`
+	OperationID       string     `json:"operation_id"`
+	IdempotencyKey    string     `json:"idempotency_key"`
+	PayloadHash       string     `json:"payload_hash"`
+	State             string     `json:"state"`
+	Progress          float64    `json:"progress"`
+	AttemptCount      int        `json:"attempt_count"`
+	ResultArtifactIDs []string   `json:"result_artifact_ids"`
+	ErrorCode         string     `json:"error_code,omitempty"`
+	Error             string     `json:"error,omitempty"`
+	CancelRequested   bool       `json:"cancel_requested"`
+	CreatedAt         time.Time  `json:"created_at"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+}
+
+type SharePreviewInput struct {
+	ProjectID   string   `json:"project_id"`
+	Paths       []string `json:"paths,omitempty"`
+	ArtifactIDs []string `json:"artifact_ids,omitempty"`
+	TaskIDs     []string `json:"task_ids,omitempty"`
+	SkillIDs    []string `json:"skill_ids,omitempty"`
+	MemoryIDs   []string `json:"memory_ids,omitempty"`
+	Actor       string   `json:"actor"`
+}
+
+type ShareManifestEntry struct {
+	Kind            string `json:"kind"`
+	Path            string `json:"path,omitempty"`
+	ArtifactID      string `json:"artifact_id,omitempty"`
+	ObjectID        string `json:"object_id,omitempty"`
+	Name            string `json:"name,omitempty"`
+	MIMEType        string `json:"mime_type,omitempty"`
+	SHA256          string `json:"sha256"`
+	Bytes           int64  `json:"bytes"`
+	SharingRevision int    `json:"sharing_revision,omitempty"`
+}
+
+type SharePreview struct {
+	ID                   string               `json:"id"`
+	ProjectID            string               `json:"project_id"`
+	ManifestDigest       string               `json:"manifest_digest"`
+	SourceRevisionDigest string               `json:"source_revision_digest"`
+	Entries              []ShareManifestEntry `json:"entries"`
+	Omitted              []string             `json:"omitted"`
+	RemainingMetadata    []string             `json:"remaining_metadata"`
+	State                string               `json:"state"`
+	CreatedAt            time.Time            `json:"created_at"`
+	ExpiresAt            time.Time            `json:"expires_at"`
+}
+
+type ShareExportInput struct {
+	ProjectID      string `json:"project_id"`
+	PreviewID      string `json:"preview_id"`
+	ManifestDigest string `json:"manifest_digest"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type ShareExport struct {
+	ID              string     `json:"id"`
+	ProjectID       string     `json:"project_id"`
+	PreviewID       string     `json:"preview_id"`
+	ManifestDigest  string     `json:"manifest_digest"`
+	IdempotencyKey  string     `json:"idempotency_key"`
+	State           string     `json:"state"`
+	PackageChecksum string     `json:"package_checksum,omitempty"`
+	Error           string     `json:"error,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	CompletedAt     *time.Time `json:"completed_at,omitempty"`
+}
+
+type ShareImportPreview struct {
+	ID             string               `json:"id"`
+	ManifestDigest string               `json:"manifest_digest"`
+	ProjectName    string               `json:"project_name"`
+	Entries        []ShareManifestEntry `json:"entries"`
+	State          string               `json:"state"`
+	CreatedAt      time.Time            `json:"created_at"`
+	ExpiresAt      time.Time            `json:"expires_at"`
+}
+
+type ApplyShareImportInput struct {
+	PreviewID       string `json:"preview_id"`
+	ManifestDigest  string `json:"manifest_digest"`
+	ProjectName     string `json:"project_name"`
+	DestinationRoot string `json:"destination_root"`
+	Actor           string `json:"actor"`
+}
+
+type WorkspaceExportInput struct {
+	ProjectIDs []string `json:"project_ids"`
+	Passphrase string   `json:"passphrase"`
+	Actor      string   `json:"actor"`
+}
+
+type WorkspaceImportPreviewInput struct {
+	EncryptedPackage []byte `json:"-"`
+	Passphrase       string `json:"passphrase"`
+	Actor            string `json:"actor"`
+}
+
+type WorkspaceImportApplyInput struct {
+	PreviewID    string            `json:"preview_id"`
+	Passphrase   string            `json:"passphrase"`
+	RootMappings map[string]string `json:"root_mappings"`
+	Actor        string            `json:"actor"`
+}
+
+type WorkspaceMigration struct {
+	ID                     string         `json:"id"`
+	Kind                   string         `json:"kind"`
+	State                  string         `json:"state"`
+	FormatVersion          int            `json:"format_version"`
+	PackageChecksum        string         `json:"package_checksum,omitempty"`
+	SourcePrincipalID      string         `json:"source_principal_id,omitempty"`
+	DestinationPrincipalID string         `json:"destination_principal_id,omitempty"`
+	Summary                map[string]any `json:"summary"`
+	Error                  string         `json:"error,omitempty"`
+	CreatedAt              time.Time      `json:"created_at"`
+	CompletedAt            *time.Time     `json:"completed_at,omitempty"`
+}
+
+type RecoveryBlob struct {
+	Ref   string `json:"ref"`
+	Bytes int64  `json:"bytes"`
+}
+
+type FullRecoveryManifest struct {
+	Format               string         `json:"format"`
+	SchemaVersion        int            `json:"schema_version"`
+	DatabaseSHA256       string         `json:"database_sha256"`
+	DatabaseBytes        int64          `json:"database_bytes"`
+	Blobs                []RecoveryBlob `json:"blobs"`
+	CredentialProtection string         `json:"credential_protection"`
+	VaultIncluded        bool           `json:"vault_included"`
+	CreatedAt            time.Time      `json:"created_at"`
+}
+
+type FullRecoveryReport struct {
+	Manifest          FullRecoveryManifest `json:"manifest"`
+	IntegrityCheck    string               `json:"integrity_check"`
+	ForeignKeyErrors  int                  `json:"foreign_key_errors"`
+	VerifiedBlobCount int                  `json:"verified_blob_count"`
+	Compatible        bool                 `json:"compatible"`
+}
+
+type VaultCapture struct {
+	Protection      string `json:"protection"`
+	SameMachineOnly bool   `json:"same_machine_only"`
+	SHA256          string `json:"sha256"`
+	Data            []byte `json:"-"`
 }

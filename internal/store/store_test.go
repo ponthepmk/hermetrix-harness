@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestMigrationFromV1AddsLearningAgentAndBindingTables(t *testing.T) {
@@ -449,5 +450,50 @@ func TestMigrationV29RebuildsProjectsWithRealForeignKeyChildren(t *testing.T) {
 	}
 	if version != CurrentSchemaVersion {
 		t.Errorf("schema version = %d after reopening, want %d", version, CurrentSchemaVersion)
+	}
+}
+
+func TestMigrationV43ToV46PreservesPopulatedDatabase(t *testing.T) {
+	root := t.TempDir()
+	dataStore, err := Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := dataStore.LocalPrincipalID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err = dataStore.DB.Exec(`INSERT INTO projects(id,name,root_path,state,created_at,updated_at,owner_principal_id)
+		VALUES('aged-project','Aged Project','', 'active',?,?,?)`, now, now, principal); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"workspace_migration_maps", "workspace_migration_jobs", "share_import_staging", "share_export_jobs",
+		"share_previews", "task_step_escalations", "task_step_failures", "task_planning_decisions", "media_jobs"} {
+		if _, err = dataStore.DB.Exec(`DROP TABLE ` + table); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = dataStore.DB.Exec(`PRAGMA user_version=43`); err != nil {
+		t.Fatal(err)
+	}
+	if err = dataStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(context.Background(), root)
+	if err != nil {
+		t.Fatalf("migrate populated v43 database: %v", err)
+	}
+	defer reopened.Close()
+	var projectName string
+	if err = reopened.DB.QueryRow(`SELECT name FROM projects WHERE id='aged-project'`).Scan(&projectName); err != nil || projectName != "Aged Project" {
+		t.Fatalf("aged row was not preserved: name=%q err=%v", projectName, err)
+	}
+	var version, violations int
+	if err = reopened.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("version=%d err=%v", version, err)
+	}
+	if err = reopened.DB.QueryRow(`SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil || violations != 0 {
+		t.Fatalf("foreign key violations=%d err=%v", violations, err)
 	}
 }

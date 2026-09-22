@@ -48,18 +48,40 @@ type Run struct {
 }
 
 type StepAttempt struct {
-	ID           string      `json:"id"`
-	RunID        string      `json:"run_id"`
-	TaskID       string      `json:"task_id"`
-	StepID       string      `json:"step_id"`
-	StepRevision int         `json:"step_revision"`
-	State        string      `json:"state"`
-	InputHash    string      `json:"input_hash"`
-	Packet       *StepPacket `json:"packet,omitempty"`
-	Output       string      `json:"output,omitempty"`
-	Error        string      `json:"error,omitempty"`
-	StartedAt    time.Time   `json:"started_at"`
-	CompletedAt  *time.Time  `json:"completed_at,omitempty"`
+	ID                   string      `json:"id"`
+	RunID                string      `json:"run_id"`
+	TaskID               string      `json:"task_id"`
+	StepID               string      `json:"step_id"`
+	StepRevision         int         `json:"step_revision"`
+	State                string      `json:"state"`
+	InputHash            string      `json:"input_hash"`
+	Packet               *StepPacket `json:"packet,omitempty"`
+	Output               string      `json:"output,omitempty"`
+	Error                string      `json:"error,omitempty"`
+	InferenceRole        string      `json:"inference_role"`
+	PresetID             string      `json:"preset_id"`
+	PresetRevision       int         `json:"preset_revision"`
+	RuntimeFingerprintID string      `json:"runtime_fingerprint_id,omitempty"`
+	StartedAt            time.Time   `json:"started_at"`
+	CompletedAt          *time.Time  `json:"completed_at,omitempty"`
+}
+
+func (s *Service) BindAttemptInference(ctx context.Context, attemptID, role, presetID string, presetRevision int,
+	runtimeFingerprintID string) error {
+	role, presetID = strings.TrimSpace(role), strings.TrimSpace(presetID)
+	if role == "" || presetID == "" || presetRevision < 1 {
+		return fmt.Errorf("inference role and preset revision are required")
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE task_step_attempts SET inference_role=?,preset_id=?,preset_revision=?,runtime_fingerprint_id=?
+		WHERE id=? AND state='running' AND (preset_revision=0 OR (inference_role=? AND preset_id=? AND preset_revision=? AND runtime_fingerprint_id=?))`,
+		role, presetID, presetRevision, runtimeFingerprintID, attemptID, role, presetID, presetRevision, runtimeFingerprintID)
+	if err != nil {
+		return err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return fmt.Errorf("attempt inference binding is immutable or attempt is not running")
+	}
+	return nil
 }
 
 type EffectIntent struct {
@@ -649,8 +671,10 @@ func (s *Service) getAttempt(ctx context.Context, id string) (StepAttempt, error
 	var item StepAttempt
 	var packetJSON, started string
 	var completed sql.NullString
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id,run_id,task_id,step_id,step_revision,state,input_hash,packet_json,output,error,started_at,completed_at FROM task_step_attempts WHERE id=?`, id).
-		Scan(&item.ID, &item.RunID, &item.TaskID, &item.StepID, &item.StepRevision, &item.State, &item.InputHash, &packetJSON, &item.Output, &item.Error, &started, &completed)
+	err := s.store.DB.QueryRowContext(ctx, `SELECT id,run_id,task_id,step_id,step_revision,state,input_hash,packet_json,output,error,
+		inference_role,preset_id,preset_revision,runtime_fingerprint_id,started_at,completed_at FROM task_step_attempts WHERE id=?`, id).
+		Scan(&item.ID, &item.RunID, &item.TaskID, &item.StepID, &item.StepRevision, &item.State, &item.InputHash, &packetJSON,
+			&item.Output, &item.Error, &item.InferenceRole, &item.PresetID, &item.PresetRevision, &item.RuntimeFingerprintID, &started, &completed)
 	if err != nil {
 		return item, err
 	}

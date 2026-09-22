@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -29,10 +30,12 @@ type Profile struct {
 	// CredentialStored says a token was saved through the control center, as
 	// opposed to coming from the environment or not being needed. It never
 	// carries the token itself.
-	CredentialStored bool   `json:"credential_stored"`
-	ContextWindow    int    `json:"context_window"`
-	ContextEvidence  string `json:"context_evidence"`
-	MaxOutputTokens  int    `json:"max_output_tokens"`
+	CredentialStored     bool   `json:"credential_stored"`
+	ContextWindow        int    `json:"context_window"`
+	ContextEvidence      string `json:"context_evidence"`
+	MaxOutputTokens      int    `json:"max_output_tokens"`
+	ResourceGroup        string `json:"resource_group,omitempty"`
+	RuntimeFingerprintID string `json:"runtime_fingerprint_id,omitempty"`
 	// ReasoningRatio is the share of completion tokens this model spends
 	// thinking, measured from its own responses. Reasoning bills as completion,
 	// so a model at 0.8 leaves a fifth of the output budget for the answer --
@@ -74,14 +77,25 @@ type SaveInput struct {
 	ContextWindow   int    `json:"context_window"`
 	ContextEvidence string `json:"context_evidence,omitempty"`
 	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+	ResourceGroup   string `json:"resource_group,omitempty"`
 	Enabled         *bool  `json:"enabled,omitempty"`
 }
 
 type Message struct {
 	Role       string            `json:"role"`
 	Content    string            `json:"content,omitempty"`
+	Parts      []ContentPart     `json:"parts,omitempty"`
 	ToolCalls  []MessageToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string            `json:"tool_call_id,omitempty"`
+}
+
+type ContentPart struct {
+	Kind       string `json:"kind"`
+	Text       string `json:"text,omitempty"`
+	MediaType  string `json:"media_type,omitempty"`
+	Data       []byte `json:"-"`
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Checksum   string `json:"checksum,omitempty"`
 }
 
 type MessageToolCall struct {
@@ -111,6 +125,14 @@ type ChatRequest struct {
 	Tools       []ToolDefinition `json:"tools,omitempty"`
 	Temperature *float64         `json:"temperature,omitempty"`
 	MaxTokens   int              `json:"max_tokens,omitempty"`
+	// Reasoning is a role contract, translated only by adapters that have
+	// positively identified support for a bounded reasoning transport.
+	Reasoning *ReasoningControl `json:"-"`
+}
+
+type ReasoningControl struct {
+	Mode     string
+	TokenCap int
 }
 
 type Usage struct {
@@ -139,6 +161,17 @@ type Completion struct {
 	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
 	FinishReason string     `json:"finish_reason"`
 	Usage        Usage      `json:"usage"`
+}
+
+// IncompleteCompletionError carries bounded partial evidence without allowing
+// callers to treat it as a completed assistant response or dispatch its tools.
+type IncompleteCompletionError struct {
+	Reason  string
+	Partial Completion
+}
+
+func (e *IncompleteCompletionError) Error() string {
+	return fmt.Sprintf("provider stream incomplete: %s", e.Reason)
 }
 
 type TestResult struct {

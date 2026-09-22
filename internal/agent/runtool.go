@@ -142,7 +142,7 @@ func isJobNotFound(err error) bool {
 // allowedExecutables mirrors the runner's list. It is duplicated on purpose: the
 // runner's refusal is the one that matters for safety, and this one exists so
 // the model is told what it may use instead of only what it may not.
-var allowedExecutables = []string{"go", "git", "node", "npm", "python3", "rg", "ls"}
+var allowedExecutables = []string{"go", "git", "node", "npm", "python", "python3", "rg", "ls"}
 
 func executableAllowed(name string) bool {
 	for _, item := range allowedExecutables {

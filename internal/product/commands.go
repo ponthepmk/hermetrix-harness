@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +28,34 @@ const maxCommandOutput = 2 << 20
 const maxCommandTimeoutSeconds = 600
 
 var allowedExecutables = map[string]bool{
-	"go": true, "git": true, "node": true, "npm": true, "python3": true, "rg": true, "ls": true,
+	"go": true, "git": true, "node": true, "npm": true, "python": true, "python3": true, "rg": true, "ls": true,
+}
+
+// AllowedCommandExecutables returns the exact command vocabulary enforced by
+// StartCommand. Planner prompts use this snapshot so they do not invent shell
+// syntax or checks that the execution boundary will later reject.
+func AllowedCommandExecutables() []string {
+	items := make([]string, 0, len(allowedExecutables))
+	for name := range allowedExecutables {
+		items = append(items, name)
+	}
+	sort.Strings(items)
+	return items
+}
+
+// AvailableCommandExecutables narrows the policy allowlist to programs that
+// this server process can actually launch. Plans must not promise checks that
+// pass policy validation but fail immediately because the executable is absent
+// on the current OS (for example, ls on a stock Windows installation).
+func AvailableCommandExecutables() []string {
+	allowed := AllowedCommandExecutables()
+	available := make([]string, 0, len(allowed))
+	for _, name := range allowed {
+		if _, err := exec.LookPath(name); err == nil {
+			available = append(available, name)
+		}
+	}
+	return available
 }
 
 func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, error) {
@@ -86,9 +114,21 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	}
 	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		cancel()
+		_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE background_jobs SET state='interrupted',
+			error='service shut down before command launch',completed_at=? WHERE id=? AND state='queued'`,
+			formatTime(time.Now().UTC()), job.ID)
+		return Job{}, fmt.Errorf("service is shutting down")
+	}
 	s.cancels[job.ID] = cancel
+	s.commandWG.Add(1)
 	s.mu.Unlock()
-	go s.runCommand(jobCtx, job, project, resolvedExecutable, input)
+	go func() {
+		defer s.commandWG.Done()
+		s.runCommand(jobCtx, job, project, resolvedExecutable, input)
+	}()
 	return job, nil
 }
 
@@ -124,6 +164,20 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		s.mu.Unlock()
 		return
 	}
+	jobRuntimeRoot := filepath.Join(s.store.Root, "runtime", "jobs", job.ID)
+	jobTempDir := filepath.Join(jobRuntimeRoot, "tmp")
+	if err := os.MkdirAll(jobTempDir, 0o700); err != nil {
+		errorMessage := "create isolated command temp directory: " + err.Error()
+		resultJSON, _ := json.Marshal(map[string]any{"exit_code": -1})
+		completed := time.Now().UTC()
+		durability.Exec("mark command temp setup failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,
+	    completed_at=? WHERE id=?`, string(resultJSON), errorMessage, formatTime(completed), job.ID))
+		s.mu.Lock()
+		delete(s.cancels, job.ID)
+		s.mu.Unlock()
+		return
+	}
+	defer os.RemoveAll(jobRuntimeRoot)
 	command, sandbox, sandboxCleanup, sandboxErr := prepareSandboxCommand(ctx, executable, input.Arguments, workingDir, project.RootPath)
 	if sandboxErr != nil {
 		errorMessage := "prepare OS sandbox: " + sandboxErr.Error()
@@ -137,10 +191,17 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		return
 	}
 	defer sandboxCleanup()
-	command.Env = minimalEnvironment()
+	command.Env = minimalEnvironment(jobTempDir)
 	subtreeTerminated := configureProcessTermination(command)
 	command.WaitDelay = 2 * time.Second
 	buffer := &boundedBuffer{limit: maxCommandOutput}
+	s.mu.Lock()
+	if s.commandOutputs == nil {
+		s.commandOutputs = make(map[string]*boundedBuffer)
+	}
+	s.commandOutputs[job.ID] = buffer
+	s.mu.Unlock()
+	defer func() { s.mu.Lock(); delete(s.commandOutputs, job.ID); s.mu.Unlock() }()
 	command.Stdout, command.Stderr = buffer, buffer
 	runStarted := time.Now()
 	err, lifetimeGuaranteed := runCommandProcess(command)
@@ -277,11 +338,9 @@ func (b *boundedBuffer) String() string {
 	return b.buffer.String()
 }
 
-func minimalEnvironment() []string {
-	keys := []string{"PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "TEMP", "TMP", "GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT"}
-	values := []string{}
-	found := map[string]bool{}
-	for _, key := range keys {
+func minimalEnvironment(tempDir string) []string {
+	values, found := platformCommandEnvironment(tempDir)
+	for _, key := range []string{"GOCACHE", "GOMODCACHE", "GOPATH", "GOROOT"} {
 		if value := os.Getenv(key); value != "" {
 			values = append(values, key+"="+value)
 			found[key] = true

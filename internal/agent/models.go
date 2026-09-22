@@ -15,6 +15,11 @@ type Session struct {
 	ProviderName       string          `json:"provider_name,omitempty"`
 	Model              string          `json:"model,omitempty"`
 	ProjectID          string          `json:"project_id,omitempty"`
+	OwnerPrincipalID   string          `json:"owner_principal_id"`
+	Visibility         string          `json:"visibility"`
+	ExportPolicy       string          `json:"export_policy"`
+	SharingRevision    int             `json:"sharing_revision"`
+	EgressPolicy       string          `json:"egress_policy"`
 	ContextProfile     string          `json:"context_profile"`
 	State              string          `json:"state"`
 	ActiveTurnID       string          `json:"active_turn_id,omitempty"`
@@ -32,6 +37,13 @@ type CreateSessionInput struct {
 	ProjectID             string                      `json:"project_id,omitempty"`
 	ContextProfile        string                      `json:"context_profile"`
 	QualificationOverride *QualificationOverrideInput `json:"qualification_override,omitempty"`
+	EgressPolicy          string                      `json:"egress_policy,omitempty"`
+	RemoteEgressApproval  *EgressApprovalInput        `json:"remote_egress_approval,omitempty"`
+}
+
+type EgressApprovalInput struct {
+	Actor  string `json:"actor"`
+	Reason string `json:"reason"`
 }
 
 type QualificationOverrideInput struct {
@@ -40,13 +52,14 @@ type QualificationOverrideInput struct {
 }
 
 type QualificationBinding struct {
-	Mode             string     `json:"mode"`
-	RunID            string     `json:"run_id,omitempty"`
-	ProviderRevision string     `json:"provider_revision"`
-	ContextProfile   string     `json:"context_profile"`
-	Actor            string     `json:"actor,omitempty"`
-	Reason           string     `json:"reason,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Mode                 string     `json:"mode"`
+	RunID                string     `json:"run_id,omitempty"`
+	RuntimeFingerprintID string     `json:"runtime_fingerprint_id,omitempty"`
+	ProviderRevision     string     `json:"provider_revision"`
+	ContextProfile       string     `json:"context_profile"`
+	Actor                string     `json:"actor,omitempty"`
+	Reason               string     `json:"reason,omitempty"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
 }
 
 type SessionSkillBinding struct {
@@ -57,22 +70,41 @@ type SessionSkillBinding struct {
 	Pinned        bool   `json:"pinned"`
 }
 
+type InferencePresetBinding struct {
+	Role              string  `json:"role"`
+	PresetID          string  `json:"preset_id"`
+	PresetRevision    int     `json:"preset_revision"`
+	ContentDigest     string  `json:"content_digest"`
+	ContextTarget     int     `json:"context_target"`
+	ContextMax        int     `json:"context_max"`
+	ReasoningMode     string  `json:"reasoning_mode"`
+	ReasoningTokenCap int     `json:"reasoning_token_cap"`
+	AnswerReserve     int     `json:"answer_reserve"`
+	GenerationCap     int     `json:"generation_cap"`
+	Temperature       float64 `json:"temperature"`
+}
+
 type SessionContract struct {
-	Revision           string                   `json:"revision"`
-	ProviderRevision   string                   `json:"provider_revision"`
-	ProviderID         string                   `json:"provider_id"`
-	Model              string                   `json:"model"`
-	ContextProfile     string                   `json:"context_profile"`
-	ProjectID          string                   `json:"project_id,omitempty"`
-	PolicyRevision     string                   `json:"policy_revision"`
-	CapabilityRevision string                   `json:"capability_revision"`
-	ToolBindings       []toolruntime.Definition `json:"tool_bindings"`
-	SkillCatalog       []SessionSkillBinding    `json:"skill_catalog"`
-	SelectedSkills     []SessionSkillBinding    `json:"selected_skills"`
-	SkillsInitialized  bool                     `json:"skills_initialized"`
-	Qualification      QualificationBinding     `json:"qualification"`
-	CacheEpoch         int                      `json:"cache_epoch"`
-	TaskBudget         TaskBudget               `json:"task_budget"`
+	Revision                 string                   `json:"revision"`
+	ProviderRevision         string                   `json:"provider_revision"`
+	ProviderID               string                   `json:"provider_id"`
+	Model                    string                   `json:"model"`
+	ContextProfile           string                   `json:"context_profile"`
+	ProjectID                string                   `json:"project_id,omitempty"`
+	PolicyRevision           string                   `json:"policy_revision"`
+	CapabilityRevision       string                   `json:"capability_revision"`
+	ToolBindings             []toolruntime.Definition `json:"tool_bindings"`
+	SkillCatalog             []SessionSkillBinding    `json:"skill_catalog"`
+	SelectedSkills           []SessionSkillBinding    `json:"selected_skills"`
+	SkillsInitialized        bool                     `json:"skills_initialized"`
+	Qualification            QualificationBinding     `json:"qualification"`
+	RuntimeFingerprintID     string                   `json:"runtime_fingerprint_id,omitempty"`
+	ResourceBinding          string                   `json:"resource_binding"`
+	TransitionPolicyRevision string                   `json:"transition_policy_revision"`
+	InferencePresets         []InferencePresetBinding `json:"inference_presets"`
+	CacheEpoch               int                      `json:"cache_epoch"`
+	TaskBudget               TaskBudget               `json:"task_budget"`
+	EgressPolicy             string                   `json:"egress_policy"`
 	// ReasoningRatio is the provider's measured reasoning share, frozen here at
 	// session open. Calibration keeps moving between sessions; inside one it
 	// must not, or the output budget would shift under a live conversation and
@@ -100,30 +132,53 @@ type Event struct {
 	EventKind  string         `json:"event_kind"`
 	Role       string         `json:"role,omitempty"`
 	Content    string         `json:"content,omitempty"`
+	Parts      []EventPart    `json:"parts,omitempty"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	ProviderID string         `json:"provider_id,omitempty"`
 	Model      string         `json:"model,omitempty"`
 	CreatedAt  time.Time      `json:"created_at"`
 }
 
+type EventPart struct {
+	ID         string         `json:"id,omitempty"`
+	Ordinal    int            `json:"ordinal"`
+	Kind       string         `json:"kind"`
+	Text       string         `json:"text,omitempty"`
+	ArtifactID string         `json:"artifact_id,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
+type EventPage struct {
+	Items          []Event `json:"items"`
+	OldestSequence int     `json:"oldest_sequence"`
+	NewestSequence int     `json:"newest_sequence"`
+	HasOlder       bool    `json:"has_older"`
+	HasNewer       bool    `json:"has_newer"`
+}
+
 type StepBinding struct {
-	ID                      string                   `json:"id"`
-	SessionID               string                   `json:"session_id"`
-	TurnID                  string                   `json:"turn_id"`
-	StepNumber              int                      `json:"step_number"`
-	ProviderID              string                   `json:"provider_id"`
-	Model                   string                   `json:"model"`
-	ContextSnapshotID       string                   `json:"context_snapshot_id"`
-	CapabilityRevision      string                   `json:"capability_revision"`
-	PolicyRevision          string                   `json:"policy_revision"`
-	SessionContractRevision string                   `json:"session_contract_revision"`
-	CacheEpoch              int                      `json:"cache_epoch"`
-	ToolBindings            []toolruntime.Definition `json:"tool_bindings"`
-	CreatedAt               time.Time                `json:"created_at"`
+	ID                       string                   `json:"id"`
+	SessionID                string                   `json:"session_id"`
+	TurnID                   string                   `json:"turn_id"`
+	StepNumber               int                      `json:"step_number"`
+	ProviderID               string                   `json:"provider_id"`
+	Model                    string                   `json:"model"`
+	ContextSnapshotID        string                   `json:"context_snapshot_id"`
+	CapabilityRevision       string                   `json:"capability_revision"`
+	PolicyRevision           string                   `json:"policy_revision"`
+	SessionContractRevision  string                   `json:"session_contract_revision"`
+	CacheEpoch               int                      `json:"cache_epoch"`
+	PresetID                 string                   `json:"preset_id"`
+	PresetRevision           int                      `json:"preset_revision"`
+	RuntimeFingerprintID     string                   `json:"runtime_fingerprint_id,omitempty"`
+	EffectiveParameterDigest string                   `json:"effective_parameter_digest,omitempty"`
+	ToolBindings             []toolruntime.Definition `json:"tool_bindings"`
+	CreatedAt                time.Time                `json:"created_at"`
 }
 
 type TurnInput struct {
-	Content string `json:"content"`
+	Content string      `json:"content"`
+	Parts   []EventPart `json:"parts,omitempty"`
 }
 
 type TurnResult struct {
@@ -174,6 +229,7 @@ type StreamEvent struct {
 	Result   *TurnResult         `json:"result,omitempty"`
 	Approval *ToolApproval       `json:"approval,omitempty"`
 	Report   *ctxcompiler.Report `json:"context_report,omitempty"`
+	Code     string              `json:"code,omitempty"`
 	Error    string              `json:"error,omitempty"`
 }
 

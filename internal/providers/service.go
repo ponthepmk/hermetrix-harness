@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"hermetrix-harness/internal/identity"
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/store"
 )
 
@@ -31,14 +32,18 @@ func Revision(profile Profile) string {
 		ContextWindow   int    `json:"context_window"`
 		ContextEvidence string `json:"context_evidence"`
 		MaxOutputTokens int    `json:"max_output_tokens"`
+		ResourceGroup   string `json:"resource_group"`
 	}{profile.AdapterKind, profile.BaseURL, profile.Model, profile.APIKeyEnv, profile.ContextWindow,
-		profile.ContextEvidence, profile.MaxOutputTokens}
+		profile.ContextEvidence, profile.MaxOutputTokens, profile.ResourceGroup}
 	encoded, _ := json.Marshal(payload)
 	sum := sha256.Sum256(encoded)
 	return "provider-" + hex.EncodeToString(sum[:8])
 }
 
-var envNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,126}$`)
+var (
+	envNamePattern       = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,126}$`)
+	resourceGroupPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$`)
+)
 
 // CredentialVault is the local store a token typed into the control center is
 // written to. It is optional: with no vault configured every profile falls back
@@ -51,20 +56,35 @@ type CredentialVault interface {
 }
 
 type Service struct {
-	store    *store.Store
-	adapters map[string]Adapter
-	vault    CredentialVault
+	store     *store.Store
+	adapters  map[string]Adapter
+	vault     CredentialVault
+	scheduler *inference.Scheduler
 }
 
 func NewService(dataStore *store.Store, adapter Adapter) *Service {
 	if adapter == nil {
 		adapter = NewOpenAIAdapter(nil)
 	}
-	return &Service{store: dataStore, adapters: map[string]Adapter{
+	return &Service{store: dataStore, scheduler: inference.New(dataStore), adapters: map[string]Adapter{
 		AdapterOpenAICompatible: adapter,
 		AdapterAnthropicNative:  NewAnthropicAdapter(nil),
 		AdapterGeminiNative:     NewGeminiAdapter(nil),
 	}}
+}
+
+func (s *Service) WithScheduler(scheduler *inference.Scheduler) *Service {
+	if scheduler != nil {
+		s.scheduler = scheduler
+	}
+	return s
+}
+
+func (s *Service) InferenceMetrics() inference.Metrics {
+	if s.scheduler == nil {
+		return inference.Metrics{}
+	}
+	return s.scheduler.Metrics()
 }
 
 // WithAdapter overrides one protocol transport. It exists primarily for
@@ -112,6 +132,7 @@ func (s *Service) Save(ctx context.Context, input SaveInput) (Profile, error) {
 	input.BaseURL = strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
 	input.Model = strings.TrimSpace(input.Model)
 	input.APIKeyEnv = strings.TrimSpace(input.APIKeyEnv)
+	input.ResourceGroup = strings.TrimSpace(input.ResourceGroup)
 	if input.AdapterKind == "" {
 		input.AdapterKind = AdapterOpenAICompatible
 	}
@@ -132,17 +153,17 @@ func (s *Service) Save(ctx context.Context, input SaveInput) (Profile, error) {
 	if input.ID == "" {
 		input.ID = identity.New("provider")
 		_, err := s.store.DB.ExecContext(ctx, `INSERT INTO provider_profiles
-      (id,name,adapter_kind,base_url,model,api_key_env,context_window,context_evidence,max_output_tokens,enabled,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, input.ID, input.Name, input.AdapterKind, input.BaseURL, input.Model,
-			input.APIKeyEnv, input.ContextWindow, input.ContextEvidence, input.MaxOutputTokens, boolInt(enabled), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+		  (id,name,adapter_kind,base_url,model,api_key_env,context_window,context_evidence,max_output_tokens,enabled,resource_group,created_at,updated_at)
+		  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, input.ID, input.Name, input.AdapterKind, input.BaseURL, input.Model,
+			input.APIKeyEnv, input.ContextWindow, input.ContextEvidence, input.MaxOutputTokens, boolInt(enabled), input.ResourceGroup, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 		if err != nil {
 			return Profile{}, fmt.Errorf("create provider profile: %w", err)
 		}
 	} else {
 		result, err := s.store.DB.ExecContext(ctx, `UPDATE provider_profiles SET
-      name=?,adapter_kind=?,base_url=?,model=?,api_key_env=?,context_window=?,context_evidence=?,max_output_tokens=?,enabled=?,updated_at=? WHERE id=?`,
+		  name=?,adapter_kind=?,base_url=?,model=?,api_key_env=?,context_window=?,context_evidence=?,max_output_tokens=?,enabled=?,resource_group=?,updated_at=? WHERE id=?`,
 			input.Name, input.AdapterKind, input.BaseURL, input.Model, input.APIKeyEnv, input.ContextWindow,
-			input.ContextEvidence, input.MaxOutputTokens, boolInt(enabled), now.Format(time.RFC3339Nano), input.ID)
+			input.ContextEvidence, input.MaxOutputTokens, boolInt(enabled), input.ResourceGroup, now.Format(time.RFC3339Nano), input.ID)
 		if err != nil {
 			return Profile{}, fmt.Errorf("update provider profile: %w", err)
 		}
@@ -169,7 +190,7 @@ func (s *Service) EnsureByName(ctx context.Context, input SaveInput) (Profile, e
 
 func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,created_at,updated_at
+	context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,resource_group,runtime_fingerprint_id,created_at,updated_at
     FROM provider_profiles ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list provider profiles: %w", err)
@@ -204,14 +225,44 @@ func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (Profile, error) {
 	row := s.store.DB.QueryRowContext(ctx, `SELECT id,name,adapter_kind,base_url,model,api_key_env,context_window,
-    context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,created_at,updated_at
+	context_evidence,max_output_tokens,enabled,reasoning_ratio,reasoning_sample,token_multiplier,token_sample,nonascii_rate,nonascii_sample,token_message_overhead,token_request_overhead,token_overhead_measured_at,resource_group,runtime_fingerprint_id,created_at,updated_at
     FROM provider_profiles WHERE id=?`, id)
 	return s.scanProfile(row)
+}
+
+func (s *Service) ResolveTaskPreset(ctx context.Context, profile Profile, id string, revision int) (inference.Preset, error) {
+	return inference.ResolvePresetForContext(ctx, s.store.DB, id, revision, profile.ContextWindow, profile.MaxOutputTokens, 512)
 }
 
 func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatRequest, emit func(Delta) error) (Completion, error) {
 	if !profile.Enabled {
 		return Completion{}, fmt.Errorf("provider profile is disabled")
+	}
+	if err := s.validateMessageParts(ctx, profile, request.Messages); err != nil {
+		return Completion{}, err
+	}
+	owner := inference.OwnerFromContext(ctx)
+	presetInputMax := 0
+	if owner.RuntimeFingerprintID != "" && profile.RuntimeFingerprintID != owner.RuntimeFingerprintID {
+		return Completion{}, fmt.Errorf("runtime fingerprint changed before dispatch")
+	}
+	if owner.PresetID != "" {
+		preset, presetErr := inference.LoadPreset(ctx, s.store.DB, owner.PresetID, owner.PresetRevision)
+		if presetErr != nil {
+			return Completion{}, presetErr
+		}
+		if preset.Role != owner.PresetRole {
+			return Completion{}, fmt.Errorf("preset role %q cannot be used for inference role %q", preset.Role, owner.PresetRole)
+		}
+		if presetErr = inference.ValidatePreset(preset, profile.ContextWindow, profile.MaxOutputTokens, 512); presetErr != nil {
+			return Completion{}, presetErr
+		}
+		request.MaxTokens = preset.GenerationCap
+		presetInputMax = preset.ContextMax
+		request.Reasoning = &ReasoningControl{Mode: preset.ReasoningMode, TokenCap: preset.ReasoningTokenCap}
+		request.Temperature = new(float64)
+		*request.Temperature = preset.Temperature
+		owner.EffectiveParameterDigest = inference.EffectiveParameterDigest(preset)
 	}
 	key, err := s.credential(profile)
 	if err != nil {
@@ -221,7 +272,143 @@ func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatR
 	if adapter == nil {
 		return Completion{}, fmt.Errorf("provider adapter %q is not registered", profile.AdapterKind)
 	}
-	return adapter.StreamChat(ctx, profile, key, request, emit)
+	resourceKey, local := inferenceResource(profile)
+	promptEstimate := estimateRequestTokens(request)
+	if presetInputMax > 0 && promptEstimate > presetInputMax {
+		return Completion{}, fmt.Errorf("rendered request estimate %d exceeds preset input ceiling %d; reduce the task scope", promptEstimate, presetInputMax)
+	}
+	output := request.MaxTokens
+	if output <= 0 {
+		output = profile.MaxOutputTokens
+	}
+	if promptEstimate+output > profile.ContextWindow {
+		return Completion{}, fmt.Errorf("rendered request estimate plus generation cap exceeds provider context window")
+	}
+	var completion Completion
+	_, err = s.scheduler.Do(ctx, inference.Request{OwnerKind: owner.Kind, OwnerID: owner.ID,
+		SessionID: owner.SessionID, TurnID: owner.TurnID, UsageSource: owner.Source, Priority: owner.Priority,
+		OwnerTokenLimit: owner.TokenLimit, ResourceKey: resourceKey, Local: local, PromptTokens: promptEstimate,
+		OutputTokens: output, PresetID: owner.PresetID, PresetRevision: owner.PresetRevision,
+		RuntimeFingerprintID: owner.RuntimeFingerprintID, EffectiveParameterDigest: owner.EffectiveParameterDigest}, func(dispatchCtx context.Context) (inference.Usage, error) {
+		var dispatchErr error
+		completion, dispatchErr = adapter.StreamChat(dispatchCtx, profile, key, request, emit)
+		return inference.Usage{PromptTokens: completion.Usage.PromptTokens,
+			OutputTokens: completion.Usage.CompletionTokens}, dispatchErr
+	})
+	return completion, err
+}
+
+type UnsupportedCapabilityError struct{ Capability string }
+
+func (e *UnsupportedCapabilityError) Error() string { return "unsupported capability: " + e.Capability }
+
+func (s *Service) validateMessageParts(ctx context.Context, profile Profile, messages []Message) error {
+	images := 0
+	for _, message := range messages {
+		for _, part := range message.Parts {
+			switch part.Kind {
+			case "text":
+				if strings.TrimSpace(part.Text) == "" || len(part.Data) != 0 || part.MediaType != "" {
+					return fmt.Errorf("invalid text message part")
+				}
+			case "image":
+				images++
+				if message.Role != "user" || (part.MediaType != "image/jpeg" && part.MediaType != "image/png" && part.MediaType != "image/webp") ||
+					len(part.Data) == 0 || len(part.Data) > 8<<20 {
+					return fmt.Errorf("invalid or oversized image message part")
+				}
+			default:
+				return &UnsupportedCapabilityError{Capability: "message_part_" + part.Kind}
+			}
+		}
+	}
+	if images == 0 {
+		return nil
+	}
+	if images > 5 {
+		return fmt.Errorf("vision request exceeds five images")
+	}
+	return s.ValidateCapabilities(ctx, profile, "image")
+}
+
+func (s *Service) ValidateCapabilities(ctx context.Context, profile Profile, capabilities ...string) error {
+	needsImage := false
+	for _, capability := range capabilities {
+		if capability != "image" {
+			return &UnsupportedCapabilityError{Capability: capability}
+		}
+		needsImage = true
+	}
+	if !needsImage {
+		return nil
+	}
+	if profile.RuntimeFingerprintID == "" {
+		return &UnsupportedCapabilityError{Capability: "image"}
+	}
+	var raw string
+	err := s.store.DB.QueryRowContext(ctx, `SELECT modalities_json FROM model_qualification_runs WHERE provider_id=?
+		AND runtime_fingerprint_id=? AND eligible=1 AND state='completed' ORDER BY completed_at DESC LIMIT 1`,
+		profile.ID, profile.RuntimeFingerprintID).Scan(&raw)
+	if err != nil {
+		return &UnsupportedCapabilityError{Capability: "image"}
+	}
+	var modalities []string
+	if json.Unmarshal([]byte(raw), &modalities) != nil {
+		return &UnsupportedCapabilityError{Capability: "image"}
+	}
+	for _, modality := range modalities {
+		if modality == "image" {
+			return nil
+		}
+	}
+	return &UnsupportedCapabilityError{Capability: "image"}
+}
+
+func inferenceResource(profile Profile) (string, bool) {
+	parsed, err := url.Parse(profile.BaseURL)
+	local := err == nil && isLoopbackHost(parsed.Hostname())
+	if profile.ResourceGroup != "" {
+		return "group:" + profile.ResourceGroup, local
+	}
+	if local {
+		return "local:" + profile.AdapterKind + ":" + strings.ToLower(parsed.Scheme+"://"+parsed.Host), true
+	}
+	return "remote:" + profile.ID, false
+}
+
+func IsLocalProfile(profile Profile) bool {
+	_, local := inferenceResource(profile)
+	return local
+}
+
+// ResourceBinding is the stable scheduler identity frozen into contracts.
+// It intentionally exposes no credential or request content.
+func ResourceBinding(profile Profile) string {
+	key, _ := inferenceResource(profile)
+	return key
+}
+
+func estimateRequestTokens(request ChatRequest) int {
+	characters := 0
+	for _, message := range request.Messages {
+		characters += len([]rune(message.Content)) + len([]rune(message.ToolCallID))
+		for _, part := range message.Parts {
+			if part.Kind == "text" {
+				characters += len([]rune(part.Text))
+			}
+			if part.Kind == "image" {
+				characters += 4096 * 4
+			}
+		}
+		for _, call := range message.ToolCalls {
+			characters += len([]rune(call.Function.Name)) + len([]rune(call.Function.Arguments))
+		}
+	}
+	for _, tool := range request.Tools {
+		encoded, _ := json.Marshal(tool)
+		characters += len(encoded)
+	}
+	return (characters+3)/4 + len(request.Messages)*4 + 8
 }
 
 // CredentialAppearsIn lets an egress boundary reject source or prompts that
@@ -275,7 +462,7 @@ func (s *Service) scanProfile(row scanner) (Profile, error) {
 		&item.ContextWindow, &item.ContextEvidence, &item.MaxOutputTokens, &enabled,
 		&item.ReasoningRatio, &item.ReasoningSample, &item.TokenMultiplier, &item.TokenSample,
 		&item.NonASCIIRate, &item.NonASCIISample, &item.MessageOverhead, &item.RequestOverhead,
-		&item.OverheadMeasuredAt, &created, &updated); err != nil {
+		&item.OverheadMeasuredAt, &item.ResourceGroup, &item.RuntimeFingerprintID, &created, &updated); err != nil {
 		return Profile{}, err
 	}
 	item.Enabled = enabled != 0
@@ -310,6 +497,9 @@ func validateInput(input SaveInput) error {
 	}
 	if input.APIKeyEnv != "" && !envNamePattern.MatchString(input.APIKeyEnv) {
 		return fmt.Errorf("API key environment variable must use uppercase letters, digits, and underscores")
+	}
+	if input.ResourceGroup != "" && !resourceGroupPattern.MatchString(input.ResourceGroup) {
+		return fmt.Errorf("resource group must be at most 120 letters, digits, dots, underscores, colons, or hyphens")
 	}
 	if input.ContextWindow < 4096 || input.ContextWindow > 2_097_152 {
 		return fmt.Errorf("context window must be between 4k and 2M tokens")

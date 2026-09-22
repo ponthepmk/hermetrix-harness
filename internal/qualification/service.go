@@ -12,6 +12,7 @@ import (
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/localmodel"
 	"hermetrix-harness/internal/providers"
 	hruntime "hermetrix-harness/internal/runtime"
@@ -53,7 +54,9 @@ func (s *Service) Run(ctx context.Context, input Input) (Run, error) {
 	started := time.Now().UTC()
 	run := Run{ID: identity.New("qual"), ProviderID: profile.ID, ProviderName: profile.Name, Model: profile.Model,
 		SuiteRevision: suiteRevision, ProviderRevision: providers.Revision(profile), State: "running", DeclaredContext: profile.ContextWindow,
-		ContextTier: "limited", CapabilityGrade: "C", RequestedProfile: requested.Name, StartedAt: started}
+		ContextTier: "limited", CapabilityGrade: "C", RequestedProfile: requested.Name, StartedAt: started,
+		Modalities: []string{"text"}, Controls: map[string]bool{}}
+	var probeEvidence *localmodel.Result
 	if input.RuntimeProbe != nil {
 		run.RuntimeKind, run.RuntimeEndpoint = input.RuntimeProbe.Runtime, input.RuntimeProbe.Endpoint
 	}
@@ -63,6 +66,8 @@ func (s *Service) Run(ctx context.Context, input Input) (Run, error) {
 		run.DeclaredContext, run.RequestedProfile, formatTime(started)); err != nil {
 		return Run{}, err
 	}
+	ctx = inference.WithOwner(ctx, inference.Owner{Kind: "qualification", ID: run.ID,
+		Source: "qualification", Priority: inference.PriorityQualification})
 
 	if input.RuntimeProbe != nil {
 		probeStarted := time.Now()
@@ -72,6 +77,7 @@ func (s *Service) Run(ctx context.Context, input Input) (Run, error) {
 			check.State, check.Remediation = "failed", probeErr.Error()
 			run.Remediation = append(run.Remediation, "Verify the local runtime endpoint and load the selected model with an explicit context allocation.")
 		} else {
+			probeEvidence = &probe
 			run.AllocatedContext = probe.AllocatedContext
 			run.Results.RuntimeAllocation = probe.Verified
 			check.Evidence = map[string]any{"allocated_context": probe.AllocatedContext, "configured_context": probe.ConfiguredContext,
@@ -83,11 +89,24 @@ func (s *Service) Run(ctx context.Context, input Input) (Run, error) {
 				check.Remediation = "The runtime reported only declared/training context, not the loaded allocation."
 			}
 		}
+		if probeEvidence == nil {
+			probeEvidence = &localmodel.Result{Runtime: input.RuntimeProbe.Runtime, Endpoint: input.RuntimeProbe.Endpoint,
+				Model: input.RuntimeProbe.Model}
+		}
 		run.Results.Checks = append(run.Results.Checks, check)
 	} else {
 		run.Results.Checks = append(run.Results.Checks, Check{Name: "runtime_allocation", State: "not_run",
 			Remediation: "Attach a loopback runtime probe before certifying a local context tier."})
 		run.Remediation = append(run.Remediation, "Runtime allocation is unverified; the declared provider context cannot certify 64k mode.")
+	}
+	fingerprint, fingerprintErr := s.recordRuntimeFingerprint(context.WithoutCancel(ctx), profile, probeEvidence, input.RuntimeIdentity)
+	if fingerprintErr != nil {
+		return s.fail(context.WithoutCancel(ctx), run, fingerprintErr)
+	}
+	run.RuntimeFingerprintID = fingerprint.ID
+	if _, err := s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE model_qualification_runs SET runtime_fingerprint_id=? WHERE id=?`,
+		fingerprint.ID, run.ID); err != nil {
+		return s.fail(context.WithoutCancel(ctx), run, err)
 	}
 
 	if err := s.runBehavioralSuite(ctx, profile, &run); err != nil {
@@ -99,6 +118,10 @@ func (s *Service) Run(ctx context.Context, input Input) (Run, error) {
 	}
 	run.ContextTier = contextTier(requestedContext, run.Results.LongContextRecall)
 	run.CapabilityGrade = capabilityGrade(run.Results)
+	run.Controls = map[string]bool{"streaming": run.Results.Connectivity, "tools": run.Results.NativeToolCall,
+		"structured_output": run.Results.NativeToolCall, "output_cap": run.Results.Connectivity,
+		"temperature": run.Results.Connectivity, "cancellation": run.Results.Cancellation,
+		"token_counting": run.Results.UsageCalibration, "reasoning_mode": false, "reasoning_budget": false}
 	requiredContext := requested.Total
 	run.Eligible = contextCapacity(run.ContextTier) >= requiredContext && run.CapabilityGrade != "C"
 	if !run.Eligible {
@@ -110,11 +133,17 @@ func (s *Service) Run(ctx context.Context, input Input) (Run, error) {
 	run.CompletedAt = &completed
 	resultsJSON, _ := json.Marshal(run.Results)
 	remediationJSON, _ := json.Marshal(unique(run.Remediation))
+	modalitiesJSON, _ := json.Marshal(run.Modalities)
+	controlsJSON, _ := json.Marshal(run.Controls)
 	run.Remediation = unique(run.Remediation)
 	_, err = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE model_qualification_runs SET state='completed',
-		allocated_context=?,context_tier=?,capability_grade=?,eligible=?,requires_decision=?,results_json=?,remediation_json=?,completed_at=? WHERE id=?`,
+		allocated_context=?,context_tier=?,capability_grade=?,eligible=?,requires_decision=?,results_json=?,remediation_json=?,modalities_json=?,controls_json=?,completed_at=? WHERE id=?`,
 		run.AllocatedContext, run.ContextTier, run.CapabilityGrade, run.Eligible, run.RequiresDecision, string(resultsJSON), string(remediationJSON),
-		formatTime(completed), run.ID)
+		string(modalitiesJSON), string(controlsJSON), formatTime(completed), run.ID)
+	if err == nil && run.Eligible {
+		_, err = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE provider_profiles SET runtime_fingerprint_id=?,updated_at=? WHERE id=?`,
+			run.RuntimeFingerprintID, formatTime(completed), profile.ID)
+	}
 	return run, err
 }
 
@@ -317,9 +346,9 @@ func (s *Service) List(ctx context.Context, limit int) ([]Run, error) {
 		limit = 100
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT q.id,q.provider_id,p.name,q.runtime_kind,q.runtime_endpoint,q.model,
-		q.suite_revision,q.provider_revision,q.state,q.declared_context,q.allocated_context,q.context_tier,q.capability_grade,q.requested_profile,
+		q.suite_revision,q.provider_revision,COALESCE(q.runtime_fingerprint_id,''),q.state,q.declared_context,q.allocated_context,q.context_tier,q.capability_grade,q.requested_profile,
 		q.eligible,q.requires_decision,q.results_json,
-      q.remediation_json,q.error,q.started_at,q.completed_at FROM model_qualification_runs q
+		q.remediation_json,q.modalities_json,q.controls_json,q.error,q.started_at,q.completed_at FROM model_qualification_runs q
       LEFT JOIN provider_profiles p ON p.id=q.provider_id ORDER BY q.started_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -469,17 +498,19 @@ type runScanner interface{ Scan(...any) error }
 func scanRun(row runScanner) (Run, error) {
 	var item Run
 	var providerName sql.NullString
-	var resultsJSON, remediationJSON, started string
+	var resultsJSON, remediationJSON, modalitiesJSON, controlsJSON, started string
 	var completed sql.NullString
 	if err := row.Scan(&item.ID, &item.ProviderID, &providerName, &item.RuntimeKind, &item.RuntimeEndpoint, &item.Model,
-		&item.SuiteRevision, &item.ProviderRevision, &item.State, &item.DeclaredContext, &item.AllocatedContext, &item.ContextTier,
+		&item.SuiteRevision, &item.ProviderRevision, &item.RuntimeFingerprintID, &item.State, &item.DeclaredContext, &item.AllocatedContext, &item.ContextTier,
 		&item.CapabilityGrade, &item.RequestedProfile, &item.Eligible, &item.RequiresDecision,
-		&resultsJSON, &remediationJSON, &item.Error, &started, &completed); err != nil {
+		&resultsJSON, &remediationJSON, &modalitiesJSON, &controlsJSON, &item.Error, &started, &completed); err != nil {
 		return Run{}, err
 	}
 	item.ProviderName = providerName.String
 	_ = json.Unmarshal([]byte(resultsJSON), &item.Results)
 	_ = json.Unmarshal([]byte(remediationJSON), &item.Remediation)
+	_ = json.Unmarshal([]byte(modalitiesJSON), &item.Modalities)
+	_ = json.Unmarshal([]byte(controlsJSON), &item.Controls)
 	item.StartedAt, _ = parseTime(started)
 	if completed.Valid {
 		value, _ := parseTime(completed.String)

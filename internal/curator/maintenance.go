@@ -140,6 +140,13 @@ func (s *Service) ApplyGC(ctx context.Context, runID, actor string) (GCRun, erro
 	if snapshot != run.SnapshotRevision || !sameCandidates(candidates, run.Candidates) {
 		return GCRun{}, fmt.Errorf("GC snapshot is stale; run a new dry-run")
 	}
+	claim, err := s.store.DB.ExecContext(ctx, `UPDATE gc_runs SET state='applying',actor=? WHERE id=? AND state='planned'`, actor, run.ID)
+	if err != nil {
+		return GCRun{}, err
+	}
+	if changed, _ := claim.RowsAffected(); changed != 1 {
+		return GCRun{}, fmt.Errorf("GC run is already being applied")
+	}
 	quarantineRoot := filepath.Join(s.store.Root, "blobs", "quarantine", run.ID)
 	moved := []BlobCandidate{}
 	for _, candidate := range run.Candidates {
@@ -154,7 +161,7 @@ func (s *Service) ApplyGC(ctx context.Context, runID, actor string) (GCRun, erro
 			if rollbackFailed {
 				state = "partial_quarantine"
 			}
-			durability.Exec("record GC quarantine failure").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state=?,actor=?,quarantine_path=? WHERE id=?`,
+			durability.Exec("record GC quarantine failure").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state=?,actor=?,quarantine_path=? WHERE id=? AND state='applying'`,
 				state, actor, quarantineRoot, run.ID))
 			return GCRun{}, err
 		}
@@ -162,7 +169,7 @@ func (s *Service) ApplyGC(ctx context.Context, runID, actor string) (GCRun, erro
 	}
 	completed := time.Now().UTC()
 	result, err := s.store.DB.ExecContext(ctx, `UPDATE gc_runs SET state='quarantined',mode='apply',actor=?,quarantine_path=?,
-    completed_at=? WHERE id=? AND state='planned'`, actor, quarantineRoot, formatTime(completed), run.ID)
+		completed_at=? WHERE id=? AND state='applying'`, actor, quarantineRoot, formatTime(completed), run.ID)
 	changed := int64(0)
 	if err == nil {
 		changed, err = result.RowsAffected()
@@ -179,7 +186,10 @@ func (s *Service) ApplyGC(ctx context.Context, runID, actor string) (GCRun, erro
 		}
 		if rollbackFailed {
 			durability.Exec("record partial GC rollback").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE gc_runs SET state='partial_quarantine',actor=?,quarantine_path=?
-				WHERE id=? AND state='planned'`, actor, quarantineRoot, run.ID))
+				WHERE id=? AND state='applying'`, actor, quarantineRoot, run.ID))
+		} else {
+			durability.Exec("release failed GC claim").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx),
+				`UPDATE gc_runs SET state='planned',actor='',quarantine_path='' WHERE id=? AND state='applying'`, run.ID))
 		}
 		return GCRun{}, err
 	}

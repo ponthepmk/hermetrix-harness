@@ -109,11 +109,16 @@ func (s *Service) ExportBackup(ctx context.Context, actor string) (BackupRun, []
 }
 
 func (s *Service) buildBackupPayload(ctx context.Context) (backupPayload, map[string]int, error) {
+	tx, err := s.store.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return backupPayload{}, nil, err
+	}
+	defer tx.Rollback()
 	payload := backupPayload{Tables: map[string][]map[string]any{}, Blobs: map[string]string{}}
 	counts := map[string]int{}
 	refs := map[string]bool{}
 	for _, table := range backupTables {
-		items, err := s.exportTable(ctx, table)
+		items, err := s.exportTableFrom(ctx, tx, table)
 		if err != nil {
 			return payload, nil, fmt.Errorf("export %s: %w", table, err)
 		}
@@ -143,10 +148,21 @@ func (s *Service) buildBackupPayload(ctx context.Context) (backupPayload, map[st
 	}
 	counts["blobs"] = len(payload.Blobs)
 	counts["blob_bytes"] = bytesTotal
+	if err := tx.Commit(); err != nil {
+		return payload, nil, err
+	}
 	return payload, counts, nil
 }
 
 func (s *Service) exportTable(ctx context.Context, table string) ([]map[string]any, error) {
+	return s.exportTableFrom(ctx, s.store.DB, table)
+}
+
+type backupQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func (s *Service) exportTableFrom(ctx context.Context, queryer backupQueryer, table string) ([]map[string]any, error) {
 	allowed := false
 	for _, candidate := range backupTables {
 		allowed = allowed || table == candidate
@@ -154,7 +170,7 @@ func (s *Service) exportTable(ctx context.Context, table string) ([]map[string]a
 	if !allowed {
 		return nil, fmt.Errorf("table is not in backup allowlist")
 	}
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT * FROM `+table)
+	rows, err := queryer.QueryContext(ctx, `SELECT * FROM `+table)
 	if err != nil {
 		return nil, err
 	}

@@ -4,21 +4,35 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const maxProviderResponseBytes = 32 << 20
 
 type OpenAIAdapter struct {
-	client *http.Client
+	client                     *http.Client
+	capabilityMu               sync.Mutex
+	localReasoningCapabilities map[string]localReasoningCapability
 }
+
+type localReasoningCapability struct {
+	Supported bool
+	ExpiresAt time.Time
+}
+
+var llamaReasoningBuild = regexp.MustCompile(`^b([0-9]+)(?:-[0-9a-fA-F]+)?$`)
 
 func NewOpenAIAdapter(client *http.Client) *OpenAIAdapter {
 	if client == nil {
@@ -29,15 +43,26 @@ func NewOpenAIAdapter(client *http.Client) *OpenAIAdapter {
 
 func (a *OpenAIAdapter) StreamChat(ctx context.Context, profile Profile, apiKey string, request ChatRequest, emit func(Delta) error) (Completion, error) {
 	payload := struct {
-		Model         string           `json:"model"`
-		Messages      []Message        `json:"messages"`
-		Tools         []ToolDefinition `json:"tools,omitempty"`
-		Temperature   *float64         `json:"temperature,omitempty"`
-		MaxTokens     int              `json:"max_tokens,omitempty"`
-		Stream        bool             `json:"stream"`
-		StreamOptions map[string]bool  `json:"stream_options,omitempty"`
-	}{Model: profile.Model, Messages: request.Messages, Tools: request.Tools, Temperature: request.Temperature,
+		Model              string           `json:"model"`
+		Messages           []map[string]any `json:"messages"`
+		Tools              []ToolDefinition `json:"tools,omitempty"`
+		Temperature        *float64         `json:"temperature,omitempty"`
+		MaxTokens          int              `json:"max_tokens,omitempty"`
+		Stream             bool             `json:"stream"`
+		StreamOptions      map[string]bool  `json:"stream_options,omitempty"`
+		ReasoningBudget    *int             `json:"reasoning_budget_tokens,omitempty"`
+		ReasoningFormat    string           `json:"reasoning_format,omitempty"`
+		ChatTemplateKwargs map[string]bool  `json:"chat_template_kwargs,omitempty"`
+	}{Model: profile.Model, Messages: openAIMessages(request.Messages), Tools: request.Tools, Temperature: request.Temperature,
 		MaxTokens: request.MaxTokens, Stream: true, StreamOptions: map[string]bool{"include_usage": true}}
+	if request.Reasoning != nil && a.supportsLocalReasoningBudget(ctx, profile, apiKey) {
+		budget := request.Reasoning.TokenCap
+		if request.Reasoning.Mode == "disabled" {
+			budget = 0
+			payload.ChatTemplateKwargs = map[string]bool{"enable_thinking": false}
+		}
+		payload.ReasoningBudget, payload.ReasoningFormat = &budget, "deepseek"
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return Completion{}, fmt.Errorf("encode provider request: %w", err)
@@ -69,9 +94,116 @@ func (a *OpenAIAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 
 	mediaType := response.Header.Get("Content-Type")
 	if !strings.Contains(mediaType, "text/event-stream") {
-		return parseJSONCompletion(io.LimitReader(response.Body, maxProviderResponseBytes), emit)
+		return parseJSONCompletion(response.Body, emit)
 	}
-	return parseSSECompletion(io.LimitReader(response.Body, maxProviderResponseBytes), emit)
+	return parseSSECompletion(response.Body, emit)
+}
+
+// Probe only loopback endpoints, never a hosted OpenAI-compatible service.
+// Capability entries are bounded and tied to the exact profile and runtime
+// identity. The probe carries no prompt, file content or task information.
+func (a *OpenAIAdapter) supportsLocalReasoningBudget(ctx context.Context, profile Profile, apiKey string) bool {
+	if !IsLocalProfile(profile) {
+		return false
+	}
+	key := profile.ID + ":" + Revision(profile) + ":" + profile.RuntimeFingerprintID
+	a.capabilityMu.Lock()
+	cached, ok := a.localReasoningCapabilities[key]
+	a.capabilityMu.Unlock()
+	if ok && cached.ExpiresAt.After(time.Now()) {
+		return cached.Supported
+	}
+	supported := a.probeLocalReasoningBudget(ctx, profile, apiKey)
+	ttl := 15 * time.Second
+	if supported {
+		ttl = 5 * time.Minute
+	}
+	a.capabilityMu.Lock()
+	if a.localReasoningCapabilities == nil || len(a.localReasoningCapabilities) >= 64 {
+		a.localReasoningCapabilities = make(map[string]localReasoningCapability)
+	}
+	a.localReasoningCapabilities[key] = localReasoningCapability{Supported: supported, ExpiresAt: time.Now().Add(ttl)}
+	a.capabilityMu.Unlock()
+	return supported
+}
+
+func (a *OpenAIAdapter) probeLocalReasoningBudget(ctx context.Context, profile Profile, apiKey string) bool {
+	endpoint, err := url.Parse(profile.BaseURL)
+	if err != nil {
+		return false
+	}
+	endpoint.Path = strings.TrimSuffix(strings.TrimRight(endpoint.Path, "/"), "/v1") + "/props"
+	endpoint.RawQuery, endpoint.Fragment = "", ""
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(probeCtx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return false
+	}
+	if apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	client := *a.client
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := client.Do(request)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false
+	}
+	var properties struct {
+		BuildInfo        string          `json:"build_info"`
+		ChatTemplate     string          `json:"chat_template"`
+		ChatTemplateCaps map[string]bool `json:"chat_template_caps"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&properties); err != nil {
+		return false
+	}
+	// llama.cpp's /props identifies its build and Jinja template. The local
+	// thinking template is required before asking its sampler to enforce a
+	// per-request reasoning budget; other compatible servers keep their wire.
+	buildMatch := llamaReasoningBuild.FindStringSubmatch(properties.BuildInfo)
+	if len(buildMatch) != 2 {
+		return false
+	}
+	build, buildErr := strconv.Atoi(buildMatch[1])
+	// b10709 is the oldest build for which this transport is verified. Older
+	// builds keep the compatible payload rather than assuming this extension.
+	return buildErr == nil && build >= 10709 && len(properties.ChatTemplateCaps) > 0 &&
+		strings.Contains(properties.ChatTemplate, "<think>")
+}
+
+func openAIMessages(messages []Message) []map[string]any {
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		item := map[string]any{"role": message.Role}
+		if len(message.Parts) == 0 {
+			item["content"] = message.Content
+		} else {
+			parts := make([]map[string]any, 0, len(message.Parts)+1)
+			if message.Content != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": message.Content})
+			}
+			for _, part := range message.Parts {
+				if part.Kind == "text" {
+					parts = append(parts, map[string]any{"type": "text", "text": part.Text})
+					continue
+				}
+				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data)}})
+			}
+			item["content"] = parts
+		}
+		if len(message.ToolCalls) > 0 {
+			item["tool_calls"] = message.ToolCalls
+		}
+		if message.ToolCallID != "" {
+			item["tool_call_id"] = message.ToolCallID
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 type openAIChunk struct {
@@ -106,10 +238,12 @@ type openAIStreamToolCall struct {
 }
 
 func parseSSECompletion(reader io.Reader, emit func(Delta) error) (Completion, error) {
-	scanner := bufio.NewScanner(reader)
+	limited := &io.LimitedReader{R: reader, N: maxProviderResponseBytes + 1}
+	scanner := bufio.NewScanner(limited)
 	scanner.Buffer(make([]byte, 64<<10), 2<<20)
 	var completion Completion
 	toolCalls := map[int]*ToolCall{}
+	seenChoice := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") || !strings.HasPrefix(line, "data:") {
@@ -127,6 +261,7 @@ func parseSSECompletion(reader io.Reader, emit func(Delta) error) (Completion, e
 		if len(chunk.Choices) == 0 {
 			continue
 		}
+		seenChoice = true
 		choice := chunk.Choices[0]
 		delta := Delta{Content: choice.Delta.Content, Reasoning: choice.Delta.ReasoningContent}
 		completion.Content += delta.Content
@@ -158,7 +293,10 @@ func parseSSECompletion(reader io.Reader, emit func(Delta) error) (Completion, e
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return Completion{}, fmt.Errorf("read provider stream: %w", err)
+		return completion, fmt.Errorf("read provider stream: %w", err)
+	}
+	if limited.N <= 0 {
+		return completion, fmt.Errorf("provider response exceeds %d bytes", maxProviderResponseBytes)
 	}
 	indices := make([]int, 0, len(toolCalls))
 	for index := range toolCalls {
@@ -168,14 +306,28 @@ func parseSSECompletion(reader io.Reader, emit func(Delta) error) (Completion, e
 	for _, index := range indices {
 		completion.ToolCalls = append(completion.ToolCalls, *toolCalls[index])
 	}
+	if reason := validateOpenAICompletion(completion, seenChoice); reason != "" {
+		return completion, &IncompleteCompletionError{Reason: reason, Partial: completion}
+	}
 	return completion, nil
 }
 
 func parseJSONCompletion(reader io.Reader, emit func(Delta) error) (Completion, error) {
+	limited := &io.LimitedReader{R: reader, N: maxProviderResponseBytes + 1}
 	var chunk openAIChunk
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(limited)
 	if err := decoder.Decode(&chunk); err != nil {
 		return Completion{}, fmt.Errorf("decode provider response: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return Completion{}, fmt.Errorf("decode provider response: multiple JSON values")
+		}
+		return Completion{}, fmt.Errorf("decode provider response: %w", err)
+	}
+	if limited.N <= 0 {
+		return Completion{}, fmt.Errorf("provider response exceeds %d bytes", maxProviderResponseBytes)
 	}
 	if len(chunk.Choices) == 0 {
 		return Completion{}, fmt.Errorf("provider response contains no choices")
@@ -187,12 +339,29 @@ func parseJSONCompletion(reader io.Reader, emit func(Delta) error) (Completion, 
 		completion.ToolCalls = append(completion.ToolCalls, ToolCall{Index: index, ID: raw.ID, Type: raw.Type,
 			Name: raw.Function.Name, Arguments: raw.Function.Arguments})
 	}
+	if reason := validateOpenAICompletion(completion, true); reason != "" {
+		return completion, &IncompleteCompletionError{Reason: reason, Partial: completion}
+	}
 	if emit != nil && (completion.Content != "" || completion.Reasoning != "") {
 		if err := emit(Delta{Content: completion.Content, Reasoning: completion.Reasoning}); err != nil {
 			return Completion{}, err
 		}
 	}
 	return completion, nil
+}
+
+func validateOpenAICompletion(completion Completion, seenChoice bool) string {
+	if !seenChoice {
+		return "stream ended without a choice"
+	}
+	switch completion.FinishReason {
+	case "stop", "tool_calls", "length", "content_filter", "function_call":
+	case "":
+		return "stream ended without a finish reason"
+	default:
+		return fmt.Sprintf("unsupported finish reason %q", completion.FinishReason)
+	}
+	return validateCompletionToolCalls(completion)
 }
 
 func mergeUsage(current, next Usage) Usage {

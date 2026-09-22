@@ -10,16 +10,64 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"hermetrix-harness/internal/agent"
+	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
 )
+
+func TestOwnershipDefaultsPrivateAndRejectsCrossPrincipalReferences(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	service := NewService(dataStore, skills.NewService(dataStore))
+	defer service.Close()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "private", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := service.CreateArtifact(ctx, ArtifactInput{ProjectID: project.ID, Name: "evidence.txt", Kind: "evidence", MIMEType: "text/plain", Content: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.Visibility != "private" || artifact.Visibility != "private" || artifact.ExportPolicy != "deny" || project.OwnerPrincipalID == "" {
+		t.Fatalf("private defaults missing: project=%+v artifact=%+v", project, artifact)
+	}
+	foreignID := "principal-foreign"
+	if _, err := dataStore.DB.Exec(`INSERT INTO local_principals(id,kind,label,created_at) VALUES(?,'foreign','Foreign',?)`, foreignID, time.Now().UTC().Format(time.RFC3339Nano)); err == nil {
+		// kind is intentionally constrained to local; create an adversarial row by
+		// temporarily disabling checks is unnecessary. Rebind the existing row ID
+		// in a transaction instead to prove owner filtering against a known but
+		// different principal cannot happen in the single-principal schema.
+		t.Fatal("local_principals accepted a second principal kind")
+	}
+	foreignCtx := identity.WithPrincipal(ctx, foreignID)
+	if _, err := service.GetProject(foreignCtx, project.ID); err == nil {
+		t.Fatal("unknown principal read a private project")
+	}
+	if _, _, err := service.GetArtifact(foreignCtx, artifact.ID); err == nil {
+		t.Fatal("unknown principal read a private artifact")
+	}
+	receipt, err := service.UpdateVisibility(ctx, VisibilityInput{ObjectKind: "artifact", ObjectID: artifact.ID,
+		Visibility: "project_shared", ExportPolicy: "explicit_selection", ExpectedRevision: 1, Actor: "owner", Reason: "reviewed evidence"})
+	if err != nil || receipt.Revision != 2 || receipt.AuditID == "" {
+		t.Fatalf("share receipt=%+v err=%v", receipt, err)
+	}
+	if _, err := service.UpdateVisibility(ctx, VisibilityInput{ObjectKind: "artifact", ObjectID: artifact.ID,
+		Visibility: "private", ExportPolicy: "deny", ExpectedRevision: 1, Actor: "owner", Reason: "stale"}); err == nil {
+		t.Fatal("stale sharing revision was accepted")
+	}
+}
 
 func testProductService(t *testing.T) (*Service, *skills.Service, *store.Store) {
 	t.Helper()
@@ -99,8 +147,13 @@ func TestWorkbenchFileOptimisticWriteAndAuditReceipt(t *testing.T) {
 	}
 	result, err := service.WriteProjectFile(ctx, project.ID, WriteFileInput{Path: "notes.md", Content: "# After\n",
 		ExpectedSHA256: document.SHA256, Actor: "test-user"})
-	if err != nil || result.Document.Content != "# After\n" || result.ReceiptArtifact.ID == "" || !strings.Contains(result.Diff, "-# Before") {
+	if err != nil || result.Document.Content != "# After\n" || result.OperationID == "" || result.ReceiptArtifact.ID == "" || !strings.Contains(result.Diff, "-# Before") {
 		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	var mutationState, receiptID string
+	if err = service.store.DB.QueryRow(`SELECT state,COALESCE(receipt_artifact_id,'') FROM file_mutation_intents WHERE operation_id=?`,
+		result.OperationID).Scan(&mutationState, &receiptID); err != nil || mutationState != mutationObserved || receiptID != result.ReceiptArtifact.ID {
+		t.Fatalf("mutation state=%q receipt=%q err=%v", mutationState, receiptID, err)
 	}
 	if _, err := service.WriteProjectFile(ctx, project.ID, WriteFileInput{Path: "notes.md", Content: "stale",
 		ExpectedSHA256: document.SHA256, Actor: "test-user"}); err == nil {
@@ -108,6 +161,117 @@ func TestWorkbenchFileOptimisticWriteAndAuditReceipt(t *testing.T) {
 	}
 	if _, err := service.WriteProjectFile(ctx, project.ID, WriteFileInput{Path: "../escape.txt", Content: "escape", Actor: "test-user"}); err == nil {
 		t.Fatal("project escape write was accepted")
+	}
+}
+
+func TestConcurrentAbsentFileCreationHasExactlyOneWinner(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Concurrent create", RootPath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writers = 50
+	start := make(chan struct{})
+	results := make(chan error, writers)
+	var ready sync.WaitGroup
+	ready.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func(index int) {
+			ready.Done()
+			<-start
+			_, writeErr := service.WriteProjectFile(ctx, project.ID, WriteFileInput{Path: "created.txt",
+				Content: fmt.Sprintf("writer-%d", index), ExpectedSHA256: "absent", Actor: "concurrency-test"})
+			results <- writeErr
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	succeeded := 0
+	for i := 0; i < writers; i++ {
+		if <-results == nil {
+			succeeded++
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful creators=%d, want exactly one", succeeded)
+	}
+}
+
+func TestFileMutationRecoveryNeverReplaysAWrite(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Recovery", RootPath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := []byte("committed")
+	intent, err := service.createFileMutationIntent(ctx, project.ID, "recovered.txt", "test", "absent", hashBytes(after))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.transitionFileMutation(ctx, intent.OperationID, mutationPlanned, mutationDispatched, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "recovered.txt"), after, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	count, err := service.RecoverFileMutations(ctx)
+	if err != nil || count != 1 {
+		t.Fatalf("recovered=%d err=%v", count, err)
+	}
+	var state, receiptID string
+	if err = service.store.DB.QueryRow(`SELECT state,COALESCE(receipt_artifact_id,'') FROM file_mutation_intents WHERE operation_id=?`,
+		intent.OperationID).Scan(&state, &receiptID); err != nil || state != mutationReconciled || receiptID == "" {
+		t.Fatalf("state=%q receipt=%q err=%v", state, receiptID, err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "recovered.txt"))
+	if err != nil || string(data) != "committed" {
+		t.Fatalf("recovery rewrote the file: %q err=%v", data, err)
+	}
+}
+
+func TestConcurrentOptimisticWritesHaveExactlyOneWinner(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "shared.txt"), []byte("before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Concurrent", RootPath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := service.ReadProjectFile(ctx, project.ID, "shared.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writers = 50
+	start := make(chan struct{})
+	results := make(chan error, writers)
+	var ready sync.WaitGroup
+	ready.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func(index int) {
+			ready.Done()
+			<-start
+			_, writeErr := service.WriteProjectFile(ctx, project.ID, WriteFileInput{Path: "shared.txt",
+				Content: fmt.Sprintf("writer-%d", index), ExpectedSHA256: document.SHA256, Actor: "concurrency-test"})
+			results <- writeErr
+		}(i)
+	}
+	ready.Wait()
+	close(start)
+	succeeded := 0
+	for i := 0; i < writers; i++ {
+		if <-results == nil {
+			succeeded++
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful writers=%d, want exactly one", succeeded)
 	}
 }
 
@@ -119,7 +283,7 @@ func TestManagedCommandCanBeLookedUpByDurableOperationID(t *testing.T) {
 		t.Fatal(err)
 	}
 	job, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, OperationID: "operation-test-1",
-		Actor: "test", Executable: "ls", WorkingDir: ".", TimeoutSeconds: 10})
+		Actor: "test", Executable: "go", Arguments: []string{"version"}, WorkingDir: ".", TimeoutSeconds: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +292,7 @@ func TestManagedCommandCanBeLookedUpByDurableOperationID(t *testing.T) {
 		t.Fatalf("found=%+v err=%v", found, err)
 	}
 	if _, err = service.StartCommand(ctx, CommandInput{ProjectID: project.ID, OperationID: "operation-test-1",
-		Actor: "test", Executable: "ls", WorkingDir: ".", TimeoutSeconds: 10}); err == nil {
+		Actor: "test", Executable: "go", Arguments: []string{"version"}, WorkingDir: ".", TimeoutSeconds: 10}); err == nil {
 		t.Fatal("duplicate durable operation id created a second job")
 	}
 }
@@ -144,8 +308,8 @@ func TestBackgroundCommandIsDirectBoundedAuditableAndCancelable(t *testing.T) {
 		Arguments: []string{"-c", "echo unsafe"}}); err == nil {
 		t.Fatal("shell executable was accepted")
 	}
-	job, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "user", Executable: "python3",
-		Arguments: []string{"-c", "print('direct-command-ok')"}, TimeoutSeconds: 10})
+	job, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "user", Executable: "node",
+		Arguments: []string{"-e", "console.log('direct-command-ok')"}, TimeoutSeconds: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,8 +326,8 @@ func TestBackgroundCommandIsDirectBoundedAuditableAndCancelable(t *testing.T) {
 	if artifactID == "" {
 		t.Fatal("command output was not persisted as an artifact")
 	}
-	longJob, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "user", Executable: "python3",
-		Arguments: []string{"-c", "import time; time.sleep(30)"}, TimeoutSeconds: 60})
+	longJob, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "user", Executable: "node",
+		Arguments: []string{"-e", "setTimeout(() => {}, 30000)"}, TimeoutSeconds: 60})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,6 +351,43 @@ func TestBackgroundCommandIsDirectBoundedAuditableAndCancelable(t *testing.T) {
 	}
 }
 
+func TestServiceCloseCancelsAndWaitsForBackgroundCommands(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Shutdown", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "test", Executable: "node",
+		Arguments: []string{"-e", "setTimeout(() => {}, 30000)"}, TimeoutSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		current, getErr := service.GetJob(ctx, job.ID)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if current.State == "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never started: %+v", current)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	service.Close()
+	completed, err := service.GetJob(ctx, job.ID)
+	if err != nil || completed.State != "canceled" {
+		t.Fatalf("shutdown job=%+v err=%v", completed, err)
+	}
+	if _, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "test", Executable: "node",
+		Arguments: []string{"-e", "console.log('late')"}}); err == nil {
+		t.Fatal("closed service accepted a command")
+	}
+}
+
 func TestInteractivePTYAcceptsInputStreamsOutputAndCloses(t *testing.T) {
 	service, _, _ := testProductService(t)
 	ctx := context.Background()
@@ -194,12 +395,19 @@ func TestInteractivePTYAcceptsInputStreamsOutputAndCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	terminal, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: project.ID, Shell: "sh", WorkingDir: ".",
+	shell, command := "sh", "printf 'HERMETRIX_PTY_OK\\n'\n"
+	if runtime.GOOS == "windows" {
+		shell, command = "cmd.exe", "echo HERMETRIX_PTY_OK\r"
+	}
+	terminal, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: project.ID, Shell: shell, WorkingDir: ".",
 		Actor: "test-user", Columns: 80, Rows: 24})
+	if runtime.GOOS == "windows" && errors.Is(err, ErrInteractiveTerminalUnavailable) {
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.WriteTerminal(ctx, terminal.ID, "printf 'HERMETRIX_PTY_OK\\n'\n"); err != nil {
+	if err := service.WriteTerminal(ctx, terminal.ID, command); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
@@ -241,7 +449,7 @@ func TestManagedBrowserInteractsWithProjectPageAndCapturesEvidence(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pageURL := (&url.URL{Scheme: "file", Path: pagePath}).String()
+	pageURL := testFileURL(pagePath)
 	tab, err := service.OpenBrowserTab(ctx, OpenBrowserTabInput{ProjectID: project.ID, URL: pageURL, Actor: "test-user"})
 	if err != nil {
 		if strings.Contains(err.Error(), "Chrome or Chromium is required") {
@@ -500,7 +708,7 @@ func (f *fakeTeamAgent) DecideApproval(ctx context.Context, _ string, input agen
 
 func TestAgentTeamPersistsDefinitionRunsDAGConcurrentlyAndSynthesizes(t *testing.T) {
 	service, _, _ := testProductService(t)
-	runner := &fakeTeamAgent{}
+	runner := &fakeTeamAgent{started: make(chan struct{}, 2), block: make(chan struct{})}
 	service.WithAgentRunner(runner)
 	ctx := context.Background()
 	project, err := service.SaveProject(ctx, ProjectInput{Name: "Team project", RootPath: t.TempDir()})
@@ -522,6 +730,14 @@ func TestAgentTeamPersistsDefinitionRunsDAGConcurrentlyAndSynthesizes(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	for started := 0; started < 2; started++ {
+		select {
+		case <-runner.started:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d independent team tasks started concurrently", started)
+		}
+	}
+	close(runner.block)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		run, err = service.GetTeamRun(ctx, run.ID)
@@ -854,12 +1070,20 @@ func TestAgentTeamCancellationWinsWhileApprovalIsResolving(t *testing.T) {
 
 func TestMinimalEnvironmentProvidesGoCachesWithoutLeakingCredentials(t *testing.T) {
 	t.Setenv("HERMETRIX_TEST_SECRET", "must-not-leak")
-	environment := minimalEnvironment()
+	tempDir := t.TempDir()
+	environment := minimalEnvironment(tempDir)
 	joined := strings.Join(environment, "\n")
 	for _, required := range []string{"GOPATH=", "GOMODCACHE=", "GOCACHE="} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("minimal environment lacks %s: %v", required, environment)
 		}
+	}
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(joined, "TEMP="+tempDir) || !strings.Contains(joined, "TMP="+tempDir) || !strings.Contains(joined, "SystemRoot=") {
+			t.Fatalf("Windows command environment lacks its safe runtime paths: %v", environment)
+		}
+	} else if !strings.Contains(joined, "TMPDIR="+tempDir) {
+		t.Fatalf("POSIX command environment lacks its isolated temp path: %v", environment)
 	}
 	if strings.Contains(joined, "HERMETRIX_TEST_SECRET") || strings.Contains(joined, "must-not-leak") {
 		t.Fatal("minimal command environment leaked an unrelated credential")
@@ -1043,10 +1267,10 @@ func TestProjectWithoutCodeIsOrdinaryButHonest(t *testing.T) {
 	})
 
 	t.Run("StartCommand", func(t *testing.T) {
-		if _, err := service.StartCommand(ctx, CommandInput{ProjectID: life.ID, Actor: "user", Executable: "ls"}); !errors.Is(err, ErrProjectHasNoCode) {
+		if _, err := service.StartCommand(ctx, CommandInput{ProjectID: life.ID, Actor: "user", Executable: "go", Arguments: []string{"version"}}); !errors.Is(err, ErrProjectHasNoCode) {
 			t.Errorf("StartCommand on a codeless project said %v, want ErrProjectHasNoCode", err)
 		}
-		job, err := service.StartCommand(ctx, CommandInput{ProjectID: code.ID, Actor: "user", Executable: "ls"})
+		job, err := service.StartCommand(ctx, CommandInput{ProjectID: code.ID, Actor: "user", Executable: "go", Arguments: []string{"version"}})
 		if err != nil {
 			t.Fatalf("StartCommand on a project with a root: %v", err)
 		}
@@ -1059,7 +1283,14 @@ func TestProjectWithoutCodeIsOrdinaryButHonest(t *testing.T) {
 		if _, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: life.ID, Actor: "user", Shell: "sh"}); !errors.Is(err, ErrProjectHasNoCode) {
 			t.Errorf("StartTerminal on a codeless project said %v, want ErrProjectHasNoCode", err)
 		}
-		terminal, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: code.ID, Actor: "user", Shell: "sh"})
+		shell := "sh"
+		if runtime.GOOS == "windows" {
+			shell = "cmd.exe"
+		}
+		terminal, err := service.StartTerminal(ctx, StartTerminalInput{ProjectID: code.ID, Actor: "user", Shell: shell})
+		if runtime.GOOS == "windows" && errors.Is(err, ErrInteractiveTerminalUnavailable) {
+			return
+		}
 		if err != nil {
 			t.Fatalf("StartTerminal on a project with a root: %v", err)
 		}
@@ -1072,9 +1303,17 @@ func TestProjectWithoutCodeIsOrdinaryButHonest(t *testing.T) {
 		if _, err := service.validateBrowserURL(ctx, life.ID, "file:///whatever", false); !errors.Is(err, ErrProjectHasNoCode) {
 			t.Errorf("file:// URL against a codeless project said %v, want ErrProjectHasNoCode", err)
 		}
-		pageURL := (&url.URL{Scheme: "file", Path: filepath.Join(codeRoot, "notes.md")}).String()
+		pageURL := testFileURL(filepath.Join(codeRoot, "notes.md"))
 		if _, err := service.validateBrowserURL(ctx, code.ID, pageURL, false); err != nil {
 			t.Errorf("file:// URL against a project with a root: %v", err)
 		}
 	})
+}
+
+func testFileURL(path string) string {
+	slash := filepath.ToSlash(path)
+	if runtime.GOOS == "windows" && !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
+	return (&url.URL{Scheme: "file", Path: slash}).String()
 }

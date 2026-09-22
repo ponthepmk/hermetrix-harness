@@ -13,7 +13,6 @@
 package secrets
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +24,12 @@ import (
 // FileName is the vault's name inside the data directory. The backup exporter
 // must never include it.
 const FileName = "secrets.json"
+
+// Protection reports the mechanism used by this build without exposing any
+// credential material. It is included in the runtime capability response so
+// clients can distinguish an encrypted Windows vault from owner-only POSIX
+// storage before accepting a credential.
+func Protection() string { return vaultProtection() }
 
 // Vault is a process-wide map of secret reference to token value, persisted to
 // one 0600 file. Callers address a token by a stable reference -- "provider:ID"
@@ -54,11 +59,23 @@ func Open(dataRoot string) (*Vault, error) {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return vault, nil
 	}
-	if err := json.Unmarshal(data, &vault.values); err != nil {
+	values, migrate, err := decodeVault(data)
+	if err != nil {
 		return nil, fmt.Errorf("credential vault %s is not readable JSON: %w", vault.path, err)
 	}
-	if vault.values == nil {
-		vault.values = map[string]string{}
+	vault.values = values
+	if migrate {
+		if err = vault.persistValues(values); err != nil {
+			return nil, fmt.Errorf("migrate credential vault protection: %w", err)
+		}
+		written, readErr := os.ReadFile(vault.path)
+		if readErr != nil {
+			return nil, fmt.Errorf("verify migrated credential vault: %w", readErr)
+		}
+		verified, _, decodeErr := decodeVault(written)
+		if decodeErr != nil || !equalValues(verified, values) {
+			return nil, fmt.Errorf("verify migrated credential vault: protected values do not round-trip")
+		}
 	}
 	return vault, nil
 }
@@ -95,12 +112,20 @@ func (v *Vault) Set(ref, token string) error {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if strings.TrimSpace(token) == "" {
-		delete(v.values, ref)
-	} else {
-		v.values[ref] = token
+	next := make(map[string]string, len(v.values)+1)
+	for key, value := range v.values {
+		next[key] = value
 	}
-	return v.persistLocked()
+	if strings.TrimSpace(token) == "" {
+		delete(next, ref)
+	} else {
+		next[ref] = token
+	}
+	if err := v.persistValues(next); err != nil {
+		return err
+	}
+	v.values = next
+	return nil
 }
 
 // Delete removes every token stored for ref.
@@ -109,12 +134,12 @@ func (v *Vault) Delete(ref string) error { return v.Set(ref, "") }
 // persistLocked writes the whole map through a temporary file in the same
 // directory, so a crash mid-write leaves the previous vault intact rather than
 // a truncated one. The permissions are set before any secret is written.
-func (v *Vault) persistLocked() error {
+func (v *Vault) persistValues(values map[string]string) error {
 	directory := filepath.Dir(v.path)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create credential vault directory: %w", err)
 	}
-	encoded, err := json.MarshalIndent(v.values, "", "  ")
+	encoded, err := encodeVault(values)
 	if err != nil {
 		return fmt.Errorf("encode credential vault: %w", err)
 	}
@@ -143,4 +168,16 @@ func (v *Vault) persistLocked() error {
 		return fmt.Errorf("replace credential vault: %w", err)
 	}
 	return os.Chmod(v.path, 0o600)
+}
+
+func equalValues(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
 }

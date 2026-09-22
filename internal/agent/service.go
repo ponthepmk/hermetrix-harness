@@ -18,6 +18,7 @@ import (
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/identity"
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/runtime"
@@ -81,9 +82,26 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 	if !provider.Enabled {
 		return Session{}, fmt.Errorf("provider profile is disabled")
 	}
+	egressPolicy := strings.TrimSpace(input.EgressPolicy)
+	if egressPolicy == "" {
+		egressPolicy = "local_only"
+	}
+	if egressPolicy != "local_only" && egressPolicy != "remote_allowed" {
+		return Session{}, fmt.Errorf("egress_policy must be local_only or remote_allowed")
+	}
+	if !providers.IsLocalProfile(provider) {
+		if egressPolicy != "remote_allowed" || input.RemoteEgressApproval == nil ||
+			strings.TrimSpace(input.RemoteEgressApproval.Actor) == "" || strings.TrimSpace(input.RemoteEgressApproval.Reason) == "" {
+			return Session{}, fmt.Errorf("remote provider requires explicit remote_allowed egress approval with actor and reason")
+		}
+	}
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Session{}, err
+	}
 	if input.ProjectID != "" {
 		var exists int
-		if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id=? AND state='active'`, input.ProjectID).Scan(&exists); err != nil || exists != 1 {
+		if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id=? AND state='active' AND owner_principal_id=?`, input.ProjectID, ownerID).Scan(&exists); err != nil || exists != 1 {
 			return Session{}, fmt.Errorf("project is missing or inactive")
 		}
 	}
@@ -116,7 +134,7 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 		return Session{}, fmt.Errorf("session title must be at most 120 characters")
 	}
 	now := time.Now().UTC()
-	contract, err := s.buildSessionContract(ctx, provider, profile, input.ProjectID, qualification, now)
+	contract, err := s.buildSessionContract(ctx, provider, profile, input.ProjectID, qualification, egressPolicy, now)
 	if err != nil {
 		return Session{}, fmt.Errorf("build session contract: %w", err)
 	}
@@ -126,12 +144,14 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 	}
 	item := Session{ID: identity.New("session"), Title: title, ProviderID: provider.ID, ProviderName: provider.Name,
 		Model: provider.Model, ProjectID: input.ProjectID, ContextProfile: profile.Name, State: "active",
+		OwnerPrincipalID: ownerID, Visibility: "private", ExportPolicy: "deny", SharingRevision: 1, EgressPolicy: egressPolicy,
 		Contract: contract, ContractRevision: contract.Revision, CacheEpoch: contract.CacheEpoch,
 		QualificationRunID: qualification.RunID, CreatedAt: now, UpdatedAt: now}
 	_, err = s.store.DB.ExecContext(ctx, `INSERT INTO agent_sessions(id,title,provider_id,project_id,context_profile,state,
-		contract_json,contract_revision,cache_epoch,qualification_run_id,created_at,updated_at)
-	    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID, item.Title, item.ProviderID, nullIfEmpty(item.ProjectID), item.ContextProfile,
-		item.State, string(contractJSON), contract.Revision, contract.CacheEpoch, qualification.RunID, formatTime(now), formatTime(now))
+		contract_json,contract_revision,cache_epoch,qualification_run_id,created_at,updated_at,owner_principal_id,visibility,export_policy,sharing_revision,egress_policy)
+	    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID, item.Title, item.ProviderID, nullIfEmpty(item.ProjectID), item.ContextProfile,
+		item.State, string(contractJSON), contract.Revision, contract.CacheEpoch, qualification.RunID, formatTime(now), formatTime(now),
+		item.OwnerPrincipalID, item.Visibility, item.ExportPolicy, item.SharingRevision, item.EgressPolicy)
 	if err != nil {
 		return Session{}, fmt.Errorf("create agent session: %w", err)
 	}
@@ -141,18 +161,19 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 func (s *Service) resolveQualification(ctx context.Context, provider providers.Profile, profile ctxcompiler.Profile,
 	override *QualificationOverrideInput) (QualificationBinding, error) {
 	providerRevision := providers.Revision(provider)
-	binding := QualificationBinding{ProviderRevision: providerRevision, ContextProfile: profile.Name}
+	binding := QualificationBinding{ProviderRevision: providerRevision, ContextProfile: profile.Name,
+		RuntimeFingerprintID: provider.RuntimeFingerprintID}
 	if profile.Name == "compact-32k" {
 		binding.Mode = "compatibility"
 		return binding, nil
 	}
-	var runID string
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id FROM model_qualification_runs
+	var runID, runtimeFingerprintID string
+	err := s.store.DB.QueryRowContext(ctx, `SELECT id,COALESCE(runtime_fingerprint_id,'') FROM model_qualification_runs
 		WHERE provider_id=? AND model=? AND provider_revision=? AND requested_profile=?
 		AND state='completed' AND eligible=1 ORDER BY completed_at DESC LIMIT 1`, provider.ID, provider.Model,
-		providerRevision, profile.Name).Scan(&runID)
+		providerRevision, profile.Name).Scan(&runID, &runtimeFingerprintID)
 	if err == nil {
-		binding.Mode, binding.RunID = "qualified", runID
+		binding.Mode, binding.RunID, binding.RuntimeFingerprintID = "qualified", runID, runtimeFingerprintID
 		return binding, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -175,13 +196,25 @@ func (s *Service) resolveQualification(ctx context.Context, provider providers.P
 }
 
 func (s *Service) buildSessionContract(ctx context.Context, provider providers.Profile, profile ctxcompiler.Profile,
-	projectID string, qualification QualificationBinding, createdAt time.Time) (SessionContract, error) {
+	projectID string, qualification QualificationBinding, egressPolicy string, createdAt time.Time) (SessionContract, error) {
 	contract := SessionContract{ProviderRevision: providers.Revision(provider), ProviderID: provider.ID, Model: provider.Model,
 		ContextProfile: profile.Name, ProjectID: projectID, PolicyRevision: policyRevision,
 		CapabilityRevision: "no-tools-v1", Qualification: qualification, CacheEpoch: 1, CreatedAt: createdAt,
+		RuntimeFingerprintID: qualification.RuntimeFingerprintID, ResourceBinding: providers.ResourceBinding(provider),
+		TransitionPolicyRevision: "role-transition-v1", InferencePresets: []InferencePresetBinding{},
 		ReasoningRatio: provider.ReasoningRatio, AnswerBudget: answerBudget(profile.OutputReserve, provider.ReasoningRatio),
-		SkillCatalog: []SessionSkillBinding{}, SelectedSkills: []SessionSkillBinding{}, TaskBudget: TaskBudget{
+		SkillCatalog: []SessionSkillBinding{}, SelectedSkills: []SessionSkillBinding{}, EgressPolicy: egressPolicy, TaskBudget: TaskBudget{
 			MaxModelSteps: 12, MaxToolCalls: 24, MaxWallTimeSeconds: 600, MaxCumulativeTokens: profile.Total * 6}}
+	for _, presetID := range []string{"planner", "worker", "worker-debug"} {
+		preset, err := inference.LoadPreset(ctx, s.store.DB, presetID, 1)
+		if err != nil {
+			return SessionContract{}, err
+		}
+		contract.InferencePresets = append(contract.InferencePresets, InferencePresetBinding{Role: preset.Role, PresetID: preset.ID,
+			PresetRevision: preset.Revision, ContentDigest: preset.ContentDigest, ContextTarget: preset.ContextTarget,
+			ContextMax: preset.ContextMax, ReasoningMode: preset.ReasoningMode, ReasoningTokenCap: preset.ReasoningTokenCap,
+			AnswerReserve: preset.AnswerReserve, GenerationCap: preset.GenerationCap, Temperature: preset.Temperature})
+	}
 	if s.tools != nil {
 		contract.CapabilityRevision = s.tools.Revision()
 		contract.ToolBindings = s.tools.Definitions()
@@ -211,9 +244,14 @@ func sessionContractRevision(contract SessionContract) string {
 }
 
 func (s *Service) ListSessions(ctx context.Context) ([]Session, error) {
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT s.id,s.title,s.provider_id,p.name,p.model,COALESCE(s.project_id,''),s.context_profile,s.state,
-		COALESCE(s.active_turn_id,''),s.contract_json,s.contract_revision,s.cache_epoch,s.qualification_run_id,s.created_at,s.updated_at
-    FROM agent_sessions s JOIN provider_profiles p ON p.id=s.provider_id ORDER BY s.updated_at DESC`)
+		COALESCE(s.active_turn_id,''),s.contract_json,s.contract_revision,s.cache_epoch,s.qualification_run_id,s.created_at,s.updated_at,
+		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision,s.egress_policy
+	FROM agent_sessions s JOIN provider_profiles p ON p.id=s.provider_id WHERE s.owner_principal_id=? ORDER BY s.updated_at DESC`, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -230,9 +268,14 @@ func (s *Service) ListSessions(ctx context.Context) ([]Session, error) {
 }
 
 func (s *Service) GetSession(ctx context.Context, id string) (Session, error) {
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Session{}, err
+	}
 	row := s.store.DB.QueryRowContext(ctx, `SELECT s.id,s.title,s.provider_id,p.name,p.model,COALESCE(s.project_id,''),s.context_profile,s.state,
-		COALESCE(s.active_turn_id,''),s.contract_json,s.contract_revision,s.cache_epoch,s.qualification_run_id,s.created_at,s.updated_at
-    FROM agent_sessions s JOIN provider_profiles p ON p.id=s.provider_id WHERE s.id=?`, id)
+		COALESCE(s.active_turn_id,''),s.contract_json,s.contract_revision,s.cache_epoch,s.qualification_run_id,s.created_at,s.updated_at,
+		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision,s.egress_policy
+	FROM agent_sessions s JOIN provider_profiles p ON p.id=s.provider_id WHERE s.id=? AND s.owner_principal_id=?`, id, ownerID)
 	return scanSession(row)
 }
 
@@ -267,13 +310,95 @@ func (s *Service) ListEvents(ctx context.Context, sessionID string) ([]Event, er
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close()
+	for index := range items {
+		items[index].Parts, err = loadEventParts(ctx, s.store.DB, items[index].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
+// ListEventsPage is the bounded UI/read API. after and before are exclusive;
+// zero means the corresponding cursor is absent. Items are always returned in
+// canonical ascending sequence order.
+func (s *Service) ListEventsPage(ctx context.Context, sessionID string, after, before, limit int) (EventPage, error) {
+	if after > 0 && before > 0 {
+		return EventPage{}, fmt.Errorf("after_sequence and before_sequence are mutually exclusive")
+	}
+	if limit < 1 || limit > 200 {
+		return EventPage{}, fmt.Errorf("limit must be between 1 and 200")
+	}
+	query := `SELECT id,session_id,turn_id,sequence,event_kind,role,content,metadata_json,
+		COALESCE(provider_id,''),model,created_at FROM agent_events WHERE session_id=?`
+	args := []any{sessionID}
+	order := " ORDER BY sequence ASC LIMIT ?"
+	if after > 0 {
+		query += " AND sequence>?"
+		args = append(args, after)
+	} else if before > 0 {
+		query += " AND sequence<?"
+		args = append(args, before)
+		order = " ORDER BY sequence DESC LIMIT ?"
+	}
+	args = append(args, limit+1)
+	rows, err := s.store.DB.QueryContext(ctx, query+order, args...)
+	if err != nil {
+		return EventPage{}, err
+	}
+	defer rows.Close()
+	items := make([]Event, 0, limit+1)
+	for rows.Next() {
+		item, scanErr := scanEvent(rows)
+		if scanErr != nil {
+			return EventPage{}, scanErr
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return EventPage{}, err
+	}
+	_ = rows.Close()
+	if before > 0 {
+		for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
+			items[left], items[right] = items[right], items[left]
+		}
+	}
+	if len(items) > limit {
+		if before > 0 {
+			items = items[1:]
+		} else {
+			items = items[:limit]
+		}
+	}
+	for index := range items {
+		items[index].Parts, err = loadEventParts(ctx, s.store.DB, items[index].ID)
+		if err != nil {
+			return EventPage{}, err
+		}
+	}
+	page := EventPage{Items: items}
+	if len(items) == 0 {
+		return page, nil
+	}
+	page.OldestSequence = items[0].Sequence
+	page.NewestSequence = items[len(items)-1].Sequence
+	if err := s.store.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_events WHERE session_id=? AND sequence<?),
+		EXISTS(SELECT 1 FROM agent_events WHERE session_id=? AND sequence>?)`, sessionID, page.OldestSequence,
+		sessionID, page.NewestSequence).Scan(&page.HasOlder, &page.HasNewer); err != nil {
+		return EventPage{}, err
+	}
+	return page, nil
 }
 
 func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput, emit func(StreamEvent) error) (TurnResult, error) {
 	content := strings.TrimSpace(input.Content)
-	if content == "" {
-		return TurnResult{}, fmt.Errorf("message content is required")
+	if (content == "") == (len(input.Parts) == 0) {
+		return TurnResult{}, fmt.Errorf("provide exactly one of message content or multipart parts")
 	}
 	if len(content) > maxUserMessage {
 		return TurnResult{}, fmt.Errorf("message exceeds 1 MiB limit")
@@ -296,8 +421,8 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 	if session.Contract.Revision == "" {
 		return TurnResult{}, fmt.Errorf("session predates immutable contracts; start a new session to bind provider, qualification, tools and skills safely")
 	}
-	if providers.Revision(provider) != session.Contract.ProviderRevision || provider.Model != session.Contract.Model {
-		return TurnResult{}, fmt.Errorf("provider/model revision changed after session creation; start a new session rather than mutating a cached conversation")
+	if err := ValidateSamplingContract(session, provider); err != nil {
+		return TurnResult{}, err
 	}
 	if session.Contract.PolicyRevision != policyRevision {
 		return TurnResult{}, fmt.Errorf("agent policy revision changed after session creation; start a new session or create an explicit cache epoch")
@@ -305,13 +430,21 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 	if expiry := session.Contract.Qualification.ExpiresAt; expiry != nil && time.Now().UTC().After(*expiry) {
 		return TurnResult{}, fmt.Errorf("the explicit context qualification override expired; re-qualify or create a reviewed override in a new session")
 	}
+	parts := []EventPart(nil)
+	goalContent := content
+	if len(input.Parts) > 0 {
+		parts, goalContent, err = s.validateTurnParts(ctx, session, input.Parts)
+		if err != nil {
+			return TurnResult{}, err
+		}
+	}
 	turnID := identity.New("turn")
-	userEvent, err := s.acquireTurn(ctx, session, provider, turnID, content)
+	userEvent, err := s.acquireTurn(ctx, session, provider, turnID, content, parts)
 	if err != nil {
 		return TurnResult{}, err
 	}
 	session.State, session.ActiveTurnID = "running", turnID
-	session, err = s.initializeSessionSkills(ctx, session, turnID, content)
+	session, err = s.initializeSessionSkills(ctx, session, turnID, goalContent)
 	if err != nil {
 		_, _ = s.failTurn(context.WithoutCancel(ctx), session, provider, turnID, err)
 		return TurnResult{}, err
@@ -338,7 +471,8 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 	if err != nil {
 		failure, persistErr := s.failTurn(context.WithoutCancel(ctx), session, provider, turnID, err)
 		if persistErr == nil && emit != nil {
-			_ = emit(StreamEvent{Type: "failed", TurnID: turnID, Event: &failure, Error: safeError(err)})
+			_ = emit(StreamEvent{Type: "failed", TurnID: turnID, Event: &failure,
+				Code: providerErrorCode(err), Error: safeError(err)})
 		}
 		if s.learning != nil {
 			_, _ = s.learning.DrainPending(context.WithoutCancel(ctx), 10)
@@ -356,11 +490,50 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 	return result, nil
 }
 
-func (s *Service) acquireTurn(ctx context.Context, session Session, provider providers.Profile, turnID, content string) (Event, error) {
+// ValidateTurnInput performs all request-shape, artifact authorization and
+// modality qualification checks that can fail before streaming headers or a
+// durable turn lease are committed.
+func (s *Service) ValidateTurnInput(ctx context.Context, sessionID string, input TurnInput) error {
+	content := strings.TrimSpace(input.Content)
+	if (content == "") == (len(input.Parts) == 0) {
+		return fmt.Errorf("provide exactly one of message content or multipart parts")
+	}
+	if len(content) > maxUserMessage {
+		return fmt.Errorf("message exceeds 1 MiB limit")
+	}
+	session, err := s.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if len(input.Parts) == 0 {
+		return nil
+	}
+	parts, _, err := s.validateTurnParts(ctx, session, input.Parts)
+	if err != nil {
+		return err
+	}
+	needsImage := false
+	for _, part := range parts {
+		if part.Kind == "image" {
+			needsImage = true
+		}
+	}
+	if needsImage {
+		profile, loadErr := s.providers.Get(ctx, session.ProviderID)
+		if loadErr != nil {
+			return loadErr
+		}
+		return s.providers.ValidateCapabilities(ctx, profile, "image")
+	}
+	return nil
+}
+
+func (s *Service) acquireTurn(ctx context.Context, session Session, provider providers.Profile, turnID, content string, parts []EventPart) (Event, error) {
 	now := time.Now().UTC()
 	event := Event{ID: identity.New("event"), SessionID: session.ID, TurnID: turnID, EventKind: "message", Role: "user",
-		Content: content, ProviderID: provider.ID, Model: provider.Model, CreatedAt: now,
-		Metadata: map[string]any{"session_contract_revision": session.ContractRevision, "cache_epoch": session.CacheEpoch}}
+		Content: content, Parts: parts, ProviderID: provider.ID, Model: provider.Model, CreatedAt: now,
+		Metadata: map[string]any{"session_contract_revision": session.ContractRevision, "cache_epoch": session.CacheEpoch,
+			"multipart": len(parts) > 0}}
 	metadata, _ := json.Marshal(event.Metadata)
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -388,6 +561,20 @@ func (s *Service) acquireTurn(ctx context.Context, session Session, provider pro
 		metadata_json,provider_id,model,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.ID, event.SessionID, event.TurnID,
 		event.Sequence, event.EventKind, event.Role, event.Content, string(metadata), provider.ID, provider.Model, formatTime(now)); err != nil {
 		return Event{}, err
+	}
+	for _, part := range parts {
+		partMetadata, _ := json.Marshal(part.Metadata)
+		var textContent, artifactID any
+		if part.Kind == "text" {
+			textContent = part.Text
+		}
+		if part.Kind == "image" {
+			artifactID = part.ArtifactID
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_event_parts(id,event_id,ordinal,kind,text_content,artifact_id,metadata_json,created_at)
+			VALUES(?,?,?,?,?,?,?,?)`, part.ID, event.ID, part.Ordinal, part.Kind, textContent, artifactID, string(partMetadata), formatTime(now)); err != nil {
+			return Event{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Event{}, err
@@ -557,17 +744,60 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			recordedSkills[skillID] = true
 		}
 		temperature := 0.2
-		request := providers.ChatRequest{Messages: renderMessages(compiled.Fragments), Temperature: &temperature, MaxTokens: maxTokens}
+		messages := renderMessages(compiled.Fragments)
+		turnParts, err := s.materializeTurnParts(ctx, session.ID, turnID)
+		if err != nil {
+			return TurnResult{}, err
+		}
+		if len(turnParts) > 0 {
+			attached := false
+			for index := len(messages) - 1; index >= 0; index-- {
+				if messages[index].Role == "user" {
+					messages[index].Content, messages[index].Parts, attached = "", turnParts, true
+					break
+				}
+			}
+			if !attached {
+				messages = append(messages, providers.Message{Role: "user", Parts: turnParts})
+			}
+		}
+		request := providers.ChatRequest{Messages: messages, Temperature: &temperature, MaxTokens: maxTokens}
 		if len(session.Contract.ToolBindings) > 0 {
 			request.Tools = providerDefinitionsFor(session.Contract.ToolBindings)
 		}
-		completion, err := s.providers.StreamChat(ctx, provider, request, func(delta providers.Delta) error {
+		currentProvider, err := s.providers.Get(ctx, session.ProviderID)
+		if err != nil {
+			return TurnResult{}, err
+		}
+		if err = ValidateSamplingContract(session, currentProvider); err != nil {
+			return TurnResult{}, err
+		}
+		provider = currentProvider
+		dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "session", ID: session.ID,
+			SessionID: session.ID, TurnID: turnID, Source: "agent", Priority: inference.PriorityForeground,
+			TokenLimit: budget.MaxCumulativeTokens})
+		completion, err := s.providers.StreamChat(dispatchCtx, provider, request, func(delta providers.Delta) error {
 			if emit == nil {
 				return nil
 			}
 			return emit(StreamEvent{Type: "delta", TurnID: turnID, Delta: &delta})
 		})
 		if err != nil {
+			if errors.Is(err, inference.ErrBudgetExceeded) {
+				return TurnResult{}, fmt.Errorf("agent exhausted its %d cumulative-token budget", budget.MaxCumulativeTokens)
+			}
+			var incomplete *providers.IncompleteCompletionError
+			if errors.As(err, &incomplete) {
+				partial := incomplete.Partial
+				_, persistErr := s.appendEvent(context.WithoutCancel(ctx), Event{SessionID: session.ID, TurnID: turnID,
+					EventKind: "provider_incomplete", Role: "assistant", Content: boundedText(partial.Content, 4096),
+					Metadata: map[string]any{"untrusted_partial": true, "reason": incomplete.Reason,
+						"finish_reason": partial.FinishReason, "tool_call_count": len(partial.ToolCalls)},
+					ProviderID: provider.ID, Model: provider.Model, CreatedAt: time.Now().UTC()})
+				if persistErr != nil {
+					return TurnResult{}, fmt.Errorf("persist incomplete provider evidence: %w", persistErr)
+				}
+			}
 			return TurnResult{}, err
 		}
 		totalUsage.PromptTokens += completion.Usage.PromptTokens
@@ -1162,6 +1392,17 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 		_, _ = s.failTurn(durableCtx, session, provider, approval.TurnID, ctx.Err())
 		return TurnResult{TurnID: approval.TurnID, FinishReason: "approval_resolved", Approval: &finalApproval}, nil
 	}
+	if err = ValidateSamplingContract(session, provider); err != nil {
+		blocked, blockErr := s.blockContinuation(durableCtx, session, provider, approval.TurnID, err)
+		if blockErr != nil {
+			return TurnResult{}, blockErr
+		}
+		if emit != nil {
+			_ = emit(StreamEvent{Type: "continuation_blocked", TurnID: approval.TurnID, Event: &blocked,
+				Code: "contract_drift", Error: blocked.Content})
+		}
+		return TurnResult{TurnID: approval.TurnID, FinishReason: "continuation_blocked", Approval: &finalApproval}, nil
+	}
 	profile, ok := ctxcompiler.ProfileByName(session.ContextProfile)
 	if !ok {
 		return TurnResult{}, fmt.Errorf("session references unknown context profile %q", session.ContextProfile)
@@ -1179,7 +1420,8 @@ func (s *Service) DecideApproval(ctx context.Context, id string, input ApprovalD
 	if err != nil {
 		failure, persistErr := s.failTurn(context.WithoutCancel(ctx), session, provider, approval.TurnID, err)
 		if persistErr == nil && emit != nil {
-			_ = emit(StreamEvent{Type: "failed", TurnID: approval.TurnID, Event: &failure, Error: safeError(err)})
+			_ = emit(StreamEvent{Type: "failed", TurnID: approval.TurnID, Event: &failure,
+				Code: providerErrorCode(err), Error: safeError(err)})
 		}
 		return TurnResult{}, err
 	}
@@ -1773,6 +2015,12 @@ func (s *Service) freezeStep(ctx context.Context, session Session, provider prov
 	if err != nil {
 		return StepBinding{}, err
 	}
+	compiledBlobRef, err := s.store.Blobs.Put(compiledJSON)
+	if err != nil {
+		return StepBinding{}, fmt.Errorf("persist compiled context: %w", err)
+	}
+	manifestSum := sha256.Sum256(compiledJSON)
+	manifestHash := hex.EncodeToString(manifestSum[:])
 	reportJSON, err := json.Marshal(compiled.Report)
 	if err != nil {
 		return StepBinding{}, err
@@ -1783,6 +2031,7 @@ func (s *Service) freezeStep(ctx context.Context, session Session, provider prov
 		ProviderID: provider.ID, Model: provider.Model, ContextSnapshotID: snapshotID,
 		CapabilityRevision: session.Contract.CapabilityRevision, PolicyRevision: session.Contract.PolicyRevision,
 		SessionContractRevision: session.ContractRevision, CacheEpoch: session.CacheEpoch,
+		PresetID: "legacy-chat", PresetRevision: 0, RuntimeFingerprintID: session.Contract.RuntimeFingerprintID,
 		ToolBindings: append([]toolruntime.Definition(nil), session.Contract.ToolBindings...), CreatedAt: now}
 	toolBindingsJSON, err := json.Marshal(binding.ToolBindings)
 	if err != nil {
@@ -1793,17 +2042,19 @@ func (s *Service) freezeStep(ctx context.Context, session Session, provider prov
 		return StepBinding{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO context_snapshots(id,session_id,turn_id,provider_id,model,profile_name,compiled_json,report_json,created_at)
-    VALUES(?,?,?,?,?,?,?,?,?)`, snapshotID, session.ID, turnID, provider.ID, provider.Model, compiled.Report.Profile,
-		string(compiledJSON), string(reportJSON), formatTime(now)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO context_snapshots(id,session_id,turn_id,provider_id,model,profile_name,compiled_json,report_json,created_at,compiled_blob_ref,manifest_hash)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`, snapshotID, session.ID, turnID, provider.ID, provider.Model, compiled.Report.Profile,
+		`{}`, string(reportJSON), formatTime(now), compiledBlobRef, manifestHash); err != nil {
 		return StepBinding{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO step_bindings(id,session_id,turn_id,step_number,provider_id,model,
-		context_snapshot_id,capability_revision,policy_revision,created_at,tool_bindings_json,session_contract_revision,cache_epoch)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		context_snapshot_id,capability_revision,policy_revision,created_at,tool_bindings_json,session_contract_revision,cache_epoch,
+		preset_id,preset_revision,runtime_fingerprint_id,effective_parameter_digest)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		binding.ID, binding.SessionID, binding.TurnID, binding.StepNumber, binding.ProviderID, binding.Model,
 		binding.ContextSnapshotID, binding.CapabilityRevision, binding.PolicyRevision, formatTime(now), string(toolBindingsJSON),
-		binding.SessionContractRevision, binding.CacheEpoch); err != nil {
+		binding.SessionContractRevision, binding.CacheEpoch, binding.PresetID, binding.PresetRevision,
+		binding.RuntimeFingerprintID, binding.EffectiveParameterDigest); err != nil {
 		return StepBinding{}, err
 	}
 	metadata, _ := json.Marshal(map[string]any{"step_binding_id": binding.ID, "context_snapshot_id": snapshotID,
@@ -2153,6 +2404,82 @@ func safeError(err error) string {
 	return message
 }
 
+func providerErrorCode(err error) string {
+	var incomplete *providers.IncompleteCompletionError
+	if errors.As(err, &incomplete) {
+		return "provider_stream_incomplete"
+	}
+	return ""
+}
+
+// ValidateSamplingContract is the single pre-dispatch gate for every provider
+// call owned by a durable chat session.
+func ValidateSamplingContract(session Session, provider providers.Profile) error {
+	if session.Contract.Revision == "" {
+		return fmt.Errorf("session predates immutable contracts; start a new session")
+	}
+	if provider.ID != session.Contract.ProviderID || provider.ID != session.ProviderID ||
+		providers.Revision(provider) != session.Contract.ProviderRevision || provider.Model != session.Contract.Model {
+		return fmt.Errorf("provider/model revision changed after session creation; start a new session rather than mutating a cached conversation")
+	}
+	if expected := session.Contract.Qualification.RuntimeFingerprintID; expected != "" && provider.RuntimeFingerprintID != expected {
+		return fmt.Errorf("runtime fingerprint changed after session creation; requalify and start a new session")
+	}
+	if !provider.Enabled {
+		return fmt.Errorf("the session provider is disabled; start a new session after choosing an enabled provider")
+	}
+	if !provider.CredentialReady {
+		return fmt.Errorf("the session provider credential is unavailable; restore it or start a new session")
+	}
+	policy := session.Contract.EgressPolicy
+	if policy == "" {
+		policy = session.EgressPolicy
+	}
+	if policy == "" {
+		policy = "local_only"
+	}
+	if policy == "local_only" && !providers.IsLocalProfile(provider) {
+		return fmt.Errorf("session egress policy is local_only; remote provider dispatch is blocked")
+	}
+	return nil
+}
+
+func (s *Service) blockContinuation(ctx context.Context, session Session, provider providers.Profile, turnID string, cause error) (Event, error) {
+	now := time.Now().UTC()
+	event := Event{ID: identity.New("event"), SessionID: session.ID, TurnID: turnID,
+		EventKind: "continuation_blocked", Role: "assistant",
+		Content:    "Approval resolved; the model configuration changed. Start a new session to continue.",
+		ProviderID: provider.ID, Model: provider.Model, CreatedAt: now,
+		Metadata: map[string]any{"reason": "contract_drift", "detail": safeError(cause)}}
+	metadata, _ := json.Marshal(event.Metadata)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback()
+	event.Sequence, err = nextSequence(ctx, tx, session.ID)
+	if err != nil {
+		return Event{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO agent_events(id,session_id,turn_id,sequence,event_kind,role,content,
+		metadata_json,provider_id,model,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.ID, event.SessionID, event.TurnID,
+		event.Sequence, event.EventKind, event.Role, event.Content, string(metadata), event.ProviderID, event.Model, formatTime(now)); err != nil {
+		return Event{}, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE agent_sessions SET state='active',active_turn_id='',lease_acquired_at=NULL,updated_at=?
+		WHERE id=? AND state='running' AND active_turn_id=?`, formatTime(now), session.ID, turnID)
+	if err != nil {
+		return Event{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return Event{}, fmt.Errorf("turn lease was lost before blocking continuation")
+	}
+	if err = tx.Commit(); err != nil {
+		return Event{}, err
+	}
+	return event, nil
+}
+
 type scanner interface{ Scan(...any) error }
 
 func scanSession(row scanner) (Session, error) {
@@ -2160,7 +2487,8 @@ func scanSession(row scanner) (Session, error) {
 	var contractJSON, created, updated string
 	if err := row.Scan(&item.ID, &item.Title, &item.ProviderID, &item.ProviderName, &item.Model,
 		&item.ProjectID, &item.ContextProfile, &item.State, &item.ActiveTurnID, &contractJSON,
-		&item.ContractRevision, &item.CacheEpoch, &item.QualificationRunID, &created, &updated); err != nil {
+		&item.ContractRevision, &item.CacheEpoch, &item.QualificationRunID, &created, &updated,
+		&item.OwnerPrincipalID, &item.Visibility, &item.ExportPolicy, &item.SharingRevision, &item.EgressPolicy); err != nil {
 		return Session{}, err
 	}
 	_ = json.Unmarshal([]byte(contractJSON), &item.Contract)

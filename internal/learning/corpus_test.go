@@ -2,8 +2,10 @@ package learning
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +43,8 @@ func writeCase(t *testing.T, dir string, item CorpusCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, item.ID+".json"), raw, 0o600); err != nil {
+	name := fmt.Sprintf("case-%x.json", sha256.Sum256([]byte(item.ID)))
+	if err := os.WriteFile(filepath.Join(dir, name), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -33,6 +33,17 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (Task, erro
 	if err := validateCriteria(input.Criteria); err != nil {
 		return Task{}, err
 	}
+	egressPolicy := strings.TrimSpace(input.EgressPolicy)
+	if egressPolicy == "" {
+		egressPolicy = "local_only"
+	}
+	if egressPolicy != "local_only" && egressPolicy != "remote_allowed" {
+		return Task{}, fmt.Errorf("egress_policy must be local_only or remote_allowed")
+	}
+	if egressPolicy == "remote_allowed" && (input.RemoteEgressApproval == nil ||
+		strings.TrimSpace(input.RemoteEgressApproval.Actor) == "" || strings.TrimSpace(input.RemoteEgressApproval.Reason) == "") {
+		return Task{}, fmt.Errorf("remote_allowed requires explicit egress approval with actor and reason")
+	}
 	now := time.Now().UTC()
 	taskID, requirementID := identity.New("task"), identity.New("reqrev")
 	tx, err := s.store.DB.BeginTx(ctx, nil)
@@ -40,10 +51,27 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (Task, erro
 		return Task{}, err
 	}
 	defer tx.Rollback()
+	var ownerID string
+	principalID := identity.Principal(ctx)
+	ownerQuery := `SELECT id FROM local_principals WHERE kind='local' ORDER BY created_at LIMIT 1`
+	var ownerArgs []any
+	if principalID != "" {
+		ownerQuery = `SELECT id FROM local_principals WHERE id=?`
+		ownerArgs = []any{principalID}
+	}
+	if err := tx.QueryRowContext(ctx, ownerQuery, ownerArgs...).Scan(&ownerID); err != nil {
+		return Task{}, fmt.Errorf("resolve task owner: %w", err)
+	}
+	if strings.TrimSpace(input.ProjectID) != "" {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id=? AND owner_principal_id=?`, input.ProjectID, ownerID).Scan(&exists); err != nil {
+			return Task{}, fmt.Errorf("task project is unavailable to this principal")
+		}
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO durable_tasks
-		(id,project_id,title,objective,original_request,state,created_at,updated_at)
-		VALUES(?,?,?,?,?,'draft',?,?)`, taskID, nullable(input.ProjectID), strings.TrimSpace(input.Title),
-		strings.TrimSpace(input.Objective), input.OriginalRequest, formatTime(now), formatTime(now)); err != nil {
+		(id,project_id,title,objective,original_request,state,created_at,updated_at,owner_principal_id,egress_policy)
+		VALUES(?,?,?,?,?,'draft',?,?,?,?)`, taskID, nullable(input.ProjectID), strings.TrimSpace(input.Title),
+		strings.TrimSpace(input.Objective), input.OriginalRequest, formatTime(now), formatTime(now), ownerID, egressPolicy); err != nil {
 		return Task{}, err
 	}
 	constraints, _ := json.Marshal(cleanStrings(input.Constraints))
@@ -503,8 +531,14 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 	var item Task
 	var project sql.NullString
 	var created, updated string
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id,project_id,title,objective,original_request,state,active_requirement_revision,active_plan_revision,revision,pause_reason,created_at,updated_at FROM durable_tasks WHERE id=?`, id).
-		Scan(&item.ID, &project, &item.Title, &item.Objective, &item.OriginalRequest, &item.State, &item.ActiveRequirementRevision, &item.ActivePlanRevision, &item.Revision, &item.PauseReason, &created, &updated)
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Task{}, err
+	}
+	err = s.store.DB.QueryRowContext(ctx, `SELECT id,project_id,title,objective,original_request,state,active_requirement_revision,active_plan_revision,revision,pause_reason,created_at,updated_at,
+		owner_principal_id,visibility,export_policy,sharing_revision,egress_policy FROM durable_tasks WHERE id=? AND owner_principal_id=?`, id, ownerID).
+		Scan(&item.ID, &project, &item.Title, &item.Objective, &item.OriginalRequest, &item.State, &item.ActiveRequirementRevision, &item.ActivePlanRevision, &item.Revision, &item.PauseReason, &created, &updated,
+			&item.OwnerPrincipalID, &item.Visibility, &item.ExportPolicy, &item.SharingRevision, &item.EgressPolicy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -531,10 +565,14 @@ func (s *Service) List(ctx context.Context, projectID string, limit int) ([]Task
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	query := `SELECT id FROM durable_tasks`
-	args := []any{}
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id FROM durable_tasks WHERE owner_principal_id=?`
+	args := []any{ownerID}
 	if strings.TrimSpace(projectID) != "" {
-		query += ` WHERE project_id=?`
+		query += ` AND project_id=?`
 		args = append(args, strings.TrimSpace(projectID))
 	}
 	query += ` ORDER BY updated_at DESC LIMIT ?`

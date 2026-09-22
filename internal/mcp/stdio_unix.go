@@ -20,3 +20,10 @@ func configureStdioTermination(command *exec.Cmd) {
 		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+func startStdioProcess(command *exec.Cmd) (func(), bool, error) {
+	if err := command.Start(); err != nil {
+		return nil, false, err
+	}
+	return func() {}, true, nil
+}

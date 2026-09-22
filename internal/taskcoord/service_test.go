@@ -2,22 +2,111 @@ package taskcoord
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"hermetrix-harness/internal/inference"
+	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/product"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
 	"hermetrix-harness/internal/taskengine"
+	"hermetrix-harness/internal/worker"
 )
+
+func TestVerifiedTaskCompletionQueuesBoundedLearningDigest(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	skillService := skills.NewService(dataStore)
+	learner := learning.NewService(dataStore, skillService, nil, learning.StructuredReviewer{})
+	coordinator := (&Service{}).WithLearning(learner)
+	task := taskengine.Task{ID: "task-1", Revision: 7, Objective: "fix verified sum",
+		Requirement: taskengine.RequirementRevision{Constraints: []string{"local only"}},
+		Plan: taskengine.PlanRevision{Steps: []taskengine.Step{{StepSpec: taskengine.StepSpec{
+			Title: "Fix addition", Instructions: "change subtract to add"}}}}}
+	coordinator.enqueueVerifiedTaskLearning(ctx, task,
+		taskengine.CodeProposal{ArtifactID: "proposal-1", VerificationArtifactID: "checks-1"},
+		product.Artifact{ID: "review-1"}, verificationBundle{Evidence: []taskengine.Validation{{EvidenceRefs: []string{"job:test-1"}}}})
+	jobs, err := learner.List(ctx, learning.StateQueued)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs=%+v err=%v", jobs, err)
+	}
+	if jobs[0].Digest.Outcome != "completed" || len(jobs[0].Digest.VerifiedBy) != 2 || jobs[0].SessionID != "task:task-1" {
+		t.Fatalf("digest=%+v", jobs[0])
+	}
+}
+
+func TestAutoPlanUsesImmutablePresetWithinNative61440Context(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	products := product.NewService(dataStore, skills.NewService(dataStore))
+	defer products.Close()
+	projectRoot := t.TempDir()
+	if err = os.WriteFile(filepath.Join(projectRoot, "go.mod"), []byte("module plannerfixture\n\ngo 1.25\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(projectRoot, "sum.go"), []byte("package plannerfixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project, err := products.EnsureWorkspaceProject(ctx, projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &proposalAdapter{}
+	providerService := providers.NewService(dataStore, adapter)
+	profile, err := providerService.Save(ctx, providers.SaveInput{Name: "local 61k", BaseURL: "http://127.0.0.1:8088/v1", Model: "bonsai", ContextWindow: 61440, MaxOutputTokens: 8192})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := taskengine.NewService(dataStore)
+	task, err := tasks.Create(ctx, taskengine.CreateTaskInput{ProjectID: project.ID, Title: "Fix sum", Objective: "make addition correct", OriginalRequest: "fix add", Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "addition returns sum"}}, Actor: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned, err := New(tasks, products, providerService).AutoPlan(ctx, AutoPlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, ProviderID: profile.ID, Actor: "owner"})
+	if err != nil || planned.Task.State != taskengine.StateReady || adapter.plannerCalls != 1 {
+		t.Fatalf("61k plan failed: task=%+v calls=%d err=%v", planned.Task, adapter.plannerCalls, err)
+	}
+	if len(adapter.plannerRequest.Messages) != 2 {
+		t.Fatalf("planner request messages=%d", len(adapter.plannerRequest.Messages))
+	}
+	var plannerInput worker.PlanTask
+	if err = json.Unmarshal([]byte(adapter.plannerRequest.Messages[1].Content), &plannerInput); err != nil {
+		t.Fatal(err)
+	}
+	if len(plannerInput.RepositoryFiles) != 2 || plannerInput.RepositoryFiles[0].Path != "go.mod" ||
+		len(plannerInput.AllowedExecutables) == 0 {
+		t.Fatalf("planner repository context=%+v executables=%v", plannerInput.RepositoryFiles, plannerInput.AllowedExecutables)
+	}
+	presetID, _ := planned.Artifact.Metadata["preset_id"].(string)
+	preset, err := inference.LoadPreset(ctx, dataStore.DB, presetID, 1)
+	if err != nil || preset.ContextMax != 55808 || preset.GenerationCap != 5120 || presetID == "planner" {
+		t.Fatalf("plan artifact did not identify bounded contract: preset=%+v err=%v", preset, err)
+	}
+	var ledgerID string
+	if err = dataStore.DB.QueryRow(`SELECT preset_id FROM inference_usage_ledger WHERE owner_id=? AND usage_source='planner'`, task.ID).Scan(&ledgerID); err != nil || ledgerID != presetID {
+		t.Fatalf("artifact/ledger preset mismatch: artifact=%s ledger=%s err=%v", presetID, ledgerID, err)
+	}
+}
 
 type proposalAdapter struct {
 	calls          int
 	reviewCalls    int
 	plannerCalls   int
+	plannerRequest providers.ChatRequest
 	selectionCalls int
 }
 
@@ -31,8 +120,9 @@ func (a *proposalAdapter) StreamChat(_ context.Context, _ providers.Profile, _ s
 	}
 	if len(request.Tools) == 1 && request.Tools[0].Function.Name == "submit_plan" {
 		a.plannerCalls++
+		a.plannerRequest = request
 		return providers.Completion{FinishReason: "tool_calls", ToolCalls: []providers.ToolCall{{Name: "submit_plan", Arguments: `{
-          "reason":"bounded fix","steps":[{"key":"fix","title":"Fix","instructions":"correct the implementation","requirement_ids":["AC-1"],"dependencies":[],"checks":["go test ./..."],"effect_scope":["provider.select_files","provider.propose","workspace.apply","workspace.run","provider.review"]}]}`}}}, nil
+          "reason":"bounded fix","steps":[{"key":"fix","title":"Fix","workspace_change":"Correct the implementation","instructions":"correct the implementation","requirement_ids":["AC-1"],"dependencies":[],"checks":["go test ./..."],"effect_scope":["provider.select_files","provider.propose","workspace.apply","workspace.run","provider.review"]}]}`}}}, nil
 	}
 	if len(request.Tools) == 1 && request.Tools[0].Function.Name == "submit_file_selection" {
 		a.selectionCalls++
@@ -75,7 +165,7 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	providerService := providers.NewService(dataStore, adapter)
 	profile, err := providerService.Save(ctx, providers.SaveInput{
 		Name: "worker", BaseURL: "https://worker.example/v1", Model: "qwen-test", APIKeyEnv: "TASKCOORD_TEST_KEY",
-		ContextWindow: 98304, MaxOutputTokens: 4096,
+		ContextWindow: 98304, MaxOutputTokens: 8192,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +182,7 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		ProjectID: project.ID, Title: "Fix sum", Objective: "make addition correct", OriginalRequest: "fix add",
 		Constraints: []string{"preserve function signature"},
 		Criteria:    []taskengine.Criterion{{ID: "AC-1", Description: "addition returns the sum"}}, Actor: "owner",
+		EgressPolicy: "remote_allowed", RemoteEgressApproval: &taskengine.TaskEgressApproval{Actor: "owner", Reason: "test adapter"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +200,7 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		t.Fatal(err)
 	}
 	run, err := tasks.BeginRun(ctx, taskengine.BeginRunInput{
-		TaskID: task.ID, ExpectedTaskRevision: task.Revision, Owner: "coordinator", LeaseDuration: time.Minute,
+		TaskID: task.ID, ExpectedTaskRevision: task.Revision, Owner: "coordinator", LeaseDuration: 5 * time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +275,8 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		t.Fatalf("proposal artifact missing: bytes=%d err=%v", len(artifactBody), err)
 	}
 	applied, err := New(tasks, productService, providerService).Apply(ctx, authority, output.Proposal.ID, "owner")
-	if err != nil || applied.Proposal.State != taskengine.ProposalApplied || applied.Effect.State != taskengine.EffectObserved || len(applied.Receipts) != 1 {
+	if err != nil || applied.Proposal.State != taskengine.ProposalApplied || applied.Proposal.RollbackArtifactID != applied.RollbackArtifact.ID ||
+		applied.Effect.State != taskengine.EffectObserved || len(applied.Receipts) != 1 {
 		t.Fatalf("apply output=%+v err=%v", applied, err)
 	}
 	after, err = os.ReadFile(filepath.Join(projectRoot, "sum.go"))
@@ -197,7 +289,8 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		t.Fatal("final-step verification ran without acceptance-criterion coverage")
 	}
 	verified, err := New(tasks, productService, providerService).VerifyFrozen(ctx, authority, output.Proposal.ID, "owner")
-	if err != nil || verified.Proposal.State != taskengine.ProposalAwaitingReview || verified.RolledBack || len(verified.Jobs) != 1 || len(verified.Validations) != 1 || verified.Evidence.Kind != "code_verification_bundle" {
+	if err != nil || verified.Proposal.State != taskengine.ProposalAwaitingReview || verified.Proposal.VerificationArtifactID != verified.Evidence.ID ||
+		verified.RolledBack || len(verified.Jobs) != 1 || len(verified.Validations) != 1 || verified.Evidence.Kind != "code_verification_bundle" {
 		t.Fatalf("verify output=%+v err=%v", verified, err)
 	}
 	if _, err = dataStore.DB.ExecContext(ctx, `UPDATE task_effect_intents SET state='uncertain' WHERE operation_id=?`, verified.Effects[0].OperationID); err != nil {
@@ -209,6 +302,12 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	}
 	if _, err = New(tasks, productService, providerService).Review(ctx, authority, output.Proposal.ID, profile.ID); err == nil {
 		t.Fatal("implementer provider was allowed to review its own proposal")
+	}
+	for index := 0; index < 1000; index++ {
+		if _, err = productService.CreateArtifact(ctx, product.ArtifactInput{ProjectID: project.ID,
+			Name: fmt.Sprintf("unrelated-%04d.txt", index), Kind: "unrelated", MIMEType: "text/plain", Content: "noise"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	reviewed, err := New(tasks, productService, providerService).Review(ctx, authority, output.Proposal.ID, reviewerProfile.ID)
 	if err != nil || reviewed.Proposal.State != taskengine.ProposalVerified || reviewed.Review.Verdict != "approve" || adapter.reviewCalls != 1 {
@@ -260,7 +359,8 @@ func TestProposalWorkerRejectsProviderCredentialBeforeDispatch(t *testing.T) {
 	}
 	tasks := taskengine.NewService(dataStore)
 	task, err := tasks.Create(ctx, taskengine.CreateTaskInput{ProjectID: project.ID, Title: "Secret guard", Objective: "do not leak",
-		OriginalRequest: "inspect selected file", Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "credential stays local"}}, Actor: "owner"})
+		OriginalRequest: "inspect selected file", Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "credential stays local"}}, Actor: "owner",
+		EgressPolicy: "remote_allowed", RemoteEgressApproval: &taskengine.TaskEgressApproval{Actor: "owner", Reason: "test credential guard"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,10 +384,37 @@ func TestProposalWorkerRejectsProviderCredentialBeforeDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	authority := taskengine.RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}
 	output, err := New(tasks, productService, providerService).Propose(ctx, ProposalInput{
-		AttemptID: attempt.ID, ProviderID: profile.ID, Authority: taskengine.RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}, Packet: packet, Files: []string{"leak.txt"},
+		AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority, Packet: packet, Files: []string{"leak.txt"},
 	})
 	if err == nil || adapter.calls != 0 || output.Effect.State != taskengine.EffectAbandoned {
 		t.Fatalf("credential guard err=%v calls=%d effect=%+v", err, adapter.calls, output.Effect)
+	}
+}
+
+func TestTaskProviderBindingRejectsRevisionDriftBeforeDispatch(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	providerService := providers.NewService(dataStore, &proposalAdapter{})
+	profile, err := providerService.Save(ctx, providers.SaveInput{Name: "worker", BaseURL: "https://worker.example/v1",
+		Model: "model-v1", ContextWindow: 32768, MaxOutputTokens: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator := New(nil, nil, providerService)
+	if err = coordinator.validateProviderBinding(ctx, profile); err != nil {
+		t.Fatalf("unchanged provider contract was rejected: %v", err)
+	}
+	if _, err = providerService.Save(ctx, providers.SaveInput{ID: profile.ID, Name: "worker", BaseURL: "https://worker.example/v1",
+		Model: "model-v2", ContextWindow: 32768, MaxOutputTokens: 4096}); err != nil {
+		t.Fatal(err)
+	}
+	if err = coordinator.validateProviderBinding(ctx, profile); err == nil {
+		t.Fatal("task provider revision drift was accepted before dispatch")
 	}
 }

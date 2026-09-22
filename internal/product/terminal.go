@@ -71,7 +71,7 @@ func (s *Service) StartTerminal(ctx context.Context, input StartTerminalInput) (
 	}
 	command := exec.Command(shellPath)
 	command.Dir = workingDir
-	command.Env = append(minimalEnvironment(), "TERM=xterm-256color", "HERMETRIX_TERMINAL=1")
+	command.Env = append(minimalEnvironment(os.TempDir()), "TERM=xterm-256color", "HERMETRIX_TERMINAL=1")
 	ptmx, err := pty.StartWithSize(command, &pty.Winsize{Cols: columns, Rows: rows})
 	if err != nil {
 		return TerminalSession{}, err

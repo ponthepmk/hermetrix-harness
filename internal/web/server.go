@@ -1317,16 +1317,8 @@ func profileByName(name string) (ctxcompiler.Profile, bool) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
-		return false
-	}
-	return true
+	return decodeJSONLimit(w, r, target, 10<<20)
 }
-
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"hermetrix-harness/internal/identity"
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/mcp"
 	"hermetrix-harness/internal/providers"
 )
@@ -147,7 +148,10 @@ func (b *mcpBridge) Sample(ctx context.Context, server mcp.Server, params json.R
 		}
 		messages = append(messages, providers.Message{Role: role, Content: message.Content.Text})
 	}
-	completion, err := b.service.providers.StreamChat(ctx, profile,
+	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "session", ID: session.ID,
+		SessionID: session.ID, Source: "mcp_sampling", Priority: inference.PriorityTask,
+		TokenLimit: session.Contract.TaskBudget.MaxCumulativeTokens})
+	completion, err := b.service.providers.StreamChat(dispatchCtx, profile,
 		providers.ChatRequest{Messages: messages, MaxTokens: request.MaxTokens}, func(providers.Delta) error { return nil })
 	if err != nil {
 		return nil, &mcp.RequestRefused{Code: -32603, Message: "sampling failed: " + err.Error()}

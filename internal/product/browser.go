@@ -30,6 +30,7 @@ type browserRuntime struct {
 	command  *exec.Cmd
 	debugURL string
 	profile  string
+	done     <-chan error
 }
 
 type browserTabRuntime struct {
@@ -111,19 +112,19 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	// handshakes—not only the initial Page.navigate URL.
 	if err := client.call(ctx, "Fetch.enable", map[string]any{"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}}}, nil); err != nil {
 		_ = conn.Close()
-		return BrowserTab{}, err
+		return BrowserTab{}, fmt.Errorf("enable browser request guard: %w", err)
 	}
 	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
 		_ = conn.Close()
-		return BrowserTab{}, err
+		return BrowserTab{}, fmt.Errorf("enable browser page domain: %w", err)
 	}
 	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
 		_ = conn.Close()
-		return BrowserTab{}, err
+		return BrowserTab{}, fmt.Errorf("enable browser runtime domain: %w", err)
 	}
 	if err := client.call(ctx, "Page.navigate", map[string]any{"url": validatedURL}, nil); err != nil {
 		_ = conn.Close()
-		return BrowserTab{}, err
+		return BrowserTab{}, fmt.Errorf("navigate managed browser: %w", err)
 	}
 	if readyErr := waitForPageReady(ctx, client); isBrowserPolicyError(readyErr) {
 		_ = conn.Close()
@@ -136,7 +137,7 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	runtimeTab := &browserTabRuntime{tab: tab, targetID: target.ID, client: client}
 	if err := s.refreshBrowserTab(ctx, runtimeTab, true); err != nil {
 		_ = conn.Close()
-		return BrowserTab{}, err
+		return BrowserTab{}, fmt.Errorf("capture initial browser state: %w", err)
 	}
 	tab = runtimeTab.tab
 	linksJSON, _ := json.Marshal(tab.Links)
@@ -458,15 +459,17 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 			return nil, fmt.Errorf("Chrome exited before DevTools became ready: %v", processErr)
 		case <-ctx.Done():
 			_ = command.Process.Kill()
+			<-processDone
 			_ = os.RemoveAll(profile)
 			return nil, ctx.Err()
 		case <-timeout.C:
 			_ = command.Process.Kill()
+			<-processDone
 			_ = os.RemoveAll(profile)
 			return nil, fmt.Errorf("Chrome DevTools did not become ready within 10 seconds")
 		}
 	}
-	browser := &browserRuntime{command: command, debugURL: debugURL, profile: profile}
+	browser := &browserRuntime{command: command, debugURL: debugURL, profile: profile, done: processDone}
 	s.mu.Lock()
 	if s.browser == nil {
 		s.browser = browser
@@ -476,6 +479,7 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 	existing := s.browser
 	s.mu.Unlock()
 	_ = command.Process.Kill()
+	<-processDone
 	_ = os.RemoveAll(profile)
 	return existing, nil
 }
@@ -512,6 +516,9 @@ func (s *Service) closeBrowser() {
 		if browser.command.Process != nil {
 			_ = browser.command.Process.Kill()
 		}
+		if browser.done != nil {
+			<-browser.done
+		}
 		_ = os.RemoveAll(browser.profile)
 	}
 }
@@ -530,7 +537,7 @@ func (s *Service) validateBrowserURL(ctx context.Context, projectID, raw string,
 		if err != nil {
 			return "", err
 		}
-		path, err := filepath.EvalSymlinks(filepath.FromSlash(parsed.Path))
+		path, err := filepath.EvalSymlinks(localFileURLPath(parsed.Path))
 		if err != nil {
 			return "", err
 		}
@@ -659,7 +666,12 @@ func chromeExecutable() (string, error) {
 			"/Applications/Chromium.app/Contents/MacOS/Chromium"}, candidates...)
 	}
 	if runtime.GOOS == "windows" {
-		candidates = append([]string{filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe")}, candidates...)
+		candidates = append([]string{
+			filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+			filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+			filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
+			filepath.Join(os.Getenv("LocalAppData"), "Google", "Chrome", "Application", "chrome.exe"),
+		}, candidates...)
 	}
 	for _, candidate := range candidates {
 		if filepath.IsAbs(candidate) {

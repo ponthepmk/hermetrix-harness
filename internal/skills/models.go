@@ -35,6 +35,10 @@ type Skill struct {
 	SuccessCount     int        `json:"success_count"`
 	FailureCount     int        `json:"failure_count"`
 	LastUsedAt       *time.Time `json:"last_used_at,omitempty"`
+	OwnerPrincipalID string     `json:"owner_principal_id"`
+	Visibility       string     `json:"visibility"`
+	ExportPolicy     string     `json:"export_policy"`
+	SharingRevision  int        `json:"sharing_revision"`
 }
 
 type Version struct {
@@ -76,6 +80,10 @@ type Candidate struct {
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 	Markdown         string    `json:"markdown,omitempty"`
+	OwnerPrincipalID string    `json:"owner_principal_id"`
+	Visibility       string    `json:"visibility"`
+	ExportPolicy     string    `json:"export_policy"`
+	SharingRevision  int       `json:"sharing_revision"`
 }
 
 type CheckFinding struct {

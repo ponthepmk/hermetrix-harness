@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,7 +43,7 @@ func TestChromeBlocksAPrivateSubresourceBeforeItReachesTheServer(t *testing.T) {
 	if err := os.WriteFile(page, []byte(`<html><body>safe page<img src="`+target.URL+`/secret"></body></html>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	pageURL := (&url.URL{Scheme: "file", Path: page}).String()
+	pageURL := testFileURL(page)
 	_, err = service.OpenBrowserTab(context.Background(), OpenBrowserTabInput{
 		ProjectID: project.ID, URL: pageURL, Actor: "e2e", AllowPrivate: false,
 	})

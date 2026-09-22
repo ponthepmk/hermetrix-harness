@@ -43,14 +43,16 @@ const maxStdioLine = 8 << 20
 
 // stdioSession is one running server process and the framing around it.
 type stdioSession struct {
-	command  *exec.Cmd
-	cancel   context.CancelFunc
-	stdin    io.WriteCloser
-	stdout   *bufio.Reader
-	stopOnce sync.Once
-	protocol string
-	server   Server
-	handler  ServerRequestHandler
+	command          *exec.Cmd
+	cancel           context.CancelFunc
+	stdin            io.WriteCloser
+	stdout           *bufio.Reader
+	stopOnce         sync.Once
+	closeContainment func()
+	processContained bool
+	protocol         string
+	server           Server
+	handler          ServerRequestHandler
 }
 
 // StdioCommand splits a server's stored command line into the launcher and its
@@ -59,26 +61,59 @@ type stdioSession struct {
 // and it is split here rather than passed to a shell: no globbing, no
 // substitution, no operators.
 func StdioCommand(commandLine string) (string, []string, error) {
+	var structured struct {
+		Executable string   `json:"executable"`
+		Arguments  []string `json:"arguments"`
+	}
+	if strings.HasPrefix(strings.TrimSpace(commandLine), "{") {
+		decoder := json.NewDecoder(strings.NewReader(commandLine))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&structured); err != nil {
+			return "", nil, fmt.Errorf("decode structured stdio command: %w", err)
+		}
+		return validateStdioCommand(structured.Executable, structured.Arguments)
+	}
 	fields := strings.Fields(commandLine)
 	if len(fields) == 0 {
 		return "", nil, errors.New("a stdio MCP server needs a command, for example: npx -y @modelcontextprotocol/server-everything")
 	}
-	launcher := fields[0]
+	return validateStdioCommand(fields[0], fields[1:])
+}
+
+func validateStdioCommand(launcher string, arguments []string) (string, []string, error) {
+	launcher = strings.TrimSpace(launcher)
 	if filepath.Base(launcher) != launcher {
 		return "", nil, fmt.Errorf("the command must be a program name without a path, not %q", launcher)
 	}
 	if !stdioLaunchers[launcher] {
 		return "", nil, fmt.Errorf("%q is not an allowed MCP launcher; allowed: %s", launcher, allowedLaunchers())
 	}
-	if len(fields) > 64 {
+	if len(arguments) > 64 {
 		return "", nil, errors.New("a stdio MCP command may not have more than 64 arguments")
 	}
-	for _, argument := range fields[1:] {
+	for _, argument := range arguments {
 		if strings.ContainsAny(argument, "\x00\n\r") {
 			return "", nil, errors.New("stdio MCP arguments may not contain control characters")
 		}
 	}
-	return launcher, fields[1:], nil
+	return launcher, append([]string(nil), arguments...), nil
+}
+
+func encodeStdioCommand(executable string, arguments []string) (string, error) {
+	executable, arguments, err := validateStdioCommand(executable, arguments)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(struct {
+		Executable string   `json:"executable"`
+		Arguments  []string `json:"arguments"`
+	}{executable, arguments})
+	return string(encoded), err
+}
+
+func displayStdioCommand(executable string, arguments []string) string {
+	parts := append([]string{executable}, arguments...)
+	return strings.Join(parts, " ")
 }
 
 func allowedLaunchers() string {
@@ -98,7 +133,13 @@ func allowedLaunchers() string {
 // startStdio launches the server and completes the MCP initialize handshake.
 // The caller must call stop on the returned session.
 func (c *Client) startStdio(ctx context.Context, server Server, credential string) (*stdioSession, error) {
-	launcher, arguments, err := StdioCommand(server.Endpoint)
+	launcher, arguments := server.Executable, server.Arguments
+	var err error
+	if launcher == "" {
+		launcher, arguments, err = StdioCommand(server.Endpoint)
+	} else {
+		launcher, arguments, err = validateStdioCommand(launcher, arguments)
+	}
 	if err != nil {
 		return nil, &Error{Kind: ErrorConfiguration, Operation: "stdio launch", ServerID: server.ID, Message: err.Error()}
 	}
@@ -121,13 +162,15 @@ func (c *Client) startStdio(ctx context.Context, server Server, credential strin
 		cancelProcess()
 		return nil, &Error{Kind: ErrorTransport, Operation: "stdio stdout", ServerID: server.ID, Message: err.Error(), Cause: err}
 	}
-	if err := command.Start(); err != nil {
+	closeContainment, processContained, err := startStdioProcess(command)
+	if err != nil {
 		cancelProcess()
 		return nil, &Error{Kind: ErrorTransport, Operation: "stdio start", ServerID: server.ID,
 			Message: launcher + ": " + err.Error(), Cause: err}
 	}
 	session := &stdioSession{command: command, cancel: cancelProcess, stdin: stdin,
-		stdout: bufio.NewReaderSize(stdout, 64<<10), server: server, handler: c.handler}
+		stdout: bufio.NewReaderSize(stdout, 64<<10), server: server, handler: c.handler,
+		closeContainment: closeContainment, processContained: processContained}
 	protocol, err := c.initializeStdio(ctx, server, session)
 	if err != nil {
 		session.stop()
@@ -167,6 +210,9 @@ func (session *stdioSession) stop() {
 		// both by the cancellation-aware reader and by pool discard, so the
 		// whole sequence, including Wait, must run only once.
 		_ = session.stdin.Close()
+		if session.closeContainment != nil {
+			session.closeContainment()
+		}
 		if session.cancel != nil {
 			session.cancel()
 		}

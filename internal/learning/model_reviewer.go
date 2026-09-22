@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/providers"
 )
 
@@ -120,7 +121,9 @@ func (r *ModelReviewer) Review(ctx context.Context, digest Digest) (Decision, er
 		return Decision{}, err
 	}
 	temperature := 0.0
-	completion, err := r.providers.StreamChat(ctx, profile, providers.ChatRequest{
+	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "learning_review", ID: profile.ID,
+		Source: "learning_reviewer", Priority: inference.PriorityBackground})
+	completion, err := r.providers.StreamChat(dispatchCtx, profile, providers.ChatRequest{
 		Messages: []providers.Message{
 			{Role: "system", Content: reviewerInstruction},
 			{Role: "user", Content: "Evidence from one unit of work:\n" + string(evidence)},

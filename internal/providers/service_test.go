@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -12,8 +13,125 @@ import (
 	"strings"
 	"testing"
 
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/store"
 )
+
+type presetCaptureAdapter struct{ request ChatRequest }
+
+func (a *presetCaptureAdapter) StreamChat(_ context.Context, _ Profile, _ string, request ChatRequest,
+	_ func(Delta) error) (Completion, error) {
+	a.request = request
+	return Completion{FinishReason: "stop", Usage: Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}}, nil
+}
+
+func TestStreamChatAppliesImmutablePresetAndPersistsBinding(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	adapter := &presetCaptureAdapter{}
+	service := NewService(dataStore, adapter)
+	profile, err := service.Save(ctx, SaveInput{Name: "local", BaseURL: "http://127.0.0.1:8080/v1", Model: "m",
+		ContextWindow: 98304, MaxOutputTokens: 8192})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: "task-1", Source: "planner", Priority: inference.PriorityTask,
+		PresetID: "planner", PresetRevision: 1, PresetRole: "planner", RuntimeFingerprintID: profile.RuntimeFingerprintID})
+	if _, err = service.StreamChat(ctx, profile, ChatRequest{Messages: []Message{{Role: "user", Content: "plan"}}, MaxTokens: 1}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if adapter.request.MaxTokens != 5120 || adapter.request.Temperature == nil || *adapter.request.Temperature != 0.2 {
+		t.Fatalf("wire request did not use preset: %+v", adapter.request)
+	}
+	var presetID, digest string
+	var revision int
+	if err = dataStore.DB.QueryRow(`SELECT preset_id,preset_revision,effective_parameter_digest FROM inference_usage_ledger
+		WHERE owner_id='task-1'`).Scan(&presetID, &revision, &digest); err != nil {
+		t.Fatal(err)
+	}
+	if presetID != "planner" || revision != 1 || len(digest) != 64 {
+		t.Fatalf("ledger binding=%s@%d digest=%q", presetID, revision, digest)
+	}
+}
+
+func TestContextBoundTaskPresetDispatchesSmallRequestButRejectsOversizedInput(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	adapter := &presetCaptureAdapter{}
+	service := NewService(dataStore, adapter)
+	profile, err := service.Save(ctx, SaveInput{Name: "61k runtime", BaseURL: "http://127.0.0.1:8080/v1", Model: "m", ContextWindow: 61440, MaxOutputTokens: 8192})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preset, err := service.ResolveTaskPreset(ctx, profile, "planner", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskContext := inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: "bounded-plan", Source: "planner", Priority: inference.PriorityTask,
+		PresetID: preset.ID, PresetRevision: preset.Revision, PresetRole: preset.Role})
+	if _, err = service.StreamChat(taskContext, profile, ChatRequest{Messages: []Message{{Role: "user", Content: "plan a small task"}}, MaxTokens: 8192}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if adapter.request.MaxTokens != 5120 {
+		t.Fatalf("output reservation changed: %d", adapter.request.MaxTokens)
+	}
+	var recorded string
+	if err = dataStore.DB.QueryRow(`SELECT preset_id FROM inference_usage_ledger WHERE owner_id='bounded-plan'`).Scan(&recorded); err != nil || recorded != preset.ID {
+		t.Fatalf("effective preset identity was not persisted: %q err=%v", recorded, err)
+	}
+	adapter.request = ChatRequest{}
+	oversized := ChatRequest{Messages: []Message{{Role: "user", Content: strings.Repeat("long prompt ", 60000)}}}
+	if _, err = service.StreamChat(taskContext, profile, oversized, nil); err == nil || !strings.Contains(err.Error(), "preset input ceiling") || adapter.request.Messages != nil {
+		t.Fatalf("oversized preset input reached adapter: err=%v dispatched=%v", err, adapter.request.Messages != nil)
+	}
+	// Ordinary chat has no task preset and retains its caller's output cap.
+	if _, err = service.StreamChat(ctx, profile, ChatRequest{Messages: []Message{{Role: "user", Content: "hello"}}, MaxTokens: 100}, nil); err != nil || adapter.request.MaxTokens != 100 {
+		t.Fatalf("ordinary chat changed: err=%v request=%+v", err, adapter.request)
+	}
+}
+
+func TestImagePartRequiresQualifiedModalityBeforeDispatch(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	adapter := &presetCaptureAdapter{}
+	service := NewService(dataStore, adapter)
+	profile, err := service.Save(ctx, SaveInput{Name: "local-vision", BaseURL: "http://127.0.0.1:8080/v1", Model: "m",
+		ContextWindow: 98304, MaxOutputTokens: 8192})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.StreamChat(ctx, profile, ChatRequest{Messages: []Message{{Role: "user", Parts: []ContentPart{{Kind: "image",
+		MediaType: "image/png", Data: []byte("png")}}}}}, nil)
+	var unsupported *UnsupportedCapabilityError
+	if !errors.As(err, &unsupported) || adapter.request.Messages != nil {
+		t.Fatalf("err=%v request=%+v", err, adapter.request)
+	}
+}
+
+func TestOpenAIMultipartWireShapeUsesTransientDataURL(t *testing.T) {
+	messages := openAIMessages([]Message{{Role: "user", Parts: []ContentPart{{Kind: "text", Text: "inspect"},
+		{Kind: "image", MediaType: "image/png", Data: []byte{1, 2, 3}, ArtifactID: "artifact-private"}}}})
+	encoded, err := json.Marshal(messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(encoded)
+	if !strings.Contains(raw, `data:image/png;base64,AQID`) || strings.Contains(raw, "artifact-private") {
+		t.Fatalf("unexpected multipart wire payload: %s", raw)
+	}
+}
 
 func TestProviderProfileStoresCredentialReferenceOnly(t *testing.T) {
 	ctx := context.Background()

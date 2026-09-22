@@ -3,6 +3,7 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -87,8 +88,8 @@ func (a *AnthropicAdapter) StreamChat(ctx context.Context, profile Profile, apiK
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, maxProviderResponseBytes)).Decode(&decoded); err != nil {
-		return Completion{}, fmt.Errorf("decode Anthropic response: %w", err)
+	if err := decodeSingleProviderJSON(response.Body, "Anthropic", &decoded); err != nil {
+		return Completion{}, err
 	}
 	completion := Completion{FinishReason: anthropicFinishReason(decoded.StopReason), Usage: Usage{
 		PromptTokens: decoded.Usage.InputTokens, CompletionTokens: decoded.Usage.OutputTokens,
@@ -101,12 +102,12 @@ func (a *AnthropicAdapter) StreamChat(ctx context.Context, profile Profile, apiK
 			completion.Reasoning += block.Thinking
 		case "tool_use":
 			arguments := strings.TrimSpace(string(block.Input))
-			if arguments == "" || arguments == "null" {
-				arguments = "{}"
-			}
 			completion.ToolCalls = append(completion.ToolCalls, ToolCall{Index: index, ID: block.ID,
 				Type: "function", Name: block.Name, Arguments: arguments})
 		}
+	}
+	if reason := validateAnthropicCompletion(decoded.StopReason, completion); reason != "" {
+		return completion, &IncompleteCompletionError{Reason: reason, Partial: completion}
 	}
 	if emit != nil {
 		delta := Delta{Content: completion.Content, Reasoning: completion.Reasoning, ToolCalls: completion.ToolCalls}
@@ -117,6 +118,20 @@ func (a *AnthropicAdapter) StreamChat(ctx context.Context, profile Profile, apiK
 		}
 	}
 	return completion, nil
+}
+
+func validateAnthropicCompletion(stopReason string, completion Completion) string {
+	switch stopReason {
+	case "end_turn", "stop_sequence", "max_tokens", "tool_use":
+	case "":
+		return "Anthropic response ended without a stop reason"
+	default:
+		return fmt.Sprintf("unsupported Anthropic stop reason %q", stopReason)
+	}
+	if stopReason == "tool_use" && len(completion.ToolCalls) == 0 {
+		return "Anthropic tool_use response contained no tool call"
+	}
+	return validateCompletionToolCalls(completion)
 }
 
 func anthropicMessages(input []Message) (string, []anthropicMessage) {
@@ -140,6 +155,14 @@ func anthropicMessages(input []Message) (string, []anthropicMessage) {
 			blocks := []map[string]any{}
 			if message.Content != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": message.Content})
+			}
+			for _, part := range message.Parts {
+				if part.Kind == "text" {
+					blocks = append(blocks, map[string]any{"type": "text", "text": part.Text})
+					continue
+				}
+				blocks = append(blocks, map[string]any{"type": "image", "source": map[string]any{"type": "base64",
+					"media_type": part.MediaType, "data": base64.StdEncoding.EncodeToString(part.Data)}})
 			}
 			for _, call := range message.ToolCalls {
 				var arguments any = map[string]any{}
