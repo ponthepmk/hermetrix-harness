@@ -49,11 +49,24 @@ func TestValidIdentityAndCapabilityIsNotAuthority(t *testing.T) {
 	}
 }
 
+func TestRotatedReadCredentialRetainsPinnedIdentity(t *testing.T) {
+	f := validFake()
+	f.responses["whoami"] = `{"authenticated":true,"agent_key":"hermetrix-bonsai","node_key":"windows-pc-main","scopes":["read"],"credential_id":3,"auth_method":"scoped_agent"}`
+	r, err := Probe(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.CredentialID != 3 {
+		t.Fatalf("actual credential ID not recorded: %d", r.CredentialID)
+	}
+}
+
 func TestIdentityAndBindingFailuresFailClosed(t *testing.T) {
 	cases := map[string]struct{ tool, response string }{
 		"wrong node key":               {"whoami", `{"authenticated":true,"agent_key":"hermetrix-bonsai","node_key":"other","scopes":["read"],"credential_id":2,"auth_method":"scoped_agent"}`},
 		"wrong agent key":              {"whoami", `{"authenticated":true,"agent_key":"other","node_key":"windows-pc-main","scopes":["read"],"credential_id":2,"auth_method":"scoped_agent"}`},
 		"unknown credential":           {"whoami", `{"authenticated":false,"reason":"BAD_CREDENTIAL"}`},
+		"invalid credential id":        {"whoami", `{"authenticated":true,"agent_key":"hermetrix-bonsai","node_key":"windows-pc-main","scopes":["read"],"credential_id":0,"auth_method":"scoped_agent"}`},
 		"revoked credential":           {"whoami", `{"authenticated":false,"reason":"CREDENTIAL_REVOKED"}`},
 		"expired credential":           {"whoami", `{"authenticated":false,"reason":"CREDENTIAL_EXPIRED"}`},
 		"missing read":                 {"whoami", `{"authenticated":true,"agent_key":"hermetrix-bonsai","node_key":"windows-pc-main","scopes":[],"credential_id":2,"auth_method":"scoped_agent"}`},

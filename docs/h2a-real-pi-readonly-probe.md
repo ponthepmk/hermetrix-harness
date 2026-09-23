@@ -6,7 +6,7 @@ This adapter is built on Hermetrix H1 commit `ceb72fe0e28309db3c0ed472a8463310b9
 
 The Pi FastMCP server at `/mcp` exposes `whoami`, `get_node(node_key)`, `get_agent(agent_key)`, and `list_capabilities`. It wraps each board JSON response in one MCP text content item. The board's `whoami` response carries the credential-bound `agent_key`, `node_key`, `credential_id`, `auth_method`, and effective `scopes`, but no numeric Node/Agent IDs. The numeric IDs and active status are cross-checked with `get_node` and `get_agent`. `list_capabilities` is recorded only as a count and never grants authority.
 
-The fixed expected identity is Node `3/windows-pc-main`, Agent `2/hermetrix-bonsai` (`managed`), credential ID `2`, and exactly one effective scope: `read`. The probe rejects extra scopes, inactive records, mismatched binding, or malformed responses before it can produce a success receipt.
+The fixed expected identity is Node `3/windows-pc-main`, Agent `2/hermetrix-bonsai` (`managed`), and exactly one effective scope: `read`. The probe records the positive credential ID returned by Pi. It does not pin that ID because Pi rotation issues a new ID while preserving the agent binding. The probe rejects extra scopes, inactive records, mismatched binding, or malformed responses before it can produce a success receipt.
 
 ## Secure local operation
 

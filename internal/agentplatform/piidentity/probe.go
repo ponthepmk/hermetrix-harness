@@ -8,13 +8,12 @@ import (
 )
 
 const (
-	PiCommit           = "d68bdd3921d4555f7218a280ee62c9b5e6b78de0"
-	PiSchema           = 9
-	NodeID       int64 = 3
-	NodeKey            = "windows-pc-main"
-	AgentID      int64 = 2
-	AgentKey           = "hermetrix-bonsai"
-	CredentialID int64 = 2
+	PiCommit       = "d68bdd3921d4555f7218a280ee62c9b5e6b78de0"
+	PiSchema       = 9
+	NodeID   int64 = 3
+	NodeKey        = "windows-pc-main"
+	AgentID  int64 = 2
+	AgentKey       = "hermetrix-bonsai"
 )
 
 // Caller is deliberately narrower than the MCP client: no arbitrary tool can
@@ -51,7 +50,7 @@ func probeOnce(ctx context.Context, caller Caller) (Receipt, error) {
 		return Receipt{}, err
 	}
 	if !identity.Authenticated || identity.AuthMethod != "scoped_agent" || identity.NodeKey != NodeKey ||
-		identity.AgentKey != AgentKey || identity.CredentialID != CredentialID || len(identity.Scopes) != 1 || identity.Scopes[0] != "read" {
+		identity.AgentKey != AgentKey || identity.CredentialID <= 0 || len(identity.Scopes) != 1 || identity.Scopes[0] != "read" {
 		return Receipt{}, errors.New("Pi identity, credential, or effective scope mismatch")
 	}
 	var node Node
