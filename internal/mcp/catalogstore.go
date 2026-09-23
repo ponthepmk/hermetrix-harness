@@ -262,9 +262,9 @@ func (s *Service) executeResource(ctx context.Context, server Server, entry capa
 	}
 	raw, err := s.client.ReadResource(ctx, server, credential, uri)
 	if err != nil {
-		return capabilities.CallResult{}, redactError(err, credential)
+		return capabilities.CallResult{}, redactError(err, credential, server.AccessClientID, server.AccessClientSecret)
 	}
-	return capabilities.CallResult{Output: string(boundedRaw(raw)), Metadata: map[string]any{
+	return capabilities.CallResult{Output: string(boundedRaw(redactJSON(raw, credential, server.AccessClientID, server.AccessClientSecret))), Metadata: map[string]any{
 		"kind": KindResource, "uri": uri, "server_id": server.ID, "untrusted_output": true}}, nil
 }
 
@@ -301,9 +301,9 @@ func (s *Service) executePrompt(ctx context.Context, server Server, entry capabi
 	}
 	raw, err := s.client.GetPrompt(ctx, server, credential, name, values)
 	if err != nil {
-		return capabilities.CallResult{}, redactError(err, credential)
+		return capabilities.CallResult{}, redactError(err, credential, server.AccessClientID, server.AccessClientSecret)
 	}
-	return capabilities.CallResult{Output: string(boundedRaw(raw)), Metadata: map[string]any{
+	return capabilities.CallResult{Output: string(boundedRaw(redactJSON(raw, credential, server.AccessClientID, server.AccessClientSecret))), Metadata: map[string]any{
 		"kind": KindPrompt, "prompt_name": name, "server_id": server.ID, "untrusted_output": true}}, nil
 }
 

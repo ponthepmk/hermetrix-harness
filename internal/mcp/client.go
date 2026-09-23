@@ -30,11 +30,14 @@ type Client struct {
 
 func NewClient(client *http.Client) *Client {
 	if client == nil {
-		client = &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		}}
+		client = &http.Client{}
 	}
-	return &Client{httpClient: client, pool: newSessionPool()}
+	// MCP requests can carry the origin bearer and Cloudflare Access secret.
+	// Never forward either to a redirect target, including when a caller supplies
+	// its own TLS-configured client.
+	copy := *client
+	copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	return &Client{httpClient: &copy, pool: newSessionPool()}
 }
 
 type rpcRequest struct {
@@ -250,7 +253,7 @@ func (c *Client) currentRequest(ctx context.Context, server Server, credential, 
 	if name != "" {
 		headers.Set("Mcp-Name", encodeHeaderValue(name))
 	}
-	return c.doRPC(ctx, server.Endpoint, credential, request, headers)
+	return c.doRPC(ctx, server, credential, request, headers)
 }
 
 func (c *Client) initializeLegacy(ctx context.Context, server Server, credential string) (legacySession, error) {
@@ -259,7 +262,7 @@ func (c *Client) initializeLegacy(ctx context.Context, server Server, credential
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]any{"name": "Hermetrix Harness", "version": "0.2.0"},
 	}}
-	result, err := c.doRPC(ctx, server.Endpoint, credential, request, nil)
+	result, err := c.doRPC(ctx, server, credential, request, nil)
 	if err != nil {
 		return legacySession{}, err
 	}
@@ -280,7 +283,7 @@ func (c *Client) initializeLegacy(ctx context.Context, server Server, credential
 	if session.sessionID != "" {
 		headers.Set("Mcp-Session-Id", session.sessionID)
 	}
-	if err := c.doNotification(ctx, server.Endpoint, credential, notification, headers); err != nil {
+	if err := c.doNotification(ctx, server, credential, notification, headers); err != nil {
 		return legacySession{}, err
 	}
 	return session, nil
@@ -294,7 +297,7 @@ func (c *Client) legacyRequest(ctx context.Context, server Server, credential st
 	if session.sessionID != "" {
 		headers.Set("Mcp-Session-Id", session.sessionID)
 	}
-	return c.doRPC(ctx, server.Endpoint, credential, request, headers)
+	return c.doRPC(ctx, server, credential, request, headers)
 }
 
 func (c *Client) closeLegacy(ctx context.Context, server Server, credential string, session legacySession) {
@@ -308,18 +311,21 @@ func (c *Client) closeLegacy(ctx context.Context, server Server, credential stri
 	request.Header.Set("Mcp-Session-Id", session.sessionID)
 	request.Header.Set("MCP-Protocol-Version", session.protocol)
 	setCredential(request.Header, credential)
+	if setAccessHeaders(request.Header, server) != nil {
+		return
+	}
 	response, err := c.httpClient.Do(request)
 	if err == nil {
 		response.Body.Close()
 	}
 }
 
-func (c *Client) doRPC(ctx context.Context, endpoint, credential string, message rpcRequest, headers http.Header) (wireResult, error) {
+func (c *Client) doRPC(ctx context.Context, server Server, credential string, message rpcRequest, headers http.Header) (wireResult, error) {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return wireResult{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return wireResult{}, err
 	}
@@ -331,6 +337,9 @@ func (c *Client) doRPC(ctx context.Context, endpoint, credential string, message
 		}
 	}
 	setCredential(request.Header, credential)
+	if err := setAccessHeaders(request.Header, server); err != nil {
+		return wireResult{}, err
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return wireResult{}, err
@@ -356,12 +365,12 @@ func (c *Client) doRPC(ctx context.Context, endpoint, credential string, message
 	return wireResult{response: rpc, headers: response.Header.Clone()}, nil
 }
 
-func (c *Client) doNotification(ctx context.Context, endpoint, credential string, message rpcRequest, headers http.Header) error {
+func (c *Client) doNotification(ctx context.Context, server Server, credential string, message rpcRequest, headers http.Header) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -373,6 +382,9 @@ func (c *Client) doNotification(ctx context.Context, endpoint, credential string
 		}
 	}
 	setCredential(request.Header, credential)
+	if err := setAccessHeaders(request.Header, server); err != nil {
+		return err
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return err
@@ -502,6 +514,18 @@ func setCredential(headers http.Header, credential string) {
 	if credential != "" {
 		headers.Set("Authorization", "Bearer "+credential)
 	}
+}
+
+func setAccessHeaders(headers http.Header, server Server) error {
+	if server.AccessClientID == "" && server.AccessClientSecret == "" {
+		return nil
+	}
+	if server.AccessClientID == "" || server.AccessClientSecret == "" || !strings.HasPrefix(server.Endpoint, "https://") {
+		return errors.New("Cloudflare Access credentials require a complete pair and HTTPS endpoint")
+	}
+	headers.Set("CF-Access-Client-Id", server.AccessClientID)
+	headers.Set("CF-Access-Client-Secret", server.AccessClientSecret)
+	return nil
 }
 
 func cloneParams(input map[string]any) map[string]any {

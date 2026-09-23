@@ -212,6 +212,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mcp/servers", s.listMCPServers)
 	mux.HandleFunc("POST /api/mcp/servers", s.saveMCPServer)
 	mux.HandleFunc("PUT /api/mcp/servers/{id}/credential", s.setMCPCredential)
+	mux.HandleFunc("PUT /api/mcp/servers/{id}/access-credential", s.setMCPAccessCredential)
 	mux.HandleFunc("POST /api/mcp/servers/{id}/discover", s.discoverMCPServer)
 	mux.HandleFunc("GET /api/capabilities", s.listCapabilities)
 	mux.HandleFunc("GET /api/capabilities/{id}", s.getCapability)
@@ -633,6 +634,28 @@ func (s *Server) setMCPCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item, err := s.mcp.SetCredential(r.Context(), r.PathValue("id"), input.APIKey)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+// setMCPAccessCredential stores Cloudflare Access service-token fields in the
+// local vault. The response exposes only whether the pair is stored.
+func (s *Server) setMCPAccessCredential(w http.ResponseWriter, r *http.Request) {
+	if s.mcp == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "MCP service is unavailable"})
+		return
+	}
+	var input struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.mcp.SetAccessCredential(r.Context(), r.PathValue("id"), input.ClientID, input.ClientSecret)
 	if err != nil {
 		writeError(w, err)
 		return

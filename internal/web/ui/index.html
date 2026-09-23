@@ -144,6 +144,16 @@
     </form>
   </dialog>
 
+  <dialog id="mcpAccessDialog" class="action-dialog" aria-labelledby="mcpAccessTitle">
+    <form id="mcpAccessForm">
+      <div class="dialog-head"><div><p class="eyebrow">Cloudflare Access</p><h2 id="mcpAccessTitle">Protect MCP connection</h2></div><button type="button" class="icon-button" id="mcpAccessClose" aria-label="Close">×</button></div>
+      <p class="dialog-message">Enter the service token for this HTTPS MCP domain. Hermetrix keeps it in the local credential vault and sends it alongside the Pi bearer token. Leave both fields blank to remove it.</p>
+      <label>Client ID<input id="mcpAccessClientID" type="password" autocomplete="off" spellcheck="false"></label>
+      <label>Client Secret<input id="mcpAccessClientSecret" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="dialog-actions"><button type="button" class="ghost" id="mcpAccessCancel">Cancel</button><button type="submit" class="primary">Save Access token</button></div>
+    </form>
+  </dialog>
+
   <dialog id="commandDialog" class="command-dialog">
     <form method="dialog" id="commandForm">
       <label class="command-search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="commandInput" type="search" autocomplete="off" placeholder="Go to a page, room, or action…"><kbd>esc</kbd></label>

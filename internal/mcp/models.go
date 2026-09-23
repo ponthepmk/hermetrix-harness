@@ -16,27 +16,30 @@ const (
 )
 
 type Server struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	TransportKind     string     `json:"transport_kind"`
-	Endpoint          string     `json:"endpoint"`
-	Executable        string     `json:"executable,omitempty"`
-	Arguments         []string   `json:"arguments,omitempty"`
-	LegacyNeedsReview bool       `json:"legacy_command_needs_review,omitempty"`
-	APIKeyEnv         string     `json:"api_key_env,omitempty"`
-	CredentialReady   bool       `json:"credential_ready"`
-	CredentialStored  bool       `json:"credential_stored"`
-	ProtocolMode      string     `json:"protocol_mode"`
-	TrustAnnotations  bool       `json:"trust_annotations"`
-	Enabled           bool       `json:"enabled"`
-	RequestTimeoutMS  int        `json:"request_timeout_ms"`
-	Status            string     `json:"status"`
-	LastError         string     `json:"last_error,omitempty"`
-	LastProtocol      string     `json:"last_protocol,omitempty"`
-	ToolCount         int        `json:"tool_count"`
-	LastDiscoveredAt  *time.Time `json:"last_discovered_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	TransportKind      string     `json:"transport_kind"`
+	Endpoint           string     `json:"endpoint"`
+	Executable         string     `json:"executable,omitempty"`
+	Arguments          []string   `json:"arguments,omitempty"`
+	LegacyNeedsReview  bool       `json:"legacy_command_needs_review,omitempty"`
+	APIKeyEnv          string     `json:"api_key_env,omitempty"`
+	CredentialReady    bool       `json:"credential_ready"`
+	CredentialStored   bool       `json:"credential_stored"`
+	AccessStored       bool       `json:"access_stored"`
+	AccessClientID     string     `json:"-"`
+	AccessClientSecret string     `json:"-"`
+	ProtocolMode       string     `json:"protocol_mode"`
+	TrustAnnotations   bool       `json:"trust_annotations"`
+	Enabled            bool       `json:"enabled"`
+	RequestTimeoutMS   int        `json:"request_timeout_ms"`
+	Status             string     `json:"status"`
+	LastError          string     `json:"last_error,omitempty"`
+	LastProtocol       string     `json:"last_protocol,omitempty"`
+	ToolCount          int        `json:"tool_count"`
+	LastDiscoveredAt   *time.Time `json:"last_discovered_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 type SaveInput struct {

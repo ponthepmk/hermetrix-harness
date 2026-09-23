@@ -462,6 +462,31 @@ func TestHTTPMCPDiscoveryAndDeferredCatalog(t *testing.T) {
 	}
 }
 
+func TestMCPAccessCredentialAPIStoresOnlyRedactedStatus(t *testing.T) {
+	harness := testHTTPServer(t)
+	created := requestJSON(t, harness.URL+"/api/mcp/servers", http.MethodPost, map[string]any{
+		"name": "agent-knowledge", "transport_kind": "streamable-http",
+		"endpoint": "https://agent-knowledge.example.test/mcp",
+	}, http.StatusCreated)
+	var profile mcp.Server
+	if err := json.Unmarshal(created, &profile); err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, harness.URL+"/api/mcp/servers/"+profile.ID+"/access-credential", http.MethodPut,
+		map[string]any{"client_id": "private-access-id", "client_secret": "private-access-secret"}, http.StatusOK)
+	if !bytes.Contains(result, []byte(`"access_stored":true`)) ||
+		bytes.Contains(result, []byte("private-access-id")) || bytes.Contains(result, []byte("private-access-secret")) {
+		t.Fatalf("unsafe Access response: %s", result)
+	}
+	listed := requestJSON(t, harness.URL+"/api/mcp/servers", http.MethodGet, nil, http.StatusOK)
+	if !bytes.Contains(listed, []byte(`"access_stored":true`)) ||
+		bytes.Contains(listed, []byte("private-access-id")) || bytes.Contains(listed, []byte("private-access-secret")) {
+		t.Fatalf("unsafe MCP list: %s", listed)
+	}
+	requestJSON(t, harness.URL+"/api/mcp/servers/"+profile.ID+"/access-credential", http.MethodPut,
+		map[string]any{"client_id": "", "client_secret": ""}, http.StatusOK)
+}
+
 func TestHTTPProposalPromotionAndContextCompilation(t *testing.T) {
 	server := testHTTPServer(t)
 	input := map[string]any{"canonical_name": "http-skill", "scope_kind": "user", "origin": "user_created",

@@ -56,6 +56,16 @@ type CredentialVault interface {
 // connection or moving its endpoint keeps the credential attached.
 func CredentialRef(serverID string) string { return "mcp:" + serverID }
 
+// AccessCredentialRef is separate from the origin MCP bearer token. One vault
+// entry stores both Cloudflare Access fields atomically, bound to one HTTPS URL.
+func AccessCredentialRef(serverID string) string { return "mcp-access:" + serverID }
+
+type accessCredential struct {
+	Endpoint     string `json:"endpoint"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
 func NewService(dataStore *store.Store, catalog *capabilities.Catalog, client *Client) *Service {
 	if catalog == nil {
 		catalog = capabilities.NewCatalog()
@@ -109,6 +119,54 @@ func (s *Service) SetCredential(ctx context.Context, serverID, token string) (Se
 		return Server{}, err
 	}
 	return s.Get(ctx, serverID)
+}
+
+// SetAccessCredential saves or clears Cloudflare Access credentials for one
+// HTTPS MCP endpoint. The pair never enters SQLite or an API response.
+func (s *Service) SetAccessCredential(ctx context.Context, serverID, clientID, clientSecret string) (Server, error) {
+	server, err := s.Get(ctx, serverID)
+	if err != nil {
+		return Server{}, err
+	}
+	if server.TransportKind != TransportStreamableHTTP || !strings.HasPrefix(server.Endpoint, "https://") {
+		return Server{}, &Error{Kind: ErrorConfiguration, Operation: "access-credential", ServerID: serverID, Message: "Cloudflare Access requires an HTTPS MCP endpoint"}
+	}
+	if s.vault == nil {
+		return Server{}, &Error{Kind: ErrorNotReady, Operation: "access-credential", ServerID: serverID, Message: "Cloudflare Access credential vault is unavailable"}
+	}
+	clientID, clientSecret = strings.TrimSpace(clientID), strings.TrimSpace(clientSecret)
+	if (clientID == "") != (clientSecret == "") || strings.ContainsAny(clientID+clientSecret, "\r\n") || len(clientID) > 1024 || len(clientSecret) > 4096 {
+		return Server{}, &Error{Kind: ErrorConfiguration, Operation: "access-credential", ServerID: serverID, Message: "Cloudflare Access requires both valid client ID and secret, or both blank to clear"}
+	}
+	value := ""
+	if clientID != "" {
+		encoded, err := json.Marshal(accessCredential{Endpoint: server.Endpoint, ClientID: clientID, ClientSecret: clientSecret})
+		if err != nil {
+			return Server{}, errors.New("cannot prepare Cloudflare Access credential")
+		}
+		value = string(encoded)
+	}
+	if err := s.vault.Set(AccessCredentialRef(server.ID), value); err != nil {
+		return Server{}, err
+	}
+	return s.Get(ctx, server.ID)
+}
+
+func (s *Service) withAccessCredential(server Server) (Server, error) {
+	if s.vault == nil {
+		return server, nil
+	}
+	value, ok := s.vault.Get(AccessCredentialRef(server.ID))
+	if !ok {
+		return server, nil
+	}
+	var access accessCredential
+	if json.Unmarshal([]byte(value), &access) != nil || access.Endpoint != server.Endpoint ||
+		access.ClientID == "" || access.ClientSecret == "" || !strings.HasPrefix(server.Endpoint, "https://") {
+		return Server{}, &Error{Kind: ErrorConfiguration, Operation: "connect", ServerID: server.ID, Message: "Cloudflare Access credential is invalid or bound to another endpoint; replace it before connecting"}
+	}
+	server.AccessClientID, server.AccessClientSecret = access.ClientID, access.ClientSecret
+	return server, nil
 }
 
 func (s *Service) Save(ctx context.Context, input SaveInput) (Server, error) {
@@ -238,6 +296,10 @@ func (s *Service) Discover(ctx context.Context, serverID string) (DiscoveryResul
 	if !server.Enabled {
 		return DiscoveryResult{}, &Error{Kind: ErrorNotReady, Operation: "discover", ServerID: server.ID, Message: "MCP server is disabled"}
 	}
+	server, err = s.withAccessCredential(server)
+	if err != nil {
+		return DiscoveryResult{}, err
+	}
 	credential, err := s.serverCredential(server)
 	if err != nil {
 		_ = s.recordDiscoveryFailure(context.WithoutCancel(ctx), server.ID, err)
@@ -257,7 +319,7 @@ func (s *Service) Discover(ctx context.Context, serverID string) (DiscoveryResul
 		remoteTools, protocol, err = s.client.ListTools(discoveryCtx, server, credential)
 	}
 	if err != nil {
-		err = redactError(err, credential)
+		err = redactError(err, credential, server.AccessClientID, server.AccessClientSecret)
 		_ = s.recordDiscoveryFailure(context.WithoutCancel(ctx), server.ID, err)
 		_ = s.reloadServerCatalog(context.WithoutCancel(ctx), server.ID)
 		return DiscoveryResult{}, err
@@ -348,6 +410,10 @@ func (s *Service) ExecuteCapability(ctx context.Context, entry capabilities.Entr
 	if !server.Enabled || server.Status != "ready" {
 		return capabilities.CallResult{}, &Error{Kind: ErrorNotReady, Operation: "tools/call", ServerID: server.ID, Message: "MCP server is not ready"}
 	}
+	server, err = s.withAccessCredential(server)
+	if err != nil {
+		return capabilities.CallResult{}, err
+	}
 	// A resource and a prompt are answered by their own MCP methods. They share
 	// the revision check with tools -- a capability described at one revision
 	// cannot be fetched at another -- but nothing else about a tool call.
@@ -392,9 +458,9 @@ func (s *Service) ExecuteCapability(ctx context.Context, entry capabilities.Entr
 		response, err = s.client.CallTool(callCtx, server, credential, server.LastProtocol, entry.Name, arguments, json.RawMessage(inputSchema))
 	}
 	if err != nil {
-		return capabilities.CallResult{}, redactError(err, credential)
+		return capabilities.CallResult{}, redactError(err, credential, server.AccessClientID, server.AccessClientSecret)
 	}
-	redactedResult := redactJSON(response.Result, credential)
+	redactedResult := redactJSON(response.Result, credential, server.AccessClientID, server.AccessClientSecret)
 	if outputSchema != "" {
 		outputValidator, validateErr := s.validator("output:"+entry.Revision, json.RawMessage(outputSchema))
 		if validateErr == nil {
@@ -639,11 +705,25 @@ func boundedText(value string, maxBytes int) string {
 	return strings.TrimSpace(value[:end]) + "…"
 }
 
-func redactError(err error, secret string) error {
-	if err == nil || secret == "" {
+func redactError(err error, secrets ...string) error {
+	if err == nil {
 		return err
 	}
-	replace := func(value string) string { return strings.ReplaceAll(value, secret, "[REDACTED]") }
+	anySecret := false
+	for _, secret := range secrets {
+		anySecret = anySecret || secret != ""
+	}
+	if !anySecret {
+		return err
+	}
+	replace := func(value string) string {
+		for _, secret := range secrets {
+			if secret != "" {
+				value = strings.ReplaceAll(value, secret, "[REDACTED]")
+			}
+		}
+		return value
+	}
 	var typed *Error
 	if errors.As(err, &typed) {
 		clone := *typed
@@ -654,19 +734,34 @@ func redactError(err error, secret string) error {
 	return &Error{Kind: ErrorTransport, Message: replace(err.Error())}
 }
 
-func redactJSON(raw json.RawMessage, secret string) json.RawMessage {
-	if secret == "" || len(raw) == 0 {
+func redactJSON(raw json.RawMessage, secrets ...string) json.RawMessage {
+	if len(raw) == 0 {
 		return append(json.RawMessage(nil), raw...)
+	}
+	anySecret := false
+	for _, secret := range secrets {
+		anySecret = anySecret || secret != ""
+	}
+	if !anySecret {
+		return append(json.RawMessage(nil), raw...)
+	}
+	replace := func(value string) string {
+		for _, secret := range secrets {
+			if secret != "" {
+				value = strings.ReplaceAll(value, secret, "[REDACTED]")
+			}
+		}
+		return value
 	}
 	var value any
 	if json.Unmarshal(raw, &value) != nil {
-		return json.RawMessage(strings.ReplaceAll(string(raw), secret, "[REDACTED]"))
+		return json.RawMessage(replace(string(raw)))
 	}
 	var walk func(any) any
 	walk = func(item any) any {
 		switch typed := item.(type) {
 		case string:
-			return strings.ReplaceAll(typed, secret, "[REDACTED]")
+			return replace(typed)
 		case []any:
 			for index := range typed {
 				typed[index] = walk(typed[index])
@@ -778,6 +873,7 @@ func scanServer(row scanner, vault CredentialVault) (Server, error) {
 		item.LastDiscoveredAt = &value
 	}
 	item.CredentialStored = vault != nil && vault.Has(CredentialRef(item.ID))
+	item.AccessStored = vault != nil && vault.Has(AccessCredentialRef(item.ID))
 	if item.CredentialStored || item.APIKeyEnv == "" {
 		item.CredentialReady = true
 	} else if value, ok := os.LookupEnv(item.APIKeyEnv); ok && strings.TrimSpace(value) != "" {

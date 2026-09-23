@@ -2134,7 +2134,16 @@ function renderMCP() {
       <button class="primary">Connect server</button>
     </form></div></details>`;
   root.innerHTML = `${hero}${serverTools}${serverList}<p class="probe-empty" id="mcpServerEmpty" hidden>ไม่พบเซิร์ฟเวอร์ที่ตรงกับคำค้นหรือสถานะที่เลือก</p>${search}<div class="mcp-setup-row">${setup}${flow}</div>`;
-  $$(".mcp-server-list > article", root).forEach(card => {
+  $$(".mcp-server-list > article", root).forEach((card, index) => {
+    const server = servers[index];
+    if (server.transport_kind === "streamable-http" && server.endpoint.startsWith("https://")) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost";
+      button.dataset.mcpAccess = server.id;
+      button.textContent = server.access_stored ? "Replace Cloudflare Access token" : "Set Cloudflare Access token";
+      card.querySelector(".action-row").append(button);
+    }
     const details = document.createElement("details");
     details.className = "mcp-server-detail";
     details.innerHTML = "<summary>รายละเอียดและการจัดการ</summary>";
@@ -2181,6 +2190,7 @@ function renderMCP() {
     if (capability) mentionCapability({ kind:"mcp", name:capability.title || capability.name, id:capability.id });
   }));
   $$('[data-mcp-key]', root).forEach(button => button.addEventListener("click", () => setMCPCredential(button.dataset.mcpKey)));
+  $$('[data-mcp-access]', root).forEach(button => button.addEventListener("click", () => setMCPAccessCredential(button.dataset.mcpAccess)));
 }
 
 async function discoverAllMCPServers() {
@@ -2224,6 +2234,39 @@ async function setMCPCredential(id) {
     await load();
     switchTab("mcp");
   } catch (error) { toast(error.message, true); }
+}
+
+function setMCPAccessCredential(id) {
+  const server = state.mcp_servers.find(item => item.id === id);
+  if (!server) return;
+  const dialog = $("#mcpAccessDialog");
+  const form = $("#mcpAccessForm");
+  form.reset();
+  $("#mcpAccessTitle").textContent = `Cloudflare Access for ${server.name}`;
+  $("#mcpAccessCancel").onclick = () => dialog.close();
+  $("#mcpAccessClose").onclick = () => dialog.close();
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const clientID = $("#mcpAccessClientID").value.trim();
+    const clientSecret = $("#mcpAccessClientSecret").value.trim();
+    if (Boolean(clientID) !== Boolean(clientSecret)) {
+      toast("Enter both Cloudflare Access fields, or leave both blank to remove them", true);
+      return;
+    }
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await api(`/api/mcp/servers/${encodeURIComponent(id)}/access-credential`, { method:"PUT", body:JSON.stringify({client_id:clientID, client_secret:clientSecret}) });
+      form.reset();
+      dialog.close();
+      toast(clientID ? "Cloudflare Access token saved on this machine" : "Cloudflare Access token removed");
+      await load();
+      switchTab("mcp");
+    } catch (error) { toast(error.message, true); }
+    finally { submit.disabled = false; }
+  };
+  dialog.showModal();
+  $("#mcpAccessClientID").focus();
 }
 
 async function saveMCPServer(event) {
