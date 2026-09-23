@@ -1,5 +1,5 @@
 const { escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline } = HermetrixRuntime;
-const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], durableTasks:[], selectedDurableTask:null, taskExecutions:{}, settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, railProjectsOpen: true, railSetupOpen: false, railProjectOpen: {}, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, paneLayout: "bottom-wide", draggedPane: null, paneSplitX: 50, paneSplitY: 50, authPrincipal: "" };
+const state = { skills: [], candidates: [], archives: [], relations: [], reviews: [], curator_runs: [], profiles: [], providers: [], mcp_servers: [], capability_summary: { total:0, by_source:{}, by_readiness:{} }, capabilityResults: [], capabilityPickerResults: [], capabilityPickerFilter:"all", selectedCapability: null, mcpServerQuery:"", mcpServerFilter:"all", mcpCapabilityQuery:"", sessions: [], projects: [], projectFiles: [], jobs: [], artifacts: [], terminals: [], browserTabs: [], teams: [], teamRuns: [], durableTasks:[], selectedDurableTask:null, taskExecutions:{}, taskDecisionLabs:{}, settings: [], memories: [], backups: [], usage: {}, fidelityCases: [], fidelityRuns: [], qualifications: [], curatorFindings: [], schedules: [], gcRuns: [], skillAuthority:null, authorityActions:[], sharePreview:null, workspacePreview:null, recoveryReport:null, activeTab: "chat", view: "chat", workbenchTab:"review", selectedSkill: null, selectedSkillDetail:null, selectedSession: null, selectedProject: null, currentProject: null, selectedTerminal:null, selectedBrowserTab:null, selectedTeam:null, teamDraft:null, projectFile:null, projectFileDiff:"", sessionDetail: null, contextResult: null, modelProbe: null, sending: false, draftQualificationReason:"", sessionError:"", commandItems: [], commandMatches: [], commandIndex: 0, capabilityPickerSearching: false, density: "comfortable", sessionOptionsOpen: false, railProjectsOpen: true, railSetupOpen: false, railProjectOpen: {}, sessionReady: false, elicitations: [], folderListing: null, draftMessage: "", composerAttachments: [], composerFocused: false, composerCaret: 0, zoneWidths: {}, panes: [], maximisedPane: null, paneLayout: "bottom-wide", draggedPane: null, paneSplitX: 50, paneSplitY: 50, authPrincipal: "" };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const UI_ICON_NAMES = new Set(["search","plus","close","sidebar","workbench","refresh","settings","file","files","terminal","browser","activity","model","tools","skill","review","learning","insights","archive","context","fidelity","project","jobs","artifact","chat","at","expand","contract","grip"]);
@@ -32,7 +32,7 @@ async function api(path, options = {}, authenticatedRetry = false) {
     return api(path, options, true);
   }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : body.error?.message || body.message || `Request failed (${response.status})`);
   return body;
 }
 
@@ -117,10 +117,28 @@ function renderPicker() {
 
 // Opening records that someone worked here, which is what "recent" is ordered
 // by, and then hands the screen to the shell.
-async function openProject(id) {
+let projectOpenGeneration = 0;
+let sessionSelectionGeneration = 0;
+async function openProject(id, options = {}) {
+  if (state.sending) { toast("รอให้งานในแชทนี้เสร็จก่อนเปลี่ยนโปรเจกต์", true); return; }
+  if (state.sessionCreationPending && !options.createdSession) { toast("กำลังสร้างแชท กรุณารอสักครู่", true); return; }
+  ++navigationGeneration;
+  const generation = ++projectOpenGeneration;
+  const selection = options.selectionGeneration ?? ++sessionSelectionGeneration;
+  ++loadGeneration;
+  invalidateSurfaces();
   try {
+    captureWorkspaceDrafts();
     captureCodeDraft();
-    state.currentProject = await api(`/api/projects/${encodeURIComponent(id)}/open`, { method:"POST", body:"{}" });
+    const project = await api(`/api/projects/${encodeURIComponent(id)}/open`, { method:"POST", body:"{}" });
+    if (generation !== projectOpenGeneration || selection !== sessionSelectionGeneration || state.sending) return;
+    captureWorkspaceDrafts();
+    state.currentProject = project;
+    state.draftProjectID = state.currentProject.id;
+    state.selectedSession = null;
+    state.sessionDetail = null;
+    state.elicitations = [];
+    restoreWorkspaceDrafts(project.id);
     state.projectFile = null;
     state.projectFileDiff = "";
     state.projectPath = "";
@@ -128,7 +146,9 @@ async function openProject(id) {
     state.workspaceFiles = [];
     state.selectedTerminal = null;
     state.terminalOutput = "";
-    state.projects = await api("/api/projects");
+    const projects = await api("/api/projects");
+    if (generation !== projectOpenGeneration || selection !== sessionSelectionGeneration) return;
+    state.projects = asList(projects);
     state.selectedProject = id;
     showShell();
     // The layout key is project and view scoped, so opening a project has to
@@ -144,6 +164,8 @@ async function openProject(id) {
     applyLayoutForView();
     if (state.view === "code") renderPanes();
     await load();
+    if (generation !== projectOpenGeneration || selection !== sessionSelectionGeneration) return;
+    if (options.selectSession === false) return project;
     // Land on this workspace's own conversation. Opening a project while a
     // different project's session is selected leaves chat showing someone
     // else's transcript — or nothing at all — with no hint why.
@@ -153,7 +175,8 @@ async function openProject(id) {
       if (own.length) await selectSession(own[0].id);
       else { state.selectedSession = null; state.sessionDetail = null; renderChat(); }
     }
-  } catch (error) { toast(error.message, true); }
+    return project;
+  } catch (error) { if (generation === projectOpenGeneration) toast(error.message, true); }
 }
 
 async function createProjectFromPicker() {
@@ -184,6 +207,11 @@ function showShell() {
 }
 
 function showPicker() {
+  if (state.sessionCreationPending) { toast("กำลังเริ่มแชท กรุณารอสักครู่"); return; }
+  restorePlanningWorkspace();
+  ++navigationGeneration;
+  captureWorkspaceDrafts();
+  dismissMobileRail();
   $("#appShell").hidden = true;
   $("#projectPicker").hidden = false;
   renderPicker();
@@ -236,43 +264,121 @@ function askAction({ title, message, confirmLabel = "Confirm", reasonLabel = "",
   });
 }
 
+const SURFACE_DATA = {
+  library: {skillAuthority:"/api/skill-authority", authorityActions:"/api/skill-authority/actions"},
+  projects: {jobs:"/api/jobs", artifacts:"/api/artifacts", memories:"/api/memories", durableTasks:"/api/tasks?limit=100"},
+  office: {jobs:"/api/jobs"}, artifacts: {artifacts:"/api/artifacts"}, insights: {curatorFindings:"/api/curator/findings"},
+  fidelity: {fidelityCases:"/api/fidelity/cases", fidelityRuns:"/api/fidelity/runs"},
+  maintenance: {settings:"/api/settings", memories:"/api/memories", backups:"/api/backups", usage:"/api/usage", curatorFindings:"/api/curator/findings", schedules:"/api/maintenance/schedules", gcRuns:"/api/maintenance/gc"},
+  review: {jobs:"/api/jobs", skillAuthority:"/api/skill-authority"}, output: {jobs:"/api/jobs"},
+  terminal: {terminals:"/api/terminals"}, browser: {browserTabs:"/api/browser/tabs"},
+  team: {teams:"/api/teams", teamRuns:"/api/team-runs"}, tasks: {durableTasks:"/api/tasks?limit=100"}
+};
+const surfaceLoads = new Map();
+const readySurfaces = new Set();
+let surfaceGeneration = 0;
+
+function invalidateSurfaces() {
+  ++surfaceGeneration;
+  surfaceLoads.clear();
+  readySurfaces.clear();
+}
+
+function surfaceScope(surface) {
+  const projectID = surface === "projects" ? state.selectedProject : state.currentProject?.id;
+  const path = ["files", "projects"].includes(surface) ? state.projectPath || "" : "";
+  return `${surfaceGeneration}:${state.currentProject?.id || ""}:${projectID || ""}:${path}`;
+}
+
+async function hydrateSurface(surface, force = false) {
+  const scope = surfaceScope(surface);
+  const existing = surfaceLoads.get(surface);
+  if (!force && existing?.scope === scope) return existing.promise;
+  const endpoints = {...SURFACE_DATA[surface]};
+  const project = surface === "projects" ? state.projects.find(item => item.id === state.selectedProject) : state.currentProject;
+  if (["files", "projects"].includes(surface) && project?.root_path) {
+    endpoints.projectFiles = `/api/projects/${encodeURIComponent(project.id)}/files?path=${encodeURIComponent(state.projectPath || "")}`;
+  }
+  const request = {scope, promise:null};
+  readySurfaces.delete(surface);
+  request.promise = (async () => {
+    try {
+      const entries = await Promise.all(Object.entries(endpoints).map(async ([key, path]) => [key, await api(path)]));
+      if (surfaceScope(surface) !== scope || surfaceLoads.get(surface) !== request) return false;
+      for (const [key, value] of entries) state[key] = ["usage", "skillAuthority"].includes(key) ? value : asList(value);
+      if (["files", "projects"].includes(surface)) {
+        if (!project?.root_path) state.projectFiles = [];
+        if (project?.id === state.currentProject?.id) state.workspaceFiles = state.projectFiles;
+      }
+      if (surface === "team" && !state.selectedTeam && state.teams.length) state.selectedTeam = state.teams[0].id;
+      readySurfaces.add(surface);
+      return true;
+    } catch (error) {
+      if (surfaceScope(surface) !== scope || surfaceLoads.get(surface) !== request) return false;
+      surfaceLoads.delete(surface);
+      throw error;
+    }
+  })();
+  surfaceLoads.set(surface, request);
+  return request.promise;
+}
+
+let loadGeneration = 0;
 async function load() {
+  const generation = ++loadGeneration;
+  const projectID = state.currentProject?.id;
+  invalidateSurfaces();
   try {
-    const [data, projects, jobs, artifacts, terminals, browserTabs, teams, teamRuns, settings, memories, backups, usage, fidelityCases, fidelityRuns, qualifications, curatorFindings, schedules, gcRuns, skillAuthority, authorityActions, durableTasks] = await Promise.all([
-      api("/api/bootstrap"), api("/api/projects"), api("/api/jobs"), api("/api/artifacts"),
-      api("/api/terminals"), api("/api/browser/tabs"), api("/api/teams"), api("/api/team-runs"), api("/api/settings"),
-      api("/api/memories"), api("/api/backups"), api("/api/usage"), api("/api/fidelity/cases"), api("/api/fidelity/runs"),
-      api("/api/qualifications"), api("/api/curator/findings"), api("/api/maintenance/schedules"), api("/api/maintenance/gc"),
-      api("/api/skill-authority"), api("/api/skill-authority/actions"), api("/api/tasks?limit=100")
+    const [bootstrap, projects, qualifications, capabilities] = await Promise.allSettled([
+      api("/api/bootstrap"), api("/api/projects"), api("/api/qualifications"), api("/api/capabilities?limit=1")
     ]);
+    if (generation !== loadGeneration || projectID !== state.currentProject?.id) return false;
+    if (bootstrap.status === "rejected") throw bootstrap.reason;
+    const data = bootstrap.value;
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Workspace data could not be loaded. Refresh to try again.");
     Object.assign(state, data);
+    for (const key of ["skills", "candidates", "archives", "relations", "reviews", "curator_runs", "profiles", "providers", "mcp_servers", "sessions", "direct_tools"]) {
+      state[key] = asList(data[key]);
+    }
     // Belt to the server's braces: one endpoint answering null instead of []
     // used to throw here and leave every panel in the cockpit unrendered.
-    Object.assign(state, { projects: asList(projects), jobs: asList(jobs), artifacts: asList(artifacts),
-      terminals: asList(terminals), browserTabs: asList(browserTabs), teams: asList(teams), teamRuns: asList(teamRuns),
-      settings: asList(settings), memories: asList(memories), backups: asList(backups), usage: usage || {},
-      fidelityCases: asList(fidelityCases), fidelityRuns: asList(fidelityRuns), qualifications: asList(qualifications),
-      curatorFindings: asList(curatorFindings), schedules: asList(schedules), gcRuns: asList(gcRuns),
-      skillAuthority, authorityActions: asList(authorityActions), durableTasks:asList(durableTasks) });
+    if (projects.status === "fulfilled") state.projects = asList(projects.value);
+    if (qualifications.status === "fulfilled") state.qualifications = asList(qualifications.value);
+    state.runtimeCapabilities = capabilities.status === "fulfilled" ? capabilities.value?.runtime || {} : {};
+    state.sessionError = "";
+    for (const result of [projects, qualifications, capabilities]) {
+      if (result.status === "rejected") toast(result.reason?.message || "Some workspace details could not be loaded", true);
+    }
     if (!state.selectedProject && state.projects.length) state.selectedProject = state.projects[0].id;
     if (!state.selectedTerminal && state.terminals.length) state.selectedTerminal = state.terminals.find(item => item.state === "running")?.id || state.terminals[0].id;
     if (!state.selectedBrowserTab && state.browserTabs.length) state.selectedBrowserTab = state.browserTabs.find(item => item.state === "ready")?.id || state.browserTabs[0].id;
     if (!state.selectedTeam && state.teams.length) state.selectedTeam = state.teams[0].id;
-    if (state.currentProject) {
-      state.selectedProject = state.currentProject.id;
-      state.projectFiles = state.currentProject.root_path ? await api(`/api/projects/${encodeURIComponent(state.currentProject.id)}/files?path=${encodeURIComponent(state.projectPath || "")}`) : [];
-      state.workspaceFiles = state.projectFiles;
-    }
     renderAll();
-  } catch (error) { toast(error.message, true); }
+    if (CONFIG_PAGE_IDS.includes(state.activeTab)) {
+      const tab = state.activeTab;
+      const hydrated = await hydrateSurface(tab);
+      if (hydrated && generation === loadGeneration && state.activeTab === tab) renderConfigPage(tab);
+    } else if (state.view === "code" || !$("#zones").classList.contains("side-hidden")) {
+      renderPanes();
+    }
+    return true;
+  } catch (error) {
+    if (generation !== loadGeneration || projectID !== state.currentProject?.id) return false;
+    state.sessionError = error.message;
+    if (CONFIG_PAGE_IDS.includes(state.activeTab)) {
+      const root = $(`#view-${state.activeTab}`);
+      if (root) root.textContent = error.message;
+    }
+    renderChat();
+    toast(error.message, true);
+    return false;
+  }
 }
 
 function renderAll() {
   // Isolate each panel: one renderer throwing on an unexpected payload must not
   // leave every panel after it in the list blank.
-  for (const render of [renderChat, renderProviders, renderMCP, renderStats, renderLibrary,
-    renderProposals, renderLearning, renderInsights, renderArchive, renderContext,
-    renderProjects, renderOffice, renderArtifacts, renderFidelity, renderMaintenance]) {
+  for (const render of [renderChat]) {
     try { render(); } catch (error) { console.error(`${render.name} failed`, error); }
   }
   state.pendingProposals = state.candidates.filter(item => ["needs_review", "quarantined"].includes(item.state)).length;
@@ -281,8 +387,21 @@ function renderAll() {
   $("#proposalBadge").hidden = waiting === 0;
   $("#proposalBadge").textContent = waiting;
   renderProjectChip();
-  switchTab(state.activeTab);
-  if (!$("#zones").classList.contains("side-hidden")) renderPanes();
+  if (CONFIG_PAGE_IDS.includes(state.activeTab)) renderConfigPage(state.activeTab);
+}
+
+function renderConfigPage(tab) {
+  if (SURFACE_DATA[tab] && !readySurfaces.has(tab)) {
+    const root = $(`#view-${tab}`);
+    if (root) root.innerHTML = `<div class="probe-empty" role="status">กำลังโหลด…</div>`;
+    return;
+  }
+  const renderers = {providers:renderProviders, mcp:renderMCP, tools:renderDirectTools, library:renderLibrary, proposals:renderProposals,
+    learning:renderLearning, insights:renderInsights, archive:renderArchive, context:renderContext,
+    projects:renderProjects, office:renderOffice, artifacts:renderArtifacts, fidelity:renderFidelity, maintenance:renderMaintenance,
+    discord:() => window.HermetrixDiscord?.render($("#view-discord"))};
+  renderers[tab]?.();
+  if (SKILL_PAGES.includes(tab)) renderStats();
 }
 
 function renderStats() {
@@ -297,9 +416,11 @@ function renderStats() {
 function renderLibrary() {
   const query = $("#searchInput").value.trim().toLowerCase();
   const filter = $("#stateFilter").value;
+  const collection = state.skillCollectionFilter || "all";
   const items = state.skills.filter(item => {
     const haystack = `${item.canonical_name} ${item.summary} ${item.origin} ${item.owner}`.toLowerCase();
-    return (!query || haystack.includes(query)) && (!filter || item.state === filter);
+    return (!query || haystack.includes(query)) && (!filter || item.state === filter) &&
+      (collection === "all" || collection === "pinned" && item.pinned || collection === "agent" && (String(item.origin || "").startsWith("agent") || item.owner === "agent") || collection === "enabled" && item.enabled);
   });
   const root = $("#view-library");
   const policy = state.skillAuthority;
@@ -314,21 +435,27 @@ function renderLibrary() {
       promotionBySkill.set(action.skill_id, action);
     }
   }
-  const list = items.length ? `<div class="skill-list">${items.map(item => {
+  const list = items.length ? `<div class="skill-list skill-gallery">${items.map(item => {
     const promotion = promotionBySkill.get(item.id);
-    return `<article class="skill-row ${state.selectedSkill === item.id ? "selected" : ""}" data-skill-id="${escapeHTML(item.id)}" tabindex="0">
-      <div><div class="row-title"><h3>${escapeHTML(item.canonical_name)}</h3>${pill(item.state, item.state === "active" ? "green" : "amber")}${item.pinned ? pill("pinned", "blue") : ""}${promotion ? pill("promoted by agent", "amber") : ""}</div>
-      <p>${escapeHTML(item.summary || "No summary in the active manifest")}</p>
-      <div class="meta">${pill(item.scope_kind)}${pill(item.origin)}${pill(item.owner)}</div>
+    const name = item.canonical_name || "Skill";
+    const monogram = name.replace(/^aetox[-_]/i, "").slice(0, 2).toLowerCase();
+    return `<article class="skill-row skill-tile ${state.selectedSkill === item.id ? "selected" : ""}" data-skill-id="${escapeHTML(item.id)}" tabindex="0" aria-label="เปิดสกิล ${escapeHTML(name)}">
+      <div><span class="skill-avatar" aria-hidden="true">${escapeHTML(monogram)}</span><div class="row-title"><h3>${escapeHTML(name)}</h3>${item.pinned ? pill("ปักหมุด", "blue") : ""}${promotion ? `<span title="promoted by agent">${pill("โดยเอเจนต์", "amber")}</span>` : ""}</div>
+      <p>${escapeHTML(item.summary || "ยังไม่มีคำอธิบาย")}</p>
+      <div class="skill-tile-status">${pill(item.state, item.state === "active" ? "green" : "amber")}<small>ใช้ ${Number(item.injected_count || 0).toLocaleString()} ครั้ง</small></div>
       ${promotion ? `<p class="skill-promotion">Hermetrix promoted this on ${escapeHTML(formatDate(promotion.completed_at || promotion.created_at))} under policy r${promotion.policy_revision}. Open it to edit, or undo it here.</p><div class="action-row"><button class="ghost" data-revert-promotion="${escapeHTML(promotion.id)}">Undo this promotion</button></div>` : ""}</div>
-      <div class="skill-row-actions"><div class="metric"><strong>${item.injected_count}</strong>injected · ${item.success_count} success</div><button class="ghost" type="button" data-mention-skill="${escapeHTML(item.id)}">Use in chat</button></div>
+      <div class="skill-row-actions"><button class="ghost" type="button" data-mention-skill="${escapeHTML(item.id)}">ใช้ในแชท</button></div>
     </article>`;
-  }).join("")}</div>` : `<div class="empty"><h3>${state.skills.length ? "No matching skills" : "No active skills yet"}</h3><p>Use + New Skill to write one yourself. Hermetrix also writes Skills as it works; those appear here marked as promoted by agent.</p></div>`;
+  }).join("")}</div>` : `<div class="empty"><h3>${state.skills.length ? "ไม่พบสกิลที่ตรงกับตัวกรอง" : "ยังไม่มีสกิล"}</h3><p>สร้างข้อเสนอสกิลใหม่ หรือปรับคำค้นหาและตัวกรอง</p></div>`;
   // Skill Studio opens on what a person came to do -- read the library, add a
   // Skill -- with the authority policy folded away behind its own summary
   // rather than sitting above the list it governs.
-  const intro = `<section class="skill-studio-intro"><div><p class="eyebrow">Skill Studio</p><h3>${state.skills.filter(item => item.state === "active").length} active Skills, ${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length} waiting on you</h3><p>Agent and curator changes start as candidates. Manual mode requires your promotion; gated automation may promote only inside the policy below, records provenance, and always leaves a rollback path. Capability widening remains manual.</p></div><div class="action-row"><button class="ghost" type="button" id="studioReviewButton">Review proposals</button><button class="primary" type="button" id="studioCreateButton">+ New proposal</button></div></section>`;
-  root.innerHTML = `${intro}${policyPanel}${list}`;
+  const pending = state.candidates.filter(item => ["needs_review", "quarantined"].includes(item.state)).length;
+  const intro = `<section class="skill-studio-intro skill-directory-head"><div><h2>สกิล</h2><p>สกิลที่ใช้งานอยู่ใน Hermetrix เปิดดูรายละเอียด ปักหมุด หรือเรียกใช้ในแชทได้</p></div><div class="action-row"><button class="ghost" type="button" id="studioReviewButton">ข้อเสนอที่รอ ${pending}</button><button class="primary" type="button" id="studioCreateButton">+ สร้างข้อเสนอ</button></div></section>`;
+  const collections = [["all", "ทั้งหมด", state.skills.length], ["enabled", "เปิดใช้", state.skills.filter(item => item.enabled).length], ["pinned", "ปักหมุด", state.skills.filter(item => item.pinned).length], ["agent", "จากเอเจนต์", state.skills.filter(item => String(item.origin || "").startsWith("agent") || item.owner === "agent").length]];
+  $("#libraryIntro").innerHTML = intro;
+  root.innerHTML = `<div class="skill-collection-tabs" role="group" aria-label="กรองสกิล">${collections.map(([id, label, count]) => `<button type="button" data-skill-collection="${id}" aria-pressed="${collection === id}">${label} <small>${count}</small></button>`).join("")}</div><div class="skill-directory-count">แสดง ${items.length} จาก ${state.skills.length} สกิล</div>${list}<div class="skill-policy-wrap">${policyPanel}</div>`;
+  $$('[data-skill-collection]', root).forEach(button => button.addEventListener("click", () => { state.skillCollectionFilter = button.dataset.skillCollection; renderLibrary(); }));
   $("#studioReviewButton")?.addEventListener("click", () => switchTab("proposals"));
   $("#studioCreateButton")?.addEventListener("click", openCandidateDialog);
   $("#authorityForm")?.addEventListener("submit", saveAuthorityPolicy);
@@ -616,7 +743,7 @@ async function restoreArchive(id) {
 }
 
 function profileLabel(profile) {
-  const labels = { "compact-32k":"Compact 32k", "certified-64k":"Certified 64k", "extended-96k":"Extended 96k", "extended-128k":"Extended 128k", "extended-256k":"Extended 256k", "ultra-1m":"Ultra 1M" };
+  const labels = { "compact-16k":"Compact 16k", "compact-32k":"Compact 32k", "certified-64k":"Certified 64k", "extended-96k":"Extended 96k", "extended-128k":"Extended 128k", "extended-256k":"Extended 256k", "ultra-1m":"Ultra 1M" };
   return labels[profile.name] || profile.name;
 }
 
@@ -658,9 +785,9 @@ function profileAdmission(provider, profile) {
   if (budget < MINIMUM_ANSWER_BUDGET) {
     return { admitted:false, mode:"answer_budget", budget, blocking:true };
   }
-  // Gate 2: qualification. compact-32k is the declared compatibility floor and
-  // needs none; every larger envelope needs exact evidence or a reviewed override.
-  if (profile.name === "compact-32k") return { admitted:true, mode:"compatibility", budget };
+  // Gate 2: the small declared envelopes need no qualification run; larger
+  // envelopes need exact evidence or a reviewed override.
+  if (profile.name === "compact-16k" || profile.name === "compact-32k") return { admitted:true, mode:"compatibility", budget };
   const qualification = exactQualification(provider, profile);
   return qualification
     ? { admitted:true, mode:"qualified", qualification, budget }
@@ -838,7 +965,8 @@ function renderRailNavigation(selectedID) {
   return `<nav class="rail-primary" aria-label="Hermetrix navigation">
       <button class="rail-nav-item ${state.view === "chat" ? "active" : ""}" data-rail-view="chat">${uiIcon("chat")}<span>Chat</span></button>
       <button class="rail-nav-item ${state.view === "code" ? "active" : ""}" data-rail-view="code">${uiIcon("files")}<span>Workspace</span></button>
-      <button class="rail-nav-item" data-rail-config="mcp">${uiIcon("tools")}<span>Tool Center</span></button>
+      <button class="rail-nav-item" data-open-tasks>${uiIcon("activity")}<span>Plans · แผนงาน</span></button>
+      <button class="rail-nav-item" data-rail-config="mcp">${uiIcon("tools")}<span>MCP server</span></button>
       <button class="rail-nav-item" data-rail-config="providers">${uiIcon("model")}<span>Models</span></button>
     </nav>
     <details class="rail-projects" id="railProjects" ${state.railProjectsOpen ? "open" : ""}>
@@ -847,9 +975,42 @@ function renderRailNavigation(selectedID) {
     </details>`;
 }
 
+function bindChatNavigation(dock) {
+  $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationReason=""; state.sessionError=""; renderChat(); $("#chatProviderSelect")?.focus(); });
+  $("#chatProfileSelect")?.addEventListener("change", event => { state.draftProfileName = event.target.value; state.draftQualificationReason=""; state.sessionError=""; renderChat(); $("#chatProfileSelect")?.focus(); });
+  // Update state without re-rendering: the textarea lives inside an open
+  // <details>, and a re-render would collapse it and take the caret with it.
+  $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; });
+  // Remember the sidebar's disclosure state across re-renders and app restarts.
+  $("#railProjects")?.addEventListener("toggle", event => { state.railProjectsOpen = event.target.open; saveLayout(); });
+  $("#sessionSetup")?.addEventListener("click", openSessionSetup);
+  $("#sessionOptions")?.addEventListener("toggle", event => { state.sessionOptionsOpen = event.target.open; saveLayout(); });
+  $("#openProvidersFromDock")?.addEventListener("click", () => { closeSessionSetup(); switchTab("providers"); });
+  $$("[data-rail-view]", dock).forEach(button => button.addEventListener("click", () => switchView(button.dataset.railView)));
+  $$("[data-rail-config]", dock).forEach(button => button.addEventListener("click", () => openConfig(button.dataset.railConfig)));
+  $$("[data-rail-project]", dock).forEach(button => button.addEventListener("click", async () => { dismissMobileRail(); if (state.view !== "chat") switchView("chat"); await openProject(button.dataset.railProject); }));
+  $$("[data-rail-project-toggle]", dock).forEach(button => button.addEventListener("click", () => {
+    const projectID = button.dataset.railProjectToggle;
+    const open = button.getAttribute("aria-expanded") !== "true";
+    state.railProjectOpen[projectID] = open;
+    button.setAttribute("aria-expanded", String(open));
+    button.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${state.projects.find(project => project.id === projectID)?.name || "project"}`);
+    const sessions = dock.querySelector(`[data-rail-project-sessions="${CSS.escape(projectID)}"]`);
+    if (sessions) sessions.hidden = !open;
+    saveLayout();
+  }));
+  $$("[data-session-id]", dock).forEach(button => button.addEventListener("click", async () => { dismissMobileRail(); if (state.view !== "chat") switchView("chat"); await selectSession(button.dataset.sessionId); }));
+  $$("[data-delete-session]", dock).forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    deleteSession(button.dataset.deleteSession);
+  }));
+  $$("[data-open-tasks]", dock).forEach(button => button.addEventListener("click", openTasks));
+}
+
 function renderChat() {
   const root = $("#view-chat");
-  if (!root) return;
+  const dock = $("#sessionDock");
+  if (!dock) return;
   // Streaming re-renders this whole view on every delta. Take the composer's
   // draft, caret and focus before the markup is replaced so they can be put
   // back afterwards; without this, typing while a turn streams loses a
@@ -857,7 +1018,7 @@ function renderChat() {
   captureComposer();
   const enabledProviders = state.providers.filter(provider => provider.enabled);
   if (!state.draftProviderID || !enabledProviders.some(provider => provider.id === state.draftProviderID)) {
-    state.draftProviderID = enabledProviders[0]?.id || null;
+    state.draftProviderID = HermetrixRuntime.preferredProvider(enabledProviders)?.id || null;
   }
   const draftProvider = enabledProviders.find(provider => provider.id === state.draftProviderID);
   const compatibleProfiles = availableProfiles(draftProvider);
@@ -910,19 +1071,16 @@ function renderChat() {
   // to the settings row. The summary line carries the fact; the explanation
   // lives behind Options where someone can go and read it.
   const optionsOpen = state.sessionOptionsOpen;
-  const dock = $("#sessionDock");
-  dock.innerHTML = `${renderRailNavigation(selectedID)}<details class="session-setup" id="sessionSetup" ${state.railSetupOpen ? "open" : ""}><summary>Session setup</summary><div class="session-create">${enabledProviders.length ? `
-        <p class="session-summary" title="Change these under Options">${escapeHTML(draftProvider ? `${draftProvider.name} · ${draftProvider.model}` : "No model")}<span>${escapeHTML(draftProfile ? profileLabel(draftProfile) : "no envelope")} · ${escapeHTML(draftProjectName)}</span></p>
+  dock.innerHTML = `${renderRailNavigation(selectedID)}<button type="button" class="rail-nav-item session-setup" id="sessionSetup" aria-haspopup="dialog">${uiIcon("model")}<span>โมเดลและตัวเลือก</span></button>`;
+  $("#sessionSetupBody").innerHTML = `<div class="session-create">${enabledProviders.length ? `
+        <p class="session-summary">โปรเจกต์: ${escapeHTML(draftProjectName)}<span>การตั้งค่านี้ใช้กับแชทใหม่ แชทเดิมใช้โมเดลที่เลือกไว้ตอนเริ่ม</span></p>
+        <label>Model<select id="chatProviderSelect">${enabledProviders.map(provider => `<option value="${escapeHTML(provider.id)}" ${provider.id === state.draftProviderID ? "selected" : ""}>${escapeHTML(provider.name)} · ${escapeHTML(provider.model)}</option>`).join("")}</select></label>
+        <button type="button" class="ghost" id="openProvidersFromDock">จัดการโมเดลและการเชื่อมต่อ</button>
         ${draftProvider && !draftProvider.credential_ready ? `<p class="session-error" role="alert">${escapeHTML(draftProvider.name)} has no API key. Open Models and paste one — it takes effect immediately.</p>` : ""}
         ${draftProfile && !admission.admitted && !needsOverride ? `<p class="session-error" role="alert">Only ${admission.budget.toLocaleString()} answer tokens left. Choose a larger envelope under Options.</p>` : ""}
         ${needsOverride ? `<p class="session-note">Opens under a reviewed 24-hour override. The reason is recorded with the session and editable under Options.</p>` : ""}
         ${state.sessionError ? `<p class="session-error" role="alert">${escapeHTML(state.sessionError)}</p>` : ""}
-        <details class="session-options" id="sessionOptions" ${optionsOpen ? "open" : ""}><summary>Options</summary><div class="session-options-body">
-          <label>Model<select id="chatProviderSelect">${enabledProviders.map(provider => `<option value="${escapeHTML(provider.id)}" ${provider.id === state.draftProviderID ? "selected" : ""}>${escapeHTML(provider.name)} · ${escapeHTML(provider.model)}</option>`).join("")}</select></label>
-          <!-- No "no project" option: a project is the root of everything now, so
-               every session belongs to one. This picks which project among the
-               known ones, never none. -->
-          <label>Project<select id="chatProjectSelect">${state.projects.map(project => `<option value="${escapeHTML(project.id)}" ${project.id === state.draftProjectID ? "selected" : ""}>${escapeHTML(project.name)}</option>`).join("")}</select></label>
+        <details class="session-options" id="sessionOptions" ${optionsOpen ? "open" : ""}><summary>ตัวเลือกเพิ่มเติม · ${escapeHTML(draftProfile ? profileLabel(draftProfile) : "Context")}</summary><div class="session-options-body">
           <label>Context<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => {
             const status = profileAdmission(draftProvider, profile);
             const note = status.blocking ? "too small for this model"
@@ -935,46 +1093,31 @@ function renderChat() {
           ${needsOverride ? `<div class="session-readiness review"><p class="readiness-line">No local qualification can exist for a remote endpoint, so this envelope opens under a reviewed 24-hour override.</p><textarea id="chatQualificationReason" rows="3" minlength="8">${escapeHTML(overrideReason)}</textarea></div>` : ""}
         </div></details>` : `
         <div class="session-needs-model"><p>No model connected yet. Connect one and every session picks it up — no environment variable, no restart.</p><button class="primary" id="openProvidersFromDock">Connect a model</button></div>`}
-      </div></details>`;
+      </div>`;
   const railStart = $("#railNewSession");
-  railStart.disabled = enabledProviders.length > 0 && !canStart;
+  railStart.disabled = state.sending || Boolean(state.startingSession);
   // One short label on one line. Which envelope it opens under is the summary
   // line's job, not the button's.
-  railStart.innerHTML = `${uiIcon("plus")}<span>New session</span>`;
+  railStart.innerHTML = `${uiIcon("plus")}<span>New task</span>`;
+  bindChatNavigation(dock);
+  // Navigation and model setup are shared by Chat, Workspace and Plans.
+  // Only the mounted Chat view needs transcript and composer markup.
+  if (!root) return;
   root.innerHTML = `<div class="chat-layout"><section class="chat-stage">
       ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>contract ${escapeHTML(shortHash(session.contract_revision))} · cache epoch ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "unbound")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">Skills <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">Direct tools <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP ready <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div>${contextBar}</header>
-        <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>Hermetrix is ready</h3><p>Each turn freezes its provider, model, context snapshot, capability revision and policy revision before sampling.</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
-        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>Skills & tools</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>Files</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>Terminal</span></button><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, drop or paste images to attach" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="chat-welcome standalone"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>${enabledProviders.length ? "Ready when you are" : "Connect a model first"}</h3><p>${enabledProviders.length ? "Press New session in the sidebar. It uses the model and context envelope shown there; change them under Options whenever you want." : "Add any OpenAI-compatible endpoint and paste its API key. It takes effect immediately — there is nothing to set in your shell and nothing to restart."}</p><ol class="first-run">${enabledProviders.length ? `<li class="done"><span>1 · Model connected ✓</span></li>` : `<li class="next"><span>1 · Connect a model</span><button class="primary" id="openProvidersButton">Connect</button></li>`}${!enabledProviders.length ? `<li class="todo"><span>2 · Open your first session</span></li>` : state.sessions.length ? `<li class="done"><span>2 · Session opened ✓</span></li>` : `<li class="next"><span>2 · Open your first session</span><button class="primary" id="checklistNewSession">New session</button></li>`}${state.skills.length ? `<li class="done"><span>3 · First Skill in place ✓</span></li>` : (enabledProviders.length && state.sessions.length) ? `<li class="next"><span>3 · Add your first Skill</span><button class="primary" id="checklistOpenSkills">Skill Studio</button></li>` : `<li class="todo"><span>3 · Add your first Skill</span></li>`}</ol></div>`}
+        <div class="message-list" id="messageList">${timeline.length ? groupTimeline(timeline).map(renderTimelineItem).join("") : `<div class="chat-welcome"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><h3>Hermetrix is ready</h3><p>อธิบายสิ่งที่ต้องการให้ช่วยได้เลย คุณจะเห็นคำตอบและผลการใช้เครื่องมือที่นี่</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body"></div><div class="message-proof" id="streamStatus">waiting for provider…</div></article></div>
+        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>Skills & tools</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>Files</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>Terminal</span></button><button type="button" class="composer-tool-button" id="composerImageButton" ${activeSessionSupportsVision() ? "" : "disabled"} title="${activeSessionSupportsVision() ? "Attach a qualified image" : "This session has no qualified image runtime"}">${uiIcon("artifact")}<span>Image</span></button><input hidden id="composerImageInput" type="file" multiple accept="image/png,image/jpeg,image/webp"><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><div class="action-row" id="composerAttachments">${composerAttachmentHTML()}</div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="Ask Hermetrix to work…  Enter sends, drop or paste images to attach" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>` : `<div class="task-start">
+          <div class="task-start-heading"><img src="/assets/brand/hermetrix-mark-flat.svg" alt=""><p class="eyebrow">${escapeHTML(state.currentProject?.name || "Hermetrix")}</p><h1>วันนี้ให้ช่วยทำอะไร?</h1><p>คุยเพื่อหาคำตอบ หรือวางแผนงานเป็นขั้นตอนก่อนเริ่มแก้ไข</p></div>
+          <form class="start-composer" id="startTaskForm">
+            <label class="sr-only" for="startPrompt">เป้าหมายของงาน</label><textarea id="startPrompt" rows="4" maxlength="1048576" placeholder="อธิบายงาน ปัญหา หรือสิ่งที่อยากปรับปรุง…">${escapeHTML(state.startDraft || "")}</textarea>
+            <div class="start-composer-footer"><button type="button" class="model-choice" id="startModelOptions">${uiIcon("model")}${escapeHTML(draftProvider?.name || "เลือกโมเดล")} <span>⌄</span></button><div class="action-row"><button type="button" class="ghost" id="startPlanButton">${uiIcon("activity")} วางแผนงาน</button><button class="primary" id="startChatButton" ${canStart && !state.startingSession ? "" : "disabled"}>${state.startingSession ? "กำลังเริ่ม…" : "เริ่มคุย →"}</button></div></div>
+          </form>
+          <div class="start-readiness" role="status">${canStart ? `${pill("พร้อมเริ่ม", "green")}<span>${escapeHTML(draftProvider.model)} · ${escapeHTML(profileLabel(draftProfile))}${needsOverride ? " · ใช้ข้อยกเว้น 24 ชั่วโมงตามเหตุผลในตัวเลือก" : ""}</span>` : `<span>ยังเริ่มคุยไม่ได้: ${draftProvider && !draftProvider.credential_ready ? "โมเดลนี้ยังไม่มี API key" : "กรุณาตั้งค่าโมเดลและขนาดบริบท"}</span><button class="ghost" type="button" id="openProvidersButton">ตั้งค่าโมเดล</button>`}</div>
+          ${state.sessionError ? `<p class="session-error" role="alert">${escapeHTML(state.sessionError)}</p>` : ""}
+          <div class="start-suggestions"><button data-start-suggestion="ช่วยอธิบายโครงสร้างโปรเจกต์นี้ และแนะนำจุดเริ่มต้น">${uiIcon("files")}<span>เข้าใจโปรเจกต์<small>สำรวจโครงสร้างและจุดเริ่มต้น</small></span></button><button data-start-suggestion="ช่วยหาสาเหตุของปัญหา และเสนอวิธีตรวจสอบก่อนแก้ไข">${uiIcon("search")}<span>ตรวจปัญหา<small>หาต้นเหตุพร้อมวิธีพิสูจน์</small></span></button><button data-start-plan="ปรับปรุงโปรเจกต์นี้ โดยแบ่งเป็นขั้นตอนเล็ก ๆ พร้อมเกณฑ์ตรวจรับ">${uiIcon("activity")}<span>วางแผนปรับปรุง<small>แบ่งงานและเกณฑ์ตรวจรับ</small></span></button><button data-start-suggestion="ช่วยตรวจโค้ดส่วนที่ควรปรับปรุง โดยเรียงตามผลกระทบและความเสี่ยง">${uiIcon("review")}<span>ตรวจโค้ด<small>ดูจุดเสี่ยงและแนวทางแก้</small></span></button></div>
+          <p class="start-hint">แผนงานจะแสดงข้อเสนอและรายการตรวจให้ทบทวนก่อนลงมือ · ไม่จำเป็นต้องเพิ่ม Skill เพื่อเริ่มคุย</p>
+        </div>`}
     </section></div>`;
-  $("#chatProviderSelect")?.addEventListener("change", event => { state.draftProviderID = event.target.value; state.draftProfileName = ""; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
-  $("#chatProjectSelect")?.addEventListener("change", event => { state.draftProjectID = event.target.value; });
-  $("#chatProfileSelect")?.addEventListener("change", event => { state.draftProfileName = event.target.value; state.draftQualificationReason=""; state.sessionError=""; renderChat(); });
-  // Update state without re-rendering: the textarea lives inside an open
-  // <details>, and a re-render would collapse it and take the caret with it.
-  $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; $("#railNewSession").disabled=event.target.value.trim().length < 8; });
-  // Remember the sidebar's disclosure state across re-renders and app restarts.
-  $("#railProjects")?.addEventListener("toggle", event => { state.railProjectsOpen = event.target.open; saveLayout(); });
-  $("#sessionSetup")?.addEventListener("toggle", event => { state.railSetupOpen = event.target.open; saveLayout(); });
-  $("#sessionOptions")?.addEventListener("toggle", event => { state.sessionOptionsOpen = event.target.open; saveLayout(); });
-  $("#openProvidersFromDock")?.addEventListener("click", () => switchTab("providers"));
-  $$("[data-rail-view]", dock).forEach(button => button.addEventListener("click", () => switchView(button.dataset.railView)));
-  $$("[data-rail-config]", dock).forEach(button => button.addEventListener("click", () => openConfig(button.dataset.railConfig)));
-  $$("[data-rail-project]", dock).forEach(button => button.addEventListener("click", async () => { if (state.view !== "chat") switchView("chat"); await openProject(button.dataset.railProject); }));
-  $$("[data-rail-project-toggle]", dock).forEach(button => button.addEventListener("click", () => {
-    const projectID = button.dataset.railProjectToggle;
-    const open = button.getAttribute("aria-expanded") !== "true";
-    state.railProjectOpen[projectID] = open;
-    button.setAttribute("aria-expanded", String(open));
-    button.setAttribute("aria-label", `${open ? "Collapse" : "Expand"} ${state.projects.find(project => project.id === projectID)?.name || "project"}`);
-    const sessions = dock.querySelector(`[data-rail-project-sessions="${CSS.escape(projectID)}"]`);
-    if (sessions) sessions.hidden = !open;
-    saveLayout();
-  }));
-  $$("[data-session-id]", dock).forEach(button => button.addEventListener("click", async () => { if (state.view !== "chat") switchView("chat"); await selectSession(button.dataset.sessionId); }));
-  $$("[data-delete-session]", dock).forEach(button => button.addEventListener("click", event => {
-    event.stopPropagation();
-    deleteSession(button.dataset.deleteSession);
-  }));
   $$("[data-elicit-accept]", root).forEach(form => form.addEventListener("submit", answerElicitation));
   $$("[data-elicit-decline]", root).forEach(button => button.addEventListener("click", () => declineElicitation(button.dataset.elicitDecline)));
   $$("[data-approve-tool]", root).forEach(button => button.addEventListener("click", () => decideToolApproval(button.dataset.approveTool, "approve")));
@@ -986,6 +1129,12 @@ function renderChat() {
   // reveals) a terminal pane in Code instead, so the quick button still
   // works without reviving the second door the redesign closed.
   $("#composerTerminalButton")?.addEventListener("click", () => openContentPane("terminal"));
+  $("#startPrompt")?.addEventListener("input", event => { state.startDraft = event.target.value; });
+  $("#startTaskForm")?.addEventListener("submit", startChatFromGoal);
+  $("#startPlanButton")?.addEventListener("click", () => { state.taskDraftObjective = $("#startPrompt").value; openTasks(); });
+  $("#startModelOptions")?.addEventListener("click", openSessionSetup);
+  $$("[data-start-suggestion]", root).forEach(button => button.addEventListener("click", () => { state.startDraft = button.dataset.startSuggestion; $("#startPrompt").value = state.startDraft; $("#startPrompt").focus(); }));
+  $$("[data-start-plan]", root).forEach(button => button.addEventListener("click", () => { state.taskDraftObjective = button.dataset.startPlan; openTasks(); }));
   bindComposer();
   $("#chatForm")?.addEventListener("submit", sendTurn);
   $("#openProvidersButton")?.addEventListener("click", () => switchTab("providers"));
@@ -1079,17 +1228,35 @@ function unbuilt(what, spec) {
 // once at load time would not survive a trip through another view. Wiring
 // lives here, called at startup and again on every return to chat, so both
 // stay exactly as functional as the first paint.
+let sessionSetupReturnFocus = "#startModelOptions";
+function openSessionSetup(event) {
+  sessionSetupReturnFocus = event?.currentTarget?.id === "sessionSetup" ? "#sessionSetup" : "#startModelOptions";
+  dismissMobileRail();
+  const dialog = $("#sessionSetupDialog");
+  if (!dialog.open) dialog.showModal();
+  $("#chatProviderSelect")?.focus();
+}
+
+function closeSessionSetup() { $("#sessionSetupDialog")?.close(); }
+
+function dismissMobileRail() {
+  $("#zones")?.classList.remove("mobile-rail-open");
+  $("#toggleRail")?.setAttribute("aria-expanded", "false");
+}
+
 function wireChatSkeleton() {
-  $("#railNewSession")?.addEventListener("click", () => {
+  const newTask = $("#railNewSession");
+  if (!newTask) return;
+  newTask.onclick = () => {
+    if (state.sending || state.startingSession) return;
     switchTab("chat");
-    if (!state.providers.some(provider => provider.enabled)) { switchTab("providers"); return; }
-    if (state.sessionReady) { createAgentSession(); return; }
-    state.sessionOptionsOpen = true;
-    state.sessionDetail = null;
-    state.selectedSession = null;
+    if (state.view !== "chat") switchView("chat");
+    if (!beginNewTaskDraft()) return;
+    dismissMobileRail();
+    collapseZone("side", true);
     renderChat();
-    $("#chatProviderSelect")?.focus();
-  });
+    $("#startPrompt")?.focus();
+  };
 }
 
 // applyLayoutForView restores this project's memory of the view already on
@@ -1115,17 +1282,46 @@ function applyLayoutForView() {
 // to be computed; the one that ran second would win. The other three views
 // have no such state yet, so their rail and main just say what they will be,
 // and a side with nothing to put in it is hidden rather than drawn empty.
+let navigationGeneration = 0;
+function restorePlanningWorkspace() {
+  const saved = state.workspaceBeforePlans;
+  if (!saved) return false;
+  state.workspaceBeforePlans = null;
+  if (saved.projectID !== state.currentProject?.id || state.view !== "code") return false;
+  state.panes = saved.panes;
+  state.paneLayout = saved.paneLayout;
+  state.maximisedPane = saved.maximisedPane;
+  state.compactPane = saved.compactPane;
+  saveLayout();
+  return true;
+}
+
 function switchView(name) {
+  ++navigationGeneration;
+  captureWorkspaceDrafts();
   captureCodeDraft();
+  dismissMobileRail();
+  const restoredWorkspace = restorePlanningWorkspace();
   const view = VIEWS[name] ? name : "chat";
+  if (view === "code" && state.compactPane === "tasks") state.compactPane = state.projectFile ? "editor" : "files";
+  $("#plansViewButton")?.classList.remove("on");
+  $$("[data-open-tasks]").forEach(button => button.classList.remove("active"));
+  $$("[data-rail-view]").forEach(button => button.classList.toggle("active", button.dataset.railView === view));
   $$("#viewSwitch [data-view]").forEach(button => button.classList.toggle("on", button.dataset.view === view));
-  if (view === state.view) return;
+  if (view === state.view) {
+    if (restoredWorkspace) { renderPanes(); return; }
+    if (view === "code" && state.maximisedPane !== null && state.panes[state.maximisedPane] === "tasks") {
+      state.maximisedPane = null;
+      renderPanes();
+    }
+    return;
+  }
   state.view = view;
   // A terminal or team run polls on its own timer independent of any render
   // call. Leaving chat tears down the workbench pane those polls write into,
   // so the timer is cancelled here rather than left to throw on a pane that
   // no longer exists.
-  clearTimeout(workbenchPollTimer);
+  stopWorkbenchPolling();
   // Chat and Code share one global project/session rail. Changing the centre
   // view must not replace the user's navigation with a different tool list.
   if (!["chat", "code"].includes(view) || !$("#sessionDock")) {
@@ -1216,6 +1412,19 @@ function motionMS(token) {
   return raw.endsWith("ms") ? value : value * 1000;
 }
 
+function activeSessionSupportsVision() {
+  const providerID = state.sessionDetail?.session?.provider_id;
+  const provider = state.providers.find(item => item.id === providerID);
+  if (!provider?.runtime_fingerprint_id) return false;
+  return state.qualifications.some(run => run.provider_id === providerID && run.state === "completed" && run.eligible &&
+    run.runtime_fingerprint_id === provider.runtime_fingerprint_id && (run.modalities || []).includes("image"));
+}
+
+function composerAttachmentHTML() {
+  return state.composerAttachments.map(item => `<span class="pill ${item.state === "ready" ? "green" : item.state === "failed" ? "red" : "amber"}">
+    ${escapeHTML(item.name)} · ${escapeHTML(item.state)}${item.state !== "uploading" ? ` <button type="button" data-remove-composer-image="${escapeHTML(item.local_id)}" aria-label="Remove image">×</button>` : ""}</span>`).join("");
+}
+
 /* --- Composer keys ---------------------------------------------------------
    Sending took Cmd-Enter and nothing else, which is not what a message box
    does anywhere else: Enter sends, Shift-Enter writes a second line. The rest
@@ -1238,35 +1447,33 @@ function bindComposer() {
     state.draftMessage = event.target.value;
   });
 
-  // Images can be dropped or pasted into the composer. They are stored as
-  // immutable artifacts and referenced in the message text; the model cannot
-  // see pixels yet (providers are text-only), so the upload says so instead
-  // of pretending the picture was understood.
+  // Only a provider/runtime pair with completed image qualification exposes
+  // this input. Upload and processing state stays separate from turn state.
   const attachComposerImages = async files => {
-    const images = [...files].filter(file => file.type.startsWith("image/"));
-    if (!images.length) { if (files.length) toast("รับเฉพาะไฟล์รูป png/jpeg/webp/gif", true); return; }
-    for (const file of images.slice(0, 4)) {
+    if (!activeSessionSupportsVision()) { toast("This session has no qualified image runtime", true); return; }
+    const sessionID = state.sessionDetail?.session?.id;
+    const projectID = state.currentProject?.id;
+    const stillSelected = () => state.sessionDetail?.session?.id === sessionID && state.currentProject?.id === projectID;
+    const images = [...files].filter(file => ["image/png","image/jpeg","image/webp"].includes(file.type));
+    if (!images.length) { if (files.length) toast("Only PNG, JPEG, or WebP images are accepted", true); return; }
+    const remaining = Math.max(0, 5 - state.composerAttachments.length);
+    for (const file of images.slice(0, remaining)) {
+      if (!stillSelected()) break;
       if (file.size > 8 * 1024 * 1024) { toast(`${file.name || "รูป"}: เกิน 8 MiB`, true); continue; }
-      const dataURL = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      }).catch(() => "");
-      const match = String(dataURL).match(/^data:(image\/[a-z+.-]+);base64,(.*)$/s);
-      if (!match) { toast(`${file.name || "รูป"}: อ่านไฟล์ไม่ได้`, true); continue; }
+      const pending = {local_id:`upload-${Date.now()}-${Math.random()}`,name:file.name || "image",state:"uploading",artifact_id:""};
+      state.composerAttachments.push(pending); renderChat();
       try {
-        const artifact = await api("/api/artifacts/upload", { method:"POST", body:JSON.stringify({
-          project_id: state.currentProject?.id || "",
-          session_id: state.sessionDetail?.session?.id || "",
-          name: file.name || "pasted-image", mime_type: match[1], base64: match[2] }) });
-        const token = `[attached image "${artifact.name}" (artifact ${artifact.id})]`;
-        input.value = (input.value.replace(/\s+$/, "") ? input.value.replace(/\s+$/, "") + "\n" : "") + token + "\n";
-        state.draftMessage = input.value;
-        toast("แนบรูปแล้ว — รุ่นนี้ยังดูพิกเซลไม่ได้ เปิดดูได้ใน Artifacts");
-      } catch (error) { toast(error.message, true); }
+        const form = new FormData(); form.append("file",file,file.name); form.append("project_id",projectID || ""); form.append("session_id",sessionID || "");
+        const response = await fetch("/api/media/uploads",{method:"POST",body:form});
+        const artifact = await response.json().catch(() => ({})); if(!response.ok) throw new Error(artifact.error || `Upload failed (${response.status})`);
+        pending.state="ready"; pending.artifact_id=artifact.id; pending.name=artifact.name; if (stillSelected()) toast(`${pending.name} is ready as image evidence`);
+      } catch (error) { pending.state="failed"; pending.error=error.message; if (stillSelected()) toast(error.message,true); }
+      if (stillSelected()) renderChat();
     }
   };
+  $("#composerImageButton")?.addEventListener("click",()=>$("#composerImageInput")?.click());
+  $("#composerImageInput")?.addEventListener("change",event=>void attachComposerImages(event.target.files || []));
+  $$('[data-remove-composer-image]').forEach(button=>button.addEventListener("click",()=>{state.composerAttachments=state.composerAttachments.filter(item=>item.local_id!==button.dataset.removeComposerImage);renderChat();}));
   input.addEventListener("paste", event => {
     if (event.clipboardData?.files?.length) {
       event.preventDefault();
@@ -1331,6 +1538,49 @@ function bindComposer() {
 // it runs before the re-render rather than from a blur handler: replacing the
 // element does not reliably fire blur, and by the time the new one is bound the
 // old one is already gone.
+async function startChatFromGoal(event) {
+  event.preventDefault();
+  if (state.startingSession || state.sending || !state.sessionReady) return;
+  const goal = $("#startPrompt")?.value.trim();
+  if (!goal) { $("#startPrompt")?.focus(); return; }
+  state.startDraft = goal;
+  state.startingSession = true;
+  renderChat();
+  try {
+    const session = await createAgentSession(goal);
+    if (!session) return;
+    state.startDraft = "";
+    const ok = await submitChatText(goal);
+    if (!ok) { setComposerDraft(goal); renderChat(); }
+  } finally { state.startingSession = false; renderChat(); }
+}
+
+async function openTasks() {
+  if (state.sessionCreationPending) { toast("กำลังเริ่มแชท กรุณารอสักครู่"); return; }
+  const projectID = state.currentProject?.id;
+  const generation = ++navigationGeneration;
+  const trigger = $("#plansViewButton");
+  trigger?.setAttribute("aria-busy", "true");
+  try {
+    const hydrated = await hydrateSurface("tasks", true);
+    if (!hydrated || generation !== navigationGeneration || projectID !== state.currentProject?.id) return;
+    switchTab("chat");
+    switchView("code");
+    // Plans uses the whole workspace temporarily; returning must restore
+    // the user's arrangement rather than leaving an extra Tasks split.
+    state.workspaceBeforePlans = {projectID, panes:state.panes.slice(), paneLayout:state.paneLayout,
+      maximisedPane:state.maximisedPane, compactPane:state.compactPane};
+    openContentPane("tasks", {persist:false});
+    state.maximisedPane = state.panes.indexOf("tasks");
+    renderPanes();
+    $$("#viewSwitch [data-view]").forEach(button => button.classList.remove("on"));
+    $("#plansViewButton")?.classList.add("on");
+    $$(".rail-nav-item").forEach(button => button.classList.toggle("active", button.hasAttribute("data-open-tasks")));
+    $("#durableTaskForm textarea[name='objective']")?.focus();
+  } catch (error) { if (generation === navigationGeneration && projectID === state.currentProject?.id) toast(error.message, true); }
+  finally { trigger?.removeAttribute("aria-busy"); }
+}
+
 function captureComposer() {
   const input = $("#chatInput");
   if (!input) return;
@@ -1339,8 +1589,67 @@ function captureComposer() {
   state.draftMessage = input.value;
 }
 
-async function createAgentSession() {
-  if (!state.draftProviderID || !state.draftProfileName) return;
+const sessionDrafts = new Map();
+const projectDrafts = new Map();
+
+function captureWorkspaceDrafts() {
+  captureComposer();
+  const projectID = state.currentProject?.id;
+  if (projectID) {
+    projectDrafts.set(projectID, {startDraft:state.startDraft || "", taskDraftObjective:state.taskDraftObjective || "",
+      taskDraftDetails:{...(state.taskDraftDetails || {})}});
+  }
+  const sessionID = state.sessionDetail?.session?.id;
+  if (sessionID) {
+    sessionDrafts.set(sessionID, {text:state.draftMessage || "", attachments:state.composerAttachments.slice(),
+      caret:state.composerCaret || 0, paneText:state.paneChatDraft || ""});
+  }
+}
+
+function restoreWorkspaceDrafts(projectID, sessionID = null) {
+  const project = projectDrafts.get(projectID) || {};
+  const session = sessionDrafts.get(sessionID) || {};
+  state.startDraft = project.startDraft || "";
+  state.taskDraftObjective = project.taskDraftObjective || "";
+  state.taskDraftDetails = {...(project.taskDraftDetails || {})};
+  state.draftMessage = session.text || "";
+  state.composerAttachments = (session.attachments || []).slice();
+  state.composerCaret = session.caret || 0;
+  state.composerFocused = false;
+  state.paneChatDraft = session.paneText || "";
+  // renderChat captures the old mounted textarea before replacing it. Keep
+  // that DOM value aligned with the newly selected draft before rendering.
+  const input = $("#chatInput");
+  if (input) input.value = state.draftMessage;
+  const start = $("#startPrompt");
+  if (start) start.value = state.startDraft;
+}
+
+function setComposerDraft(text, attachments = state.composerAttachments, sessionID = state.sessionDetail?.session?.id) {
+  if (sessionID) sessionDrafts.set(sessionID, {...sessionDrafts.get(sessionID), text, attachments:attachments.slice()});
+  if (sessionID !== state.sessionDetail?.session?.id) return;
+  state.draftMessage = text;
+  state.composerAttachments = attachments.slice();
+  const input = $("#chatInput");
+  if (input) input.value = text;
+}
+
+function beginNewTaskDraft() {
+  if (state.sending || state.startingSession) return false;
+  captureWorkspaceDrafts();
+  ++sessionSelectionGeneration;
+  state.sessionDetail = null;
+  state.selectedSession = null;
+  state.elicitations = [];
+  restoreWorkspaceDrafts(state.currentProject?.id);
+  state.startDraft = "";
+  const start = $("#startPrompt");
+  if (start) start.value = "";
+  return true;
+}
+
+async function createAgentSession(title = "") {
+  if (state.sessionCreationPending || !state.draftProviderID || !state.draftProfileName) return;
   // A session has to bind to a project -- Task 2's Inbox migration swept up
   // every session that once didn't. Trusting every future caller to reach
   // this function only after a project is open is exactly the assumption
@@ -1357,6 +1666,9 @@ async function createAgentSession() {
   const profile = state.profiles.find(item => item.name === state.draftProfileName);
   const admission = profileAdmission(provider, profile);
   const project = state.projects.find(item => item.id === state.draftProjectID);
+  state.sessionCreationPending = true;
+  ++sessionSelectionGeneration;
+  ++navigationGeneration;
   try {
     state.sessionError = "";
     const body = {
@@ -1365,7 +1677,7 @@ async function createAgentSession() {
       context_profile: state.draftProfileName,
       // Name the session after what it is bound to, so the list is readable
       // once more than one session exists.
-      title: project ? `${project.name} · ${profileLabel(profile)}` : `Chat · ${profileLabel(profile)}`
+      title: title.slice(0, 100) || (project ? `${project.name} · ${profileLabel(profile)}` : `Chat · ${profileLabel(profile)}`)
     };
     if (admission.mode === "override_required") {
       const reason = (state.draftQualificationReason.trim() || suggestedOverrideReason(provider, profile));
@@ -1374,14 +1686,21 @@ async function createAgentSession() {
     const session = await api("/api/sessions", { method:"POST", body:JSON.stringify(body) });
     state.draftQualificationReason = "";
     await load();
-    await selectSession(session.id);
+    if (!await selectSession(session.id, {createdSession:true})) {
+      state.sessionError = "สร้างแชทแล้ว แต่โหลดรายละเอียดไม่สำเร็จ เลือกแชทจากแถบด้านข้างเพื่อดำเนินการต่อ ข้อความของคุณยังอยู่";
+      renderChat();
+      return;
+    }
     switchTab("chat");
     $("#chatInput")?.focus();
+    return session;
   } catch (error) {
     // Keep the failure on screen. A 2.6-second toast was the only report that
     // the server had refused the session, and it was routinely missed.
     state.sessionError = error.message;
     renderChat();
+  } finally {
+    state.sessionCreationPending = false;
   }
 }
 
@@ -1411,14 +1730,40 @@ async function deleteSession(id) {
   } catch (error) { toast(error.message, true); }
 }
 
-async function selectSession(id) {
+async function selectSession(id, options = {}) {
+  if (state.sessionCreationPending && !options.createdSession && !options.refresh) { toast("กำลังสร้างแชท กรุณารอสักครู่", true); return; }
+  const activeTurn = state.turnSessionID || state.sessionDetail?.session?.id;
+  if (state.sending && id !== activeTurn) { toast("รอให้แชทนี้ตอบเสร็จก่อนเปลี่ยนแชท", true); return; }
+  if (!options.refresh) ++navigationGeneration;
+  const generation = ++sessionSelectionGeneration;
+  captureWorkspaceDrafts();
   try {
+    const detail = await api(`/api/sessions/${encodeURIComponent(id)}`);
+    if (generation !== sessionSelectionGeneration) return;
+    if (state.sending && id !== (state.turnSessionID || state.sessionDetail?.session?.id)) return;
+    if (!detail?.session || detail.session.id !== id) throw new Error("โหลดรายละเอียดแชทไม่สำเร็จ กรุณาเลือกแชทอีกครั้ง");
+    const projectID = detail.session.project_id;
+    if (projectID && projectID !== state.currentProject?.id) {
+      const project = await openProject(projectID, {selectSession:false, selectionGeneration:generation, createdSession:options.createdSession});
+      if (!project || generation !== sessionSelectionGeneration || state.currentProject?.id !== projectID) return;
+    }
+    captureWorkspaceDrafts();
     state.selectedSession = id;
     state.selectedSkillDetail = null;
-    state.sessionDetail = await api(`/api/sessions/${encodeURIComponent(id)}`);
+    state.sessionDetail = detail;
+    state.draftProjectID = projectID || state.currentProject?.id;
+    state.sessionError = "";
+    state.elicitations = [];
+    restoreWorkspaceDrafts(state.currentProject?.id, id);
     renderChat();
     if (state.panes.includes("review") && !$("#zones").classList.contains("side-hidden")) renderPanes();
-  } catch (error) { toast(error.message, true); }
+    return state.sessionDetail;
+  } catch (error) {
+    if (generation !== sessionSelectionGeneration) return;
+    state.sessionError = error.message;
+    renderChat();
+    toast(error.message, true);
+  }
 }
 
 async function sendTurn(event) {
@@ -1426,7 +1771,10 @@ async function sendTurn(event) {
   if (state.sending || !state.sessionDetail?.session) return;
   const input = $("#chatInput");
   const content = input.value.trim();
-  if (!content) return;
+  const sessionID = state.sessionDetail.session.id;
+  const attachments = state.composerAttachments.slice();
+  if (!content && !attachments.some(item => item.state === "ready")) return;
+  if (attachments.some(item => item.state !== "ready")) { toast("Remove failed images or wait for every upload to become ready", true); return; }
   // Clear the mounted box BEFORE renderChat: renderChat calls
   // captureComposer, which would otherwise read the old DOM value back into
   // state.draftMessage and resurrect the text in the fresh markup.
@@ -1434,37 +1782,42 @@ async function sendTurn(event) {
   state.draftMessage = "";
   state.composerCaret = 0;
   state.composerFocused = true;
-  const ok = await submitChatText(content);
+  const ok = await submitChatText(content, attachments);
   // The turn never committed, so hand the text back instead of eating it.
-  if (!ok) state.draftMessage = content;
+  if (!ok) setComposerDraft(content, attachments, sessionID);
+  else setComposerDraft("", [], sessionID);
+  if (state.sessionDetail?.session?.id === sessionID) renderChat();
 }
 
 // submitChatText is the shared turn pipeline behind both composers: the full
 // Chat view box and the Workspace chat pane. It touches no DOM input itself —
 // callers own their draft — and every render it triggers is a safe no-op in a
 // view whose zone is not mounted. Returns true when the turn committed.
-async function submitChatText(content) {
+async function submitChatText(content, attachments = []) {
   if (state.sending || !state.sessionDetail?.session) return false;
+  const sessionID = state.sessionDetail.session.id;
+  state.turnSessionID = sessionID;
   state.sending = true;
   renderChat();
   refreshPaneChat();
   setTimeout(pollElicitations, 600);
-  const sessionID = state.sessionDetail.session.id;
   try {
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionID)}/turns`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ content }) });
+    const payload = attachments.length ? {parts:[...(content ? [{kind:"text",text:content}] : []),...attachments.map(item=>({kind:"image",artifact_id:item.artifact_id,metadata:{name:item.name}}))]} : {content};
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionID)}/turns`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || `Turn failed (${response.status})`);
     }
     await consumeAgentStream(response);
-    await selectSession(sessionID);
+    await selectSession(sessionID, {refresh:true});
     return true;
   } catch (error) {
     toast(error.message, true);
-    await selectSession(sessionID).catch(() => {});
+    await selectSession(sessionID, {refresh:true}).catch(() => {});
     return false;
   } finally {
     state.sending = false;
+    state.turnSessionID = null;
     state.elicitations = [];
     renderChat();
     refreshPaneChat();
@@ -1496,11 +1849,11 @@ async function decideToolApproval(id, decision) {
       throw new Error(body.error || `Approval failed (${stream.status})`);
     }
     await consumeAgentStream(stream);
-    await selectSession(sessionID);
+    await selectSession(sessionID, {refresh:true});
     toast(decision === "approve" ? "Exact write approved and receipt committed" : "Write denied; Hermetrix continued without mutation");
   } catch (error) {
     toast(error.message, true);
-    await selectSession(sessionID).catch(() => {});
+    await selectSession(sessionID, {refresh:true}).catch(() => {});
   } finally {
     state.sending = false;
     renderChat();
@@ -1521,6 +1874,7 @@ async function consumeAgentStream(response) {
     for (const line of lines) {
       if (!line.trim()) continue;
       const item = JSON.parse(line);
+      window.HermetrixAssistant?.onStream(item);
       if (item.type === "user_committed" && item.event) {
         state.sessionDetail.events.push(item.event);
         renderChat();
@@ -1699,13 +2053,54 @@ const TOOL_FLOW = [
   ["Approve", "Remote calls are fail-closed. You see the exact arguments and their hash before anything runs."]
 ];
 
+function directToolGroup(name) {
+  if (name.startsWith("workspace.") && name !== "workspace.run") return "ไฟล์";
+  if (name === "workspace.run") return "รันคำสั่ง";
+  if (name === "browser") return "เว็บ";
+  if (name.startsWith("skill_") || name.startsWith("context_")) return "ความรู้และสกิล";
+  if (name.startsWith("tool_")) return "ค้นหาเครื่องมือ";
+  return "อื่น ๆ";
+}
+
+function renderDirectTools() {
+  const root = $("#view-tools");
+  if (!root) return;
+  const tools = asList(state.direct_tools);
+  const groups = ["ไฟล์", "รันคำสั่ง", "เว็บ", "ความรู้และสกิล", "ค้นหาเครื่องมือ", "อื่น ๆ"];
+  root.innerHTML = `<div class="direct-tools-head"><h2>เครื่องมือในตัว <small>${tools.length}</small></h2><p>เครื่องมือที่ Hermetrix มีให้ใช้งาน รายการและเงื่อนไขการอนุมัติมาจาก registry ปัจจุบันของเซิร์ฟเวอร์</p></div>
+    <label class="direct-tools-search">${uiIcon("search")}<span class="sr-only">ค้นหาเครื่องมือ</span><input id="directToolQuery" type="search" placeholder="ค้นหาเครื่องมือ…" value="${escapeHTML(state.directToolQuery || "")}"></label>
+    <div id="directToolGroups">${groups.map(group => {
+      const members = tools.filter(item => directToolGroup(item.name) === group);
+      return members.length ? `<section class="direct-tool-group" data-tool-group><h3>${group} <small>${members.length} รายการ</small></h3><div class="direct-tool-grid">${members.map(tool => {
+        const name = String(tool.name || "");
+        const short = name.split(".").pop().slice(0, 2);
+        return `<details class="direct-tool-card" data-tool-text="${escapeHTML(`${name} ${tool.description || ""}`.toLowerCase())}"><summary><span class="direct-tool-avatar" aria-hidden="true">${escapeHTML(short)}</span><span><strong>${escapeHTML(name)}</strong><small>${escapeHTML(tool.description || "ไม่มีคำอธิบาย")}</small></span></summary><div class="direct-tool-detail"><div class="meta">${pill(tool.effect || "read", tool.requires_approval ? "amber" : "green")}${tool.requires_approval ? pill("ต้องอนุมัติ", "amber") : ""}</div><pre>${escapeHTML(JSON.stringify(tool.parameters || {}, null, 2))}</pre><button class="ghost" type="button" data-use-direct-tool="${escapeHTML(name)}">ใช้ในแชท</button></div></details>`;
+      }).join("")}</div></section>` : "";
+    }).join("")}</div><p id="directToolEmpty" class="probe-empty" hidden>${tools.length ? "ไม่พบเครื่องมือที่ตรงกับคำค้น" : "ยังไม่มีเครื่องมือใน registry"}</p>`;
+  const filter = () => {
+    const query = (state.directToolQuery || "").trim().toLowerCase();
+    let visible = 0;
+    $$('[data-tool-group]', root).forEach(section => {
+      let sectionVisible = 0;
+      $$('.direct-tool-card', section).forEach(card => {
+        card.hidden = Boolean(query && !card.dataset.toolText.includes(query));
+        if (!card.hidden) sectionVisible++;
+      });
+      section.hidden = sectionVisible === 0;
+      visible += sectionVisible;
+    });
+    $("#directToolEmpty").hidden = visible > 0;
+  };
+  $("#directToolQuery").addEventListener("input", event => { state.directToolQuery = event.target.value; filter(); });
+  $$('[data-use-direct-tool]', root).forEach(button => button.addEventListener("click", () => mentionCapability({kind:"tool", name:button.dataset.useDirectTool})));
+  filter();
+}
+
 function renderMCP() {
   const root = $("#view-mcp");
   if (!root) return;
   const summary = state.capability_summary || { total:0, by_source:{}, by_readiness:{} };
   const servers = state.mcp_servers;
-  const directCount = Number(state.sessionDetail?.session?.contract?.tool_bindings?.length || 0);
-  const directSummary = directCount ? `${directCount} direct tools in this session` : "a bounded direct-tool set";
   const untrusted = servers.filter(server => !server.trust_annotations).length;
   const metrics = [
     [Number(summary.total || 0).toLocaleString(), "indexed capabilities"],
@@ -1713,15 +2108,16 @@ function renderMCP() {
     [servers.length.toLocaleString(), "connections"],
     [untrusted.toLocaleString(), "approval by default"]
   ];
-  const hero = `<section class="capability-hero"><div class="capability-hero-head"><div><p class="eyebrow">Tool Center</p><h3>${Number(summary.total || 0).toLocaleString()} deferred capabilities reachable</h3><p>Hermetrix keeps ${escapeHTML(directSummary)} in the model prompt. Tools, resources and prompt templates published by MCP servers stay deferred: indexed here, searched on demand, and loaded only when the model describes one.</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
+  const hero = `<section class="capability-hero mcp-hero"><div class="capability-hero-head"><div><p class="eyebrow">เครื่องมือและการเชื่อมต่อ</p><h3>MCP server</h3><p>เชื่อมเซิร์ฟเวอร์เครื่องมือ ค้นหาความสามารถที่พร้อมใช้ และตรวจสถานะจากข้อมูลจริงของเครื่องนี้</p></div><div class="capability-hero-metrics">${metrics.map(([value, label]) => `<div class="capability-metric"><strong>${escapeHTML(value)}</strong><span>${escapeHTML(label)}</span></div>`).join("")}</div></div></section>`;
   const selected = state.selectedCapability ? `<article class="provider-card capability-detail"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(state.selectedCapability.title || state.selectedCapability.name)}</h3>${pill(state.selectedCapability.effect, state.selectedCapability.requires_approval ? "amber" : "green")}${pill(state.selectedCapability.readiness, state.selectedCapability.readiness === "ready" ? "green" : "red")}</div><p>${escapeHTML(state.selectedCapability.description || "No description supplied by MCP server")}</p></div>${pill(state.selectedCapability.source)}</div><div class="kv"><span>Capability ID</span><code>${escapeHTML(state.selectedCapability.id)}</code><span>Revision</span><code>${escapeHTML(state.selectedCapability.revision)}</code><span>Source ref</span><code>${escapeHTML(state.selectedCapability.source_ref)}</code><span>Approval</span><strong>${state.selectedCapability.requires_approval ? "required" : "not required"}</strong></div><section class="inspect-section"><h3>Exact input schema</h3><pre>${escapeHTML(JSON.stringify(state.selectedCapability.input_schema, null, 2))}</pre></section><p class="form-note neutral">This schema is loaded on demand. It is not part of the direct model prompt until tool_describe is called.</p><div class="action-row"><button class="primary" type="button" data-use-capability="${escapeHTML(state.selectedCapability.id)}">Use in chat</button></div></article>` : `<div class="probe-empty">Search the catalog, then open a result to read its exact revision and schema.</div>`;
-  const search = `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Deferred capability graph</p><h3>Find a tool by what it does</h3></div>${pill(`${summary.by_readiness?.ready || 0} ready`, "green")}</div>
-      <form id="capabilitySearchForm" class="capability-search"><label>Search catalog<input id="capabilityQuery" required placeholder="calendar, repository search, database…"></label><button class="ghost">Search</button></form>
+  const search = `<div class="panel mcp-capability-panel"><div class="provider-head"><div><p class="eyebrow">รายการเครื่องมือ</p><h3>ค้นหาความสามารถที่เซิร์ฟเวอร์เผยแพร่</h3></div>${pill(`${summary.by_readiness?.ready || 0} ready`, "green")}</div>
+      <form id="capabilitySearchForm" class="capability-search"><label class="sr-only" for="capabilityQuery">ค้นหาเครื่องมือ</label><input id="capabilityQuery" required value="${escapeHTML(state.mcpCapabilityQuery)}" placeholder="เช่น calendar, repository search, database…"><button class="ghost">ค้นหา</button></form>
       <div id="capabilityResults">${state.capabilityResults.length ? state.capabilityResults.map(item => `<button class="capability-result" data-capability-id="${escapeHTML(item.id)}"><span><strong>${escapeHTML(item.title || item.name)}</strong><small>${escapeHTML(item.description || "No description")}</small></span><span>${pill(capabilityKind(item), "blue")}${pill(item.effect, item.requires_approval ? "amber" : "green")}${pill(item.readiness, item.readiness === "ready" ? "green" : "red")}</span></button>`).join("") : `<div class="probe-empty">Search returns bounded metadata only—never the complete catalog schemas.</div>`}</div>
       ${selected}</div>`;
-  const serverList = `<div class="mcp-connection-head"><h3>Connections</h3>${pill(`${servers.filter(server => server.status === "ready").length}/${servers.length} ready`, servers.length && servers.every(server => server.status === "ready") ? "green" : "amber")}</div>
+  const serverTools = `<div class="mcp-server-tools"><label class="mcp-server-search">${uiIcon("search")}<span class="sr-only">ค้นหา MCP server</span><input id="mcpServerQuery" type="search" value="${escapeHTML(state.mcpServerQuery)}" placeholder="ค้นหา MCP server…" autocomplete="off"></label><div class="mcp-filters" role="group" aria-label="กรองสถานะเซิร์ฟเวอร์"><button type="button" data-mcp-filter="all" aria-pressed="${state.mcpServerFilter === "all"}">ทั้งหมด</button><button type="button" data-mcp-filter="ready" aria-pressed="${state.mcpServerFilter === "ready"}">พร้อมใช้</button><button type="button" data-mcp-filter="attention" aria-pressed="${state.mcpServerFilter === "attention"}">ต้องตรวจสอบ</button></div><button type="button" class="ghost" id="mcpDiscoverAll" ${servers.some(server => server.enabled && server.credential_ready) ? "" : "disabled"}>${uiIcon("refresh")} ค้นพบทั้งหมด</button></div>`;
+  const serverList = `<div class="mcp-connection-head"><h3>ติดตั้งแล้ว <small>${servers.length}</small></h3>${pill(`${servers.filter(server => server.status === "ready").length}/${servers.length} ready`, servers.length && servers.every(server => server.status === "ready") ? "green" : "amber")}</div>
     <div class="card-list mcp-server-list">${servers.length ? servers.map(server => `<article class="provider-card"><div class="provider-head"><div><div class="row-title"><h3>${escapeHTML(server.name)}</h3>${pill(server.status, server.status === "ready" ? "green" : server.status === "error" ? "red" : "amber")}${pill(server.last_protocol || server.protocol_mode, "blue")}</div><p><code>${escapeHTML(server.endpoint)}</code></p></div>${pill(server.credential_stored ? "token saved" : server.api_key_env ? "token from environment" : "no token set", server.credential_stored || server.api_key_env ? "green" : "amber")}</div><div class="kv"><span>Runs as</span><strong>${server.transport_kind === "stdio" ? "local program" : "remote URL"}</strong><span>Publishes</span><strong>${escapeHTML(describeCatalog(server.id))}</strong><span>Timeout</span><span>${server.request_timeout_ms.toLocaleString()} ms</span><span>Risk hints</span><strong>${server.trust_annotations ? "trusted by user" : "untrusted · approval default"}</strong><span>Token source</span><span>${server.credential_stored ? "saved on this machine" : server.api_key_env ? `environment · ${escapeHTML(server.api_key_env)}` : "none required"}</span><span>Discovered</span><span>${formatDate(server.last_discovered_at)}</span></div>${server.last_error ? `<ul class="findings"><li class="error">${escapeHTML(server.last_error)}</li></ul>` : ""}<div class="action-row"><button class="ghost" data-mcp-key="${escapeHTML(server.id)}">${server.credential_stored ? "Replace token" : "Set token"}</button><button class="primary" data-discover-mcp="${escapeHTML(server.id)}" ${server.enabled && server.credential_ready ? "" : "disabled"}>Discover catalog</button></div></article>`).join("") : `<div class="empty"><h3>No MCP connections yet</h3><p>Connect one in the registry panel: most published MCP servers are a program you launch, such as <code>npx -y @modelcontextprotocol/server-everything</code>. Nothing reaches the model until you run discovery.</p></div>`}</div>`;
-  const flow = `<div class="panel"><p class="eyebrow">How a tool call happens</p><div class="tool-flow">${TOOL_FLOW.map(([title, detail], index) => `<article><b>${index + 1}</b><div><strong>${escapeHTML(title)}</strong><small>${escapeHTML(detail)}</small></div></article>`).join("")}</div></div>`;
+  const flow = `<details class="panel mcp-flow"><summary>การเชื่อมต่อและการอนุมัติทำงานอย่างไร</summary><div class="tool-flow">${TOOL_FLOW.map(([title, detail], index) => `<article><b>${index + 1}</b><div><strong>${escapeHTML(title)}</strong><small>${escapeHTML(detail)}</small></div></article>`).join("")}</div></details>`;
   const setup = `<details class="panel connection-setup" ${servers.length ? "" : "open"}><summary><div><p class="eyebrow">MCP connection registry</p><h3>Connect a tool server</h3></div></summary><div class="connection-setup-body"><form id="mcpForm">
       <label>Name<input name="name" required maxlength="80" placeholder="Local knowledge tools"></label>
       <label>How does this server run?<select name="transport_kind" id="mcpTransport"><option value="stdio">A program on this machine · stdio</option><option value="streamable-http">A URL · Streamable HTTP</option></select></label>
@@ -1737,7 +2133,31 @@ function renderMCP() {
       </div></details>
       <button class="primary">Connect server</button>
     </form></div></details>`;
-  root.innerHTML = `${hero}<div class="tool-center-grid"><div>${search}${serverList}</div><div class="tool-center-aside">${flow}${setup}</div></div>`;
+  root.innerHTML = `${hero}${serverTools}${serverList}<p class="probe-empty" id="mcpServerEmpty" hidden>ไม่พบเซิร์ฟเวอร์ที่ตรงกับคำค้นหรือสถานะที่เลือก</p>${search}<div class="mcp-setup-row">${setup}${flow}</div>`;
+  $$(".mcp-server-list > article", root).forEach(card => {
+    const details = document.createElement("details");
+    details.className = "mcp-server-detail";
+    details.innerHTML = "<summary>รายละเอียดและการจัดการ</summary>";
+    for (const child of [...card.children].slice(1)) details.append(child);
+    card.append(details);
+  });
+  const filterServers = () => {
+    const query = state.mcpServerQuery.trim().toLowerCase();
+    let visible = 0;
+    $$(".mcp-server-list > article", root).forEach((card, index) => {
+      const server = servers[index];
+      card.hidden = Boolean((query && !`${server.name} ${server.endpoint} ${server.status}`.toLowerCase().includes(query)) ||
+        (state.mcpServerFilter === "ready" && server.status !== "ready") ||
+        (state.mcpServerFilter === "attention" && server.status === "ready"));
+      if (!card.hidden) visible++;
+    });
+    $("#mcpServerEmpty").hidden = !servers.length || visible > 0;
+    $$("[data-mcp-filter]", root).forEach(button => button.setAttribute("aria-pressed", String(button.dataset.mcpFilter === state.mcpServerFilter)));
+  };
+  $("#mcpServerQuery").addEventListener("input", event => { state.mcpServerQuery = event.target.value; filterServers(); });
+  $$("[data-mcp-filter]", root).forEach(button => button.addEventListener("click", () => { state.mcpServerFilter = button.dataset.mcpFilter; filterServers(); }));
+  $("#mcpDiscoverAll").addEventListener("click", discoverAllMCPServers);
+  filterServers();
   $("#mcpForm")?.addEventListener("submit", saveMCPServer);
   // One question at a time: the endpoint field is a command or a URL depending
   // on the answer above it, so it renames itself rather than showing both.
@@ -1753,6 +2173,7 @@ function renderMCP() {
       : "Remote endpoints must use https. Plain http is accepted only on loopback.";
   });
   $("#capabilitySearchForm")?.addEventListener("submit", searchCapabilities);
+  $("#capabilityQuery")?.addEventListener("input", event => { state.mcpCapabilityQuery = event.target.value; });
   $$('[data-discover-mcp]', root).forEach(button => button.addEventListener("click", () => discoverMCPServer(button.dataset.discoverMcp)));
   $$('[data-capability-id]', root).forEach(button => button.addEventListener("click", () => inspectCapability(button.dataset.capabilityId)));
   $$('[data-use-capability]', root).forEach(button => button.addEventListener("click", () => {
@@ -1760,6 +2181,30 @@ function renderMCP() {
     if (capability) mentionCapability({ kind:"mcp", name:capability.title || capability.name, id:capability.id });
   }));
   $$('[data-mcp-key]', root).forEach(button => button.addEventListener("click", () => setMCPCredential(button.dataset.mcpKey)));
+}
+
+async function discoverAllMCPServers() {
+  const button = $("#mcpDiscoverAll");
+  const servers = state.mcp_servers.filter(server => server.enabled && server.credential_ready);
+  button.disabled = true;
+  button.textContent = "กำลังค้นพบ…";
+  const failures = [];
+  try {
+    for (const server of servers) {
+      try {
+        await api(`/api/mcp/servers/${encodeURIComponent(server.id)}/discover`, { method:"POST", body:"{}" });
+      } catch (error) {
+        failures.push(`${server.name}: ${error.message}`);
+      }
+    }
+    await load();
+    switchTab("mcp");
+    toast(failures.length ? `ค้นพบสำเร็จ ${servers.length - failures.length}/${servers.length} · ${failures.join(" · ")}` : `ค้นพบเซิร์ฟเวอร์ ${servers.length} รายการแล้ว`, Boolean(failures.length));
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "ค้นพบทั้งหมด";
+    toast(error.message, true);
+  }
 }
 
 async function setMCPCredential(id) {
@@ -1812,6 +2257,7 @@ async function searchCapabilities(event) {
   event.preventDefault();
   const query = $("#capabilityQuery").value.trim();
   if (!query) return;
+  state.mcpCapabilityQuery = query;
   try {
     const result = await api(`/api/capabilities?query=${encodeURIComponent(query)}&limit=20`);
     state.capabilityResults = result.results || [];
@@ -1955,18 +2401,35 @@ function bindFolderPicker() {
   });
 }
 
+function projectSharingPanel(project) {
+  if (!project) return "";
+  const eligible = project.visibility === "project_shared" && project.export_policy === "explicit_selection";
+  const artifacts = state.artifacts.filter(item => item.project_id === project.id);
+  const tasks = state.durableTasks.filter(item => item.project_id === project.id);
+  const skills = state.skills.filter(item => item.scope_kind === "project" && item.scope_ref === project.id);
+  const memories = state.memories.filter(item => item.scope_kind === "project" && item.scope_ref === project.id && item.state === "active");
+  const preview = state.sharePreview?.project_id === project.id ? state.sharePreview : null;
+  const previewRows = preview ? preview.entries.map(entry => `<li><strong>${escapeHTML(entry.kind)}</strong> ${escapeHTML(entry.path || entry.name || entry.artifact_id)} · ${Number(entry.bytes || 0).toLocaleString()} bytes · <code>${escapeHTML(shortHash(entry.sha256))}</code></li>`).join("") : "";
+  return `<section class="inspect-section"><div class="provider-head"><div><p class="eyebrow">Explicit project sharing</p><h3>Preview exact files and artifacts</h3><p class="form-note neutral">Chat history, credentials, runtime state and private dependencies are excluded. A downloaded copy cannot be revoked later.</p></div>${pill(eligible ? "eligible" : "private", eligible ? "green" : "amber")}</div>
+    ${eligible ? `<form id="sharePreviewForm"><label>Relative file paths, one per line<textarea name="paths" rows="4" placeholder="README.md&#10;docs/guide.md"></textarea></label><fieldset><legend>Artifacts</legend>${artifacts.map(item => `<label class="check-label"><input type="checkbox" name="artifact_ids" value="${escapeHTML(item.id)}" ${item.visibility === "project_shared" && item.export_policy === "explicit_selection" ? "" : "disabled"}> ${escapeHTML(item.name)} · ${escapeHTML(item.visibility)}</label>`).join("") || `<p class="form-note neutral">No project artifacts.</p>`}</fieldset><fieldset><legend>Task drafts</legend>${tasks.map(item => `<label class="check-label"><input type="checkbox" name="task_ids" value="${escapeHTML(item.id)}" ${item.visibility === "project_shared" && item.export_policy === "explicit_selection" ? "" : "disabled"}> ${escapeHTML(item.title)} · ${escapeHTML(item.visibility)}</label>`).join("") || `<p class="form-note neutral">No project tasks.</p>`}</fieldset><fieldset><legend>Skill candidates</legend>${skills.map(item => `<label class="check-label"><input type="checkbox" name="skill_ids" value="${escapeHTML(item.id)}" ${item.visibility === "project_shared" && item.export_policy === "explicit_selection" ? "" : "disabled"}> ${escapeHTML(item.canonical_name)} · ${escapeHTML(item.visibility)}</label>`).join("") || `<p class="form-note neutral">No project Skills.</p>`}</fieldset><fieldset><legend>Explicit memories</legend>${memories.map(item => `<label class="check-label"><input type="checkbox" name="memory_ids" value="${escapeHTML(item.id)}" ${item.visibility === "project_shared" && item.export_policy === "explicit_selection" ? "" : "disabled"}> ${escapeHTML(item.memory_kind)} · ${escapeHTML(item.visibility)}</label>`).join("") || `<p class="form-note neutral">No project memories.</p>`}</fieldset><button class="ghost">Build immutable preview</button></form>` : `<button class="primary" id="enableProjectSharing">Enable explicit project sharing</button>`}
+    ${preview ? `<div class="panel"><div class="provider-head"><div><h3>Preview expires ${formatDate(preview.expires_at)}</h3><p>${preview.entries.length} included · ${preview.omitted.length} omitted</p></div>${pill(preview.state,"green")}</div><ul class="findings">${previewRows || "<li>No included objects</li>"}</ul>${preview.omitted.length ? `<p><strong>Excluded</strong></p><ul class="findings">${preview.omitted.map(item => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}<p class="form-note neutral"><strong>Metadata that remains:</strong> ${escapeHTML(preview.remaining_metadata.join(", ") || "none")}</p><button class="primary" id="exportSharePreview">Export exactly this preview</button></div>` : ""}</section>`;
+}
+
 function renderProjects() {
   const root = $("#view-projects");
   if (!root) return;
   const project = state.projects.find(item => item.id === state.selectedProject);
   root.innerHTML = `<div class="workbench-grid"><div class="panel"><p class="eyebrow">Bounded workspace registry</p><h3>Add project</h3><form id="projectForm"><label>Name<input name="name" required maxlength="100" placeholder="My workspace"></label><label>Existing local root<span class="path-field"><input name="root_path" id="projectRoot" required placeholder="/absolute/path"><button type="button" class="ghost" id="browseRoot">Browse…</button></span></label><button class="primary">Register project</button></form><section class="inspect-section"><h3>Projects</h3><div class="project-list">${state.projects.map(item => `<button class="session-item ${item.id === state.selectedProject ? "active" : ""}" data-project-id="${escapeHTML(item.id)}"><strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.root_path)}</span></button>`).join("")}</div></section></div>
-    <div class="panel"><div class="provider-head"><div><p class="eyebrow">Project workbench</p><h3>${escapeHTML(project?.name || "Select a project")}</h3><p>${escapeHTML(project?.root_path || "")}</p></div>${project ? pill(project.state,"green") : ""}</div>${project ? `<div class="file-browser"><div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="projectUpButton">Up</button>` : ""}</div>${state.projectFiles.map(item => `<button class="file-row" data-file-path="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${uiIcon(item.directory ? "files" : "file")}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "directory" : `${Number(item.bytes).toLocaleString()} bytes`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div><section class="inspect-section"><h3>Direct background command</h3><form id="commandForm"><div class="form-grid"><label>Executable<select name="executable"><option>go</option><option>git</option><option>node</option><option>npm</option><option>python3</option><option>rg</option><option>ls</option></select></label><label>Timeout seconds<input name="timeout" type="number" min="1" max="600" value="30"></label></div><label>Arguments as JSON array<textarea name="arguments" rows="3">["test", "./..."]</textarea></label><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><p class="form-note neutral">No shell is involved. Executable allowlist, root boundary, minimal environment, timeout, output limit and process-group cancellation are enforced server-side.</p><button class="primary">Start background job</button></form></section>` : `<div class="empty"><h3>No project selected</h3><p>Register an existing local directory to create a bounded workbench.</p></div>`}</div></div>`;
+    <div class="panel"><div class="provider-head"><div><p class="eyebrow">Project workbench</p><h3>${escapeHTML(project?.name || "Select a project")}</h3><p>${escapeHTML(project?.root_path || "")}</p></div>${project ? pill(project.state,"green") : ""}</div>${project ? `<div class="file-browser"><div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="projectUpButton">Up</button>` : ""}</div>${state.projectFiles.map(item => `<button class="file-row" data-file-path="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${uiIcon(item.directory ? "files" : "file")}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "directory" : `${Number(item.bytes).toLocaleString()} bytes`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div>${projectSharingPanel(project)}<section class="inspect-section"><h3>Direct background command</h3><form id="commandForm"><div class="form-grid"><label>Executable<select name="executable"><option>go</option><option>git</option><option>node</option><option>npm</option><option>python3</option><option>rg</option><option>ls</option></select></label><label>Timeout seconds<input name="timeout" type="number" min="1" max="600" value="30"></label></div><label>Arguments as JSON array<textarea name="arguments" rows="3">["test", "./..."]</textarea></label><label>Working directory<input name="working_dir" value="${escapeHTML(state.projectPath || ".")}"></label><p class="form-note neutral">No shell is involved. Executable allowlist, root boundary, minimal environment, timeout, output limit and process-group cancellation are enforced server-side.</p><button class="primary">Start background job</button></form></section>` : `<div class="empty"><h3>No project selected</h3><p>Register an existing local directory to create a bounded workbench.</p></div>`}</div></div>`;
   $("#projectForm")?.addEventListener("submit", createProject);
   $("#browseRoot")?.addEventListener("click", () => openFolderPicker($("#projectRoot")?.value || ""));
   $$('[data-project-id]', root).forEach(button => button.addEventListener("click", () => selectProject(button.dataset.projectId, "")));
   $$('[data-file-path]', root).forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? selectProject(state.selectedProject, button.dataset.filePath) : (activateWorkbenchChrome("files"), openWorkbenchFile(button.dataset.filePath))));
   $("#projectUpButton")?.addEventListener("click", () => selectProject(state.selectedProject, (state.projectPath || "").split("/").slice(0,-1).join("/")));
   $("#commandForm")?.addEventListener("submit", startCommand);
+	$("#enableProjectSharing")?.addEventListener("click", enableProjectSharing);
+	$("#sharePreviewForm")?.addEventListener("submit", createProjectSharePreview);
+	$("#exportSharePreview")?.addEventListener("click", exportProjectSharePreview);
 }
 
 async function createProject(event) {
@@ -1987,6 +2450,51 @@ async function selectProject(id, path = "") {
     // one (if either) is actually showing it rather than assuming the
     // chat-side tab.
     refreshWorkbenchSurface("files");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function enableProjectSharing() {
+  const project = state.projects.find(item => item.id === state.selectedProject);
+  if (!project) return;
+  const approved = await askAction({title:"Enable explicit project sharing?",message:"Nothing is exported yet. Every file and eligible object still requires an immutable preview before download.",confirmLabel:"Enable previews"});
+  if (!approved) return;
+  try {
+    await api("/api/sharing/visibility", {method:"POST", body:JSON.stringify({object_kind:"project", object_id:project.id, visibility:"project_shared", export_policy:"explicit_selection", expected_revision:project.sharing_revision, actor:currentActor(), reason:"enabled from project share dialog"})});
+    toast("Project is eligible for explicit previews");
+    await load();
+    state.selectedProject = project.id;
+    renderProjects();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function createProjectSharePreview(event) {
+  event.preventDefault();
+  const project = state.projects.find(item => item.id === state.selectedProject);
+  if (!project) return;
+  const form = new FormData(event.currentTarget);
+  const paths = String(form.get("paths") || "").split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  const artifactIDs = form.getAll("artifact_ids").map(String);
+  const taskIDs = form.getAll("task_ids").map(String);
+  const skillIDs = form.getAll("skill_ids").map(String);
+  const memoryIDs = form.getAll("memory_ids").map(String);
+  if (!paths.length && !artifactIDs.length && !taskIDs.length && !skillIDs.length && !memoryIDs.length) { toast("Select at least one file or shared object", true); return; }
+  try {
+    state.sharePreview = await api(`/api/projects/${encodeURIComponent(project.id)}/share/previews`, {method:"POST", body:JSON.stringify({paths, artifact_ids:artifactIDs, task_ids:taskIDs, skill_ids:skillIDs, memory_ids:memoryIDs, actor:currentActor()})});
+    renderProjects();
+    toast("Immutable share preview is ready");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function exportProjectSharePreview() {
+  const project = state.projects.find(item => item.id === state.selectedProject);
+  const preview = state.sharePreview;
+  if (!project || !preview || preview.project_id !== project.id) return;
+  const approved = await askAction({title:"Export this exact preview?",message:"The server will recheck every hash and sharing revision. A downloaded copy cannot be revoked later.",confirmLabel:"Create package"});
+  if (!approved) return;
+  try {
+    const item = await api(`/api/projects/${encodeURIComponent(project.id)}/share/exports`, {method:"POST", body:JSON.stringify({preview_id:preview.id, manifest_digest:preview.manifest_digest, idempotency_key:crypto.randomUUID()})});
+    toast("Project share package created");
+    window.location.href = `/api/share/exports/${encodeURIComponent(item.id)}/content`;
   } catch (error) { toast(error.message, true); }
 }
 
@@ -2017,14 +2525,26 @@ async function cancelBackgroundJob(id) {
 function renderArtifacts() {
   const root = $("#view-artifacts");
   if (!root) return;
-  root.innerHTML = `<div class="workbench-grid"><div class="panel"><p class="eyebrow">Content-addressed outputs</p><h3>Create artifact</h3><form id="artifactForm"><label>Project<select name="project_id"><option value="">Global</option>${state.projects.map(item => `<option value="${item.id}">${escapeHTML(item.name)}</option>`).join("")}</select></label><label>Name<input name="name" required placeholder="report.md"></label><div class="form-grid"><label>Kind<input name="kind" value="report" required></label><label>MIME type<input name="mime_type" value="text/markdown" required></label></div><label>Content<textarea name="content" rows="10" required></textarea></label><button class="primary">Save immutable artifact</button></form></div><div class="card-list">${state.artifacts.map(item => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(item.name)}</h3><p>${escapeHTML(item.mime_type)} · ${Number(item.byte_size).toLocaleString()} bytes</p></div>${pill(item.kind,"blue")}</div><div class="kv"><span>Checksum</span><code>${escapeHTML(item.checksum)}</code><span>Project</span><span>${escapeHTML(state.projects.find(project => project.id === item.project_id)?.name || "global")}</span><span>Created</span><span>${formatDate(item.created_at)}</span></div><div class="action-row"><a class="button-link" href="/api/artifacts/${encodeURIComponent(item.id)}/content" target="_blank" rel="noreferrer">Open verified content</a></div></article>`).join("") || `<div class="empty"><h3>No artifacts</h3><p>Command logs and generated outputs will appear here.</p></div>`}</div></div>`;
+  root.innerHTML = `<div class="workbench-grid"><div class="panel"><p class="eyebrow">Content-addressed outputs</p><h3>Create artifact</h3><form id="artifactForm"><label>Project<select name="project_id"><option value="">Global</option>${state.projects.map(item => `<option value="${item.id}">${escapeHTML(item.name)}</option>`).join("")}</select></label><label>Name<input name="name" required placeholder="report.md"></label><div class="form-grid"><label>Kind<input name="kind" value="report" required></label><label>MIME type<input name="mime_type" value="text/markdown" required></label></div><label>Content<textarea name="content" rows="10" required></textarea></label><button class="primary">Save immutable artifact</button></form></div><div class="card-list">${state.artifacts.map(item => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(item.name)}</h3><p>${escapeHTML(item.mime_type)} · ${Number(item.byte_size).toLocaleString()} bytes</p></div>${pill(item.kind,"blue")}${pill(item.visibility,item.visibility === "project_shared" ? "green" : "amber")}</div><div class="kv"><span>Checksum</span><code>${escapeHTML(item.checksum)}</code><span>Project</span><span>${escapeHTML(state.projects.find(project => project.id === item.project_id)?.name || "global")}</span><span>Created</span><span>${formatDate(item.created_at)}</span></div><div class="action-row"><a class="button-link" href="/api/artifacts/${encodeURIComponent(item.id)}/content" target="_blank" rel="noreferrer">Open verified content</a>${item.project_id && item.visibility !== "project_shared" ? `<button class="ghost" data-share-artifact="${escapeHTML(item.id)}">Allow explicit project sharing</button>` : ""}</div></article>`).join("") || `<div class="empty"><h3>No artifacts</h3><p>Command logs and generated outputs will appear here.</p></div>`}</div></div>`;
   $("#artifactForm")?.addEventListener("submit", createArtifact);
+	$$('[data-share-artifact]', root).forEach(button => button.addEventListener("click", () => enableArtifactSharing(button.dataset.shareArtifact)));
 }
 
 async function createArtifact(event) {
   event.preventDefault(); const form = new FormData(event.currentTarget);
   try { await api("/api/artifacts", { method:"POST", body:JSON.stringify({ project_id:form.get("project_id"), name:form.get("name"), kind:form.get("kind"), mime_type:form.get("mime_type"), content:form.get("content"), metadata:{ created_by:"user" } }) }); toast("Artifact stored by checksum"); await load(); switchTab("artifacts"); }
   catch (error) { toast(error.message, true); }
+}
+
+async function enableArtifactSharing(id) {
+  const item = state.artifacts.find(artifact => artifact.id === id);
+  if (!item) return;
+  try {
+    await api(`/api/artifacts/${encodeURIComponent(id)}/sharing`, {method:"PATCH", body:JSON.stringify({visibility:"project_shared", export_policy:"explicit_selection", expected_revision:item.sharing_revision, actor:currentActor(), reason:"enabled from artifact share control"})});
+    toast("Artifact may now be explicitly selected in its project preview");
+    await load();
+    switchTab("artifacts");
+  } catch (error) { toast(error.message, true); }
 }
 
 function renderFidelity() {
@@ -2039,12 +2559,30 @@ async function runFidelity(id) {
   catch (error) { toast(error.message, true); }
 }
 
+function workspacePortabilityPanel() {
+  const preview = state.workspacePreview;
+  const sourceIDs = preview?.summary?.project_ids || [];
+  return `<div class="panel"><p class="eyebrow">Encrypted workspace migration</p><h3>Move private canonical content</h3><p class="form-note neutral">The age-encrypted package excludes credentials, sessions, approvals, effects, browser profiles and runtime authority. Imported objects receive new IDs and private defaults.</p>
+    <form id="workspaceExportForm"><fieldset><legend>Projects</legend>${state.projects.map(item => `<label class="check-label"><input type="checkbox" name="project_ids" value="${escapeHTML(item.id)}"> ${escapeHTML(item.name)}</label>`).join("") || `<p>No projects registered.</p>`}</fieldset><label>Migration passphrase<input name="passphrase" type="password" minlength="12" autocomplete="new-password" required></label><button class="primary">Create encrypted package</button></form>
+    <hr><form id="workspacePreviewForm"><label>Encrypted workspace package<input name="file" type="file" accept=".age,application/vnd.hermetrix.workspace+age" required></label><label>Passphrase<input name="passphrase" type="password" minlength="12" autocomplete="current-password" required></label><button class="ghost">Decrypt and preview</button></form>
+    ${preview ? `<div class="panel"><div class="provider-head"><div><h3>Verified migration preview</h3><p>${Number(preview.summary?.projects || 0)} projects · authority imported: ${preview.summary?.authority_imported ? "yes" : "no"}</p></div>${pill(preview.state,"green")}</div><form id="workspaceApplyForm"><label>Destination roots as JSON map<textarea name="root_mappings" rows="5" required>${escapeHTML(JSON.stringify(Object.fromEntries(sourceIDs.map(id => [id, ""])), null, 2))}</textarea></label><label>Passphrase again<input name="passphrase" type="password" minlength="12" autocomplete="current-password" required></label><button class="primary">Restore to new roots</button></form></div>` : ""}</div>`;
+}
+
+function recoveryPanel() {
+  const runs = state.backups.filter(item => item.kind === "full_recovery");
+  const report = state.recoveryReport;
+  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">Full disaster recovery</p><h3>Consistent SQLite + CAS snapshot</h3><p class="form-note neutral">The credential vault is deliberately separate. Windows DPAPI capture is for the same account/machine; cross-machine recovery reenrolls credentials.</p></div><button class="primary" id="createFullRecovery">Create recovery package</button></div><label>Verify an existing recovery package<input id="verifyRecoveryFile" type="file" accept=".zip,application/vnd.hermetrix.full-recovery+zip"></label><button class="ghost" id="verifyFullRecovery">Verify without restoring</button>
+    ${report ? `<div class="kv"><span>Integrity</span><strong>${escapeHTML(report.integrity_check)}</strong><span>Foreign-key errors</span><strong>${report.foreign_key_errors}</strong><span>Schema</span><strong>${report.manifest.schema_version}</strong><span>CAS blobs</span><strong>${report.verified_blob_count}</strong><span>Compatible</span><strong>${report.compatible ? "yes" : "no"}</strong></div>` : ""}
+    <div class="card-list">${runs.map(item => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(item.id)}</h3><p>${formatDate(item.created_at)}</p></div>${pill(item.state,item.state === "completed" ? "green" : "amber")}</div><div class="kv"><span>Checksum</span><code>${escapeHTML(item.checksum)}</code><span>Database bytes</span><strong>${Number(item.counts.database_bytes || 0).toLocaleString()}</strong><span>CAS blobs</span><strong>${item.counts.blobs || 0}</strong></div>${item.state === "completed" ? `<a class="button-link" href="/api/recovery/${encodeURIComponent(item.id)}/content">Download recovery package</a>` : ""}</article>`).join("") || `<p class="form-note neutral">No recovery package has been created.</p>`}</div></div>`;
+}
+
 function renderMaintenance() {
   const root = $("#view-maintenance");
   if (!root) return;
   const usage = state.usage || {};
   root.innerHTML = `<div class="maintenance-grid"><div class="panel-stack"><div class="panel"><p class="eyebrow">Usage & provenance</p><h3>Derived runtime totals</h3><div class="kv"><span>Sessions</span><strong>${usage.sessions || 0}</strong><span>Model steps</span><strong>${usage.model_steps || 0}</strong><span>Tool calls</span><strong>${usage.tool_calls || 0}</strong><span>Tool success</span><strong>${usage.tool_succeeded || 0}</strong><span>Total tokens</span><strong>${Number(usage.total_tokens || 0).toLocaleString()}</strong></div></div><div class="panel"><p class="eyebrow">Safe settings</p><h3>Non-secret JSON settings</h3><form id="settingForm"><label>Key<input name="key" required value="retention.skill_activation_days"></label><label>JSON value<input name="value" required value="365"></label><button class="ghost">Save setting</button></form><div class="meta">${state.settings.map(item => pill(`${item.key}=${JSON.stringify(item.value)}`)).join("")}</div></div><div class="panel"><p class="eyebrow">Explicit memory</p><h3>User-controlled memory</h3><form id="memoryForm"><div class="form-grid"><label>Scope<select name="scope_kind"><option value="user">User</option><option value="project">Project</option></select></label><label>Project<select name="scope_ref"><option value="">None</option>${state.projects.map(item => `<option value="${item.id}">${escapeHTML(item.name)}</option>`).join("")}</select></label></div><label>Kind<input name="memory_kind" value="preference" required></label><label>Content<textarea name="content" rows="3" required></textarea></label><button class="ghost">Save explicit memory</button></form><div class="card-list">${state.memories.map(item => `<article class="memory-row"><div><strong>${escapeHTML(item.memory_kind)}</strong><p>${escapeHTML(item.content)}</p></div>${pill(item.state,item.state === "active" ? "green" : "amber")}${item.state === "active" ? `<button class="danger" data-archive-memory="${item.id}">Archive</button>` : ""}</article>`).join("")}</div></div></div>
-    <div class="panel-stack"><div class="panel"><div class="provider-head"><div><p class="eyebrow">Verified backup</p><h3>Export / preview / candidate-only import</h3></div><button class="primary" id="exportBackupButton">Export now</button></div><label>Import backup<input id="importBackupFile" type="file" accept="application/json,.json"></label><button class="ghost" id="previewImportButton">Verify & preview import</button><div class="card-list">${state.backups.map(item => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(item.kind)}</h3><p>${formatDate(item.created_at)}</p></div>${pill(item.state,item.state === "completed" || item.state === "imported" ? "green" : "amber")}</div><div class="kv"><span>Checksum</span><code>${escapeHTML(item.checksum || "pending")}</code><span>Skills</span><strong>${item.counts.skills || 0}</strong><span>Conflicts</span><strong>${item.counts.skill_conflicts || 0}</strong></div><div class="action-row">${item.kind === "export" && item.state === "completed" ? `<a class="button-link" href="/api/backups/${item.id}/download">Download</a>` : ""}${item.kind === "import_preview" && item.state === "awaiting_apply" ? `<button class="primary" data-apply-import="${item.id}">Apply as candidates</button>` : ""}</div></article>`).join("")}</div></div>
+    <div class="panel-stack"><div class="panel"><div class="provider-head"><div><p class="eyebrow">Skill portability</p><h3>Export / preview / candidate-only import</h3><p class="form-note neutral">This package contains Skill lifecycle data only. Project sharing, encrypted workspace migration, and full disaster recovery use separate flows.</p></div><button class="primary" id="exportBackupButton">Export Skills</button></div><label>Import Skill package<input id="importBackupFile" type="file" accept="application/json,.json"></label><button class="ghost" id="previewImportButton">Verify & preview import</button><div class="card-list">${state.backups.filter(item => item.kind !== "full_recovery").map(item => `<article class="provider-card"><div class="provider-head"><div><h3>${escapeHTML(item.kind)}</h3><p>${formatDate(item.created_at)}</p></div>${pill(item.state,item.state === "completed" || item.state === "imported" ? "green" : "amber")}</div><div class="kv"><span>Checksum</span><code>${escapeHTML(item.checksum || "pending")}</code><span>Skills</span><strong>${item.counts.skills || 0}</strong><span>Conflicts</span><strong>${item.counts.skill_conflicts || 0}</strong></div><div class="action-row">${item.kind === "export" && item.state === "completed" ? `<a class="button-link" href="/api/backups/${item.id}/download">Download Skill package</a>` : ""}${item.kind === "import_preview" && item.state === "awaiting_apply" ? `<button class="primary" data-apply-import="${item.id}">Apply as candidates</button>` : ""}</div></article>`).join("")}</div></div>
+      ${workspacePortabilityPanel()}${recoveryPanel()}
       <div class="panel"><div class="provider-head"><div><p class="eyebrow">Background policy</p><h3>Maintenance schedules</h3></div><button class="ghost" id="runDueButton">Run due when policy allows</button></div><form id="scheduleForm"><label>Name<input name="name" value="Weekly curator" required></label><div class="form-grid"><label>Task<select name="task_kind"><option value="curator">Curator report</option><option value="gc_dry_run">GC dry-run</option></select></label><label>Interval seconds<input name="interval_seconds" type="number" min="300" value="604800"></label></div><label class="check-label"><input name="enabled" type="checkbox"> Enabled</label><label class="check-label"><input name="require_idle" type="checkbox" checked> Require 5-minute idle</label><label class="check-label"><input name="require_ac_power" type="checkbox" checked> Require AC power</label><button class="ghost">Save schedule</button></form><div class="meta">${state.schedules.map(item => pill(`${item.name} · ${item.enabled ? "enabled" : "disabled"} · next ${formatDate(item.next_run_at)}`)).join("")}</div></div>
       <div class="panel"><div class="provider-head"><div><p class="eyebrow">Recoverable CAS GC</p><h3>Dry-run → exact snapshot → quarantine</h3></div><button class="primary" id="dryRunGCButton">New dry-run</button></div><div class="card-list">${state.gcRuns.map(run => `<article class="provider-card"><div class="provider-head"><div><h3>${run.unreachable_count} unreachable · ${Number(run.reclaimable_bytes).toLocaleString()} bytes</h3><p>${formatDate(run.created_at)} · ${shortHash(run.snapshot_revision)}</p></div>${pill(run.state,run.state === "restored" ? "green" : "amber")}</div><div class="action-row">${run.state === "planned" ? `<button class="danger" data-apply-gc="${run.id}">Quarantine exact set</button>` : ""}${["quarantined","partial_quarantine"].includes(run.state) ? `<button class="ghost" data-restore-gc="${run.id}">Restore quarantine</button>` : ""}</div></article>`).join("")}</div></div></div></div>`;
   $("#settingForm")?.addEventListener("submit", saveSetting);
@@ -2058,24 +2596,35 @@ function renderMaintenance() {
   $("#dryRunGCButton")?.addEventListener("click", dryRunGC);
   $$('[data-apply-gc]', root).forEach(button => button.addEventListener("click", () => applyGC(button.dataset.applyGc)));
   $$('[data-restore-gc]', root).forEach(button => button.addEventListener("click", () => restoreGC(button.dataset.restoreGc)));
+	$("#workspaceExportForm")?.addEventListener("submit", exportWorkspaceMigration);
+	$("#workspacePreviewForm")?.addEventListener("submit", previewWorkspaceMigration);
+	$("#workspaceApplyForm")?.addEventListener("submit", applyWorkspaceMigration);
+	$("#createFullRecovery")?.addEventListener("click", createFullRecovery);
+	$("#verifyFullRecovery")?.addEventListener("click", verifyFullRecovery);
 }
 
 async function saveSetting(event) { event.preventDefault(); const form = new FormData(event.currentTarget); let value; try { value=JSON.parse(form.get("value")); } catch { toast("Setting value must be valid JSON",true); return; } try { await api("/api/settings",{method:"PUT",body:JSON.stringify({key:form.get("key"),value})}); toast("Non-secret setting saved"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function saveMemory(event) { event.preventDefault(); const form=new FormData(event.currentTarget); const scope=form.get("scope_kind"); try { await api("/api/memories",{method:"POST",body:JSON.stringify({scope_kind:scope,scope_ref:scope === "project" ? form.get("scope_ref") : "",memory_kind:form.get("memory_kind"),content:form.get("content"),source:"user"})}); toast("Explicit user memory saved"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function archiveMemory(id) { try { await api(`/api/memories/${encodeURIComponent(id)}/archive`,{method:"POST",body:"{}"}); toast("Memory archived"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
-async function exportBackup() { try { const run=await api("/api/backups",{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Verified backup completed"); await load(); window.location.href=`/api/backups/${encodeURIComponent(run.id)}/download`; } catch(error){toast(error.message,true);} }
-async function previewImport() { const file=$("#importBackupFile").files[0]; if(!file){toast("Choose a backup file",true);return;} try { const body=await api(`/api/imports/preview?actor=${encodeURIComponent(currentActor())}`,{method:"POST",headers:{"Content-Type":"application/vnd.hermetrix.backup+json"},body:file}); toast(`Verified import preview · ${body.skill_conflicts} skill conflicts`); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
+async function exportBackup() { try { const run=await api("/api/backups",{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Skill portability export completed"); await load(); window.location.href=`/api/backups/${encodeURIComponent(run.id)}/download`; } catch(error){toast(error.message,true);} }
+async function previewImport() { const file=$("#importBackupFile").files[0]; if(!file){toast("Choose a Skill package",true);return;} try { const body=await api(`/api/imports/preview?actor=${encodeURIComponent(currentActor())}`,{method:"POST",headers:{"Content-Type":"application/vnd.hermetrix.backup+json"},body:file}); toast(`Verified Skill import preview · ${body.skill_conflicts} conflicts`); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function applyImport(id) { const approved=await askAction({title:"Restore backup as candidates?",message:"Blobs are checksum-verified. Skills become reviewable candidates only; active skills are never overwritten.",confirmLabel:"Create candidates"}); if(!approved)return; try { const result=await api(`/api/imports/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast(`Created ${result.candidate_ids.length} candidates · ${result.conflicts} conflicts`); await load(); switchTab("proposals"); } catch(error){toast(error.message,true);} }
+async function exportWorkspaceMigration(event) { event.preventDefault(); const form=new FormData(event.currentTarget); const projectIDs=form.getAll("project_ids").map(String); if(!projectIDs.length){toast("Select at least one project",true);return;} try { const item=await api("/api/workspace-migrations/exports",{method:"POST",body:JSON.stringify({project_ids:projectIDs,passphrase:form.get("passphrase"),actor:currentActor()})}); event.currentTarget.reset(); toast("Encrypted workspace package created"); window.location.href=`/api/workspace-migrations/${encodeURIComponent(item.id)}/content`; } catch(error){toast(error.message,true);} }
+async function previewWorkspaceMigration(event) { event.preventDefault(); const form=new FormData(event.currentTarget); form.set("actor",currentActor()); try { const response=await fetch("/api/workspace-migrations/import-previews",{method:"POST",body:form}); const body=await response.json().catch(()=>({})); if(!response.ok)throw new Error(typeof body.error === "string" ? body.error : `Migration preview failed (${response.status})`); state.workspacePreview=body; event.currentTarget.reset(); toast("Encrypted workspace package verified"); renderMaintenance(); } catch(error){toast(error.message,true);} }
+async function applyWorkspaceMigration(event) { event.preventDefault(); if(!state.workspacePreview)return; const form=new FormData(event.currentTarget); let mappings; try { mappings=JSON.parse(form.get("root_mappings")); if(!mappings || Array.isArray(mappings) || typeof mappings !== "object")throw new Error(); } catch { toast("Destination roots must be a JSON object",true); return; } try { await api("/api/workspace-migrations/imports",{method:"POST",body:JSON.stringify({preview_id:state.workspacePreview.id,passphrase:form.get("passphrase"),root_mappings:mappings,actor:currentActor()})}); state.workspacePreview=null; toast("Workspace restored with new private IDs"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
+async function createFullRecovery() { const approved=await askAction({title:"Create full recovery package?",message:"This snapshots SQLite and CAS consistently. The credential vault stays separate and is not included in the download.",confirmLabel:"Create snapshot"}); if(!approved)return; try { const run=await api("/api/recovery/full",{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Full recovery package verified and stored"); await load(); switchTab("maintenance"); window.location.href=`/api/recovery/${encodeURIComponent(run.id)}/content`; } catch(error){toast(error.message,true);} }
+async function verifyFullRecovery() { const file=$("#verifyRecoveryFile")?.files[0]; if(!file){toast("Choose a recovery package",true);return;} try { const response=await fetch("/api/recovery/verify",{method:"POST",headers:{"Content-Type":"application/vnd.hermetrix.full-recovery+zip"},body:file}); const body=await response.json().catch(()=>({})); if(!response.ok)throw new Error(typeof body.error === "string" ? body.error : `Recovery verification failed (${response.status})`); state.recoveryReport=body; toast("Recovery package integrity verified"); renderMaintenance(); } catch(error){toast(error.message,true);} }
 async function saveSchedule(event) { event.preventDefault(); const form=new FormData(event.currentTarget); try { await api("/api/maintenance/schedules",{method:"POST",body:JSON.stringify({name:form.get("name"),task_kind:form.get("task_kind"),interval_seconds:Number(form.get("interval_seconds")),enabled:form.get("enabled")==="on",require_idle:form.get("require_idle")==="on",require_ac_power:form.get("require_ac_power")==="on"})}); toast("Maintenance schedule saved"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function runDueMaintenance() { try { const detected=await api("/api/maintenance/system-state"); const runs=await api("/api/maintenance/run-due",{method:"POST",body:JSON.stringify(detected)}); toast(runs.length ? `Evaluated ${runs.length} due schedules` : "No schedules are due"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function dryRunGC() { try { const run=await api("/api/maintenance/gc/dry-run",{method:"POST",body:"{}"}); toast(`GC dry-run found ${run.unreachable_count} unreachable objects`); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function applyGC(id) { const approved=await askAction({title:"Quarantine exact GC snapshot?",message:"The CAS set must still match the dry-run. Objects are moved to recoverable quarantine, never deleted.",confirmLabel:"Quarantine exact set",danger:true}); if(!approved)return; try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/apply`,{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Exact snapshot moved to recoverable quarantine"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 async function restoreGC(id) { try { await api(`/api/maintenance/gc/${encodeURIComponent(id)}/restore`,{method:"POST",body:JSON.stringify({actor:currentActor()})}); toast("Quarantined CAS objects restored after integrity verification"); await load(); switchTab("maintenance"); } catch(error){toast(error.message,true);} }
 
-let workbenchPollTimer;
+const workbenchPollTimers = new Map();
+let terminalPollInFlight = false;
 
 function switchWorkbench(tab) {
-  clearTimeout(workbenchPollTimer);
+  stopWorkbenchPolling();
   activateWorkbenchChrome(tab);
   openContentPane(tab);
 }
@@ -2089,16 +2638,44 @@ function renderCurrentWorkbench() {
 // rather than checking a chat-side tab that no longer exists -- checking the
 // old tab would silently stop a running terminal's output the moment
 // anything else became the active workbench tab.
+function workspacePaneVisible(kind) {
+  if (document.hidden || $("#appShell")?.hidden || !$("#configOverlay")?.hidden) return false;
+  if (!state.panes.includes(kind)) return false;
+  if (state.view !== "code" && $("#zones")?.classList.contains("side-hidden")) return false;
+  const body = $(`.pane-body[data-pane-kind='${kind}']`);
+  return Boolean(body && !body.closest(".pane-hidden"));
+}
+
 function terminalPaneOpen() {
-  return state.panes.includes("terminal") && Boolean($("#workspacePaneHost"));
+  return workspacePaneVisible("terminal");
+}
+
+function stopWorkbenchPolling() {
+  for (const timer of workbenchPollTimers.values()) clearTimeout(timer);
+  workbenchPollTimers.clear();
 }
 
 function scheduleWorkbenchPoll(callback, delay = 700) {
-  clearTimeout(workbenchPollTimer);
-  if (terminalPaneOpen() || state.panes.includes("team")) {
-    workbenchPollTimer = setTimeout(callback, delay);
+  clearTimeout(workbenchPollTimers.get(callback));
+  workbenchPollTimers.delete(callback);
+  const kind = callback === pollTerminal ? "terminal" : "team";
+  if (!workspacePaneVisible(kind)) return;
+  workbenchPollTimers.set(callback, setTimeout(() => {
+    workbenchPollTimers.delete(callback);
+    if (workspacePaneVisible(kind)) void callback();
+  }, delay));
+}
+
+function syncWorkbenchPolling() {
+  window.HermetrixWorkspace?.resume();
+  stopWorkbenchPolling();
+  if (terminalPaneOpen() && state.selectedTerminal) scheduleWorkbenchPoll(pollTerminal, 0);
+  if (workspacePaneVisible("team") && state.teamRuns.some(run => ["queued", "running"].includes(run.state))) {
+    scheduleWorkbenchPoll(pollTeamRuns, 0);
   }
 }
+
+document.addEventListener("visibilitychange", syncWorkbenchPolling);
 
 function renderWorkbenchReview(target = $(".pane-body[data-pane-kind='review']") || $("#workbenchContent")) {
   if (!target) return;
@@ -2123,19 +2700,52 @@ function renderWorkbenchReview(target = $(".pane-body[data-pane-kind='review']")
 // keeps there being exactly one place the files room is actually built.
 function renderWorkbenchFilesHTML() {
   const project = state.currentProject;
-  return `<div class="workspace-files"><div class="provider-head"><strong>${escapeHTML(project?.name || "No project")}</strong><button class="ghost" id="newWorkbenchFile" ${project?.root_path ? "" : "disabled"}>New file</button></div>
+  return `<div class="workspace-files"><div class="provider-head"><div><strong>Explorer</strong><small>${escapeHTML(project?.name || "No project")}</small></div><button class="ghost" id="newWorkbenchFile" ${project?.root_path ? "" : "disabled"}>+ New file</button></div><label class="file-filter"><input type="search" id="workbenchFileFilter" aria-label="Filter this folder" placeholder="ค้นหาไฟล์…"></label>
     ${project?.root_path ? `<div class="file-path"><code>${escapeHTML(state.projectPath || ".")}</code>${state.projectPath ? `<button class="ghost" id="workbenchFileUp">Up</button>` : ""}</div><div class="file-browser">${(state.workspaceFiles || []).map(item => `<button class="file-row" data-workbench-file="${escapeHTML(item.path)}" data-directory="${item.directory}"><span>${uiIcon(item.directory ? "files" : "file")}</span><strong>${escapeHTML(item.name)}</strong><small>${item.directory ? "" : `${Number(item.bytes).toLocaleString()} B`}</small></button>`).join("") || `<div class="probe-empty">Directory is empty.</div>`}</div>` : `<div class="probe-empty">This project has no code folder. Add its folder in project settings to use Files, Code and Terminal.</div>`}
   </div>`;
 }
 
 const codeDrafts = new Map();
 const codeTabs = new Map();
+const CODE_DRAFT_STORAGE_PREFIX = "hermetrix.ide.draft.v1:";
+const CODE_DRAFT_MAX_BYTES = 2 * 1024 * 1024;
+const pendingCodeDraftWrites = new Map();
 let activeCodeEditor = null;
 let activeTerminalEmulator = null;
 let terminalCursor = { id: "", value: 0 };
 let terminalResizeTimer = null;
 let terminalInputChain = Promise.resolve();
 function codeDraftKey(projectID, path) { return JSON.stringify([projectID, path]); }
+function persistedCodeDraft(projectID, path) {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(CODE_DRAFT_STORAGE_PREFIX + codeDraftKey(projectID, path));
+    if (!raw || raw.length > CODE_DRAFT_MAX_BYTES) return null;
+    const draft = JSON.parse(raw);
+    return draft?.projectID === projectID && draft?.path === path && typeof draft.content === "string" &&
+      typeof draft.originalContent === "string" ? draft : null;
+  } catch { return null; }
+}
+function persistCodeDraft(key, draft) {
+  if (typeof sessionStorage === "undefined" || !draft) return;
+  try {
+    const storageKey = CODE_DRAFT_STORAGE_PREFIX + key;
+    if (draft.content === draft.originalContent) { sessionStorage.removeItem(storageKey); return; }
+    const encoded = JSON.stringify({projectID:draft.projectID, path:draft.path, content:draft.content,
+      originalContent:draft.originalContent, sha256:draft.sha256 || "", mode:draft.mode || "", bytes:draft.bytes || 0, touched:true});
+    if (encoded.length <= CODE_DRAFT_MAX_BYTES) sessionStorage.setItem(storageKey, encoded);
+  } catch { /* Storage can be unavailable or full; the in-memory draft remains authoritative. */ }
+}
+function scheduleCodeDraftPersistence(key, draft) {
+  clearTimeout(pendingCodeDraftWrites.get(key));
+  pendingCodeDraftWrites.set(key, setTimeout(() => {
+    pendingCodeDraftWrites.delete(key);
+    persistCodeDraft(key, codeDrafts.get(key) || draft);
+  }, 250));
+}
+window.addEventListener("pagehide", () => {
+  for (const [key, draft] of codeDrafts) persistCodeDraft(key, draft);
+});
 function projectCodeTabs(projectID = state.currentProject?.id) {
   if (!projectID) return [];
   if (!codeTabs.has(projectID)) codeTabs.set(projectID, []);
@@ -2162,6 +2772,7 @@ function captureCodeDraft() {
     const draft = { ...document, content };
     if (activeCodeEditor?.documentKey === key && activeCodeEditor?.changed === true) draft.touched = true;
     codeDrafts.set(key, draft);
+    if (typeof scheduleCodeDraftPersistence === "function") scheduleCodeDraftPersistence(key, draft);
     state.projectFile = draft;
   }
 }
@@ -2243,21 +2854,27 @@ function renderCodeEditor(body) {
   const document = state.projectFile;
   if (!document || document.projectID !== state.currentProject?.id) {
     body.innerHTML = `<div class="code-empty"><h3>Open a file to start coding</h3><p>Select a file from Files to edit it here.</p><button class="ghost" id="codeOpenFiles">Browse files</button></div>`;
-    $("#codeOpenFiles")?.addEventListener("click", () => openContentPane("files"));
+    $("#codeOpenFiles")?.addEventListener("click", () => state.paneLayout === "ide" ? window.HermetrixWorkspace?.panel("files") : openContentPane("files"));
     return;
   }
   rememberCodeTab(document.projectID, document.path);
   const tabs = projectCodeTabs(document.projectID);
   const symbols = codeSymbols(document.path, document.content);
+  const editorActionHTML = action => {
+    const supported = window.HermetrixWorkspace?.supports(action, document.path) ?? false;
+    const title = supported ? `${action} this file · results stay in the workspace` : `${action} is not configured for this file type`;
+    return `<button class="ghost" type="button" data-editor-action="${action}" title="${escapeHTML(title)}" ${supported ? "" : "disabled"}>${action[0].toUpperCase() + action.slice(1)}</button>`;
+  };
   body.innerHTML = `<form class="code-editor" id="workbenchFileForm">
     <div class="code-tabs" role="tablist" aria-label="Open files">${tabs.map(path => {
       const draft = codeDrafts.get(codeDraftKey(document.projectID, path));
       const dirty = draft && draft.content !== draft.originalContent;
       return `<span class="code-tab ${path === document.path ? "active" : ""}" role="tab" aria-selected="${path === document.path}"><button type="button" data-code-tab="${escapeHTML(path)}" title="${escapeHTML(path)}">${escapeHTML(path.split("/").pop())}${dirty ? `<i aria-label="Unsaved">•</i>` : ""}</button><button type="button" class="code-tab-close" data-code-tab-close="${escapeHTML(path)}" aria-label="Close ${escapeHTML(path)}">×</button></span>`;
     }).join("")}</div>
-    <div class="code-editor-toolbar"><code>${escapeHTML(document.path)}</code><button class="ghost" type="button" data-editor-action="format" title="${editorCommandFor("format", document) ? "Format with the project's own toolchain" : "No formatter configured for this file type (go/mod/py/js/ts supported)"}" ${editorCommandFor("format", document) ? "" : "disabled"}>Format</button><button class="ghost" type="button" data-editor-action="run" title="${editorCommandFor("run", document) ? "Run in the project terminal" : "Run is not configured for this file type"}" ${editorCommandFor("run", document) ? "" : "disabled"}>Run</button><button class="ghost" type="button" data-editor-action="test" title="${editorCommandFor("test", document) ? "Run tests in the project terminal" : "Test is not configured for this file type"}" ${editorCommandFor("test", document) ? "" : "disabled"}>Test</button><button class="ghost" type="button" data-editor-action="debug" title="${editorCommandFor("debug", document) ? "Debug in the project terminal" : "Debug is not configured for this file type"}" ${editorCommandFor("debug", document) ? "" : "disabled"}>Debug</button><button class="ghost" type="button" id="codeReview">Review</button><span id="codeSaveState">${document.content !== document.originalContent ? "Unsaved" : "Saved"}</span><button class="primary">Save</button></div>
-    <div class="code-workarea"><aside class="code-outline"><strong>Outline</strong>${symbols.map(symbol => `<button type="button" data-code-symbol="${symbol.line}"><span>${escapeHTML(symbol.name)}</span><small>${symbol.line}</small></button>`).join("") || `<small>No symbols found</small>`}</aside><div id="workbenchFileContent" class="code-editor-host" aria-label="Code editor"></div></div>
-    <footer class="code-status"><span>${escapeHTML(document.path.split(".").pop().toUpperCase())}</span><span id="codeCursor">Ln 1, Col 1</span><span>Spaces: 2</span><span>UTF-8</span></footer>
+    <div class="code-editor-toolbar"><code title="${escapeHTML(document.path)}">${escapeHTML(document.path)}</code><div class="code-actions">${["format", "run", "test", "debug"].map(editorActionHTML).join("")}<button class="ghost" type="button" id="codeOutlineToggle" aria-pressed="${Boolean(state.ideOutlineOpen)}">Outline</button><button class="ghost" type="button" id="codeReview">Changes</button><button class="ghost" type="button" id="codeAskAI">Ask AI</button><span id="codeSaveState">${document.content !== document.originalContent ? "Unsaved" : "Saved"}</span><button class="primary">Save</button></div></div>
+    <div id="codeFeedback" class="code-feedback" role="status" hidden></div>
+    <div class="code-workarea ${state.ideOutlineOpen ? "outline-open" : ""}"><aside class="code-outline"><strong>Outline</strong>${symbols.map(symbol => `<button type="button" data-code-symbol="${symbol.line}"><span>${escapeHTML(symbol.name)}</span><small>${symbol.line}</small></button>`).join("") || `<small>No symbols found</small>`}</aside><div id="workbenchFileContent" class="code-editor-host" aria-label="Code editor"></div></div>
+    <footer class="code-status"><span>${escapeHTML(document.path.split(".").pop().toUpperCase())}</span><span id="codeCursor">Ln 1, Col 1</span><span>Ctrl+F Find · Ctrl+H Replace</span><span>UTF-8</span></footer>
     <details class="code-review" id="codeReviewPanel"><summary>Changes</summary><pre class="diff-view" id="codeDiff"></pre></details>
   </form>`;
   const host = $("#workbenchFileContent");
@@ -2270,16 +2887,20 @@ function renderCodeEditor(body) {
     const editor = window.HermetrixIDE.createEditor(host, {
       doc: document.content,
       path: document.path,
-      wrap: ["md", "markdown", "txt", "yml", "yaml"].includes(document.path.split(".").pop().toLowerCase()),
+      wrap: ideWordWrapEnabled(),
       onChange: content => {
         editor.changed = true;
         const draft = { ...state.projectFile, content, touched:true };
         codeDrafts.set(codeDraftKey(document.projectID, document.path), draft);
+        if (typeof scheduleCodeDraftPersistence === "function") scheduleCodeDraftPersistence(codeDraftKey(document.projectID, document.path), draft);
         state.projectFile = draft;
-        $("#codeSaveState").textContent = content === document.originalContent ? "Saved" : "Unsaved";
+        const savedState = $("#codeSaveState");
+        if (savedState) savedState.textContent = content === state.projectFile.originalContent ? "Saved" : "Unsaved";
+        window.HermetrixWorkspace?.dirty();
       },
       onCursor: (line, column) => { const status=$("#codeCursor"); if(status) status.textContent=`Ln ${line}, Col ${column}`; },
-      onSave: () => $("#workbenchFileForm")?.requestSubmit()
+      onSave: () => $("#workbenchFileForm")?.requestSubmit(),
+      onBreakpoint: (line, enabled) => window.HermetrixWorkspace?.breakpoint(document, line, enabled)
     });
     editor.documentKey = codeDraftKey(document.projectID, document.path);
     editor.changed = !document.content;
@@ -2298,45 +2919,38 @@ function renderCodeEditor(body) {
     }
   }
   $("#workbenchFileForm").addEventListener("submit", saveWorkbenchFile);
+  $("#codeAskAI")?.addEventListener("click", () => window.HermetrixAssistant?.action("ask"));
   $("#codeReview").addEventListener("click", () => {
     $("#codeDiff").textContent = codeDiffText(document, activeCodeEditor.getValue());
     $("#codeReviewPanel").open = true;
+  });
+  $("#codeOutlineToggle").addEventListener("click", event => {
+    state.ideOutlineOpen = !state.ideOutlineOpen;
+    $(".code-workarea")?.classList.toggle("outline-open", state.ideOutlineOpen);
+    event.currentTarget.setAttribute("aria-pressed", String(state.ideOutlineOpen));
+    activeCodeEditor?.resize?.();
   });
   $$('[data-code-tab]').forEach(button => button.addEventListener("click", () => openWorkbenchFile(button.dataset.codeTab)));
   $$('[data-code-tab-close]').forEach(button => button.addEventListener("click", () => closeCodeTab(document.projectID, button.dataset.codeTab)));
   $$('[data-code-symbol]').forEach(button => button.addEventListener("click", () => activeCodeEditor?.goToLine(button.dataset.codeSymbol)));
   $$('[data-editor-action]').forEach(button => button.addEventListener("click", () => runEditorAction(button.dataset.editorAction)));
-  requestAnimationFrame(() => activeCodeEditor?.focus());
+  window.HermetrixWorkspace?.editorMounted(document);
 }
 
 async function runEditorAction(action) {
-  captureCodeDraft();
-  const document = state.projectFile;
-  if (!document) return;
-  if (document.content !== document.originalContent) {
-    toast("Save the file before running IDE actions.", true);
-    return;
-  }
-  const command = editorCommandFor(action, document);
-  if (!command) { toast(`${action} is not configured for this file type.`, true); return; }
-  openContentPane("terminal");
-  const terminal = await startProjectTerminal(false);
-  const id = terminal?.id || projectTerminals().find(item => item.state === "running")?.id;
-  if (!id) return;
-  state.selectedTerminal = id;
-  // A PTY is an interactive terminal, not a pipe. Enter is carriage return
-  // (the same byte xterm emits); newline can be displayed without submitting
-  // the canonical input buffer on zsh and other real shells.
-  await sendRawTerminalInput(`${command}\r`, id);
-  if (action === "format") setTimeout(() => reloadCodeDocument(document.projectID, document.path), 500);
+  return window.HermetrixWorkspace?.action(action);
 }
 
 async function reloadCodeDocument(projectID, path) {
+  captureCodeDraft();
+  const cached = codeDrafts.get(codeDraftKey(projectID, path));
+  if (cached && cached.content !== cached.originalContent) { toast("This file has unsaved edits. Save or review them before reloading.", true); return; }
   try {
     const document = await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path)}`);
     if (state.currentProject?.id !== projectID || state.projectFile?.path !== path) return;
     const fresh = { ...document, projectID, originalContent:document.content };
     codeDrafts.set(codeDraftKey(projectID, path), fresh);
+    if (typeof persistCodeDraft === "function") persistCodeDraft(codeDraftKey(projectID, path), fresh);
     state.projectFile = fresh;
     refreshWorkbenchSurface("editor");
   } catch (error) { toast(error.message, true); }
@@ -2362,6 +2976,7 @@ function closeCodeTab(projectID, path) {
 // to attach to before that -- so it is a separate step both callers run
 // right after they set innerHTML.
 function bindWorkbenchFilesEvents() {
+  $("#workbenchFileFilter")?.addEventListener("input", event => { const query=event.target.value.toLowerCase(); $$('[data-workbench-file]').forEach(button => { button.hidden=!button.dataset.workbenchFile.toLowerCase().includes(query); }); });
   $("#workbenchProject")?.addEventListener("change", event => selectProject(event.target.value, ""));
   $("#workbenchFileUp")?.addEventListener("click", () => browseWorkspace((state.projectPath || "").split("/").slice(0,-1).join("/")));
   $$('[data-workbench-file]').forEach(button => button.addEventListener("click", () => button.dataset.directory === "true" ? browseWorkspace(button.dataset.workbenchFile) : openWorkbenchFile(button.dataset.workbenchFile)));
@@ -2386,22 +3001,48 @@ function renderWorkbenchFiles() {
   bindWorkbenchFilesEvents();
 }
 
+let ideLoading;
+let codeOpenGeneration = 0;
+function ensureIDE() {
+  if (window.HermetrixIDE) return Promise.resolve(window.HermetrixIDE);
+  if (ideLoading) return ideLoading;
+  ideLoading = new Promise((resolve, reject) => {
+    if (!document.querySelector('link[href="/vendor/ide.css"]')) {
+      const style = document.createElement("link");
+      style.rel = "stylesheet";
+      style.href = "/vendor/ide.css";
+      document.head.appendChild(style);
+    }
+    const script = document.createElement("script");
+    script.src = "/vendor/ide.js";
+    script.onload = () => resolve(window.HermetrixIDE);
+    script.onerror = () => { script.remove(); ideLoading = null; reject(new Error("โหลดตัวแก้ไขโค้ดไม่สำเร็จ กรุณาลองเปิดไฟล์อีกครั้ง")); };
+    document.head.appendChild(script);
+  });
+  return ideLoading;
+}
+
 async function openWorkbenchFile(path) {
+  const generation = ++codeOpenGeneration;
   captureCodeDraft();
   const projectID = state.currentProject?.id;
   if (!projectID) return;
   rememberCodeTab(projectID, path);
   try {
+    await ensureIDE();
     // A cached draft that is empty over a non-empty original without ever
     // being touched is a stale poisoned read, not the user's work — refetch.
-    const cached = codeDrafts.get(codeDraftKey(projectID, path));
+    const key = codeDraftKey(projectID, path);
+    const cached = codeDrafts.get(key) || persistedCodeDraft(projectID, path);
+    if (cached && !codeDrafts.has(key)) codeDrafts.set(key, cached);
     const document = (cached && !(cached.content === "" && cached.originalContent && !cached.touched))
       ? cached
       : await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path)}`);
-    if (state.currentProject?.id !== projectID) return;
+    if (state.currentProject?.id !== projectID || generation !== codeOpenGeneration) return;
     state.projectFile = { ...document, projectID, originalContent: document.originalContent ?? document.content };
     state.projectFileDiff = "";
     openContentPane("editor");
+    requestAnimationFrame(() => activeCodeEditor?.focus());
   } catch (error) { toast(error.message, true); }
 }
 
@@ -2413,17 +3054,29 @@ async function newWorkbenchFile() {
   try { await api(`/api/projects/${encodeURIComponent(projectID)}/file?path=${encodeURIComponent(path.trim())}`); await openWorkbenchFile(path.trim()); return; }
   catch (error) { if (!/not exist|not found|no such file/i.test(error.message)) { toast(error.message, true); return; } }
   captureCodeDraft();
+  try { await ensureIDE(); } catch (error) { toast(error.message, true); return; }
+  if (state.currentProject?.id !== projectID) return;
   state.projectFile = {projectID,path:path.trim(),content:"",originalContent:"",sha256:"",mode:"0644",bytes:0};
   state.projectFileDiff = "";
   openContentPane("editor");
 }
 
 async function saveWorkbenchFile(event) {
-  event.preventDefault();
+  event?.preventDefault();
   captureCodeDraft();
-  const document = state.projectFile;
+  let document = state.projectFile;
   if (!document || document.projectID !== state.currentProject?.id) return;
   try {
+    if (ideFormatOnSaveEnabled() && window.HermetrixWorkspace?.supports("format", document.path)) {
+      if (activeCodeEditor?.setValue && activeCodeEditor.documentKey === codeDraftKey(document.projectID, document.path)) {
+        if (!await window.HermetrixWorkspace.format(document)) return null;
+        captureCodeDraft();
+        document = state.projectFile;
+        if (!document || document.projectID !== state.currentProject?.id) return null;
+      } else {
+        toast("Rich editor unavailable — saving without formatting", true);
+      }
+    }
     const result = await api(`/api/projects/${encodeURIComponent(document.projectID)}/file`, {method:"PUT",body:JSON.stringify({path:document.path,content:document.content,expected_sha256:document.sha256 || "",actor:currentActor()})});
     const saved = {...result.document, projectID:document.projectID, originalContent:result.document.content};
     // A save may finish after more typing or a project switch.
@@ -2432,14 +3085,15 @@ async function saveWorkbenchFile(event) {
     const latest = codeDrafts.get(key);
     const updated = {...saved, content:latest?.content ?? saved.content};
     codeDrafts.set(key, updated);
+    if (typeof persistCodeDraft === "function") persistCodeDraft(key, updated);
     if (state.currentProject?.id === document.projectID && state.projectFile?.path === document.path) {
       state.projectFile = updated;
       state.projectFileDiff = result.diff;
-      refreshWorkbenchSurface("editor");
+      window.HermetrixWorkspace?.dirty();
     }
     toast("File saved");
-    if (state.currentProject?.id === document.projectID) await browseWorkspace(state.projectPath || "");
-  } catch (error) { toast(error.message, true); }
+    return updated;
+  } catch (error) { toast(error.message, true); window.HermetrixWorkspace?.feedback(error.message, true); return null; }
 }
 
 function stripANSI(value="") {
@@ -2455,6 +3109,12 @@ const terminalStarts = new Map();
 const terminalAutoAttempted = new Set();
 function projectTerminals() { return state.terminals.filter(item => item.project_id === state.currentProject?.id && item.state === "running"); }
 function renderWorkbenchTerminalHTML() {
+  if (state.runtimeCapabilities?.interactive_terminal !== true) {
+    const message = state.runtimeCapabilities?.interactive_terminal === false
+      ? "Interactive terminal is unavailable in this build. Use your system terminal in the project folder."
+      : "Terminal support could not be verified. Refresh to check the runtime again.";
+    return `<div class="workspace-terminal"><div class="probe-empty" role="status"><h3>Terminal unavailable</h3><p>${message}</p>${state.currentProject?.root_path ? `<code>${escapeHTML(state.currentProject.root_path)}</code>` : ""}</div></div>`;
+  }
   const terminals = projectTerminals();
   let terminal = terminals.find(item => item.id === state.selectedTerminal);
   if (!terminal) {
@@ -2469,6 +3129,7 @@ function renderWorkbenchTerminalHTML() {
 }
 
 function bindWorkbenchTerminalEvents() {
+  if (state.runtimeCapabilities?.interactive_terminal !== true) return;
   $("#terminalNew")?.addEventListener("click", () => startProjectTerminal(true));
   $$('[data-terminal-id]').forEach(button => button.addEventListener("click", () => { state.selectedTerminal=button.dataset.terminalId; terminalCursor={id:"",value:0}; refreshWorkbenchSurface("terminal"); }));
   $("#terminalClose")?.addEventListener("click", closeWorkbenchTerminal);
@@ -2481,10 +3142,12 @@ function bindWorkbenchTerminalEvents() {
   }
 }
 
-function mountWorkbenchTerminal() {
+async function mountWorkbenchTerminal() {
   const id = state.selectedTerminal;
   const screen = $("#terminalScreen");
   if (!id || !screen) return;
+  try { await ensureIDE(); } catch (error) { toast(error.message, true); return; }
+  if (!screen.isConnected || state.selectedTerminal !== id || !terminalPaneOpen()) return;
   activeTerminalEmulator?.dispose();
   activeTerminalEmulator = null;
   terminalCursor = { id, value: 0 };
@@ -2503,6 +3166,10 @@ function renderWorkbenchTerminal() {
 }
 
 async function startProjectTerminal(force = false) {
+  if (state.runtimeCapabilities?.interactive_terminal !== true) {
+    toast("Interactive terminal is unavailable. Use your system terminal in the project folder.", true);
+    return null;
+  }
   const project = state.currentProject;
   if (!project?.root_path || terminalStarts.has(project.id)) return null;
   const existing = projectTerminals().find(item => item.state === "running");
@@ -2528,10 +3195,14 @@ async function startProjectTerminal(force = false) {
 async function pollTerminal() {
   const id=state.selectedTerminal;
   if (!id || !terminalPaneOpen()) return;
+  if (terminalPollInFlight) { scheduleWorkbenchPoll(pollTerminal, 160); return; }
+  const screen = $("#terminalScreen");
+  if (!screen) return;
+  terminalPollInFlight = true;
   try {
     const cursor = terminalCursor.id === id ? terminalCursor.value : 0;
     const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=${cursor}`);
-    if (state.selectedTerminal !== id) return;
+    if (state.selectedTerminal !== id || !terminalPaneOpen() || screen !== $("#terminalScreen")) return;
     const terminal=state.terminals.find(item => item.id===id);
     if (terminal) Object.assign(terminal,{state:output.state,exit_code:output.exit_code,error:output.error,cursor:output.cursor});
     if (output.truncated) activeTerminalEmulator?.reset();
@@ -2539,11 +3210,11 @@ async function pollTerminal() {
     if (activeTerminalEmulator) activeTerminalEmulator.write(output.output || "");
     else {
       state.terminalOutput = cursor ? state.terminalOutput + (output.output || "") : (output.output || "");
-      const screen=$("#terminalScreen");
       if(screen){screen.textContent=stripANSI(state.terminalOutput);screen.scrollTop=screen.scrollHeight;}
     }
-    if (output.state === "running") scheduleWorkbenchPoll(pollTerminal,160);
-  } catch(error){toast(error.message,true);}
+    if (output.state === "running") scheduleWorkbenchPoll(pollTerminal, output.output ? 160 : 800);
+  } catch(error){if (terminalPaneOpen() && screen === $("#terminalScreen")) toast(error.message,true);}
+  finally { terminalPollInFlight = false; }
 }
 
 function sendRawTerminalInput(input, id = state.selectedTerminal) {
@@ -2609,7 +3280,15 @@ function refreshWorkbenchSurface(id) {
 // used to jump straight to their old side-strip room -- the composer's quick
 // button, the command palette -- opens or reveals a pane instead, so there
 // is exactly one door into either room rather than two.
-function openContentPane(id) {
+function openContentPane(id, {persist = true} = {}) {
+  if (state.view === "code" && state.paneLayout === "ide" && ["files", "chat", "git", "environment"].includes(id)) {
+    window.HermetrixWorkspace?.panel(id);
+    return;
+  }
+  // The chat-side workbench is hidden on narrow screens; reveal content in
+  // the main workspace there so Files/Terminal never open an invisible pane.
+  if (state.view === "chat" && window.innerWidth <= 920) switchView("code");
+  state.compactPane = id;
   if (!state.panes.length) state.panes = ["review"];
   if (!state.panes.includes(id)) {
     if (state.panes.length < MAX_PANES) state.panes.push(id);
@@ -2618,7 +3297,7 @@ function openContentPane(id) {
   state.maximisedPane = null;
   if (state.view === "chat") collapseZone("side", false);
   renderPanes();
-  saveLayout();
+  if (persist) saveLayout();
 }
 
 // The Output pane reads the same state.jobs the Review room's receipt list
@@ -2631,236 +3310,495 @@ function renderPaneOutputHTML() {
   </div>`;
 }
 
+const taskActions = new Map();
+const taskErrors = new Map();
+const taskLeaseTimers = new Map();
+const taskLeaseRenewals = new Map();
+const taskProposalBodies = new Map();
+
+function taskDecisionLab(taskID) {
+  state.taskDecisionLabs ||= {};
+  return state.taskDecisionLabs[taskID] ||= {loading:false, loaded:false, shadows:[], metrics:null, benchmarks:[], admission:{enabled:false}, progress:null, knowledge:[], recommendation:null};
+}
+
+function taskDecisionLabHTML(task) {
+  const lab = taskDecisionLab(task.id);
+  const locals = taskEligibleProviders(task).filter(taskProviderIsLocal);
+  const latest = lab.benchmarks?.[0];
+  const policy = lab.admission?.policy;
+  const shadow = lab.shadows?.[0];
+  const recommendation = lab.recommendation?.decision;
+  const progress = lab.progress;
+  const knowledge = lab.knowledge || [];
+  if (lab.loading && !lab.loaded) return `<details class="inspect-section"><summary>Local decision evaluation</summary><p role="status">Loading decision evidence…</p></details>`;
+  return `<details class="inspect-section task-decision-lab"><summary>Local decision evaluation ${policy?.enabled ? pill("read-only enabled", "green") : pill("shadow only", "blue")}</summary>
+    <p>Compare the local model with the deterministic rule. Enabling admission only lets it recommend policy-free read actions; it cannot execute tools or edit files.</p>
+    ${lab.error ? `<p class="session-error" role="alert">${escapeHTML(lab.error)}</p>` : ""}
+    <label>Local decision model<select id="taskDecisionProvider">${taskProviderOptions(locals, policy?.provider_id || latest?.provider_id)}</select></label>
+    ${progress ? `<div class="kv"><span>Attempts</span><strong>${progress.attempts}/20</strong><span>Attempts left</span><strong>${progress.remaining_attempts}</strong><span>Planner escalations left</span><strong>${progress.remaining_planner_escalations}</strong><span>Progress state</span><strong>${progress.budget_exhausted ? "budget exhausted" : progress.no_progress ? "repeated failure" : "within budget"}</strong></div>${(progress.blocked_reasons || []).length ? `<p class="session-error">${escapeHTML(progress.blocked_reasons.join(" · "))}</p>` : ""}` : ""}
+    <details><summary>Retrieved project knowledge · ${knowledge.length}</summary>${knowledge.length ? knowledge.map(item => `<article class="artifact-mini"><strong>${escapeHTML(item.memory_kind)}</strong><p>${escapeHTML(item.snippet)}</p><small>score ${item.score} · ${escapeHTML((item.matched_terms || []).join(", "))}</small></article>`).join("") : `<p class="form-note neutral">No relevant active user memory matched this task.</p>`}</details>
+    <div class="action-row"><button class="ghost" id="taskDecisionShadow" ${locals.length ? "" : "disabled"}>Compare this task</button><button class="ghost" id="taskDecisionBenchmark" ${locals.length ? "" : "disabled"}>Run 6-case benchmark</button></div>
+    ${shadow ? `<div class="kv"><span>Latest comparison</span><strong>${shadow.agreement ? "agreed" : shadow.valid ? "disagreed" : "invalid"}</strong><span>Rule</span><code>${escapeHTML(shadow.baseline?.action_id || "—")}</code><span>Model</span><code>${escapeHTML(shadow.model?.action_id || shadow.model_error || "—")}</code><span>Latency</span><span>${Number(shadow.latency_ms || 0).toLocaleString()} ms</span></div>` : `<p class="form-note neutral">No comparison receipt for this task yet.</p>`}
+    ${lab.metrics ? `<p class="form-note neutral">${lab.metrics.total_runs} task comparisons · ${Math.round((lab.metrics.agreement_rate || 0) * 100)}% agreement · ${Math.round(lab.metrics.average_latency_ms || 0)} ms average</p>` : ""}
+    ${latest ? `<div class="kv"><span>Latest benchmark</span><strong>${latest.correct_cases}/${latest.total_cases} correct</strong><span>Invalid</span><strong>${Math.round((latest.invalid_rate || 0) * 100)}%</strong><span>Average latency</span><strong>${Math.round(latest.average_latency_ms || 0)} ms</strong><span>Gate</span><strong>${latest.passed ? "passed" : "failed"}</strong></div>` : `<p class="form-note neutral">Run the fixed corpus before admission can be enabled.</p>`}
+    <div class="action-row">${policy?.enabled ? `<button class="danger" id="taskDecisionAdmission" data-enabled="false">Disable read-only selector</button><button class="primary" id="taskDecisionRecommend">Ask for read-only recommendation</button>` : `<button class="primary" id="taskDecisionAdmission" data-enabled="true" ${latest?.passed ? "" : "disabled"}>Enable read-only selector</button>`}</div>
+    ${recommendation ? `<p class="task-readiness"><strong>Recommendation:</strong> ${escapeHTML(recommendation.action_id)} · ${escapeHTML(recommendation.reason || "")} ${recommendation.fallback_used ? "(deterministic fallback)" : ""}</p>` : ""}
+  </details>`;
+}
+
 function projectDurableTasks() {
   return state.durableTasks.filter(item => !state.currentProject?.id || item.project_id === state.currentProject.id);
 }
 
-function taskExecutionHTML(task, execution) {
-  if (execution === undefined || execution === null) return `<div class="probe-empty">Loading durable execution state…</div>`;
-  if (execution.error) return `<div class="probe-empty">${escapeHTML(execution.error)}</div>`;
-  const proposal = execution.proposal;
-	const uncertainEffects = (execution.effects || []).filter(effect => effect.state === "uncertain");
-	const canStart = task.state === "ready" || (task.state === "paused" && !uncertainEffects.length) || (execution.run?.state === "running" && (!execution.attempt || execution.attempt.state === "running"));
-  let action = "";
-	if (uncertainEffects.length) {
-		action = `<div class="probe-empty">${uncertainEffects.length} effect(s) have an unknown post-restart outcome. Reconciliation only inspects durable local evidence; it never replays the action.</div><button class="primary" id="taskReconcileEffects">Reconcile safe effects</button>`;
-	} else if (canStart && !proposal) {
-    action = `<form id="taskProposalForm"><label>Files for this bounded step · optional, one project-relative path per line<textarea name="files" rows="4" placeholder="Leave empty for bounded automatic selection&#10;internal/service.go&#10;internal/service_test.go"></textarea></label>
-      <label>Implementer provider<select name="provider_id" required>${state.providers.filter(item => item.enabled).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select></label>
-      <button class="primary" ${state.providers.some(item => item.enabled) ? "" : "disabled"}>Select files & start proposal</button></form>`;
-  } else if (proposal?.state === "pending_review") {
-    action = `<div class="action-row"><button class="primary" data-task-proposal-decision="approved">Approve proposal</button><button class="danger" data-task-proposal-decision="rejected">Reject proposal</button></div>`;
-  } else if (proposal?.state === "approved") {
-    action = `<button class="primary" id="taskApplyProposal">Apply reviewed change</button>`;
-  } else if (proposal?.state === "applied") {
-    action = `<div class="probe-empty">Run the exact commands and acceptance-criterion mappings frozen in this step. Shell control syntax is refused.</div><button class="primary" id="taskVerifyProposal">Run frozen verification</button>`;
-  } else if (proposal?.state === "awaiting_post_review") {
-    const reviewers = state.providers.filter(item => item.enabled && item.id !== proposal.provider_id);
-    action = `<label>Independent reviewer provider<select id="taskReviewerProvider">${reviewers.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select></label><button class="primary" id="taskPostReview" ${reviewers.length ? "" : "disabled"}>Run independent review</button>`;
+function taskProviderIsLocal(provider) {
+  try {
+    const host = new URL(provider.base_url).hostname.toLowerCase();
+    return host === "localhost" || host === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(host) || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]+\]$/.test(host);
+  } catch { return false; }
+}
+
+function taskEligibleProviders(task, implementerID = "") {
+  const implementer = state.providers.find(item => item.id === implementerID);
+  return state.providers.filter(item => item.enabled && item.credential_ready &&
+    (task?.egress_policy === "remote_allowed" || taskProviderIsLocal(item)) &&
+    (!implementerID || (item.id !== implementerID && implementer &&
+      (String(item.base_url).trim().toLowerCase() !== String(implementer.base_url).trim().toLowerCase() ||
+       String(item.model).trim().toLowerCase() !== String(implementer.model).trim().toLowerCase()))));
+}
+
+function taskProviderOptions(providers, preferredID = "") {
+  return providers.map(item => `<option value="${escapeHTML(item.id)}" ${item.id === preferredID ? "selected" : ""}>${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("");
+}
+
+function taskRunIsLive(run) {
+  return run?.state === "running" && !!run.lease_token && Date.parse(run.lease_expires_at) > Date.now();
+}
+
+function taskCanStartStep(task, execution) {
+  if ((execution.effects || []).some(effect => ["planned", "dispatched", "uncertain"].includes(effect.state))) return false;
+  const currentRun = !execution.run || execution.run.plan_revision === task.active_plan_revision;
+  if (currentRun && execution.proposal && execution.proposal.state !== "verified") return false;
+  return task.state === "ready" || task.state === "paused" ||
+    (task.state === "running" && taskRunIsLive(execution.run) &&
+      (!execution.attempt || ["running", "completed"].includes(execution.attempt.state)));
+}
+
+function taskStage(task, execution) {
+  if (task.state === "completed") return {number:5, label:"Complete", detail:"All planned steps, checks and independent reviews passed."};
+  if (!task.active_plan_revision) return {number:2, label:"Create a plan", detail:"Generate proposed steps, then review their scope and checks before starting."};
+  const proposal = execution?.run?.plan_revision === task.active_plan_revision ? execution.proposal : null;
+  if (proposal?.state === "awaiting_post_review") return {number:5, label:"Independent review", detail:"Checks passed. A different model or endpoint must review the evidence."};
+  if (proposal?.state === "applied") return {number:4, label:"Run checks", detail:"Changes are applied. Run the commands recorded in the plan to collect evidence."};
+  if (proposal && ["pending_review", "approved"].includes(proposal.state)) return {number:3, label:"Review changes", detail:"Inspect the proposed file contents before approving and applying them."};
+  return {number:3, label:"Work through the plan", detail:"Generate a change for one step at a time. No files change until you approve and apply it."};
+}
+
+async function renewTaskAuthority(taskID) {
+  if (taskLeaseRenewals.has(taskID)) return taskLeaseRenewals.get(taskID);
+  const run = state.taskExecutions[taskID]?.run;
+  if (!taskRunIsLive(run)) throw new Error("This run's lease has expired. Its saved work is retained; recover the run before applying further changes.");
+  const renewal = (async () => {
+    const updated = await api(`/api/task-runs/${encodeURIComponent(run.id)}/lease`, {method:"POST", body:JSON.stringify({lease_token:run.lease_token, lease_seconds:900})});
+    const execution = state.taskExecutions[taskID];
+    if (execution?.run?.id === updated.id) { execution.run = updated; delete execution.leaseError; }
+    return {run_id:updated.id, lease_token:updated.lease_token};
+  })();
+  taskLeaseRenewals.set(taskID, renewal);
+  try { return await renewal; } finally { taskLeaseRenewals.delete(taskID); }
+}
+
+function maintainTaskLease(task, execution, body) {
+  const active = task?.state === "running" && execution?.run?.plan_revision === task.active_plan_revision && taskRunIsLive(execution?.run);
+  for (const [id, entry] of taskLeaseTimers) {
+    if (id !== task?.id || entry.body !== body || !body.isConnected || !active) {
+      clearInterval(entry.timer); taskLeaseTimers.delete(id);
+    }
   }
-  return `<section class="inspect-section"><div class="provider-head"><div><p class="eyebrow">Durable execution</p><h3>${escapeHTML(execution.run ? `Run · ${execution.run.state}` : "Not started")}</h3></div>${proposal ? pill(proposal.state, proposal.state === "verified" ? "green" : proposal.state.includes("failed") || proposal.state.includes("rejected") ? "red" : "amber") : ""}</div>
-    <div class="kv"><span>Run</span><strong>${escapeHTML(execution.run?.id || "—")}</strong><span>Attempt</span><strong>${escapeHTML(execution.attempt?.state || "—")}</strong><span>Proposal</span><strong>${escapeHTML(proposal?.id || "—")}</strong><span>Effects</span><strong>${execution.effects.length}</strong></div>${action}</section>`;
+  if (!active || taskLeaseTimers.has(task.id)) return;
+  const timer = setInterval(async () => {
+    if (!body.isConnected || state.selectedDurableTask !== task.id || state.taskExecutions[task.id]?.task?.state === "completed") {
+      clearInterval(timer); taskLeaseTimers.delete(task.id); return;
+    }
+    try { await renewTaskAuthority(task.id); }
+    catch (error) {
+      clearInterval(timer); taskLeaseTimers.delete(task.id);
+      if (state.taskExecutions[task.id]) state.taskExecutions[task.id].leaseError = error.message;
+      if (body.isConnected && !taskActions.has(task.id)) renderTaskCockpit(body);
+    }
+  }, 60000);
+  taskLeaseTimers.set(task.id, {timer, body});
+}
+
+function taskProposalHTML(proposal) {
+  if (!proposal) return "";
+  const content = taskProposalBodies.get(proposal.artifact_id);
+  const link = `<a class="button-link" href="/api/artifacts/${encodeURIComponent(proposal.artifact_id)}/content" target="_blank" rel="noreferrer">Open full proposal</a>`;
+  if (!content) return `<p role="status">Loading proposed changes…</p>${link}`;
+  if (content.error) return `<p class="session-error">${escapeHTML(content.error)}</p><button class="ghost" id="taskReload">Retry loading changes</button>${link}`;
+  return `<section class="task-proposal-preview"><h4>${escapeHTML(content.summary || "Proposed changes")}</h4>
+    ${(content.risks || []).length ? `<p class="form-note">Risks: ${escapeHTML(content.risks.join(" · "))}</p>` : ""}
+    ${(content.assumptions || []).length ? `<p>Assumptions: ${escapeHTML(content.assumptions.join(" · "))}</p>` : ""}
+    ${(content.changes || []).map(change => `<details class="tool-receipt"><summary><strong>${escapeHTML(change.path)}</strong><span>Proposed file</span></summary><pre>${escapeHTML(change.content)}</pre></details>`).join("")}${link}</section>`;
+}
+
+function taskExecutionHTML(task, execution) {
+  if (!execution) return `<div class="probe-empty" role="status">Loading task progress…</div>`;
+  if (execution.error) return `<div class="probe-empty">${escapeHTML(execution.error)} <button class="ghost" id="taskReload">Retry</button></div>`;
+  const proposal = execution.proposal;
+  const providers = taskEligibleProviders(task);
+  const uncertainEffects = (execution.effects || []).filter(effect => effect.state === "uncertain");
+  const busy = taskActions.get(task.id);
+  const expired = task.state === "running" && execution.run?.plan_revision === task.active_plan_revision && !taskRunIsLive(execution.run);
+  let action = "";
+  if (uncertainEffects.length) {
+    action = `<p>${uncertainEffects.length} action(s) need recovery after a restart. Reconciliation only inspects durable local evidence; it never replays the action.</p><button class="primary" id="taskReconcileEffects">Check saved results</button>`;
+  } else if (expired || execution.leaseError) {
+    action = `<p class="session-error" role="alert">${escapeHTML(execution.leaseError || "This run's lease expired. Saved proposals and evidence are retained, but execution cannot continue until the run is recovered.")}</p><button class="primary" id="taskRecoverExpiredRun">Recover saved work</button>`;
+  } else if (taskCanStartStep(task, execution)) {
+    const nextStep = (task.plan?.steps || []).find(step => step.state !== "completed" && step.state !== "skipped");
+    action = `<form id="taskProposalForm"><h4>${proposal?.state === "verified" ? "Continue to the next step" : "Ready to start"}${nextStep ? ` · ${escapeHTML(nextStep.title)}` : ""}</h4>
+      <label>Model<select name="provider_id" required>${taskProviderOptions(providers, $("#chatProvider")?.value)}</select></label>
+      <details><summary>Choose files manually</summary><label>One project-relative path per line<textarea name="files" rows="3" placeholder="Leave empty for bounded automatic selection&#10;internal/service.go"></textarea></label></details>
+      <p>Review the checks above. Generated commands have not been verified against this project yet.</p>
+      <button class="primary" ${providers.length ? "" : "disabled"}>${proposal?.state === "verified" ? "Start next step" : "Generate proposed changes"}</button></form>`;
+  } else if (proposal?.state === "pending_review") {
+    const ready = taskProposalBodies.get(proposal.artifact_id)?.changes?.length;
+    action = `${taskProposalHTML(proposal)}<div class="action-row"><button class="primary" data-task-proposal-decision="approved" ${ready ? "" : "disabled"}>Approve proposal</button><button class="danger" data-task-proposal-decision="rejected">Reject proposal</button></div>`;
+  } else if (proposal?.state === "approved") {
+    action = `${taskProposalHTML(proposal)}<button class="primary" id="taskApplyProposal">Apply approved changes</button>`;
+  } else if (proposal?.state === "applied") {
+    action = `<p>Run the exact checks listed in this plan. Results will be saved; a failed check triggers rollback.</p><button class="primary" id="taskVerifyProposal">Run checks</button>`;
+  } else if (proposal?.state === "awaiting_post_review") {
+    const reviewers = taskEligibleProviders(task, proposal.provider_id);
+    action = `${reviewers.length ? "" : `<p class="session-error">Add an independent ${task.egress_policy === "remote_allowed" ? "" : "local "}model in Models. The reviewer needs a different model or endpoint and working credentials.</p><button class="ghost" data-task-models>Open Models</button>`}<label>Reviewer<select id="taskReviewerProvider">${taskProviderOptions(reviewers)}</select></label><button class="primary" id="taskPostReview" ${reviewers.length ? "" : "disabled"}>Review results</button>`;
+  } else if (task.state === "completed") {
+    action = `<p>All steps completed with passing checks and independent review.</p>`;
+  } else if (proposal && ["rejected", "verification_failed", "post_review_rejected", "apply_failed", "recovery_required"].includes(proposal.state)) {
+    action = `<p class="session-error">${escapeHTML(proposal.state.replaceAll("_", " "))}. Inspect the saved evidence and revise the plan before another attempt.</p>${taskProposalHTML(proposal)}`;
+  }
+  if (!action && !busy && !execution.run) return "";
+  return `<section class="inspect-section task-next-action"><fieldset ${busy ? "disabled" : ""}><legend>Next action</legend>${busy ? `<p role="status">${escapeHTML(busy)}…</p>` : ""}${action}</fieldset>
+    <details><summary>Execution details and evidence</summary><div class="kv"><span>Run</span><strong>${escapeHTML(execution.run?.state || "not started")}</strong><span>Attempt</span><strong>${escapeHTML(execution.attempt?.state || "not started")}</strong><span>Proposal</span><strong>${escapeHTML(proposal?.state || "none")}</strong><span>Actions recorded</span><strong>${(execution.effects || []).length}</strong></div>
+    ${(execution.effects || []).map(effect => `<p>${escapeHTML(effect.action)} · ${escapeHTML(effect.state)}${effect.error ? ` · ${escapeHTML(effect.error)}` : ""}</p>`).join("")}
+    ${proposal?.verification_artifact_id ? `<a class="button-link" href="/api/artifacts/${encodeURIComponent(proposal.verification_artifact_id)}/content" target="_blank" rel="noreferrer">Open check evidence</a>` : ""}</details></section>`;
 }
 
 function renderTaskCockpit(body) {
   const tasks = projectDurableTasks();
-  let selected = tasks.find(item => item.id === state.selectedDurableTask);
-  if (!selected && tasks.length) {
-    selected = tasks[0];
-    state.selectedDurableTask = selected.id;
-  }
+  const selected = tasks.find(item => item.id === state.selectedDurableTask) || tasks[0];
+  if (selected) state.selectedDurableTask = selected.id;
   const steps = selected?.plan?.steps || [];
   const execution = selected ? state.taskExecutions[selected.id] : undefined;
-  body.innerHTML = `<div class="panel task-cockpit"><div class="provider-head"><div><p class="eyebrow">Durable task cockpit</p><h3>${escapeHTML(selected?.title || "Plan work from requirements")}</h3><p>Requirements, plan revisions and evidence survive model turns and app restarts.</p></div>${selected ? pill(selected.state, selected.state === "completed" ? "green" : selected.state === "paused" ? "red" : "amber") : ""}</div>
-    <div class="workbench-grid"><div><form id="durableTaskForm">
-      <label>Title<input name="title" required maxlength="160" placeholder="Fix customer login regression"></label>
-      <label>Objective<textarea name="objective" required rows="2" placeholder="Observable outcome"></textarea></label>
-      <label>Original request<textarea name="original_request" required rows="3" placeholder="Preserve the user's wording and constraints"></textarea></label>
-      <label>Acceptance criteria · one per line<textarea name="criteria" required rows="4" placeholder="Login succeeds with a valid account&#10;Invalid password remains rejected"></textarea></label>
-      <button class="primary" ${state.currentProject?.id ? "" : "disabled"}>Create task</button>
-    </form></div><div><div class="card-list spaced">${tasks.map(task => `<button class="session-item ${task.id === selected?.id ? "active" : ""}" data-durable-task="${escapeHTML(task.id)}"><strong>${escapeHTML(task.title)}</strong><span>${escapeHTML(task.state)} · requirement r${task.active_requirement_revision} · plan r${task.active_plan_revision}</span></button>`).join("") || `<div class="probe-empty">No durable task for this project yet.</div>`}</div></div></div>
-    ${selected ? `<section class="inspect-section"><div class="provider-head"><div><h3>${escapeHTML(selected.objective)}</h3><small>task revision ${selected.revision}</small></div><div class="action-row"><select id="taskPlannerProvider" aria-label="Planner provider">${state.providers.filter(item => item.enabled).map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("")}</select><button class="ghost" id="taskAutoPlan" ${selected.state === "completed" || !state.providers.some(item => item.enabled) ? "disabled" : ""}>Auto-plan</button></div></div>
-      <div class="kv"><span>Requirement</span><strong>r${selected.active_requirement_revision}</strong><span>Plan</span><strong>${selected.active_plan_revision ? `r${selected.active_plan_revision}` : "not planned"}</strong><span>Constraints</span><span>${escapeHTML((selected.requirement?.constraints || []).join(" · ") || "none")}</span></div>
-      <div class="card-list spaced">${steps.map(step => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(step.step_key || step.key)} · ${escapeHTML(step.title)}</strong>${pill(step.state, step.state === "completed" ? "green" : step.state === "failed" ? "red" : "amber")}</div><p>${escapeHTML(step.instructions)}</p><small>${escapeHTML((step.checks || []).join(" · ") || "No checks")}</small></article>`).join("") || `<div class="probe-empty">Create an automatic or reviewed manual plan to begin.</div>`}</div>
-    </section>${selected ? taskExecutionHTML(selected, execution) : ""}` : ""}</div>`;
+  const providers = taskEligibleProviders(selected);
+  const stage = selected ? taskStage(selected, execution) : null;
+  const busy = taskActions.has(selected?.id) || taskActions.has("create");
+  const draft = state.taskDraftDetails || {};
+  const draftObjective = state.taskDraftObjective || "";
+  const canReplan = selected && selected.state !== "completed" && !busy &&
+    !(execution?.effects || []).some(effect => ["planned", "dispatched", "uncertain"].includes(effect.state)) &&
+    (!execution?.proposal || ["rejected", "verification_failed", "post_review_rejected", "apply_failed"].includes(execution.proposal.state)) &&
+    (selected.state !== "running" || !taskRunIsLive(execution?.run) || execution?.proposal?.state === "rejected");
+  body.innerHTML = `<div class="panel task-cockpit"><div class="provider-head"><div><p class="eyebrow">Tasks</p><h3>Turn a goal into checked work</h3><p>Describe the outcome, review a plan, then follow each step.</p></div>${selected ? pill(selected.state.replaceAll("_", " "), selected.state === "completed" ? "green" : "blue") : ""}</div>
+    ${taskErrors.get(selected?.id) || taskErrors.get("create") ? `<div class="task-feedback" role="alert">${escapeHTML(taskErrors.get(selected?.id) || taskErrors.get("create"))}</div>` : ""}
+    ${tasks.length ? `<label>Task<select id="durableTaskSelect">${tasks.map(task => `<option value="${escapeHTML(task.id)}" ${task.id === selected.id ? "selected" : ""}>${escapeHTML(task.title)} · ${escapeHTML(task.state.replaceAll("_", " "))}</option>`).join("")}</select></label>` : ""}
+    <details class="task-create" ${!selected || draftObjective ? "open" : ""}><summary>${selected ? "+ New task" : "1 · Describe the task"}</summary><form id="durableTaskForm"><fieldset ${taskActions.has("create") ? "disabled" : ""}>
+      <label>What should be achieved?<textarea name="objective" required rows="3" placeholder="Describe what you want to build or fix">${escapeHTML(draftObjective)}</textarea></label>
+      <label>How will you know it works?<textarea name="criteria" required rows="3" placeholder="One observable result per line">${escapeHTML(draft.criteria || "")}</textarea></label>
+      <details><summary>More details</summary><label>Short title · optional<input name="title" maxlength="160" value="${escapeHTML(draft.title || "")}"></label><label>Constraints · one per line<textarea name="constraints" rows="2">${escapeHTML(draft.constraints || "")}</textarea></label><label>Open questions · one per line<textarea name="unknowns" rows="2">${escapeHTML(draft.unknowns || "")}</textarea></label></details>
+      <p>Project: ${escapeHTML(state.currentProject?.name || "Choose a project first")}. Task data stays with local models.</p><button class="primary" ${state.currentProject?.id ? "" : "disabled"}>${taskActions.has("create") ? "Creating…" : "Create task"}</button></fieldset></form></details>
+    ${selected ? `<section class="inspect-section"><div class="provider-head"><div><h3>${escapeHTML(selected.title)}</h3><p>${escapeHTML(selected.objective)}</p></div><span>${steps.filter(step => step.state === "completed").length}/${steps.length} steps</span></div>
+      <p class="eyebrow">${stage.number} · ${escapeHTML(stage.label)}</p><p>${escapeHTML(stage.detail)}</p>
+      ${selected.pause_reason ? `<p class="session-error">${escapeHTML(selected.pause_reason)}</p>` : ""}
+      <details><summary>Success criteria and constraints</summary><ul>${(selected.requirement?.criteria || []).map(item => `<li>${escapeHTML(item.description)}</li>`).join("")}</ul>${(selected.requirement?.constraints || []).map(item => `<p>${escapeHTML(item)}</p>`).join("")}${(selected.requirement?.unknowns || []).map(item => `<p>Open question: ${escapeHTML(item)}</p>`).join("")}</details>
+      ${!providers.length ? `<p class="session-error">No ready ${selected.egress_policy === "remote_allowed" ? "" : "local "}model is configured for this task. Connect one or fix its credentials in Models.</p><button class="ghost" data-task-models>Open Models</button>` : ""}
+      ${providers.length && !providers.some(provider => taskEligibleProviders(selected, provider.id).length) ? `<p class="task-readiness">วางแผนและเสนอการแก้ไขได้ แต่การตรวจงานขั้นสุดท้ายต้องเพิ่มโมเดลหรือ endpoint อิสระอีกหนึ่งตัวใน Models</p>` : ""}
+      ${!steps.length ? `<label>Planning model<select id="taskPlannerProvider">${taskProviderOptions(providers)}</select></label><button class="primary" id="taskAutoPlan" ${busy || !providers.length ? "disabled" : ""}>${taskActions.get(selected.id) || "Create plan"}</button>` : `<ol class="task-plan-steps">${steps.map(step => `<li><details ${step.state === "completed" ? "" : "open"}><summary><strong>${escapeHTML(step.title)}</strong> ${pill(step.state, step.state === "completed" ? "green" : "blue")}</summary><p>${escapeHTML(step.instructions)}</p><p><strong>Checks to run</strong></p><ul>${(step.checks || []).map(check => `<li><code>${escapeHTML(check)}</code></li>`).join("")}</ul><small>Success criteria: ${escapeHTML((step.requirement_ids || []).join(", "))}</small></details></li>`).join("")}</ol><p class="form-note neutral">The plan proposes a path; feasibility is established by actual checks and review. Commands run directly without a shell.</p>`}
+      ${steps.length && canReplan ? `<details><summary>Revise this plan</summary><p>Generate a new plan from the same goal and success criteria. Review it before starting again.</p><label>Planning model<select id="taskPlannerProvider">${taskProviderOptions(providers)}</select></label><button class="ghost" id="taskAutoPlan" ${providers.length ? "" : "disabled"}>Generate revised plan</button></details>` : ""}
+    </section>${taskExecutionHTML(selected, execution)}${taskDecisionLabHTML(selected)}` : ""}</div>`;
   $("#durableTaskForm")?.addEventListener("submit", createDurableTask);
-  $$('[data-durable-task]', body).forEach(button => button.addEventListener("click", async () => {
-    state.selectedDurableTask = button.dataset.durableTask;
+  $("#durableTaskForm")?.addEventListener("input", event => {
+    const form = new FormData(event.currentTarget);
+    state.taskDraftObjective = String(form.get("objective") || "");
+    state.taskDraftDetails = Object.fromEntries(["title", "criteria", "constraints", "unknowns"].map(name => [name, String(form.get(name) || "")]));
+  });
+  if (draftObjective && !selected) $("#durableTaskForm textarea[name='objective']")?.focus();
+  $("#durableTaskSelect")?.addEventListener("change", async event => {
+    state.selectedDurableTask = event.target.value;
     await loadTaskExecution(state.selectedDurableTask);
-    renderTaskCockpit(body);
-  }));
+    if (body.isConnected) renderTaskCockpit(body);
+  });
+  $$('[data-task-models]', body).forEach(button => button.addEventListener("click", () => openConfig("providers")));
   $("#taskAutoPlan")?.addEventListener("click", () => autoPlanDurableTask(body));
   $("#taskProposalForm")?.addEventListener("submit", event => startTaskProposal(event, body));
   $$('[data-task-proposal-decision]', body).forEach(button => button.addEventListener("click", () => decideTaskProposal(button.dataset.taskProposalDecision, body)));
   $("#taskApplyProposal")?.addEventListener("click", () => applyTaskProposal(body));
   $("#taskVerifyProposal")?.addEventListener("click", () => verifyTaskProposal(body));
   $("#taskPostReview")?.addEventListener("click", () => postReviewTaskProposal(body));
-	$("#taskReconcileEffects")?.addEventListener("click", () => reconcileTaskEffects(body));
+  $("#taskReconcileEffects")?.addEventListener("click", () => reconcileTaskEffects(body));
+  $("#taskRecoverExpiredRun")?.addEventListener("click", () => recoverExpiredTaskRun(body));
+  $("#taskDecisionShadow")?.addEventListener("click", () => compareTaskDecision(body));
+  $("#taskDecisionBenchmark")?.addEventListener("click", () => benchmarkTaskDecision(body));
+  $("#taskDecisionAdmission")?.addEventListener("click", event => changeTaskDecisionAdmission(event, body));
+  $("#taskDecisionRecommend")?.addEventListener("click", () => recommendTaskDecision(body));
+  $("#taskReload")?.addEventListener("click", () => refreshDurableTask(selected.id, body));
+  maintainTaskLease(selected, execution, body);
   if (selected && !Object.prototype.hasOwnProperty.call(state.taskExecutions, selected.id)) {
     state.taskExecutions[selected.id] = null;
-    loadTaskExecution(selected.id).then(() => renderTaskCockpit(body));
+    loadTaskExecution(selected.id).then(() => { if (body.isConnected && state.selectedDurableTask === selected.id) renderTaskCockpit(body); });
+  }
+  if (selected && !taskDecisionLab(selected.id).loaded && !taskDecisionLab(selected.id).loading) {
+    loadTaskDecisionLab(selected.id).then(() => { if (body.isConnected && state.selectedDurableTask === selected.id) renderTaskCockpit(body); });
   }
 }
 
-async function reconcileTaskEffects(body) {
-	const taskID = state.selectedDurableTask;
-	const effects = (state.taskExecutions[taskID]?.effects || []).filter(effect => effect.state === "uncertain");
-	if (!taskID || !effects.length) return;
-	try {
-		for (const effect of effects) {
-			await api(`/api/task-effects/${encodeURIComponent(effect.operation_id)}/reconcile`, {method:"POST", body:"{}"});
-		}
-		await refreshDurableTask(taskID, body);
-		toast("Effects reconciled from durable local evidence; no action was replayed");
-	} catch (error) {
-		toast(error.message, true);
-		await refreshDurableTask(taskID, body);
-	}
+async function loadTaskDecisionLab(taskID) {
+  if (!taskID) return;
+  const lab = taskDecisionLab(taskID);
+  lab.loading = true;
+  delete lab.error;
+  try {
+    const task = state.durableTasks.find(item => item.id === taskID);
+    const [shadows, metrics, benchmarks, admission, progress, knowledge] = await Promise.all([
+      api(`/api/tasks/${encodeURIComponent(taskID)}/decision-shadows?limit=10`),
+      api(`/api/tasks/${encodeURIComponent(taskID)}/decision-shadow-metrics`),
+      api("/api/decision/benchmarks?limit=20"),
+      api("/api/decision/admission"),
+      api(`/api/tasks/${encodeURIComponent(taskID)}/progress?revision=${encodeURIComponent(task?.revision || 0)}`),
+      api(`/api/tasks/${encodeURIComponent(taskID)}/knowledge?revision=${encodeURIComponent(task?.revision || 0)}`),
+    ]);
+    Object.assign(lab, {shadows:asList(shadows), metrics, benchmarks:asList(benchmarks), admission, progress, knowledge:asList(knowledge?.matches), loaded:true});
+  } catch (error) { lab.error = error.message; }
+  finally { lab.loading = false; }
+}
+
+function selectedTaskDecisionProvider() {
+  return $("#taskDecisionProvider")?.value || "";
+}
+
+async function compareTaskDecision(body) {
+  const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
+  const providerID = selectedTaskDecisionProvider();
+  if (!task || !providerID) return;
+  await performTaskAction(task.id, body, "Comparing local decisions", async () => {
+    await api(`/api/tasks/${encodeURIComponent(task.id)}/decision-shadow`, {method:"POST", body:JSON.stringify({expected_task_revision:task.revision, provider_id:providerID})});
+    taskDecisionLab(task.id).loaded = false;
+    await loadTaskDecisionLab(task.id);
+    toast("Decision comparison receipt saved");
+  });
+}
+
+async function benchmarkTaskDecision(body) {
+  const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
+  const providerID = selectedTaskDecisionProvider();
+  if (!task || !providerID) return;
+  await performTaskAction(task.id, body, "Running decision benchmark", async () => {
+    await api("/api/decision/benchmarks", {method:"POST", body:JSON.stringify({provider_id:providerID})});
+    taskDecisionLab(task.id).loaded = false;
+    await loadTaskDecisionLab(task.id);
+    toast("Six-case decision benchmark recorded");
+  });
+}
+
+async function changeTaskDecisionAdmission(event, body) {
+  const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
+  const lab = task && taskDecisionLab(task.id);
+  const enabled = event.currentTarget.dataset.enabled === "true";
+  const providerID = enabled ? selectedTaskDecisionProvider() : lab?.admission?.policy?.provider_id;
+  const benchmarkRunID = enabled ? lab?.benchmarks?.find(item => item.provider_id === providerID && item.passed)?.id : lab?.admission?.policy?.benchmark_run_id;
+  if (!task || !providerID || !benchmarkRunID) return;
+  const reason = await askAction({title:enabled ? "Enable read-only model selection?" : "Disable read-only model selection?", message:enabled ? "This admits the exact benchmarked provider revision for recommendations limited to policy-free read actions. It never runs the action." : "New recommendations will use the deterministic rule path only.", confirmLabel:enabled ? "Enable read-only" : "Disable", reasonLabel:"Decision reason", danger:!enabled});
+  if (!reason) return;
+  await performTaskAction(task.id, body, enabled ? "Enabling read-only selector" : "Disabling read-only selector", async () => {
+    await api("/api/decision/admission", {method:"PUT", body:JSON.stringify({provider_id:providerID, benchmark_run_id:benchmarkRunID, actor:currentActor(), reason, enabled})});
+    taskDecisionLab(task.id).loaded = false;
+    await loadTaskDecisionLab(task.id);
+    toast(enabled ? "Read-only selector enabled" : "Read-only selector disabled");
+  });
+}
+
+async function recommendTaskDecision(body) {
+  const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
+  if (!task) return;
+  await performTaskAction(task.id, body, "Asking read-only selector", async () => {
+    taskDecisionLab(task.id).recommendation = await api(`/api/tasks/${encodeURIComponent(task.id)}/decision-read-only`, {method:"POST", body:JSON.stringify({expected_task_revision:task.revision})});
+    toast("Read-only recommendation ready; no action was executed");
+  });
 }
 
 async function loadTaskExecution(taskID) {
   if (!taskID) return;
-  try { state.taskExecutions[taskID] = await api(`/api/tasks/${encodeURIComponent(taskID)}/execution`); }
-  catch (error) { state.taskExecutions[taskID] = {error:error.message, effects:[]}; }
+  try {
+    const execution = await api(`/api/tasks/${encodeURIComponent(taskID)}/execution`);
+    state.taskExecutions[taskID] = execution;
+    const artifactID = execution.proposal?.artifact_id;
+    if (artifactID && (!taskProposalBodies.has(artifactID) || taskProposalBodies.get(artifactID).error)) {
+      try { taskProposalBodies.set(artifactID, await api(`/api/artifacts/${encodeURIComponent(artifactID)}/content`)); }
+      catch (error) { taskProposalBodies.set(artifactID, {error:error.message}); }
+    }
+  } catch (error) { state.taskExecutions[taskID] = {error:error.message, effects:[]}; }
 }
 
 async function refreshDurableTask(taskID, body) {
-  const [task, execution] = await Promise.all([
-    api(`/api/tasks/${encodeURIComponent(taskID)}`), api(`/api/tasks/${encodeURIComponent(taskID)}/execution`)
-  ]);
-  state.durableTasks = state.durableTasks.map(item => item.id === taskID ? task : item);
-  state.taskExecutions[taskID] = execution;
-  renderTaskCockpit(body);
+  await loadTaskExecution(taskID);
+  const task = state.taskExecutions[taskID]?.task;
+  if (task) state.durableTasks = state.durableTasks.map(item => item.id === taskID ? task : item);
+  if (body.isConnected && state.selectedDurableTask === taskID) renderTaskCockpit(body);
+}
+
+async function performTaskAction(taskID, body, label, action) {
+  if (taskActions.has(taskID)) return;
+  taskErrors.delete(taskID);
+  taskActions.set(taskID, label);
+  if (body.isConnected) renderTaskCockpit(body);
+  try { await action(); }
+  catch (error) { taskErrors.set(taskID, error.message); toast(error.message, true); }
+  finally { taskActions.delete(taskID); await refreshDurableTask(taskID, body); }
+}
+
+async function reconcileTaskEffects(body) {
+  const taskID = state.selectedDurableTask;
+  const effects = (state.taskExecutions[taskID]?.effects || []).filter(effect => effect.state === "uncertain");
+  if (!taskID || !effects.length) return;
+  await performTaskAction(taskID, body, "Checking saved results", async () => {
+    for (const effect of effects) await api(`/api/task-effects/${encodeURIComponent(effect.operation_id)}/reconcile`, {method:"POST", body:"{}"});
+    toast("Saved results checked; no action was replayed");
+  });
+}
+
+async function recoverExpiredTaskRun(body) {
+  const taskID = state.selectedDurableTask;
+  const task = state.durableTasks.find(item => item.id === taskID);
+  if (!task || taskActions.has(taskID)) return;
+  await performTaskAction(taskID, body, "Recovering saved work", async () => {
+    const recovered = await api(`/api/tasks/${encodeURIComponent(taskID)}/recover-expired-run`, {method:"POST", body:JSON.stringify({expected_task_revision:task.revision, actor:currentActor()})});
+    state.durableTasks = state.durableTasks.map(item => item.id === recovered.id ? recovered : item);
+    toast("Saved work recovered without replaying any action");
+  });
 }
 
 async function startTaskProposal(event, body) {
   event.preventDefault();
-	const submitButton = event.currentTarget.querySelector('button[type="submit"], button:not([type])');
-	if (submitButton?.disabled) return;
-	if (submitButton) submitButton.disabled = true;
   const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
   const form = new FormData(event.currentTarget);
   const files = String(form.get("files") || "").split("\n").map(value => value.trim()).filter(Boolean);
   const providerID = String(form.get("provider_id") || "");
-  if (!task || !providerID) { if (submitButton) submitButton.disabled = false; return; }
-  try {
+  if (!task || !taskEligibleProviders(task).some(item => item.id === providerID)) return;
+  await performTaskAction(task.id, body, "Generating proposed changes", async () => {
     let execution = state.taskExecutions[task.id] || {effects:[]};
-    let run = execution.run?.state === "running" ? execution.run : null;
-    let attempt = execution.attempt?.state === "running" ? execution.attempt : null;
+    let run = task.state === "running" && execution.run?.state === "running" && execution.run.plan_revision === task.active_plan_revision ? execution.run : null;
+    let attempt = execution.attempt?.state === "running" && execution.attempt.run_id === run?.id ? execution.attempt : null;
     let packet = attempt?.packet || null;
     if (!run) {
-      packet = await api(`/api/tasks/${encodeURIComponent(task.id)}/next-packet`);
-      const started = await api(`/api/tasks/${encodeURIComponent(task.id)}/runs`, {method:"POST", body:JSON.stringify({
-        expected_task_revision:task.revision, owner:currentActor(), lease_seconds:300
-      })});
+      const started = await api(`/api/tasks/${encodeURIComponent(task.id)}/runs`, {method:"POST", body:JSON.stringify({expected_task_revision:task.revision, owner:currentActor(), lease_seconds:900})});
       run = started.run;
       state.durableTasks = state.durableTasks.map(item => item.id === task.id ? started.task : item);
+      state.taskExecutions[task.id] = {...execution, run, task:started.task};
     }
+    const authority = await renewTaskAuthority(task.id);
+    maintainTaskLease(state.taskExecutions[task.id].task || task, state.taskExecutions[task.id], body);
     if (!attempt) {
-      packet = packet || await api(`/api/tasks/${encodeURIComponent(task.id)}/next-packet`);
-      const current = state.durableTasks.find(item => item.id === task.id);
+      packet = await api(`/api/tasks/${encodeURIComponent(task.id)}/next-packet`);
       attempt = await api(`/api/task-runs/${encodeURIComponent(run.id)}/attempts`, {method:"POST", body:JSON.stringify({
-        lease_token:run.lease_token, step_key:packet.step.key, expected_task_revision:current.revision,
+        lease_token:authority.lease_token, step_key:packet.step.key, expected_task_revision:packet.task_revision,
         expected_step_revision:packet.step.revision, input_hash:packet.canonical_packet_hash, packet
       })});
     }
-    if (!attempt.packet) throw new Error("This legacy attempt has no durable step packet; recover or restart it before provider dispatch.");
+    if (!attempt.packet) throw new Error("This attempt has no saved step packet. Recover it before continuing.");
     if (!files.length) {
-      const selection = await api(`/api/task-attempts/${encodeURIComponent(attempt.id)}/select-files`, {method:"POST", body:JSON.stringify({provider_id:providerID})});
+      const selection = await api(`/api/task-attempts/${encodeURIComponent(attempt.id)}/select-files`, {method:"POST", body:JSON.stringify({provider_id:providerID, authority})});
       files.push(...(selection.result?.files || []));
-      if (!files.length) throw new Error("Automatic file selection returned no eligible files.");
+      if (!files.length) throw new Error("No eligible files were selected. Choose the files for this step manually.");
     }
-    await api(`/api/task-attempts/${encodeURIComponent(attempt.id)}/proposals`, {method:"POST", body:JSON.stringify({provider_id:providerID, files})});
-    await refreshDurableTask(task.id, body);
-    toast("Bounded proposal is ready for review");
-  } catch (error) { toast(error.message, true); await loadTaskExecution(task.id); renderTaskCockpit(body); }
-	finally { if (submitButton?.isConnected) submitButton.disabled = false; }
+    await api(`/api/task-attempts/${encodeURIComponent(attempt.id)}/proposals`, {method:"POST", body:JSON.stringify({provider_id:providerID, files, authority:await renewTaskAuthority(task.id)})});
+    toast("Proposed changes are ready to inspect");
+  });
 }
 
 async function decideTaskProposal(verdict, body) {
   const taskID = state.selectedDurableTask;
   const proposal = state.taskExecutions[taskID]?.proposal;
-  if (!proposal) return;
-  const rationale = await askAction({title:verdict === "approved" ? "Approve this proposal?" : "Reject this proposal?",
-    message:"The decision is durable and can be made only once.", confirmLabel:verdict === "approved" ? "Approve" : "Reject",
-    reasonLabel:"Review rationale", danger:verdict === "rejected"});
+  if (!proposal || taskActions.has(taskID)) return;
+  if (verdict === "approved" && !taskProposalBodies.get(proposal.artifact_id)?.changes?.length) return;
+  const rationale = await askAction({title:verdict === "approved" ? "Approve these changes?" : "Reject these changes?", message:"This records your review of the proposed files. Applying the changes is the next step.", confirmLabel:verdict === "approved" ? "Approve" : "Reject", reasonLabel:"Review note", danger:verdict === "rejected"});
   if (!rationale) return;
-  try {
-    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/decision`, {method:"POST", body:JSON.stringify({
-      actor:currentActor(), verdict, rationale, findings:[]
-    })});
-    await refreshDurableTask(taskID, body);
-  } catch (error) { toast(error.message, true); }
+  await performTaskAction(taskID, body, "Saving review", async () => {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/decision`, {method:"POST", body:JSON.stringify({actor:currentActor(), verdict, rationale, findings:[]})});
+  });
 }
 
 async function applyTaskProposal(body) {
   const taskID = state.selectedDurableTask;
   const proposal = state.taskExecutions[taskID]?.proposal;
-  if (!proposal) return;
-  const confirmed = await askAction({title:"Apply reviewed source changes?", message:"Hermetrix will verify preimage hashes and create rollback evidence before writing.", confirmLabel:"Apply change"});
+  if (!proposal || taskActions.has(taskID)) return;
+  const confirmed = await askAction({title:"Apply approved changes?", message:"The original files will be checked against the proposal and rollback evidence saved before writing.", confirmLabel:"Apply changes"});
   if (!confirmed) return;
-  try {
-    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/apply`, {method:"POST", body:JSON.stringify({actor:currentActor()})});
-    await refreshDurableTask(taskID, body);
-    toast("Reviewed change applied; verification is still required");
-  } catch (error) { toast(error.message, true); }
+  await performTaskAction(taskID, body, "Applying changes", async () => {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/apply`, {method:"POST", body:JSON.stringify({actor:currentActor(), authority:await renewTaskAuthority(taskID)})});
+    toast("Changes applied. Run checks next.");
+  });
 }
 
 async function verifyTaskProposal(body) {
   const taskID = state.selectedDurableTask;
   const proposal = state.taskExecutions[taskID]?.proposal;
-  if (!proposal) return;
-  const confirmed = await askAction({title:"Run frozen verification?", message:"Each command runs directly without a shell and must produce actual evidence for the frozen step checks.", confirmLabel:"Run checks"});
-  if (!confirmed) return;
-  try {
-    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/verify-frozen`, {method:"POST", body:JSON.stringify({actor:currentActor()})});
-    await refreshDurableTask(taskID, body);
-    toast("Verification evidence recorded");
-  } catch (error) { toast(error.message, true); await refreshDurableTask(taskID, body); }
+  if (!proposal || taskActions.has(taskID)) return;
+  await performTaskAction(taskID, body, "Running planned checks", async () => {
+    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/verify-frozen`, {method:"POST", body:JSON.stringify({actor:currentActor(), authority:await renewTaskAuthority(taskID)})});
+    toast("Check results saved");
+  });
 }
 
 async function postReviewTaskProposal(body) {
   const taskID = state.selectedDurableTask;
+  const task = state.durableTasks.find(item => item.id === taskID);
   const proposal = state.taskExecutions[taskID]?.proposal;
   const providerID = $("#taskReviewerProvider")?.value;
-  if (!proposal || !providerID) return;
-  try {
-    await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/post-review`, {method:"POST", body:JSON.stringify({provider_id:providerID})});
-    await refreshDurableTask(taskID, body);
-    toast("Independent review completed");
-  } catch (error) { toast(error.message, true); await refreshDurableTask(taskID, body); }
+  if (!proposal || !taskEligibleProviders(task, proposal.provider_id).some(item => item.id === providerID)) return;
+  await performTaskAction(taskID, body, "Reviewing check results", async () => {
+    const output = await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/post-review`, {method:"POST", body:JSON.stringify({provider_id:providerID, authority:await renewTaskAuthority(taskID)})});
+    toast(output.review?.verdict === "reject" ? "Review rejected the changes. Inspect the evidence." : "Independent review passed");
+  });
 }
 
 async function createDurableTask(event) {
   event.preventDefault();
+  if (taskActions.has("create")) return;
+  const body = event.currentTarget.closest?.(".pane-body");
   const form = new FormData(event.currentTarget);
-  const criteria = String(form.get("criteria") || "").split("\n").map(value => value.trim()).filter(Boolean)
-    .map((description, index) => ({ id:`AC-${index + 1}`, description }));
-  if (!criteria.length || !state.currentProject?.id) return;
+  const lines = name => String(form.get(name) || "").split("\n").map(value => value.trim()).filter(Boolean);
+  const criteria = lines("criteria").map((description, index) => ({id:`AC-${index + 1}`, description}));
+  const objective = String(form.get("objective") || "").trim();
+  if (!criteria.length || !objective || !state.currentProject?.id) return;
+  taskActions.set("create", "Creating task");
+  taskErrors.delete("create");
+  const submit = event.currentTarget.querySelector('button:not([type]), button[type="submit"]');
+  if (submit) submit.disabled = true;
   try {
     const task = await api("/api/tasks", {method:"POST", body:JSON.stringify({project_id:state.currentProject.id,
-      title:form.get("title"), objective:form.get("objective"), original_request:form.get("original_request"),
-      criteria, actor:currentActor()})});
+      title:String(form.get("title") || "").trim() || objective.split("\n")[0].slice(0,80), objective, original_request:objective,
+      criteria, constraints:lines("constraints"), unknowns:lines("unknowns"), egress_policy:"local_only", actor:currentActor()})});
     state.durableTasks.unshift(task);
     state.selectedDurableTask = task.id;
+    state.taskDraftObjective = "";
+    state.taskDraftDetails = {};
+    taskActions.delete("create");
     renderPanes();
-    toast("Durable task created");
-  } catch (error) { toast(error.message, true); }
+    toast("Task created. Create a plan next.");
+  } catch (error) { taskErrors.set("create", error.message); toast(error.message, true); }
+  finally { taskActions.delete("create"); if (submit?.isConnected) submit.disabled = false; if (taskErrors.has("create") && body?.isConnected) renderTaskCockpit(body); }
 }
 
 async function autoPlanDurableTask(body) {
   const task = state.durableTasks.find(item => item.id === state.selectedDurableTask);
   const providerID = $("#taskPlannerProvider")?.value;
-  if (!task || !providerID) return;
-  try {
-    const output = await api(`/api/tasks/${encodeURIComponent(task.id)}/auto-plan`, {method:"POST", body:JSON.stringify({
-      expected_task_revision:task.revision, provider_id:providerID, actor:currentActor()
-    })});
+  if (!task || !taskEligibleProviders(task).some(item => item.id === providerID)) return;
+  await performTaskAction(task.id, body, "Creating a plan", async () => {
+    const output = await api(`/api/tasks/${encodeURIComponent(task.id)}/auto-plan`, {method:"POST", body:JSON.stringify({expected_task_revision:task.revision, provider_id:providerID, actor:currentActor()})});
     state.durableTasks = state.durableTasks.map(item => item.id === task.id ? output.task : item);
-    renderTaskCockpit(body);
-    toast(`Plan r${output.task.active_plan_revision} created`);
-  } catch (error) { toast(error.message, true); }
+    toast("Plan created. Review the steps and checks before starting.");
+  });
 }
+
 
 // Four is the ceiling because a fifth pane on one screen is smaller than the
 // thing inside it, and because a bounded number is a number that can be
@@ -2877,11 +3815,14 @@ const PANE_CONTENT = [
   { id: "editor", icon: "file", label: "Code" },
   { id: "review", icon: "review", label: "Review" },
   { id: "files", icon: "files", label: "Files" },
+  { id: "git", icon: "project", label: "Git" },
+  { id: "environment", icon: "settings", label: "Tooling" },
   { id: "terminal", icon: "terminal", label: "Terminal" },
   { id: "browser", icon: "browser", label: "Browser" },
   { id: "artifacts", icon: "artifact", label: "Office" },
   { id: "team", icon: "project", label: "Team" },
   { id: "output", icon: "activity", label: "Output" }
+  ,{ id: "debug", icon: "activity", label: "Debug" }
 ];
 
 function paneContent(id) {
@@ -2890,14 +3831,15 @@ function paneContent(id) {
 
 const PANE_LAYOUTS = {
   1: [{ id: "single", label: "Single pane" }],
-  2: [{ id: "columns", label: "Side by side" }, { id: "rows", label: "Stacked" }],
+  2: [{ id: "ide", label: "Editor + sidebar" }, { id: "columns", label: "Side by side" }, { id: "rows", label: "Stacked" }],
   3: [
+    { id: "ide", label: "AI workspace" },
     { id: "bottom-wide", label: "2 top · 1 bottom" },
     { id: "top-wide", label: "1 top · 2 bottom" },
     { id: "left-wide", label: "1 left · 2 right" },
     { id: "right-wide", label: "2 left · 1 right" }
   ],
-  4: [{ id: "quad", label: "2 × 2 grid" }]
+  4: [{ id: "ide", label: "AI workspace + console" }, { id: "quad", label: "2 × 2 grid" }]
 };
 
 function normalisePaneLayout(count, requested = state.paneLayout) {
@@ -2909,15 +3851,30 @@ function paneToolbarHTML() {
   const count = state.panes.length || 1;
   const layout = normalisePaneLayout(count);
   const options = PANE_LAYOUTS[count] || PANE_LAYOUTS[1];
-  return `<header class="workspace-toolbar"><div><strong>Workspace</strong><small>ลากหัวช่องเพื่อย้าย · ลากเส้นเพื่อปรับขนาด</small></div>
+  const planning = state.maximisedPane !== null && state.panes[state.maximisedPane] === "tasks";
+  return `<header class="workspace-toolbar ${planning ? "planning-toolbar" : layout === "ide" ? "ide-toolbar" : ""}"><div><strong>${planning ? "Plans · แผนงาน" : "Workspace"}</strong><small>${planning ? "เป้าหมาย → แผน → ทบทวนการแก้ไข → ตรวจผล" : layout === "ide" ? "ไฟล์ → เขียนโค้ด → รันและตรวจผล · AI บนเครื่อง" : "ลากหัวช่องเพื่อย้าย · ลากเส้นเพื่อปรับขนาด"}</small></div>
+    ${layout === "ide" && !planning ? `<div class="ide-mode-switch" role="group" aria-label="Workspace mode"><button type="button" id="ideAgentMode">Agent</button><button type="button" class="active" aria-current="page">Editor</button></div>` : ""}
     <div class="workspace-actions">
+      ${planning ? "" : `<button class="ghost compact" id="workspaceIDE">AI workspace</button><button class="ghost compact" data-ide-panel="terminal">Terminal</button><button class="ghost compact" data-ide-panel="output">Output</button><button class="ghost compact" data-ide-panel="debug">Debug</button>`}
       ${options.length > 1 ? `<label class="pane-layout-control"><span>Layout</span><select id="paneLayoutSelect" aria-label="Workspace layout">${options.map(option => `<option value="${option.id}" ${option.id === layout ? "selected" : ""}>${option.label}</option>`).join("")}</select></label>` : ""}
       <span id="paneCountLabel">${count}/4 panes</span>
       <button class="ghost compact" id="paneAdd">${uiIcon("plus")}<span>Split</span></button>
-    </div></header>`;
+    </div>${planning ? "" : `<nav class="compact-pane-tabs" aria-label="Workspace panels">${state.panes.map(id => `<button type="button" data-compact-pane="${id}" aria-pressed="${id === compactPaneID()}">${escapeHTML(paneContent(id).label)}</button>`).join("")}</nav>`}</header>`;
 }
 
+function ideActivityHTML() {
+  const side = state.panes[1];
+  return `<nav class="ide-activity" aria-label="Editor sidebar">${[
+    ["files", "files", "Explorer"], ["chat", "chat", "Local AI"],
+    ["git", "project", "Git"], ["environment", "settings", "Tooling"]
+  ].map(([id, icon, label]) => `<button type="button" data-ide-side="${id}" aria-label="${label}" title="${label}" aria-pressed="${side === id}">${uiIcon(icon)}</button>`).join("")}</nav>`;
+}
+
+function compactPaneID() { return state.panes.includes(state.compactPane) ? state.compactPane : state.panes[0]; }
+function compactWorkspace() { return window.innerWidth <= (state.paneLayout === "ide" ? 900 : 700); }
+
 function paneDividerHTML(count, layout) {
+  if (layout === "ide") return "";
   if (state.maximisedPane !== null || count < 2) return "";
   const vertical = `<div class="pane-divider vertical" data-pane-divider="vertical" role="separator" aria-orientation="vertical" aria-label="Resize workspace columns" tabindex="0"></div>`;
   const horizontal = `<div class="pane-divider horizontal" data-pane-divider="horizontal" role="separator" aria-orientation="horizontal" aria-label="Resize workspace rows" tabindex="0"></div>`;
@@ -2947,6 +3904,7 @@ function paneChatHTML() {
   <form class="pane-chat-form"><textarea class="pane-chat-input" rows="2" maxlength="1048576" placeholder="Ask Hermetrix… Enter sends" ${state.sending ? "disabled" : ""}>${escapeHTML(state.paneChatDraft || "")}</textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "Running…" : "Send"}</button></form>`;
 }
 function renderPaneChat(body) {
+  if (window.HermetrixAssistant) { window.HermetrixAssistant.render(body); return; }
   body.innerHTML = paneChatHTML();
   bindPaneChat(body);
 }
@@ -2982,15 +3940,116 @@ function bindPaneChat(body) {
 // full rebuild would destroy the CodeMirror instance next door on every turn.
 // A pane holding keyboard focus is left alone so typing is never clobbered.
 function refreshPaneChat() {
+  if (window.HermetrixAssistant) { window.HermetrixAssistant.refresh(); return; }
   for (const body of document.querySelectorAll('.pane-body[data-pane-kind="chat"]')) {
     if (body.contains(document.activeElement)) continue;
     renderPaneChat(body);
   }
 }
+
+const ideGitSnapshots = new Map();
+const IDE_WORD_WRAP_KEY = "hermetrix.ide.wordWrap";
+const IDE_FORMAT_ON_SAVE_KEY = "hermetrix.ide.formatOnSave";
+
+function ideFormatOnSaveEnabled() {
+  if (typeof state.ideFormatOnSave === "boolean") return state.ideFormatOnSave;
+  try { state.ideFormatOnSave = localStorage.getItem(IDE_FORMAT_ON_SAVE_KEY) === "true"; }
+  catch { state.ideFormatOnSave = false; }
+  return state.ideFormatOnSave;
+}
+
+function ideWordWrapEnabled() {
+  if (typeof state.ideWordWrap === "boolean") return state.ideWordWrap;
+  try { state.ideWordWrap = localStorage.getItem(IDE_WORD_WRAP_KEY) !== "false"; }
+  catch { state.ideWordWrap = true; }
+  return state.ideWordWrap;
+}
+
+function renderPaneEnvironment(body) {
+  const projectID = state.currentProject?.id;
+  body.innerHTML = `<div class="ide-side-panel"><header><h3>ตั้งค่า Editor</h3></header><label class="ide-setting-toggle"><span><strong>จัดรูปแบบตอนบันทึก</strong><small>จัดรูปแบบไฟล์ที่รองรับก่อนเขียนลงดิสก์</small></span><input type="checkbox" data-editor-format-save ${ideFormatOnSaveEnabled() ? "checked" : ""}></label><label class="ide-setting-toggle"><span><strong>ตัดบรรทัดยาว</strong><small>แสดงโค้ดภายในความกว้างของหน้าต่าง โดยไม่แก้เนื้อหาไฟล์</small></span><input type="checkbox" data-editor-wrap ${ideWordWrapEnabled() ? "checked" : ""}></label><p class="ide-side-note">Format ด้วย Alt+Shift+F และบันทึกด้วย Ctrl+S</p><header><h3>เครื่องมือในเครื่อง</h3><button class="ghost compact" data-env-refresh>Refresh</button></header><p>เครื่องมือที่ตรวจพบสำหรับโปรเจกต์นี้</p><div data-env-result role="status">กำลังตรวจสอบ…</div><p class="ide-side-note">การเติมคำปัจจุบันอ้างอิงไฟล์ที่เปิดอยู่ ยังไม่มีระบบจัดการ Language server ในแอป</p></div>`;
+  body.querySelector("[data-editor-format-save]").addEventListener("change", event => {
+    state.ideFormatOnSave = event.target.checked;
+    try { localStorage.setItem(IDE_FORMAT_ON_SAVE_KEY, String(state.ideFormatOnSave)); } catch {}
+  });
+  body.querySelector("[data-editor-wrap]").addEventListener("change", event => {
+    state.ideWordWrap = event.target.checked;
+    try { localStorage.setItem(IDE_WORD_WRAP_KEY, String(state.ideWordWrap)); } catch {}
+    activeCodeEditor?.setWrap?.(state.ideWordWrap);
+    const fallback = $("#workbenchFileContent textarea");
+    if (fallback) fallback.wrap = state.ideWordWrap ? "soft" : "off";
+  });
+  const load = async () => {
+    const result = body.querySelector("[data-env-result]");
+    if (!result) return;
+    result.textContent = "กำลังตรวจสอบ…";
+    try {
+      const capabilities = await api(`/api/projects/${encodeURIComponent(projectID)}/ide`);
+      if (!body.isConnected || state.currentProject?.id !== projectID) return;
+      const tools = Object.entries(capabilities.tools || {}).sort(([a], [b]) => a.localeCompare(b));
+      result.innerHTML = `<div class="ide-tool-list">${tools.map(([name, ready]) => `<div><strong>${escapeHTML(name)}</strong><span class="${ready ? "ready" : ""}">${ready ? "พร้อมใช้" : "ไม่พบ"}</span></div>`).join("") || "ยังไม่มีข้อมูลเครื่องมือ"}</div>`;
+    } catch (error) { if (body.isConnected) result.textContent = error.message; }
+  };
+  body.querySelector("[data-env-refresh]").addEventListener("click", load);
+  void load();
+}
+
+function renderPaneGit(body) {
+  const projectID = state.currentProject?.id;
+  const snapshot = ideGitSnapshots.get(projectID);
+  const statusLines = (snapshot?.status || "").split("\n").filter(Boolean);
+  const branch = statusLines[0]?.startsWith("## ") ? statusLines.shift().slice(3).replace(/^No commits yet on /, "") : "";
+  const commits = (snapshot?.log || "").split("\n").filter(Boolean);
+  const content = snapshot?.error ? `<p class="session-error">${escapeHTML(snapshot.error)}</p>` : snapshot?.loading || !snapshot ? "กำลังอ่าน Git…" :
+    `<div class="ide-git-branch">${uiIcon("review")}<strong>${escapeHTML(branch || "Git")}</strong><small>${statusLines.length} ไฟล์เปลี่ยน</small></div>
+    <section class="ide-git-section"><h4>ไฟล์ที่เปลี่ยน <small>${statusLines.length}</small></h4>${statusLines.length ? `<div class="ide-git-files">${statusLines.slice(0, 100).map(line => `<div><span class="ide-git-code">${escapeHTML(line.slice(0, 2).trim() || "?")}</span><span title="${escapeHTML(line.slice(3))}">${escapeHTML(line.slice(3))}</span></div>`).join("")}</div>${statusLines.length > 100 ? `<small>แสดง 100 ไฟล์แรก</small>` : ""}` : `<p class="ide-side-note">ไม่มีไฟล์ที่เปลี่ยน</p>`}</section>
+    <section class="ide-git-section"><h4>ไทม์ไลน์ <small>${commits.length}</small></h4>${commits.length ? `<ol class="ide-git-timeline">${commits.map(line => { const space = line.indexOf(" "); return `<li><code>${escapeHTML(space < 0 ? line : line.slice(0, space))}</code><span>${escapeHTML(space < 0 ? "" : line.slice(space + 1))}</span></li>`; }).join("")}</ol>` : `<p class="ide-side-note">ยังไม่มี commit</p>`}</section>`;
+  body.innerHTML = `<div class="ide-side-panel ide-git-panel"><header><h3>Git</h3><button class="ghost compact" data-git-refresh ${snapshot?.loading ? "disabled" : ""}>Refresh</button></header><div data-git-result role="status">${content}</div></div>`;
+  body.querySelector("[data-git-refresh]").addEventListener("click", () => void loadPaneGit(projectID, body));
+  if (!snapshot) void loadPaneGit(projectID, body);
+}
+
+async function loadPaneGit(projectID, body) {
+  if (!projectID || ideGitSnapshots.get(projectID)?.loading) return;
+  ideGitSnapshots.set(projectID, {loading:true});
+  if (body.isConnected) renderPaneGit(body);
+  const command = async argumentsList => {
+    let job = await api(`/api/projects/${encodeURIComponent(projectID)}/commands`, {method:"POST", body:JSON.stringify({project_id:projectID, actor:currentActor(), executable:"git", arguments:argumentsList, working_dir:".", timeout_seconds:15})});
+    for (let attempt = 0; attempt < 60 && ["queued", "running"].includes(job.state); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      job = await api(`/api/projects/${encodeURIComponent(projectID)}/ide/jobs/${encodeURIComponent(job.id)}`);
+    }
+    if (job.state !== "completed") throw new Error(job.error || "Git ไม่ตอบกลับภายในเวลาที่กำหนด");
+    if (Number(job.result?.exit_code || 0) !== 0) throw new Error(String(job.result?.output || "Git command failed").trim());
+    return String(job.result?.output || "").trim();
+  };
+  try {
+    const capabilities = await api(`/api/projects/${encodeURIComponent(projectID)}/ide`);
+    if (!capabilities.tools?.git) throw new Error("ไม่พบ Git ใน PATH ของเซิร์ฟเวอร์");
+    const status = await command(["status", "--short", "--branch"]);
+    let log = "";
+    try { log = await command(["log", "-8", "--oneline"]); } catch { /* A new repository has no commits yet. */ }
+    ideGitSnapshots.set(projectID, {status, log});
+  } catch (error) { ideGitSnapshots.set(projectID, {error:error.message}); }
+  if (body.isConnected && state.currentProject?.id === projectID && body.dataset.paneKind === "git") renderPaneGit(body);
+}
+
 function mountPaneContent(body, id) {
+  if (!body) return;
+  if ((SURFACE_DATA[id] || id === "files") && !readySurfaces.has(id)) {
+    body.innerHTML = `<div class="probe-empty" role="status">กำลังโหลด…</div>`;
+    hydrateSurface(id).then(hydrated => { if (hydrated && body.isConnected) mountPaneContent(body, id); }).catch(error => {
+      if (body.isConnected) { body.textContent = error.message; }
+    });
+    return;
+  }
   if (id === "chat") { renderPaneChat(body); return; }
   if (id === "tasks") { renderTaskCockpit(body); return; }
   if (id === "editor") { renderCodeEditor(body); return; }
+  if (id === "git") { renderPaneGit(body); return; }
+  if (id === "environment") { renderPaneEnvironment(body); return; }
+  if (id === "debug") { window.HermetrixWorkspace?.renderDebug(body); return; }
+  if (id === "output" && window.HermetrixWorkspace) { window.HermetrixWorkspace.renderOutput(body); return; }
   if (id === "review") { renderWorkbenchReview(body); return; }
   if (id === "files") { body.innerHTML = renderWorkbenchFilesHTML(); bindWorkbenchFilesEvents(); return; }
   if (id === "terminal") { body.innerHTML = renderWorkbenchTerminalHTML(); bindWorkbenchTerminalEvents(); return; }
@@ -3002,6 +4061,7 @@ function mountPaneContent(body, id) {
 
 function renderPanes() {
   captureCodeDraft();
+  stopWorkbenchPolling();
   disposeWorkspaceWidgets();
   if (!state.panes.length) state.panes = ["review"];
   let host = $("#workspacePaneHost");
@@ -3017,11 +4077,12 @@ function renderPanes() {
   document.documentElement.style.setProperty("--pane-split-y", `${state.paneSplitY}%`);
   const count = state.panes.length;
   state.paneLayout = normalisePaneLayout(count);
+  host.classList.toggle("ide-host", state.paneLayout === "ide" && state.view === "code");
   host.innerHTML = `<div class="pane-grid pane-layout-${count} pane-arrangement-${state.paneLayout} ${state.maximisedPane === null ? "" : "one-up"}">${
     state.panes.map((id, index) => {
-      const hidden = state.maximisedPane !== null && state.maximisedPane !== index;
+      const hidden = state.maximisedPane !== null ? state.maximisedPane !== index : compactWorkspace() && id !== compactPaneID();
       const item = paneContent(id);
-      return `<section class="pane pane-index-${index} ${hidden ? "pane-hidden" : ""}" data-pane="${index}">
+      return `<section class="pane pane-index-${index} ${hidden ? "pane-hidden" : ""}" data-pane="${index}" data-kind="${item.id}">
         <header class="pane-head">
           <button type="button" class="pane-drag-handle" draggable="true" data-pane-drag="${index}" aria-label="Drag ${escapeHTML(item.label)} pane to move it" title="Drag to move · arrow keys also reorder">${uiIcon("grip")}</button>
           ${uiIcon(item.icon)}
@@ -3037,11 +4098,16 @@ function renderPanes() {
         <div class="pane-body" data-pane-kind="${item.id}"></div>
       </section>`;
     }).join("")
-  }${paneDividerHTML(count, state.paneLayout)}${paneDropGuidesHTML(count)}</div>`;
+  }${paneDividerHTML(count, state.paneLayout)}${paneDropGuidesHTML(count)}</div>${host.classList.contains("ide-host") ? ideActivityHTML() : ""}`;
   $("#paneCountLabel").textContent = `${count}/4 panes`;
   $("#paneAdd").disabled = count >= MAX_PANES;
   bindPaneControls();
-  state.panes.forEach((id, index) => mountPaneContent($(`.pane[data-pane="${index}"] .pane-body`, host), id));
+  $$('[data-compact-pane]').forEach(button => button.addEventListener("click", () => { state.compactPane = button.dataset.compactPane; state.maximisedPane = null; renderPanes(); }));
+  state.panes.forEach((id, index) => {
+    if (state.maximisedPane !== null && state.maximisedPane !== index) return;
+    if (state.maximisedPane === null && compactWorkspace() && id !== compactPaneID()) return;
+    mountPaneContent($(`.pane[data-pane="${index}"] .pane-body`, host), id);
+  });
 }
 
 function splitPane() {
@@ -3145,6 +4211,10 @@ function maximisePane(index) {
 }
 
 function bindPaneControls() {
+  $("#workspaceIDE")?.addEventListener("click", () => window.HermetrixWorkspace?.open());
+  $("#ideAgentMode")?.addEventListener("click", () => switchView("chat"));
+  $$('[data-ide-side]').forEach(button => button.addEventListener("click", () => window.HermetrixWorkspace?.panel(button.dataset.ideSide)));
+  $$('[data-ide-panel]').forEach(button => button.addEventListener("click", () => window.HermetrixWorkspace?.panel(button.dataset.idePanel)));
   $("#paneAdd")?.addEventListener("click", splitPane);
   $("#paneLayoutSelect")?.addEventListener("change", event => setPaneLayout(event.target.value));
   $$("[data-pane-content]").forEach(select =>
@@ -3273,7 +4343,7 @@ async function saveWorkbenchTeam(event){event.preventDefault();captureTeamDraft(
 async function startWorkbenchTeamRun(event){event.preventDefault();const form=new FormData(event.currentTarget);const tasks=$$('[data-team-task]',event.currentTarget).map(row=>({id:row.querySelector('[data-task-field="id"]').value.trim(),member_id:row.querySelector('[data-task-field="member_id"]').value,title:row.querySelector('[data-task-field="title"]').value.trim(),prompt:row.querySelector('[data-task-field="prompt"]').value.trim(),depends_on:row.querySelector('[data-task-field="depends"]').value.split(",").map(value=>value.trim()).filter(Boolean)}));try{const run=await api("/api/team-runs",{method:"POST",body:JSON.stringify({team_id:state.selectedTeam,project_id:state.selectedProject||"",objective:form.get("objective"),provider_id:form.get("provider_id"),context_profile:form.get("context_profile"),qualification_reason:form.get("qualification_reason"),max_parallel:Number(form.get("max_parallel")),actor:currentActor(),tasks})});state.teamRuns.unshift(run);toast("Team run started; child sessions keep independent provenance");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 async function cancelWorkbenchTeamRun(id){const approved=await askAction({title:"Cancel this team run?",message:"Hermetrix will cancel every active child context and mark queued/running tasks cancelled. Completed child effects are not undone or retried.",confirmLabel:"Cancel team",danger:true});if(!approved)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(id)}/cancel`,{method:"POST",body:JSON.stringify({actor:currentActor()})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast("Team and active child contexts cancelled");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 async function decideWorkbenchTeamApproval(runId,taskId,decision){const response=await askAction({title:decision==="approve"?"Approve this child effect once?":"Deny this child effect?",message:"The decision is bound to the exact child approval and arguments hash. The child resumes its existing turn; Hermetrix does not replay its prompt or earlier effects.",confirmLabel:decision==="approve"?"Approve exact effect":"Deny effect",reasonLabel:decision==="deny"?"Reason":"",danger:decision==="deny"});if(!response)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/approval`,{method:"POST",body:JSON.stringify({actor:currentActor(),decision,reason:decision==="deny"?response:"approved after team preview"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast(decision==="approve"?"Child effect approved; DAG resumes from its receipt":"Child effect denied; DAG resumes without mutation");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
-async function pollTeamRuns(){if(!state.panes.includes("team"))return;try{state.teamRuns=await api("/api/team-runs");if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
+async function pollTeamRuns(){if(!workspacePaneVisible("team"))return;try{const runs=await api("/api/team-runs");if(!workspacePaneVisible("team"))return;state.teamRuns=runs;if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){if(workspacePaneVisible("team"))toast(error.message,true);}}
 
 // CONFIG_SECTIONS is the settings room's navigation. Configuration used to sit
 // in the workspace as a fourteen-entry tab strip beside a five-entry sidebar,
@@ -3290,8 +4360,10 @@ const CONFIG_SECTIONS = [
       terms:"provider endpoint api key token openai compatible qualification context window local runtime ollama" }
   ]},
   { group: "Tools", items: [
-    { id:"mcp", icon:"tools", label:"Tool Center", blurb:"MCP connections and the capability graph",
-      terms:"mcp server bearer token streamable http discovery capability tool schema approval" }
+    { id:"mcp", icon:"tools", label:"MCP server", blurb:"MCP connections and the capability graph",
+      terms:"mcp server bearer token streamable http discovery capability tool schema approval" },
+    { id:"tools", icon:"tools", label:"เครื่องมือในตัว", blurb:"เครื่องมือที่แชทเรียกใช้ได้",
+      terms:"direct built in tools files commands browser skill context discovery เครื่องมือ" }
   ]},
   { group: "Skills", items: [
     { id:"library", icon:"skill", label:"Skill Studio", blurb:"Active Skills and authority policy",
@@ -3312,6 +4384,8 @@ const CONFIG_SECTIONS = [
       terms:"fidelity recall evidence corpus case run positional" }
   ]},
   { group: "System", items: [
+    { id:"discord", icon:"chat", label:"Discord remote", blurb:"สั่งงานผ่าน Discord ของคุณ",
+      terms:"discord remote bot gateway รีโมท ดิสคอร์ด" },
     { id:"projects", icon:"project", label:"Projects", blurb:"Bounded workspaces and commands",
       terms:"project workspace root command allowlist file tree" },
     { id:"office", icon:"jobs", label:"Background jobs", blurb:"Long-running work and its receipts",
@@ -3370,6 +4444,7 @@ function closeConfig() { switchTab("chat"); }
 // work or at the settings that shape it.
 function switchTab(tab) {
   const isConfig = CONFIG_PAGE_IDS.includes(tab);
+  if (isConfig) { ++navigationGeneration; dismissMobileRail(); }
   state.activeTab = isConfig ? tab : "chat";
   const overlay = $("#configOverlay");
   overlay.hidden = !isConfig;
@@ -3379,11 +4454,18 @@ function switchTab(tab) {
   // the header underneath is not part of the page while settings is open.
   $("#appHeader").setAttribute("aria-hidden", String(isConfig));
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${state.activeTab}`));
+  syncWorkbenchPolling();
   if (!isConfig) return;
+  renderConfigPage(tab);
+  hydrateSurface(tab).then(hydrated => { if (hydrated && state.activeTab === tab) renderConfigPage(tab); }).catch(error => {
+    if (state.activeTab === tab) { const root = $(`#view-${tab}`); if (root) root.textContent = error.message; }
+    toast(error.message, true);
+  });
   const item = configItem(tab);
   $("#configTitle").textContent = item.label;
   const onSkillPage = SKILL_PAGES.includes(tab);
-  $("#stats").hidden = !onSkillPage;
+  $("#stats").hidden = !onSkillPage || tab === "library";
+  $("#libraryIntro").hidden = tab !== "library";
   $("#libraryToolbar").hidden = tab !== "library";
   $("#configPane").scrollTop = 0;
   renderConfigNav();
@@ -3788,16 +4870,18 @@ function setZoneWidth(zone, px) {
 // export should not carry anyone's pane sizes. That is why this lives in
 // localStorage, keyed per project and per view, rather than in SQLite.
 function layoutKey() {
-  return `hermetrix.layout.v2.${state.currentProject?.id || "none"}`;
+  return `hermetrix.layout.v3.${state.currentProject?.id || "none"}.${state.view}`;
 }
 
 function saveLayout() {
   try {
+    const layout = state.view === "code" && state.workspaceBeforePlans?.projectID === state.currentProject?.id
+      ? state.workspaceBeforePlans : state;
     localStorage.setItem(layoutKey(), JSON.stringify({
       zones: state.zoneWidths,
-      panes: state.panes,
-      maximised: state.maximisedPane,
-      paneLayout: state.paneLayout,
+      panes: layout.panes,
+      maximised: layout.maximisedPane,
+      paneLayout: layout.paneLayout,
       paneSplitX: state.paneSplitX,
       paneSplitY: state.paneSplitY,
       railProjectsOpen: state.railProjectsOpen,
@@ -3821,9 +4905,12 @@ function applyLayout() {
   const zones = saved?.zones || {};
   setZoneWidth("rail", zones.rail || 248);
   setZoneWidth("side", zones.side || Math.min(760, Math.max(460, Math.round(window.innerWidth * .42))));
-  const restoredPanes = Array.isArray(saved?.panes) && saved.panes.length ? saved.panes : ["files", "editor", "terminal"];
+  let restoredPanes = Array.isArray(saved?.panes) && saved.panes.length ? saved.panes : state.view === "code" ? ["editor", "files"] : ["files", "editor"];
+  if (saved?.paneLayout === "ide" && restoredPanes[0] === "files" && restoredPanes[1] === "editor") {
+    restoredPanes = ["editor", restoredPanes.includes("chat") ? "chat" : "files", ...restoredPanes.filter(id => ["terminal", "output", "debug"].includes(id)).slice(0, 1)];
+  }
   state.panes = [...new Set(restoredPanes.map(id => paneContent(id).id))].slice(0, MAX_PANES);
-  state.paneLayout = normalisePaneLayout(state.panes.length, saved?.paneLayout);
+  state.paneLayout = normalisePaneLayout(state.panes.length, saved?.paneLayout || (state.view === "code" ? "ide" : "columns"));
   state.paneSplitX = Number.isFinite(saved?.paneSplitX) ? Math.min(78, Math.max(22, saved.paneSplitX)) : 50;
   state.paneSplitY = Number.isFinite(saved?.paneSplitY) ? Math.min(78, Math.max(22, saved.paneSplitY)) : 50;
   state.railProjectsOpen = saved?.railProjectsOpen !== false;
@@ -3834,8 +4921,8 @@ function applyLayout() {
   document.documentElement.style.setProperty("--pane-split-y", `${state.paneSplitY}%`);
   state.maximisedPane = Number.isInteger(saved?.maximised) && saved.maximised < state.panes.length
     ? saved.maximised : null;
-  collapseZone("rail", Boolean(saved?.railHidden));
-  collapseZone("side", Boolean(saved?.sideHidden));
+  collapseZone("rail", saved?.railHidden ?? state.view === "code");
+  collapseZone("side", saved?.sideHidden ?? state.view === "chat");
 }
 
 function startZoneDrag(handle, event) {
@@ -3866,6 +4953,7 @@ function collapseZone(zone, collapsed) {
   if (collapsed && target.contains(document.activeElement)) $("#zoneMain").focus();
   $("#zones").classList.toggle(`${zone}-hidden`, collapsed);
   (zone === "rail" ? $("#toggleRail") : $("#toggleSide")).setAttribute("aria-pressed", String(collapsed));
+  syncWorkbenchPolling();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -3873,16 +4961,26 @@ document.addEventListener("DOMContentLoaded", () => {
   // already on screen at first paint; switchView repeats this same wiring
   // every time a trip through another view recreates those nodes.
   wireChatSkeleton();
+  $("#sessionSetupClose").addEventListener("click", closeSessionSetup);
+  $("#sessionSetupDone").addEventListener("click", closeSessionSetup);
+  $("#sessionSetupDialog").addEventListener("close", () => $(sessionSetupReturnFocus)?.focus());
   $$("#viewSwitch [data-view]").forEach(button => button.addEventListener("click", () => switchView(button.dataset.view)));
   $("#openConfig").addEventListener("click", () => openConfig());
+  $("#plansViewButton").addEventListener("click", openTasks);
   $("#closeConfig").addEventListener("click", closeConfig);
   $("#configSearch").addEventListener("input", renderConfigNav);
   $$(".zone-handle").forEach(handle => handle.addEventListener("pointerdown", event => startZoneDrag(handle, event)));
   $("#toggleRail").addEventListener("click", () => {
+    if (window.innerWidth <= 700) {
+      const open = $("#zones").classList.toggle("mobile-rail-open");
+      $("#toggleRail").setAttribute("aria-expanded", String(open));
+      return;
+    }
     collapseZone("rail", !$("#zones").classList.contains("rail-hidden"));
     saveLayout();
   });
   $("#toggleSide").addEventListener("click", () => {
+    if (window.innerWidth <= 920) { switchView("code"); return; }
     const collapsed = !$("#zones").classList.contains("side-hidden");
     collapseZone("side", collapsed);
     if (!collapsed) renderCurrentWorkbench();
@@ -3912,6 +5010,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // Escape leaves settings the way it leaves a dialog. A <dialog> that is
     // open handles its own Escape, so this only fires for the overlay.
     if (event.key === "Escape" && !$("#configOverlay").hidden && !$("dialog[open]")) closeConfig();
+    if (event.key === "Escape" && !$("dialog[open]")) dismissMobileRail();
+  });
+  $("#zoneMain").addEventListener("pointerdown", () => { if (window.innerWidth <= 700) dismissMobileRail(); });
+  window.matchMedia("(max-width: 700px)").addEventListener("change", () => {
+    dismissMobileRail();
+    if (!$("#appShell").hidden && $("#workspacePaneHost")) renderPanes();
+  });
+  window.matchMedia("(max-width: 900px)").addEventListener("change", () => {
+    if (state.paneLayout === "ide" && !$("#appShell").hidden && $("#workspacePaneHost")) renderPanes();
   });
   $("#pickerSearch").addEventListener("input", renderPicker);
   $("#pickerCreate").addEventListener("click", createProjectFromPicker);

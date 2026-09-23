@@ -19,6 +19,34 @@ import (
 
 type presetCaptureAdapter struct{ request ChatRequest }
 
+func TestFirstEnabledSkipsProviderWithoutCredential(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	const missingKey = "HERMETRIX_TEST_UNSET_REMOTE_KEY"
+	t.Setenv(missingKey, "temporary")
+	if err := os.Unsetenv(missingKey); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(dataStore, nil)
+	if _, err := service.Save(ctx, SaveInput{Name: "A unavailable remote", BaseURL: "https://example.com/v1",
+		Model: "remote", APIKeyEnv: missingKey, ContextWindow: 32768}); err != nil {
+		t.Fatal(err)
+	}
+	local, err := service.Save(ctx, SaveInput{Name: "Z ready local", BaseURL: "http://127.0.0.1:8088/v1",
+		Model: "local", ContextWindow: 16384})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := service.FirstEnabled(ctx)
+	if err != nil || selected.ID != local.ID {
+		t.Fatalf("selected=%+v, want ready local %s, err=%v", selected, local.ID, err)
+	}
+}
+
 func (a *presetCaptureAdapter) StreamChat(_ context.Context, _ Profile, _ string, request ChatRequest,
 	_ func(Delta) error) (Completion, error) {
 	a.request = request

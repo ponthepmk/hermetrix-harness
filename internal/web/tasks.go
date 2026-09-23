@@ -59,6 +59,114 @@ func (s *Server) getDurableTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (s *Server) getTaskNextAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	revision, err := strconv.Atoi(r.URL.Query().Get("revision"))
+	if err != nil || revision < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a positive task revision is required"})
+		return
+	}
+	result, err := s.tasks.DecideNextAction(r.Context(), r.PathValue("id"), revision)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) getTaskProgress(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	revision, err := strconv.Atoi(r.URL.Query().Get("revision"))
+	if err != nil || revision < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "positive task revision is required"})
+		return
+	}
+	progress, err := s.tasks.TaskProgress(r.Context(), r.PathValue("id"), revision)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, progress)
+}
+
+func (s *Server) getTaskKnowledge(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) || !s.requireProduct(w) {
+		return
+	}
+	revision, err := strconv.Atoi(r.URL.Query().Get("revision"))
+	if err != nil || revision < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "positive task revision is required"})
+		return
+	}
+	task, err := s.tasks.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	if task.Revision != revision {
+		taskError(w, taskengine.ErrStaleRevision)
+		return
+	}
+	query := task.Title + " " + task.Objective + " " + task.OriginalRequest + " " + task.PauseReason
+	matches, err := s.product.RetrieveMemories(r.Context(), task.ProjectID, query, 8)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"task_id": task.ID, "task_revision": task.Revision, "matches": matches})
+}
+
+func (s *Server) shadowTaskDecision(w http.ResponseWriter, r *http.Request) {
+	if s.coord == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task coordinator is unavailable"})
+		return
+	}
+	var input struct {
+		ExpectedTaskRevision int    `json:"expected_task_revision"`
+		ProviderID           string `json:"provider_id"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	result, err := s.coord.ShadowDecision(r.Context(), taskcoord.ShadowDecisionInput{
+		TaskID: r.PathValue("id"), ExpectedTaskRevision: input.ExpectedTaskRevision, ProviderID: input.ProviderID,
+	})
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) listTaskDecisionShadows(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := s.tasks.ListDecisionShadows(r.Context(), r.PathValue("id"), limit)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) getTaskDecisionShadowMetrics(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	metrics, err := s.tasks.DecisionShadowMetrics(r.Context(), r.PathValue("id"), r.URL.Query().Get("provider_id"))
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, metrics)
+}
+
 func (s *Server) getTaskNextPacket(w http.ResponseWriter, r *http.Request) {
 	if !s.requireTaskEngine(w) {
 		return
@@ -113,6 +221,28 @@ func (s *Server) beginTaskRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"run": run, "task": task})
 }
 
+func (s *Server) recoverExpiredTaskRun(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input struct {
+		ExpectedTaskRevision int    `json:"expected_task_revision"`
+		Actor                string `json:"actor"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.tasks.RecoverExpiredRun(r.Context(), taskengine.RecoverExpiredRunInput{
+		TaskID: r.PathValue("id"), ExpectedTaskRevision: input.ExpectedTaskRevision,
+		Actor: effectiveActor(r.Context(), input.Actor),
+	})
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) autoPlanTask(w http.ResponseWriter, r *http.Request) {
 	if s.coord == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "task coordinator is unavailable"})
@@ -130,6 +260,24 @@ func (s *Server) autoPlanTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, output)
+}
+
+func (s *Server) classifyTaskPlanning(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input taskengine.ClassifyPlanningInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.TaskID = r.PathValue("id")
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	decision, task, err := s.tasks.ClassifyPlanning(r.Context(), input)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"decision": decision, "task": task})
 }
 
 func (s *Server) renewTaskRunLease(w http.ResponseWriter, r *http.Request) {
@@ -437,6 +585,23 @@ func (s *Server) completeTaskAttempt(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, attempt)
 }
 
+func (s *Server) recordTaskAttemptFailure(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input taskengine.ConfirmedFailureInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.AttemptID = r.PathValue("id")
+	decision, err := s.tasks.RecordConfirmedFailure(r.Context(), input)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, decision)
+}
+
 func (s *Server) reviseTaskRequirements(w http.ResponseWriter, r *http.Request) {
 	if !s.requireTaskEngine(w) {
 		return
@@ -562,6 +727,9 @@ func taskError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	}
 	if errors.Is(err, taskengine.ErrStaleRevision) {
+		status = http.StatusConflict
+	}
+	if errors.Is(err, taskcoord.ErrReviewerRequired) {
 		status = http.StatusConflict
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})

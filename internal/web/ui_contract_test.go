@@ -17,10 +17,14 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 		`id="sessionDock"`, `id="workspacePaneHost"`, `id="paneAdd"`, `id="paneCountLabel"`,
 		`id="commandButton"`, `id="commandDialog"`,
 		`id="capabilityDialog"`, `<script src="/runtime.js" defer></script>`,
-		`<link rel="stylesheet" href="/vendor/ide.css">`, `<script src="/vendor/ide.js" defer></script>`,
 	} {
 		if !strings.Contains(index, marker) {
 			t.Errorf("cockpit HTML is missing %s", marker)
+		}
+	}
+	for _, asset := range []string{`href="/vendor/ide.css"`, `src="/vendor/ide.js"`} {
+		if strings.Contains(index, asset) {
+			t.Errorf("the project picker eagerly downloads the optional editor asset %s", asset)
 		}
 	}
 	for _, marker := range []string{
@@ -197,7 +201,9 @@ func TestEveryCockpitElementIDIsWiredToBehaviour(t *testing.T) {
 	index := mustUIFile(t, "ui/index.html")
 	javascript := mustUIFile(t, "ui/app.js")
 	// Presentation-only ids belong here with the reason they need no handler.
-	presentationOnly := map[string]string{}
+	presentationOnly := map[string]string{
+		"sessionSetupTitle": "accessible name referenced by the model-settings dialog's aria-labelledby",
+	}
 	for _, match := range regexp.MustCompile(`id="([A-Za-z][\w-]*)"`).FindAllStringSubmatch(index, -1) {
 		id := match[1]
 		if _, allowed := presentationOnly[id]; allowed {

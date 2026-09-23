@@ -1,13 +1,18 @@
 package web
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -18,13 +23,17 @@ import (
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/curator"
+	"hermetrix-harness/internal/discordbridge"
 	"hermetrix-harness/internal/fidelity"
+	"hermetrix-harness/internal/identity"
+	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/localmodel"
 	"hermetrix-harness/internal/mcp"
 	"hermetrix-harness/internal/product"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/qualification"
+	"hermetrix-harness/internal/secrets"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
 	"hermetrix-harness/internal/taskcoord"
@@ -50,14 +59,31 @@ type Server struct {
 	product   *product.Service
 	tasks     *taskengine.Service
 	coord     *taskcoord.Service
+	discord   *discordbridge.Service
 	store     *store.Store
 	logger    *slog.Logger
 	auth      *authenticator
+	boundary  *requestBoundary
 }
 
 func (s *Server) WithAuthentication(token, principal string, secureCookie bool) *Server {
+	if localID, err := s.store.LocalPrincipalID(context.Background()); err == nil {
+		principal = localID
+	}
 	s.auth = newAuthenticator(token, principal, secureCookie)
 	return s
+}
+
+// ConfigureRequestBoundary derives the exact Host allowlist from the bound
+// listener. It must be called after net.Listen so an ephemeral port is frozen
+// to the port that actually accepted the request.
+func (s *Server) ConfigureRequestBoundary(listenerAddress string, tls bool, trustedHosts []string) error {
+	boundary, err := newRequestBoundary(listenerAddress, tls, trustedHosts)
+	if err != nil {
+		return err
+	}
+	s.boundary = boundary
+	return nil
 }
 
 func (s *Server) WithProduct(service *product.Service) *Server {
@@ -72,6 +98,11 @@ func (s *Server) WithTaskEngine(service *taskengine.Service) *Server {
 
 func (s *Server) WithTaskCoordinator(service *taskcoord.Service) *Server {
 	s.coord = service
+	return s
+}
+
+func (s *Server) WithDiscord(service *discordbridge.Service) *Server {
+	s.discord = service
 	return s
 }
 
@@ -108,6 +139,7 @@ func New(skillService *skills.Service, learningService *learning.Service, curato
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	s.registerDiscordRoutes(mux)
 	if s.auth != nil {
 		mux.HandleFunc("/api/auth/session", s.auth.session)
 	}
@@ -170,9 +202,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/qualifications", s.listQualifications)
 	mux.HandleFunc("POST /api/qualifications", s.runQualification)
 	mux.HandleFunc("GET /api/providers", s.listProviders)
+	mux.HandleFunc("GET /api/inference-presets", s.listInferencePresets)
+	mux.HandleFunc("POST /api/inference-presets", s.createInferencePreset)
 	mux.HandleFunc("POST /api/providers", s.saveProvider)
 	mux.HandleFunc("PUT /api/providers/{id}/credential", s.setProviderCredential)
 	mux.HandleFunc("POST /api/providers/{id}/test", s.testProvider)
+	mux.HandleFunc("POST /api/providers/{id}/runtime-qualification", s.runProviderQualification)
 	mux.HandleFunc("POST /api/providers/{id}/measure-overhead", s.measureProviderOverhead)
 	mux.HandleFunc("GET /api/mcp/servers", s.listMCPServers)
 	mux.HandleFunc("POST /api/mcp/servers", s.saveMCPServer)
@@ -183,6 +218,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/sessions", s.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
+	mux.HandleFunc("GET /api/sessions/{id}/events", s.listSessionEvents)
 	mux.HandleFunc("POST /api/sessions/{id}/turns", s.runTurn)
 	mux.HandleFunc("POST /api/approvals/{id}/decisions", s.decideApproval)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
@@ -190,9 +226,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks", s.createDurableTask)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getDurableTask)
 	mux.HandleFunc("GET /api/tasks/{id}/next-packet", s.getTaskNextPacket)
+	mux.HandleFunc("GET /api/tasks/{id}/next-action", s.getTaskNextAction)
+	mux.HandleFunc("POST /api/tasks/{id}/decision-shadow", s.shadowTaskDecision)
+	mux.HandleFunc("GET /api/tasks/{id}/decision-shadows", s.listTaskDecisionShadows)
+	mux.HandleFunc("GET /api/tasks/{id}/decision-shadow-metrics", s.getTaskDecisionShadowMetrics)
+	mux.HandleFunc("POST /api/tasks/{id}/decision-read-only", s.decideTaskReadOnly)
+	mux.HandleFunc("GET /api/tasks/{id}/progress", s.getTaskProgress)
+	mux.HandleFunc("GET /api/tasks/{id}/knowledge", s.getTaskKnowledge)
+	mux.HandleFunc("GET /api/decision/fixtures", s.listDecisionFixtures)
+	mux.HandleFunc("GET /api/decision/benchmarks", s.listDecisionBenchmarks)
+	mux.HandleFunc("POST /api/decision/benchmarks", s.runDecisionBenchmark)
+	mux.HandleFunc("GET /api/decision/admission", s.getDecisionAdmission)
+	mux.HandleFunc("PUT /api/decision/admission", s.setDecisionAdmission)
 	mux.HandleFunc("GET /api/tasks/{id}/execution", s.getTaskExecution)
 	mux.HandleFunc("POST /api/tasks/{id}/auto-plan", s.autoPlanTask)
+	mux.HandleFunc("POST /api/tasks/{id}/planning-decision", s.classifyTaskPlanning)
 	mux.HandleFunc("POST /api/tasks/{id}/runs", s.beginTaskRun)
+	mux.HandleFunc("POST /api/tasks/{id}/recover-expired-run", s.recoverExpiredTaskRun)
 	mux.HandleFunc("POST /api/task-runs/{id}/lease", s.renewTaskRunLease)
 	mux.HandleFunc("POST /api/task-runs/{id}/attempts", s.beginTaskAttempt)
 	mux.HandleFunc("POST /api/task-attempts/{id}/effects", s.planTaskEffect)
@@ -209,6 +259,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/task-effects/{operation}/reconcile", s.reconcileTaskEffect)
 	mux.HandleFunc("POST /api/task-effects/reconcile-uncertain", s.reconcileUncertainEffects)
 	mux.HandleFunc("POST /api/task-attempts/{id}/complete", s.completeTaskAttempt)
+	mux.HandleFunc("POST /api/task-attempts/{id}/failures", s.recordTaskAttemptFailure)
 	mux.HandleFunc("POST /api/tasks/{id}/requirements", s.reviseTaskRequirements)
 	mux.HandleFunc("POST /api/tasks/{id}/plans", s.createTaskPlan)
 	mux.HandleFunc("POST /api/tasks/{id}/steps/{step}/transitions", s.transitionTaskStep)
@@ -226,7 +277,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects/{id}/file", s.readProjectFile)
 	mux.HandleFunc("PUT /api/projects/{id}/file", s.writeProjectFile)
 	mux.HandleFunc("POST /api/projects/{id}/commands", s.startProjectCommand)
+	s.registerIDERoutes(mux)
 	mux.HandleFunc("GET /api/terminals", s.listTerminals)
+	s.registerDebuggerRoutes(mux)
 	mux.HandleFunc("POST /api/terminals", s.startTerminal)
 	mux.HandleFunc("GET /api/terminals/{id}/output", s.terminalOutput)
 	mux.HandleFunc("POST /api/terminals/{id}/input", s.writeTerminal)
@@ -247,6 +300,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/artifacts", s.listArtifacts)
 	mux.HandleFunc("POST /api/artifacts", s.createArtifact)
 	mux.HandleFunc("POST /api/artifacts/upload", s.uploadImageArtifact)
+	mux.HandleFunc("POST /api/media/uploads", s.uploadMedia)
+	mux.HandleFunc("POST /api/media/jobs", s.startMediaJob)
+	mux.HandleFunc("GET /api/media/jobs/{id}", s.getMediaJob)
+	mux.HandleFunc("POST /api/media/jobs/{id}/cancel", s.cancelMediaJob)
+	mux.HandleFunc("POST /api/projects/{id}/share/previews", s.createSharePreview)
+	mux.HandleFunc("POST /api/projects/{id}/share/exports", s.createShareExport)
+	mux.HandleFunc("GET /api/share/exports/{id}", s.getShareExport)
+	mux.HandleFunc("GET /api/share/exports/{id}/content", s.getShareExportContent)
+	mux.HandleFunc("POST /api/projects/share/import-previews", s.previewShareImport)
+	mux.HandleFunc("POST /api/projects/share/imports", s.applyShareImport)
+	mux.HandleFunc("POST /api/workspace-migrations/exports", s.exportWorkspaceMigration)
+	mux.HandleFunc("GET /api/workspace-migrations/{id}", s.getWorkspaceMigration)
+	mux.HandleFunc("GET /api/workspace-migrations/{id}/content", s.getWorkspaceMigrationContent)
+	mux.HandleFunc("POST /api/workspace-migrations/import-previews", s.previewWorkspaceMigration)
+	mux.HandleFunc("POST /api/workspace-migrations/imports", s.applyWorkspaceMigration)
+	mux.HandleFunc("POST /api/recovery/full", s.createFullRecovery)
+	mux.HandleFunc("GET /api/recovery/{id}/content", s.getFullRecoveryContent)
+	mux.HandleFunc("POST /api/recovery/verify", s.verifyFullRecovery)
 	mux.HandleFunc("POST /api/deliverables", s.createDeliverable)
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.getArtifactContent)
 	mux.HandleFunc("GET /api/settings", s.listSettings)
@@ -254,6 +325,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/memories", s.listMemories)
 	mux.HandleFunc("POST /api/memories", s.saveMemory)
 	mux.HandleFunc("POST /api/memories/{id}/archive", s.archiveMemory)
+	mux.HandleFunc("POST /api/sharing/visibility", s.updateVisibility)
+	mux.HandleFunc("PATCH /api/artifacts/{id}/sharing", s.updateArtifactVisibility)
+	mux.HandleFunc("PATCH /api/tasks/{id}/sharing", s.updateTaskVisibility)
+	mux.HandleFunc("PATCH /api/memories/{id}/sharing", s.updateMemoryVisibility)
+	mux.HandleFunc("PATCH /api/skills/{id}/sharing", s.updateSkillVisibility)
 	mux.HandleFunc("GET /api/usage", s.usageSummary)
 	mux.HandleFunc("GET /api/skill-retrieval", s.skillRetrievalMetrics)
 	mux.HandleFunc("GET /api/token-accuracy", s.tokenAccuracyMetrics)
@@ -286,8 +362,17 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.Handle("/", spa(http.FileServer(http.FS(assets)), assets))
 	var handler http.Handler = mux
+	if localID, err := s.store.LocalPrincipalID(context.Background()); err == nil {
+		next := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(identity.WithPrincipal(r.Context(), localID)))
+		})
+	}
 	if s.auth != nil {
 		handler = s.auth.middleware(handler)
+	}
+	if s.boundary != nil {
+		handler = s.boundary.middleware(handler, s.auth)
 	}
 	return requestLog(s.logger, securityHeaders(handler))
 }
@@ -305,6 +390,28 @@ func (s *Server) listQualifications(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+func (s *Server) listInferencePresets(w http.ResponseWriter, r *http.Request) {
+	items, err := inference.ListPresets(r.Context(), s.store.DB)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) createInferencePreset(w http.ResponseWriter, r *http.Request) {
+	var input inference.Preset
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := inference.CreatePreset(r.Context(), s.store.DB, input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
 func (s *Server) runQualification(w http.ResponseWriter, r *http.Request) {
 	if s.qualifier == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "model qualification service is unavailable"})
@@ -314,6 +421,24 @@ func (s *Server) runQualification(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	item, err := s.qualifier.Run(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) runProviderQualification(w http.ResponseWriter, r *http.Request) {
+	if s.qualifier == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "model qualification service is unavailable"})
+		return
+	}
+	var input qualification.Input
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.ProviderID = r.PathValue("id")
 	item, err := s.qualifier.Run(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
@@ -447,7 +572,8 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"skills": skillList, "candidates": candidates,
 		"archives": archives, "relations": relations, "profiles": ctxcompiler.Profiles(),
 		"reviews": reviews, "curator_runs": curatorRuns, "providers": providerProfiles, "sessions": sessions,
-		"mcp_servers": mcpServers, "capability_summary": capabilitySummary,
+		"direct_tools": s.agent.DirectToolDefinitions(),
+		"mcp_servers":  mcpServers, "capability_summary": capabilitySummary,
 		"estimator_multiplier": s.estimator.Multiplier()})
 }
 
@@ -546,7 +672,8 @@ func (s *Server) listCapabilities(w http.ResponseWriter, r *http.Request) {
 		limit = value
 	}
 	items := s.catalog.Search(r.URL.Query().Get("query"), r.URL.Query().Get("source"), limit)
-	writeJSON(w, http.StatusOK, map[string]any{"results": items, "count": len(items), "schemas_exposed": false})
+	writeJSON(w, http.StatusOK, map[string]any{"results": items, "count": len(items), "schemas_exposed": false,
+		"runtime": product.PlatformCapabilities(secrets.Protection())})
 }
 
 func (s *Server) getCapability(w http.ResponseWriter, r *http.Request) {
@@ -1244,6 +1371,42 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (s *Server) listSessionEvents(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service is unavailable"})
+		return
+	}
+	parse := func(name string) (int, bool) {
+		raw := strings.TrimSpace(r.URL.Query().Get(name))
+		if raw == "" {
+			return 0, true
+		}
+		value, err := strconv.Atoi(raw)
+		return value, err == nil && value >= 0
+	}
+	after, afterOK := parse("after_sequence")
+	before, beforeOK := parse("before_sequence")
+	limit := 100
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		var err error
+		limit, err = strconv.Atoi(raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "limit must be between 1 and 200"})
+			return
+		}
+	}
+	if !afterOK || !beforeOK || (after > 0 && before > 0) || limit < 1 || limit > 200 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid event pagination cursor or limit"})
+		return
+	}
+	page, err := s.agent.ListEventsPage(r.Context(), r.PathValue("id"), after, before, limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
+}
+
 func (s *Server) runTurn(w http.ResponseWriter, r *http.Request) {
 	if s.agent == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service is unavailable"})
@@ -1251,6 +1414,10 @@ func (s *Server) runTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	var input agent.TurnInput
 	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.agent.ValidateTurnInput(r.Context(), r.PathValue("id"), input); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": err.Error()})
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -1319,6 +1486,42 @@ func profileByName(name string) (ctxcompiler.Profile, bool) {
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	return decodeJSONLimit(w, r, target, 10<<20)
 }
+
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, target any, limit int64) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || !isJSONMediaType(mediaType) {
+		writeBoundaryError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json or application/*+json")
+		return false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(target); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeBoundaryError(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "JSON request body exceeds the endpoint limit")
+			return false
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
+		return false
+	}
+	var extra any
+	if err = decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			writeBoundaryError(w, http.StatusBadRequest, "multiple_json_values", "request body must contain exactly one JSON document")
+		} else {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
+		}
+		return false
+	}
+	return true
+}
+
+func isJSONMediaType(mediaType string) bool {
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	return mediaType == "application/json" || (strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json"))
+}
+
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
@@ -1343,6 +1546,12 @@ func writeError(w http.ResponseWriter, err error) {
 		// fault, so it belongs with the other 422s rather than falling through
 		// to the generic 500 below.
 		status = http.StatusUnprocessableEntity
+	case errors.Is(err, product.ErrInteractiveTerminalUnavailable):
+		status = http.StatusNotImplemented
+	case errors.Is(err, product.ErrMediaProcessorUnsupported):
+		status = http.StatusNotImplemented
+	case errors.Is(err, product.ErrIdempotencyConflict):
+		status = http.StatusConflict
 	default:
 		var mcpErr *mcp.Error
 		if errors.As(err, &mcpErr) {
@@ -1401,10 +1610,42 @@ func spa(next http.Handler, assets fs.FS) http.Handler {
 			name = "index.html"
 		}
 		if _, err := fs.Stat(assets, name); err != nil {
-			r.URL.Path = "/"
+			name = "index.html"
+		}
+		if name == "index.html" {
+			page, err := fs.ReadFile(assets, name)
+			if err != nil {
+				http.Error(w, "UI page is unavailable", http.StatusInternalServerError)
+				return
+			}
+			var entropy [24]byte
+			if _, err := rand.Read(entropy[:]); err != nil {
+				http.Error(w, "UI style authorization is unavailable", http.StatusInternalServerError)
+				return
+			}
+			nonce := base64.RawStdEncoding.EncodeToString(entropy[:])
+			// CodeMirror injects its layout and syntax styles at runtime. Bind
+			// only that trusted editor's style elements to this HTML response;
+			// scripts and stored artifact responses retain their strict policy.
+			pageHTML := strings.Replace(string(page), "<head>", `<head><meta name="hermetrix-style-nonce" content="`+nonce+`">`, 1)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Security-Policy", contentSecurityPolicy(nonce))
+			if r.Method != http.MethodHead {
+				_, _ = io.WriteString(w, pageHTML)
+			}
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func contentSecurityPolicy(styleNonce string) string {
+	stylePolicy := "style-src 'self'"
+	if styleNonce != "" {
+		stylePolicy += " 'nonce-" + styleNonce + "'"
+	}
+	return "default-src 'self'; " + stylePolicy + "; script-src 'self'; img-src 'self' data:; connect-src 'self'"
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -1412,7 +1653,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(""))
 		next.ServeHTTP(w, r)
 	})
 }

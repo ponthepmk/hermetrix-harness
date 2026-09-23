@@ -5,7 +5,7 @@
 Hermetrix is a local-first, provider-flexible agent harness built around three hard problems:
 
 1. a reviewable, reversible learning lifecycle for skills;
-2. token-efficient context compilation across 32k, 64k, 96k, 128k, 256k and 1M envelopes while keeping declared, probed and qualified context evidence distinct.
+2. token-efficient context compilation across 16k, 32k, 64k, 96k, 128k, 256k and 1M envelopes while keeping declared, probed and qualified context evidence distinct.
 3. an auditable agent loop that freezes model, context and capabilities before every sampling step.
 
 The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
@@ -24,7 +24,7 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - duplicate/overlap candidate analysis with version-bound evidence
 - persisted background reviews that yield to foreground inference and create candidates only
 - versioned curator runs in report-only mode
-- typed context fragments, 32k/64k/96k/128k/256k/1M profiles and reserve-aware compilation
+- typed context fragments, 16k/32k/64k/96k/128k/256k/1M profiles and reserve-aware compilation
 - deterministic deduplication, tool-output spill, structured checkpoints and pluggable semantic compaction
 - runtime-allocation probes for Ollama, LM Studio, vLLM and llama.cpp
 - provider registry with per-profile vault/environment credentials and adapters for OpenAI-compatible streaming, native Anthropic Messages and native Gemini generateContent
@@ -64,14 +64,18 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - explicit user memory, non-secret settings, event-derived usage tracking and checksum-verified backup/import-as-candidate flow
 - curator stale/duplicate findings with exact-version consolidation/replay plans and no mutation authority
 - idle/AC-aware background maintenance schedules plus exact-snapshot CAS GC using recoverable quarantine instead of deletion
-- clean-room cockpit shell with a project picker, three independently resizable and collapsible zones, four views (Chat, Work, Code, Knowledge) and per-project per-view layout memory
-- optimistic project file editor with bounded diff and immutable write receipt
-- persisted real PTY sessions on macOS/Linux, bounded incremental output tail, resize/input/interrupt/close and honest interrupted recovery
+- task-first cockpit with Chat, Plans and Workspace, an AI workspace preset, compact panel tabs on smaller screens, and per-project layout memory
+- editable CodeMirror workspace with syntax highlighting, tabs, find/replace, undoable buffer formatting, SHA-checked saving, bounded Run/Test output and local AI file/selection context; see [IDE workspace guide](docs/IDE-WORKSPACE.md)
+- real Go/Delve and JavaScript/Node debugging with breakpoints, stack, local variables and step controls; see [debugger setup and limits](docs/DEBUGGER.md)
+- persisted real PTY sessions on macOS/Linux and Windows ConPTY with PowerShell, bounded incremental output, resize/input/interrupt/close and process-tree cleanup
+- opt-in Discord remote control through an outbound Gateway connection, allowlisted guild/channel/user slash commands, local-model sessions and exact-change approvals; see [Discord setup and verification limits](docs/DISCORD-REMOTE.md)
 - managed Chrome/Chromium tabs through DevTools (not an iframe), bounded untrusted DOM snapshots, numbered click/type references, screenshot artifacts and explicit private/local URL opt-in
 - native DOCX/XLSX/PPTX package generation with Unicode, deterministic package contents and provenance; PDF generation fails closed when the built-in Basic-Latin font cannot represent the text
 - reusable/editable Agent Team rosters with one explicit lead, UI-authored validated DAGs, up to four scheduled children, independent child Session Contracts, frozen run/member instruction snapshots, durable exact-effect approval pause/resume without prompt replay, parent cancellation propagation, labelled untrusted peer evidence and aggregated token/provenance tracking
 
 ## Run
+
+For the prepared Windows local pilot, use the installed **Start Hermetrix.cmd** launcher. Its location, verified behavior, and remaining integration limits are recorded in the [local release guide](docs/LOCAL_RELEASE.md).
 
 ```bash
 go run ./cmd/hermetrix serve --data ./.hermetrix --listen 127.0.0.1:7331
@@ -118,7 +122,7 @@ inside the root. `workspace.write_file` can replace one UTF-8 file or create one
 file in an existing directory, but every exact write pauses for approval in Chat
 and uses `expected_sha256` to reject stale changes.
 
-The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–600 second deadline, 2 MiB output ceiling, process-tree cancellation and an immutable terminal-log artifact. On macOS commands run under an enforced Seatbelt profile with network denied and writes limited to the Project/runtime caches. On Linux Hermetrix uses Bubblewrap with a read-only host view, Project/cache write scopes and a private network namespace when `bwrap` is installed; otherwise the receipt says `process-hardening-only`. Set `HERMETRIX_REQUIRE_OS_SANDBOX=1` to fail closed when the platform sandbox is unavailable. Windows uses a kill-on-close Job Object for process lifetime but does not yet provide an isolation profile.
+The same root is registered as the initial Project. The Project workbench may start only an allowlisted executable (`go`, `git`, `node`, `npm`, `python`, `python3`, `rg`, `ls`) directly—never through a shell. Jobs have a bounded working directory, minimal non-secret environment, 1–600 second deadline, 2 MiB output ceiling, process-tree cancellation and an immutable terminal-log artifact. On macOS commands run under an enforced Seatbelt profile with network denied and writes limited to the Project/runtime caches. On Linux Hermetrix uses Bubblewrap with a read-only host view, Project/cache write scopes and a private network namespace when `bwrap` is installed; otherwise the receipt says `process-hardening-only`. Set `HERMETRIX_REQUIRE_OS_SANDBOX=1` to fail closed when the platform sandbox is unavailable. Windows uses a kill-on-close Job Object for process lifetime but does not yet provide an isolation profile.
 
 ### Projects and views
 
@@ -129,21 +133,17 @@ state, not a step waiting to be finished. The picker is the first screen for
 exactly this reason, and the project chip in the header returns to it at any
 time.
 
-The shell itself is three zones — rail, main and side — each dragged from its
-own handle rather than fixed at a width someone guessed once. Either the rail
-or the side pane can be collapsed independently, and every one of the four
-views (**Chat**, **Work**, **Code**, **Knowledge**) remembers its own zone
-widths and collapsed state per project, restored the next time that project
-opens onto that view.
+Use **Chat** for conversations, **Plans** for durable requirements and checked
+steps, and **Workspace** for editing and running the project. The **AI workspace**
+preset brings files, the editable code view, local AI and command output into
+one layout. Each project remembers its panel layout; narrow windows use panel
+tabs so the editor remains usable. Panels can also show a real terminal,
+managed browser or task cockpit. See the [IDE workspace guide](docs/IDE-WORKSPACE.md)
+for the tested workflow and remaining editor/debugger limitations.
 
-Chat is the one view built today; Work and Knowledge are still specs and say
-so on screen rather than opening onto something blank. Code is where the main
-area splits instead of staying one surface: up to four panes, each showing
-files, a real terminal, the managed browser or background job output,
-reassignable and independently maximisable from its own header. A project
-remembers exactly which panes were open and which one was maximised, the same
-way it remembers zone widths — the file tree that will eventually sit in
-Code's own rail is still a spec too.
+**Settings → Discord remote** connects an explicitly configured private-server
+workflow to the same local agent. It starts disabled and requires the user's
+own bot credentials and allowed IDs; it does not expose the local web server.
 
 ### Connecting a model
 
@@ -281,7 +281,7 @@ mutation-tested — disabling a guard turns its test red. The gaps that matter m
 - `no_skill_requested_rate` has not yet been characterized across a representative local-model matrix, so one qwen qualification run is not enough to generalize Skill retrieval behavior;
 - token estimation still has no exact per-model tokenizer, so budget numbers carry a calibrated error band rather than an exact one;
 - a real local `qwen3:4b` run at a live 131,072-token Ollama allocation completed tool qualification at grade A but recovered 0/5 long-context sentinels, so the harness correctly kept it `limited`; 128k is measured but not certified for this model/configuration;
-- authentication is one configured principal and is not an account/role system; signed native desktop packaging and Windows ConPTY remain unimplemented;
+- authentication is one configured principal and is not an account/role system; signed native desktop packaging remains unimplemented;
 - command isolation is enforced with Seatbelt on macOS and Bubblewrap when available on Linux, but Windows has only process-lifetime containment and Linux must use `HERMETRIX_REQUIRE_OS_SANDBOX=1` when fallback is unacceptable;
 - managed browser automation requires an installed Chrome/Chromium; CDP blocks redirects/subresources before network release and pins DNS answers per tab, but this is not a kernel/proxy egress boundary and cannot eliminate Chrome/resolver TOCTOU as completely as a dedicated proxy;
 - native Anthropic/Gemini protocol behavior is covered by local contract servers, but live paid endpoints were not exercised without user-supplied credentials;
@@ -293,6 +293,9 @@ Each gap has an ID, evidence down to file and line, and a mitigation phase. See 
 
 | Document | Role |
 |---|---|
+| [Local multimodal and privacy implementation](docs/specs/2026-09-19-local-multimodal-privacy-implementation.md) | Target contracts for local runtime, presets, media, ownership and sharing |
+| [Implementation handoff](docs/handoffs/2026-09-19-sol-implementation.md) | GPT-5.6 Sol prompt, dependency order, evidence requirements and progress ledger |
+| [docs/specs/2026-09-19-hermetrix-master-project-specification.md](docs/specs/2026-09-19-hermetrix-master-project-specification.md) | **master project specification** — complete product, domain, API, data, security, recovery and acceptance contract |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | **start here on a new machine** — what is done, what is blocked, what is missing, and how to run it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | current implementation and safety contracts |
 | [docs/FUTURE-ARCHITECTURE-PLAN.md](docs/FUTURE-ARCHITECTURE-PLAN.md) | **forward source of truth** — ADRs, open findings, phases, risk register |

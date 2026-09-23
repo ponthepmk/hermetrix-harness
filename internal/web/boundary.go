@@ -1,11 +1,7 @@
 package web
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -155,38 +151,4 @@ func writeBoundaryError(w http.ResponseWriter, status int, code, message string)
 	writeJSON(w, status, map[string]any{"error": map[string]string{
 		"code": code, "message": message, "request_id": identity.New("request"),
 	}})
-}
-func decodeJSONLimit(w http.ResponseWriter, r *http.Request, target any, limit int64) bool {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !isJSONMediaType(mediaType) {
-		writeBoundaryError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json or application/*+json")
-		return false
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(target); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			writeBoundaryError(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "JSON request body exceeds the endpoint limit")
-			return false
-		}
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
-		return false
-	}
-	var extra any
-	if err = decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			writeBoundaryError(w, http.StatusBadRequest, "multiple_json_values", "request body must contain exactly one JSON document")
-		} else {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
-		}
-		return false
-	}
-	return true
-}
-
-func isJSONMediaType(mediaType string) bool {
-	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-	return mediaType == "application/json" || (strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json"))
 }

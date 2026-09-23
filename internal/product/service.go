@@ -47,6 +47,8 @@ type Service struct {
 	teamWG         sync.WaitGroup
 	pathLocks      *pathLockManager
 	mediaSem       chan struct{}
+	debuggers      map[string]*debugRuntime
+	debugWG        sync.WaitGroup
 }
 
 type teamAgentRunner interface {
@@ -161,6 +163,8 @@ func (s *Service) Close() {
 	s.closeTerminals()
 	s.terminalWG.Wait()
 	s.closeBrowser()
+	s.closeDebuggers()
+	s.debugWG.Wait()
 }
 
 func (s *Service) SaveProject(ctx context.Context, input ProjectInput) (Project, error) {

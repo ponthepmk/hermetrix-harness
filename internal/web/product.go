@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,54 @@ func (s *Server) requireProduct(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+func (s *Server) updateVisibility(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.VisibilityInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	receipt, err := s.product.UpdateVisibility(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, receipt)
+}
+
+func (s *Server) updateArtifactVisibility(w http.ResponseWriter, r *http.Request) {
+	s.updateBoundVisibility(w, r, "artifact")
+}
+func (s *Server) updateTaskVisibility(w http.ResponseWriter, r *http.Request) {
+	s.updateBoundVisibility(w, r, "task")
+}
+func (s *Server) updateMemoryVisibility(w http.ResponseWriter, r *http.Request) {
+	s.updateBoundVisibility(w, r, "memory")
+}
+func (s *Server) updateSkillVisibility(w http.ResponseWriter, r *http.Request) {
+	s.updateBoundVisibility(w, r, "skill")
+}
+func (s *Server) updateBoundVisibility(w http.ResponseWriter, r *http.Request, kind string) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.VisibilityInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.ObjectKind = kind
+	input.ObjectID = r.PathValue("id")
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	receipt, err := s.product.UpdateVisibility(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, receipt)
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +163,22 @@ func (s *Server) writeProjectFile(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := s.product.WriteProjectFile(r.Context(), r.PathValue("id"), input)
 	if err != nil {
+		var conflict *product.PreimageChangedError
+		if errors.As(err, &conflict) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{
+				"code": "preimage_changed", "message": conflict.Error(), "path": conflict.Path,
+				"current_sha256": conflict.CurrentSHA256,
+			}})
+			return
+		}
+		var committed *product.MutationCommittedReceiptFailed
+		if errors.As(err, &committed) {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": map[string]any{
+				"code": "mutation_committed_receipt_failed", "message": committed.Error(),
+				"receipt_error_code": committed.ReceiptErrorCode,
+			}, "result": committed.Result})
+			return
+		}
 		writeError(w, err)
 		return
 	}
@@ -424,10 +489,8 @@ func (s *Server) createArtifact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
-// uploadImageArtifact stores a composer-attached image as an immutable CAS
-// artifact and returns it for reference. The model cannot see pixels yet —
-// providers are text-only — so the message carries an artifact reference the
-// human can open, not a silent promise of vision.
+// uploadImageArtifact preserves the legacy JSON/base64 request shape while
+// delegating decoded-content validation to the media boundary.
 func (s *Server) uploadImageArtifact(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
@@ -443,10 +506,10 @@ func (s *Server) uploadImageArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mime := strings.ToLower(strings.TrimSpace(input.MIMEType))
-	extensions := map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+	extensions := map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 	extension, ok := extensions[mime]
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "only png, jpeg, webp or gif images are accepted"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "only png, jpeg or webp images are accepted"})
 		return
 	}
 	raw, err := base64.StdEncoding.DecodeString(input.Base64)
@@ -465,11 +528,8 @@ func (s *Server) uploadImageArtifact(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(name, ".") {
 		name += "." + extension
 	}
-	item, err := s.product.CreateArtifact(r.Context(), product.ArtifactInput{
-		ProjectID: input.ProjectID, SessionID: input.SessionID,
-		Name: name, Kind: "image", MIMEType: mime,
-		Content: string(raw), Metadata: map[string]any{"source": "composer-drop"},
-	})
+	item, err := s.product.UploadMedia(r.Context(), product.MediaUploadInput{ProjectID: input.ProjectID,
+		SessionID: input.SessionID, Name: name, MIMEType: mime, Data: raw})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -507,6 +567,322 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Checksum", item.Checksum)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, (8<<20)+(1<<20))
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "media upload exceeds the image upload limit"})
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "multipart field file is required"})
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (8<<20)+1))
+	if err != nil || len(data) > 8<<20 {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "image exceeds 8 MiB"})
+		return
+	}
+	item, err := s.product.UploadMedia(r.Context(), product.MediaUploadInput{ProjectID: r.FormValue("project_id"),
+		SessionID: r.FormValue("session_id"), Name: header.Filename, Data: data})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) startMediaJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.MediaJobInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.StartMediaJob(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, item)
+}
+
+func (s *Server) getMediaJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.GetMediaJob(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) cancelMediaJob(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.CancelMediaJob(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) createSharePreview(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.SharePreviewInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.ProjectID, input.Actor = r.PathValue("id"), effectiveActor(r.Context(), input.Actor)
+	item, err := s.product.CreateSharePreview(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) createShareExport(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.ShareExportInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.ProjectID = r.PathValue("id")
+	item, err := s.product.ExportShare(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, item)
+}
+
+func (s *Server) getShareExport(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.GetShareExport(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) getShareExportContent(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, data, err := s.product.ShareExportContent(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.hermetrix.project-share+zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, item.ID+".hermetrix-share.zip"))
+	w.Header().Set("X-Content-Checksum", item.PackageChecksum)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func (s *Server) previewShareImport(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, (512<<20)+1)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "read share package: " + err.Error()})
+		return
+	}
+	item, err := s.product.PreviewShareImport(r.Context(), data, effectiveActor(r.Context(), r.URL.Query().Get("actor")))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) applyShareImport(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.ApplyShareImportInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, err := s.product.ApplyShareImport(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) exportWorkspaceMigration(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.WorkspaceExportInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, _, err := s.product.ExportWorkspace(r.Context(), input)
+	input.Passphrase = ""
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) getWorkspaceMigration(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.GetWorkspaceMigration(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) getWorkspaceMigrationContent(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, data, err := s.product.WorkspaceMigrationContent(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.hermetrix.workspace+age")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, item.ID+".age"))
+	w.Header().Set("X-Content-Checksum", item.PackageChecksum)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func (s *Server) previewWorkspaceMigration(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, (256<<20)+(1<<20))
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid workspace migration multipart body"})
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "multipart field file is required"})
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (256<<20)+1))
+	if err != nil || len(data) > 256<<20 {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "workspace package exceeds 256 MiB"})
+		return
+	}
+	passphrase := r.FormValue("passphrase")
+	item, err := s.product.PreviewWorkspaceImport(r.Context(), product.WorkspaceImportPreviewInput{EncryptedPackage: data, Passphrase: passphrase, Actor: effectiveActor(r.Context(), r.FormValue("actor"))})
+	passphrase = ""
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) applyWorkspaceMigration(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.WorkspaceImportApplyInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, err := s.product.ApplyWorkspaceImport(r.Context(), input)
+	input.Passphrase = ""
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) createFullRecovery(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Actor string `json:"actor"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, _, err := s.product.CreateFullRecovery(r.Context(), effectiveActor(r.Context(), input.Actor))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) getFullRecoveryContent(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, data, err := s.product.BackupData(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if item.Kind != "full_recovery" || item.State != "completed" {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "recovery package is not completed"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.hermetrix.full-recovery+zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, item.ID+".hermetrix-recovery.zip"))
+	w.Header().Set("X-Content-Checksum", item.Checksum)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func (s *Server) verifyFullRecovery(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, (512<<20)+1)
+	data, err := io.ReadAll(r.Body)
+	if err != nil || len(data) > 512<<20 {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "recovery package exceeds 512 MiB"})
+		return
+	}
+	report, err := product.VerifyFullRecovery(data)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 func (s *Server) listSettings(w http.ResponseWriter, r *http.Request) {

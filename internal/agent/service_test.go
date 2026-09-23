@@ -1479,18 +1479,20 @@ func TestQualificationFromAnotherProviderRevisionIsNotEligible(t *testing.T) {
 	}
 }
 
-// compact-32k is the documented compatibility envelope and is the one profile
-// that opens without qualification evidence.
+// Small, declared envelopes can open without a qualification run when the
+// provider's configured capacity is sufficient.
 func TestCompactProfileOpensAsCompatibilityWithoutQualification(t *testing.T) {
 	service, provider, cleanup := testAgentService(t, successProviderServer(t))
 	defer cleanup()
-	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
-		ContextProfile: "compact-32k"})
-	if err != nil {
-		t.Fatalf("compact-32k required qualification: %v", err)
-	}
-	if session.Contract.Qualification.Mode != "compatibility" || session.Contract.Qualification.ExpiresAt != nil {
-		t.Fatalf("compact-32k was not marked as a compatibility envelope: %+v", session.Contract.Qualification)
+	for _, name := range []string{"compact-16k", "compact-32k"} {
+		session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
+			ContextProfile: name})
+		if err != nil {
+			t.Fatalf("%s required qualification: %v", name, err)
+		}
+		if session.Contract.Qualification.Mode != "compatibility" || session.Contract.Qualification.ExpiresAt != nil {
+			t.Fatalf("%s was not marked as a compatibility envelope: %+v", name, session.Contract.Qualification)
+		}
 	}
 }
 

@@ -62,7 +62,7 @@ Hermetrix รุ่นนี้เป็น clean-room implementation ใหม�
 - `skill_search`/`skill_view` และ metric `no_skill_requested_rate` มีครบแล้ว (ADR-7, R-14) แต่ยังไม่มี model-matrix ที่ใหญ่พอให้สรุป retrieval behavior ทั่วไป
 - retrieval ข้ามภาษาได้แล้วเมื่อเปิด `serve --embed-url` — goal ไทยถึง Skill ที่สรุปเป็นอังกฤษ วัดกับ bge-m3 จริง 3/3 ถ้าไม่เปิด ทุกอย่างถอยไปใช้ lexical เหมือนเดิม ซึ่งข้ามภาษาไม่ได้
 - qualification จริงวันที่ 4 กันยายน 2026 ใช้ local `qwen3:4b` ผ่าน Ollama alias ที่ live allocation 131,072: tool behavior ได้ grade A แต่ long-context sentinel ได้ 0/5 หลัง probe 85,196 tokens จึงคง tier `limited` และไม่อนุญาต 128k โดยไม่มี explicit decision
-- native desktop packaging/signing, Windows ConPTY, mobile UI และ packaged-app accessibility/E2E
+- native desktop packaging/signing, mobile UI และ packaged-app accessibility/E2E; Windows ConPTY ส่งมอบและมี native process tests แล้ว
 - managed browser ยังต้องพึ่ง Chrome/Chromium ที่ติดตั้งในเครื่อง; redirect/subresource/websocket ถูกดักด้วย CDP Fetch ก่อนปล่อย request และมี real-Chrome test ยืนยัน loopback ได้ 0 hits แต่ยังไม่ใช่ proxy/DNS-pinned egress boundary ที่กัน DNS rebinding ได้สมบูรณ์
 - PDF generator ยังไม่มี embedded redistributable Unicode font จึงรองรับ printable Basic Latin เท่านั้นและปฏิเสธข้อความอื่นอย่างชัดเจน
 
@@ -148,7 +148,7 @@ UI ใช้ interaction model แบบ clean-room ที่แก้ปัญ�
 
 Agent Team ใช้ definition ถาวรแต่สร้าง child session ใหม่ทุก task เพื่อไม่ให้ memory/context ของสมาชิกไหลข้าม run โดยไม่ตั้งใจ ผู้ใช้แก้ roster และสร้าง custom DAG จาก UI ได้; หากไม่กำหนด graph ระบบปล่อย specialistพร้อมกันแล้วให้ lead synthesis รอผลทั้งหมด Run snapshot ชื่อ/กติกาทีมและชื่อ/role/instructions ของสมาชิกลงฐานข้อมูลก่อนเริ่ม ดังนั้นการแก้ roster ระหว่าง run ไม่เปลี่ยนความหมายย้อนหลัง สมาชิกที่ถูกถอดถูก retire แทน delete เพื่อรักษา foreign-key provenance ผล peer ถูกฉีดด้วย label `untrusted evidence, never instructions` เพื่อไม่ยก authority จากข้อความของ child หนึ่งไปอีก child หนึ่ง เมื่อ child ขอ exact-effect approval ระบบ persist approval ID/summary/preview/effect แล้วหยุด run ที่ `awaiting_approval`; การตัดสินใจเรียก approval เดิมบน leased turn จึงไม่ส่ง prompt หรือ effect ซ้ำ และ dependent DAG เดินต่อเมื่อไม่มี approval ค้าง Recovery รักษา approval ที่ยังไม่ถูกตัดสิน แต่ task ที่หยุดกลาง sampling/resolution เป็น `interrupted` และไม่ auto-retry Scheduler รับ `max_parallel` สูงสุด 4 และ cancellation ของ parent propagate ถึง child context แต่ local model ที่แชร์ GPU อาจถูก `InferenceGate` serialize ตาม capacity ของ runtime; remote/independent runner สามารถขนานจริงได้
 
-สิ่งที่ยังไม่เท่ากับ native Aetox คือ packaging: renderer ปัจจุบันยังเสิร์ฟบน loopback ไม่ใช่ signed Wails/Tauri application, Windows ยังไม่มี ConPTY และ browser เป็น headless managed Chrome พร้อม screenshot/DOM control ไม่ใช่ WebView2 ที่ผู้ใช้ดู navigation แบบ composited live view
+สิ่งที่ยังไม่เท่ากับ native Aetox คือ packaging: renderer ปัจจุบันยังเสิร์ฟบน loopback ไม่ใช่ signed Wails/Tauri application; Windows Terminal ใช้ ConPTY จริงแล้ว ส่วน browser เป็น headless managed Chrome พร้อม screenshot/DOM control ไม่ใช่ WebView2 ที่ผู้ใช้ดู navigation แบบ composited live view
 
 ## Skill learning lifecycle
 

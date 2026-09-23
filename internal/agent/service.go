@@ -69,6 +69,14 @@ func NewService(dataStore *store.Store, providerService *providers.Service, comp
 	return &Service{store: dataStore, providers: providerService, compiler: compiler, estimator: estimator, gate: gate, tools: tools, skills: skillService}
 }
 
+// DirectToolDefinitions is the live registry used when freezing new session contracts.
+func (s *Service) DirectToolDefinitions() []toolruntime.Definition {
+	if s == nil || s.tools == nil {
+		return []toolruntime.Definition{}
+	}
+	return s.tools.Definitions()
+}
+
 func (s *Service) WithLearning(service *learning.Service) *Service {
 	s.learning = service
 	return s
@@ -163,7 +171,7 @@ func (s *Service) resolveQualification(ctx context.Context, provider providers.P
 	providerRevision := providers.Revision(provider)
 	binding := QualificationBinding{ProviderRevision: providerRevision, ContextProfile: profile.Name,
 		RuntimeFingerprintID: provider.RuntimeFingerprintID}
-	if profile.Name == "compact-32k" {
+	if profile.Name == "compact-16k" || profile.Name == "compact-32k" {
 		binding.Mode = "compatibility"
 		return binding, nil
 	}

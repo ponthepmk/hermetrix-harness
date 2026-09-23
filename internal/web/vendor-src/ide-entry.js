@@ -2,9 +2,9 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
-import { indentWithTab } from "@codemirror/commands";
+import { EditorState, EditorSelection, StateEffect, StateField, RangeSet, Compartment } from "@codemirror/state";
+import { EditorView, keymap, gutter, GutterMarker, Decoration } from "@codemirror/view";
+import { indentWithTab, isolateHistory } from "@codemirror/commands";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { javascript } from "@codemirror/lang-javascript";
@@ -87,12 +87,70 @@ export function createTerminal(parent, options = {}) {
 
 export function createEditor(parent, options = {}) {
   const onSave = () => { options.onSave?.(); return true; };
+  const wrapping = new Compartment();
+  const updateBreakpoints = StateEffect.define();
+  const updateExecutionLine = StateEffect.define();
+  const breakpointPositions = StateField.define({
+    create: () => [],
+    update(positions, transaction) {
+      let next = positions.map(position => transaction.newDoc.lineAt(transaction.changes.mapPos(position, 1)).from);
+      for (const effect of transaction.effects) {
+        if (effect.is(updateBreakpoints)) next = effect.value.filter(line => Number.isInteger(line) && line >= 1 && line <= transaction.newDoc.lines).map(line => transaction.newDoc.line(line).from);
+      }
+      return [...new Set(next)].sort((left, right) => left - right);
+    }
+  });
+  const executionLine = StateField.define({
+    create: () => Decoration.none,
+    update(value, transaction) {
+      let next = value.map(transaction.changes);
+      for (const effect of transaction.effects) {
+        if (effect.is(updateExecutionLine)) {
+          const line = effect.value;
+          next = Number.isInteger(line) && line >= 1 && line <= transaction.newDoc.lines
+            ? Decoration.set([Decoration.line({class:"cm-execution-line"}).range(transaction.newDoc.line(line).from)])
+            : Decoration.none;
+        }
+      }
+      return next;
+    },
+    provide: field => EditorView.decorations.from(field)
+  });
+  class BreakpointMarker extends GutterMarker {
+    toDOM() {
+      const marker = parent.ownerDocument.createElement("span");
+      marker.textContent = "●";
+      marker.title = "Breakpoint — click to remove";
+      marker.setAttribute("aria-label", "Breakpoint");
+      return marker;
+    }
+  }
+  const breakpointMarker = new BreakpointMarker();
   const view = new EditorView({
     doc: options.doc || "",
     parent,
     extensions: [
       basicSetup,
-      options.wrap ? EditorView.lineWrapping : [],
+      EditorView.cspNonce.of(parent.ownerDocument.querySelector('meta[name="hermetrix-style-nonce"]')?.content || ""),
+      EditorView.contentAttributes.of({"aria-label":`Code editor: ${options.path || "untitled"}`, spellcheck:"false"}),
+      breakpointPositions,
+      executionLine,
+      gutter({
+        class:"cm-breakpoint-gutter",
+        renderEmptyElements:true,
+        initialSpacer:() => breakpointMarker,
+        markers:editor => RangeSet.of(editor.state.field(breakpointPositions).map(position => breakpointMarker.range(position))),
+        domEventHandlers:{mousedown(editor, line, event) {
+          if (event.button !== 0) return false;
+          const number = editor.state.doc.lineAt(line.from).number;
+          const lines = editor.state.field(breakpointPositions).map(position => editor.state.doc.lineAt(position).number);
+          const enabled = !lines.includes(number);
+          editor.dispatch({effects:updateBreakpoints.of(enabled ? [...lines, number] : lines.filter(item => item !== number))});
+          options.onBreakpoint?.(number, enabled);
+          return true;
+        }}
+      }),
+      wrapping.of(options.wrap ? EditorView.lineWrapping : []),
       keymap.of([{ key: "Mod-s", run: onSave }, indentWithTab]),
       EditorState.tabSize.of(2),
       languageFor(options.path),
@@ -113,12 +171,42 @@ export function createEditor(parent, options = {}) {
         ".cm-selectionBackground, ::selection": { backgroundColor: "#315e5c99 !important" },
         ".cm-cursor": { borderLeftColor: "#75d5d0" },
         ".cm-panels": { backgroundColor: "#202020", color: "#d6d6d6" },
-        ".cm-tooltip": { backgroundColor: "#242424", color: "#d6d6d6", border: "1px solid #383838" }
+        ".cm-tooltip": { backgroundColor: "#242424", color: "#d6d6d6", border: "1px solid #383838" },
+        ".cm-breakpoint-gutter": { width:"20px", color:"#ff6b73", cursor:"pointer" },
+        ".cm-breakpoint-gutter .cm-gutterElement": { padding:"0 4px", textAlign:"center" },
+        ".cm-execution-line": { backgroundColor:"#494020 !important" }
       }, { dark: true })
     ]
   });
   return {
     getValue: () => view.state.doc.toString(),
+    setWrap: enabled => view.dispatch({effects:wrapping.reconfigure(enabled ? EditorView.lineWrapping : [])}),
+    setValue: content => {
+      const next = String(content ?? "");
+      if (next === view.state.doc.toString()) return false;
+      const selection = EditorSelection.create(view.state.selection.ranges.map(range => EditorSelection.range(
+        Math.min(range.anchor, next.length), Math.min(range.head, next.length))), view.state.selection.mainIndex);
+      const breakpoints = view.state.field(breakpointPositions).map(position => view.state.doc.lineAt(position).number);
+      const execution = view.state.field(executionLine).iter();
+      const executing = execution.value ? view.state.doc.lineAt(execution.from).number : null;
+      view.dispatch({changes:{from:0,to:view.state.doc.length,insert:next},selection,
+        effects:[updateBreakpoints.of(breakpoints),updateExecutionLine.of(executing)],
+        annotations:isolateHistory.of("full"),userEvent:"input.format"});
+      return true;
+    },
+    getSelection: () => {
+      const {from,to} = view.state.selection.main;
+      return {text:view.state.sliceDoc(from,to),fromLine:view.state.doc.lineAt(from).number,
+        toLine:view.state.doc.lineAt(to > from ? to - 1 : to).number};
+    },
+    setBreakpoints: lines => view.dispatch({effects:updateBreakpoints.of(Array.isArray(lines) ? lines.map(Number) : [])}),
+    getBreakpoints: () => view.state.field(breakpointPositions).map(position => view.state.doc.lineAt(position).number),
+    setExecutionLine: line => {
+      const number = Number(line);
+      const valid = Number.isInteger(number) && number >= 1 && number <= view.state.doc.lines;
+      view.dispatch({effects:[updateExecutionLine.of(valid ? number : null),
+        ...(valid ? [EditorView.scrollIntoView(view.state.doc.line(number).from,{y:"center"})] : [])]});
+    },
     goToLine: number => {
       const line = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, Number(number) || 1)));
       view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });

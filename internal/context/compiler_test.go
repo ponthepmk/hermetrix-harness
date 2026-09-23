@@ -24,7 +24,7 @@ func testCompiler(t *testing.T) *Compiler {
 
 func TestProfilesConsumeExactWindow(t *testing.T) {
 	profiles := Profiles()
-	wantTotals := []int{32768, 65536, 98304, 131072, 262144, 1048576}
+	wantTotals := []int{16384, 32768, 65536, 98304, 131072, 262144, 1048576}
 	if len(profiles) != len(wantTotals) {
 		t.Fatalf("profiles = %d, want %d", len(profiles), len(wantTotals))
 	}
@@ -47,7 +47,9 @@ func TestBestProfileForCapacityUsesTheCompilerRegistry(t *testing.T) {
 		name     string
 		ok       bool
 	}{
-		{capacity: 32767},
+		{capacity: 16383},
+		{capacity: 16384, name: "compact-16k", ok: true},
+		{capacity: 32767, name: "compact-16k", ok: true},
 		{capacity: 32768, name: "compact-32k", ok: true},
 		{capacity: 98303, name: "certified-64k", ok: true},
 		{capacity: 98304, name: "extended-96k", ok: true},

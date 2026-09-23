@@ -62,8 +62,18 @@ func Compact32K() Profile {
 		SummaryTarget: 1280, MaxInlineTool: 1000}
 }
 
+// Compact16K fits a local runtime that actually allocated only 16k tokens.
+// Keep all reserves inside that observed capacity instead of advertising a
+// 32k profile that the model cannot run.
+func Compact16K() Profile {
+	return Profile{Name: "compact-16k", Total: 16384, OutputReserve: 3072,
+		UncertaintyReserve: 1024, SystemBudget: 1024, DirectToolBudget: 3072,
+		SkillProjectBudget: 1024, PinnedBudget: 1024, ActiveBudget: 6144,
+		SummaryTarget: 512, MaxInlineTool: 800}
+}
+
 func Profiles() []Profile {
-	return []Profile{Compact32K(), Certified64K(), Extended96K(), Extended128K(), Extended256K(), Ultra1M()}
+	return []Profile{Compact16K(), Compact32K(), Certified64K(), Extended96K(), Extended128K(), Extended256K(), Ultra1M()}
 }
 
 func ProfileByName(name string) (Profile, bool) {

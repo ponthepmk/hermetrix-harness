@@ -207,16 +207,16 @@ func (s *Service) List(ctx context.Context) ([]Profile, error) {
 	return items, rows.Err()
 }
 
-// FirstEnabled returns a usable provider for work that has no session behind
-// it, such as background review. It prefers the oldest enabled profile so the
-// choice does not move when profiles are edited.
+// FirstEnabled returns a credential-ready provider for work that has no session
+// behind it, such as background review. An enabled profile with a missing key
+// is not usable, while a local endpoint may intentionally require no key.
 func (s *Service) FirstEnabled(ctx context.Context) (Profile, error) {
 	items, err := s.List(ctx)
 	if err != nil {
 		return Profile{}, err
 	}
 	for _, item := range items {
-		if item.Enabled && strings.TrimSpace(item.APIKeyEnv) != "" {
+		if item.Enabled && item.CredentialReady {
 			return item, nil
 		}
 	}

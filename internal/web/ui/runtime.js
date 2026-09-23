@@ -60,5 +60,10 @@
     return items;
   }
 
-  return Object.freeze({ escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline });
+  function preferredProvider(providers, selectedID) {
+    const enabled = asList(providers).filter(provider => provider.enabled);
+    return enabled.find(provider => provider.id === selectedID) || enabled.find(provider => provider.credential_ready) || enabled[0] || null;
+  }
+
+  return Object.freeze({ escapeHTML, asList, toolArgumentsPreview, toolReceiptOf, toolOutputPreview, groupTimeline, preferredProvider });
 });

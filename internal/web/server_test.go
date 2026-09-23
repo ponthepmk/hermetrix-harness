@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/curator"
+	"hermetrix-harness/internal/discordbridge"
 	"hermetrix-harness/internal/fidelity"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/localmodel"
@@ -95,14 +97,33 @@ func testHandler(t *testing.T) http.Handler {
 	qualificationService := qualification.NewService(dataStore, providerService, localmodel.NewProber(), gate, estimator)
 	taskService := taskengine.NewService(dataStore)
 	taskCoordinator := taskcoord.New(taskService, productService, providerService)
+	discordService, err := discordbridge.NewService(context.Background(), dataStore, vault, discordbridge.NewAgentAdapter(agentService, providerService, productService))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(discordService.Close)
 	return New(skillService, learningService, curatorService, compiler, estimator,
 		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
-		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).Handler()
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).Handler()
 }
 
 func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 	server := testHTTPServer(t)
+	fixtureBody := requestJSON(t, server.URL+"/api/decision/fixtures", http.MethodGet, nil, http.StatusOK)
+	var fixtureResponse struct {
+		Fixtures  []taskengine.DecisionFixture          `json:"fixtures"`
+		Threshold taskengine.DecisionAdmissionThreshold `json:"threshold"`
+	}
+	if err := json.Unmarshal(fixtureBody, &fixtureResponse); err != nil || len(fixtureResponse.Fixtures) != 6 || fixtureResponse.Threshold.MinimumCases != 6 {
+		t.Fatalf("decision fixtures=%+v err=%v", fixtureResponse, err)
+	}
+	requestJSON(t, server.URL+"/api/decision/benchmarks", http.MethodGet, nil, http.StatusOK)
+	admissionBody := requestJSON(t, server.URL+"/api/decision/admission", http.MethodGet, nil, http.StatusOK)
+	var admission map[string]any
+	if err := json.Unmarshal(admissionBody, &admission); err != nil || admission["enabled"] != false {
+		t.Fatalf("initial admission=%+v err=%v", admission, err)
+	}
 	createdBody := requestJSON(t, server.URL+"/api/tasks", http.MethodPost, taskengine.CreateTaskInput{
 		Title: "API task", Objective: "prove persistence", OriginalRequest: "continue after restart", Actor: "owner",
 		Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "state is durable"}},
@@ -129,6 +150,43 @@ func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 	if packet.Step.Key != "verify" || packet.CanonicalPacketHash == "" || packet.TaskRevision != task.Revision {
 		t.Fatalf("next packet=%+v", packet)
 	}
+	decisionBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/next-action?revision="+strconv.Itoa(task.Revision), http.MethodGet, nil, http.StatusOK)
+	var decision taskengine.NextActionDecision
+	if err := json.Unmarshal(decisionBody, &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.State.TaskRevision != task.Revision || decision.Decision.ActionID != "inspect_file" || len(decision.Candidates) == 0 {
+		t.Fatalf("next action=%+v", decision)
+	}
+	progressBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/progress?revision="+strconv.Itoa(task.Revision), http.MethodGet, nil, http.StatusOK)
+	var progress taskengine.ProgressSnapshot
+	if err := json.Unmarshal(progressBody, &progress); err != nil || progress.Attempts != 0 || progress.RemainingAttempts != taskengine.MaxTaskAttempts {
+		t.Fatalf("task progress=%+v err=%v", progress, err)
+	}
+	requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/progress?revision=1", http.MethodGet, nil, http.StatusConflict)
+	knowledgeBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/knowledge?revision="+strconv.Itoa(task.Revision), http.MethodGet, nil, http.StatusOK)
+	var knowledge struct {
+		TaskRevision int   `json:"task_revision"`
+		Matches      []any `json:"matches"`
+	}
+	if err := json.Unmarshal(knowledgeBody, &knowledge); err != nil || knowledge.TaskRevision != task.Revision || len(knowledge.Matches) != 0 {
+		t.Fatalf("task knowledge=%+v err=%v", knowledge, err)
+	}
+	requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/decision-read-only", http.MethodPost,
+		map[string]any{"expected_task_revision": task.Revision}, http.StatusBadRequest)
+	requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/next-action?revision=1", http.MethodGet, nil, http.StatusConflict)
+	requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/decision-shadow", http.MethodPost, map[string]any{
+		"expected_task_revision": 1, "provider_id": "local-model",
+	}, http.StatusConflict)
+	emptyShadows := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/decision-shadows?limit=10", http.MethodGet, nil, http.StatusOK)
+	if string(emptyShadows) != "[]\n" {
+		t.Fatalf("unexpected shadow history: %s", emptyShadows)
+	}
+	emptyMetrics := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/decision-shadow-metrics", http.MethodGet, nil, http.StatusOK)
+	var shadowMetrics taskengine.DecisionShadowMetrics
+	if err := json.Unmarshal(emptyMetrics, &shadowMetrics); err != nil || shadowMetrics.TotalRuns != 0 {
+		t.Fatalf("unexpected shadow metrics: %+v err=%v", shadowMetrics, err)
+	}
 	runBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/runs", http.MethodPost, map[string]any{
 		"expected_task_revision": task.Revision, "owner": "api-worker", "lease_seconds": 60,
 	}, http.StatusCreated)
@@ -147,19 +205,19 @@ func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 	if err := json.Unmarshal(attemptBody, &attempt); err != nil {
 		t.Fatal(err)
 	}
-	authority := taskengine.RunAuthority{RunID: runResponse.Run.ID, LeaseToken: runResponse.Run.LeaseToken}
+	runAuthority := taskengine.RunAuthority{RunID: runResponse.Run.ID, LeaseToken: runResponse.Run.LeaseToken}
 	requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/effects", http.MethodPost, map[string]any{
-		"action": "desktop.delete", "target": "customer-data", "authority": "task-plan", "run_authority": authority,
+		"action": "desktop.delete", "target": "customer-data", "authority": "task-plan", "run_authority": runAuthority,
 	}, http.StatusBadRequest)
 	effectBody := requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/effects", http.MethodPost, map[string]any{
-		"action": "workspace.run", "target": "go test ./...", "authority": "task-plan", "run_authority": authority,
+		"action": "workspace.run", "target": "go test ./...", "authority": "task-plan", "run_authority": runAuthority,
 	}, http.StatusCreated)
 	var effect taskengine.EffectIntent
 	if err := json.Unmarshal(effectBody, &effect); err != nil {
 		t.Fatal(err)
 	}
 	requestJSON(t, server.URL+"/api/task-effects/"+effect.OperationID+"/transitions", http.MethodPost,
-		map[string]any{"action": "dispatch", "authority": authority}, http.StatusOK)
+		map[string]any{"action": "dispatch", "authority": runAuthority}, http.StatusOK)
 	requestJSON(t, server.URL+"/api/task-effects/"+effect.OperationID+"/transitions", http.MethodPost,
 		map[string]any{"action": "observe", "receipt": map[string]any{"exit_code": 0, "artifact": "test-log"}}, http.StatusOK)
 	executionBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/execution", http.MethodGet, nil, http.StatusOK)
@@ -170,7 +228,7 @@ func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 		t.Fatalf("execution snapshot=%+v err=%v", execution, err)
 	}
 	completedAttemptBody := requestJSON(t, server.URL+"/api/task-attempts/"+attempt.ID+"/complete", http.MethodPost,
-		map[string]any{"output": "test passed", "authority": authority}, http.StatusOK)
+		map[string]any{"output": "test passed", "authority": runAuthority}, http.StatusOK)
 	if err := json.Unmarshal(completedAttemptBody, &attempt); err != nil || attempt.State != taskengine.AttemptCompleted {
 		t.Fatalf("completed attempt=%+v err=%v", attempt, err)
 	}
@@ -202,10 +260,13 @@ func TestBootstrapCollectionsAreArraysAndUIHasSecurityHeaders(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"skills", "candidates", "archives", "relations", "reviews", "curator_runs", "profiles", "providers", "mcp_servers", "sessions"} {
+	for _, field := range []string{"skills", "candidates", "archives", "relations", "reviews", "curator_runs", "profiles", "providers", "mcp_servers", "sessions", "direct_tools"} {
 		if string(body[field]) == "null" || len(body[field]) == 0 {
 			t.Fatalf("%s must be a JSON array, got %s", field, body[field])
 		}
+	}
+	if string(body["direct_tools"]) == "[]" {
+		t.Fatal("bootstrap must expose the live direct-tool registry")
 	}
 	page, err := http.Get(server.URL + "/")
 	if err != nil {
@@ -770,7 +831,7 @@ func TestHTTPProjectCommandArtifactsBackupAndMaintenance(t *testing.T) {
 		t.Fatalf("files=%s", filesBody)
 	}
 	jobBody := requestJSON(t, harness.URL+"/api/projects/"+project.ID+"/commands", http.MethodPost,
-		map[string]any{"actor": "user", "executable": "python3", "arguments": []string{"-c", "print('HTTP_JOB_OK')"},
+		map[string]any{"actor": "user", "executable": "node", "arguments": []string{"-e", "console.log('HTTP_JOB_OK')"},
 			"working_dir": ".", "timeout_seconds": 10}, http.StatusAccepted)
 	var job product.Job
 	if err := json.Unmarshal(jobBody, &job); err != nil {
@@ -839,6 +900,45 @@ commandComplete:
 	}
 	requestJSON(t, harness.URL+"/api/maintenance/gc/"+gc.ID+"/apply", http.MethodPost,
 		map[string]any{"actor": "user"}, http.StatusOK)
+}
+
+func TestFullRecoveryAPIProducesDownloadableVerifiablePackage(t *testing.T) {
+	server := testHTTPServer(t)
+	body := requestJSON(t, server.URL+"/api/recovery/full", http.MethodPost,
+		map[string]any{"actor": "owner"}, http.StatusCreated)
+	var run product.BackupRun
+	if err := json.Unmarshal(body, &run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Kind != "full_recovery" || run.State != "completed" || run.Checksum == "" {
+		t.Fatalf("run=%+v", run)
+	}
+	response, err := server.Client().Get(server.URL + "/api/recovery/" + run.ID + "/content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageBody, readErr := io.ReadAll(response.Body)
+	response.Body.Close()
+	if readErr != nil || response.StatusCode != http.StatusOK || response.Header.Get("X-Content-Checksum") != run.Checksum {
+		t.Fatalf("download status=%d checksum=%q err=%v", response.StatusCode, response.Header.Get("X-Content-Checksum"), readErr)
+	}
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/recovery/verify", bytes.NewReader(packageBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/vnd.hermetrix.full-recovery+zip")
+	verified, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verified.Body.Close()
+	var report product.FullRecoveryReport
+	if err = json.NewDecoder(verified.Body).Decode(&report); err != nil {
+		t.Fatal(err)
+	}
+	if verified.StatusCode != http.StatusOK || !report.Compatible || report.IntegrityCheck != "ok" {
+		t.Fatalf("verify status=%d report=%+v", verified.StatusCode, report)
+	}
 }
 
 func requestJSON(t *testing.T, url, method string, value any, wantStatus int) []byte {

@@ -19,6 +19,7 @@ import (
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/curator"
+	"hermetrix-harness/internal/discordbridge"
 	"hermetrix-harness/internal/embedding"
 	"hermetrix-harness/internal/fidelity"
 	"hermetrix-harness/internal/learning"
@@ -77,6 +78,7 @@ func runServe(args []string) {
 	defaultData, _ := filepath.Abs(".hermetrix")
 	dataRoot := flags.String("data", defaultData, "local data directory")
 	listen := flags.String("listen", "127.0.0.1:7331", "HTTP listen address")
+	trustedHosts := flags.String("trusted-host", "", "comma-separated Host values accepted by the control API; required when accessed through a named host or reverse proxy")
 	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing the control API token; enables authentication")
 	authPrincipal := flags.String("auth-principal", "local-user", "principal recorded for authenticated control API requests")
 	tlsCert := flags.String("tls-cert", "", "TLS certificate PEM; required with --tls-key for non-loopback listeners")
@@ -188,7 +190,7 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 	providerService := providers.NewService(dataStore, nil).WithVault(vault)
-	taskCoordinator := taskcoord.New(taskService, productService, providerService)
+	taskCoordinator := taskcoord.New(taskService, productService, providerService).WithLearning(learningService)
 	localProber := localmodel.NewProber()
 	qualificationService := qualification.NewService(dataStore, providerService, localProber, gate, estimator)
 	capabilityCatalog := capabilities.NewCatalog()
@@ -272,12 +274,36 @@ func runServe(args []string) {
 	} else if recovered > 0 {
 		logger.Warn("paused interrupted durable tasks for effect reconciliation", "count", recovered)
 	}
+	discordService, err := discordbridge.NewService(ctx, dataStore, vault, discordbridge.NewAgentAdapter(agentService, providerService, productService))
+	if err != nil {
+		logger.Error("initialize Discord remote control", "error", err)
+		return
+	}
+	defer discordService.Close()
+	if discordStatus, statusErr := discordService.Status(ctx); statusErr != nil {
+		logger.Warn("read Discord remote control status", "error", statusErr)
+	} else if discordStatus.Config.Enabled {
+		if connectErr := discordService.Start(ctx); connectErr != nil {
+			logger.Warn("resume Discord remote control", "error", connectErr)
+		}
+	}
+	listener, err := net.Listen("tcp", *listen)
+	if err != nil {
+		logger.Error("serve", "error", err)
+		os.Exit(1)
+	}
 	webServer := web.New(skillService, learningService, curatorService, compiler, estimator,
 		localProber, providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
-		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator)
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService)
 	if authEnabled {
 		webServer.WithAuthentication(authToken, strings.TrimSpace(*authPrincipal), tlsEnabled)
+	}
+	configuredHosts := strings.FieldsFunc(*trustedHosts, func(r rune) bool { return r == ',' })
+	if err = webServer.ConfigureRequestBoundary(listener.Addr().String(), tlsEnabled, configuredHosts); err != nil {
+		_ = listener.Close()
+		logger.Error("configure request boundary", "error", err)
+		os.Exit(2)
 	}
 	server := &http.Server{Addr: *listen, Handler: webServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute,
@@ -320,11 +346,6 @@ func runServe(args []string) {
 			}
 		}
 	}()
-	listener, err := net.Listen("tcp", *listen)
-	if err != nil {
-		logger.Error("serve", "error", err)
-		os.Exit(1)
-	}
 	scheme := "http"
 	if tlsEnabled {
 		scheme = "https"

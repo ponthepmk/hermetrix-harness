@@ -10,7 +10,6 @@
   <link rel="apple-touch-icon" href="/assets/brand/hermetrix-mark-flat.svg">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/codex-theme.css">
-  <link rel="stylesheet" href="/vendor/ide.css">
 </head>
 <body>
   <!-- A project is the root of everything -- work, notes, chat and code all
@@ -37,6 +36,7 @@
       <button class="project-chip" id="projectChip"><span class="project-dot"></span><strong id="projectName">—</strong><span>▾</span></button>
       <nav class="view-switch" id="viewSwitch" aria-label="Views">
         <button data-view="chat" class="on">Chat</button>
+        <button id="plansViewButton">Plans</button>
         <button data-view="code">Workspace</button>
       </nav>
       <div class="header-right">
@@ -84,6 +84,7 @@
       <nav class="config-nav" id="configNav" aria-label="Settings sections"></nav>
       <div class="config-pane" id="configPane">
         <section class="stats" id="stats" hidden></section>
+        <section id="libraryIntro" hidden></section>
         <section class="toolbar" id="libraryToolbar" hidden>
           <label class="search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="searchInput" type="search" placeholder="Search skills, origin, owner…"></label>
           <select id="stateFilter" aria-label="Filter state">
@@ -102,11 +103,13 @@
         <section class="view" id="view-context"></section>
         <section class="view" id="view-providers"></section>
         <section class="view" id="view-mcp"></section>
+        <section class="view" id="view-tools"></section>
         <section class="view" id="view-projects"></section>
         <section class="view" id="view-office"></section>
         <section class="view" id="view-artifacts"></section>
         <section class="view" id="view-fidelity"></section>
         <section class="view" id="view-maintenance"></section>
+        <section class="view" id="view-discord"></section>
       </div>
     </div>
   </div>
@@ -124,6 +127,12 @@
       <p class="form-note">Saving creates a proposal only. It cannot enter model context until checks pass and you explicitly promote it.</p>
       <div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button value="default" class="primary" id="saveCandidate">Create proposal</button></div>
     </form>
+  </dialog>
+
+  <dialog id="sessionSetupDialog" class="session-setup-dialog" aria-labelledby="sessionSetupTitle">
+    <div class="dialog-head"><div><h2 id="sessionSetupTitle">ตั้งค่าการเริ่มงาน</h2><p>ใช้กับแชทใหม่ในโปรเจกต์ที่เปิดอยู่</p></div><button type="button" class="icon-button" id="sessionSetupClose" aria-label="ปิดการตั้งค่าโมเดล">×</button></div>
+    <div id="sessionSetupBody"></div>
+    <div class="dialog-actions"><button type="button" class="primary" id="sessionSetupDone">เสร็จ</button></div>
   </dialog>
 
   <dialog id="actionDialog" class="action-dialog">
@@ -160,8 +169,10 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/vendor/ide.js" defer></script>
   <script src="/runtime.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/ide-workspace.js" defer></script>
+  <script src="/ide-assistant.js" defer></script>
+  <script src="/discord-settings.js" defer></script>
 </body>
 </html>

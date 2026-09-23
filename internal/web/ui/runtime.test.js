@@ -2,6 +2,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const runtime = require("./runtime.js");
 
+test("default model is ready while an explicit model choice remains respected", () => {
+  const missing = {id:"remote", enabled:true, credential_ready:false};
+  const ready = {id:"local", enabled:true, credential_ready:true};
+  const disabled = {id:"disabled", enabled:false, credential_ready:true};
+  assert.equal(runtime.preferredProvider([disabled, missing, ready]), ready);
+  assert.equal(runtime.preferredProvider([missing, ready], "remote"), missing);
+  assert.equal(runtime.preferredProvider([disabled]), null);
+});
+
 test("escapeHTML encodes every HTML control character", () => {
   assert.equal(runtime.escapeHTML(`<script data-x="a'b">&`), "&lt;script data-x=&quot;a&#39;b&quot;&gt;&amp;");
 });
