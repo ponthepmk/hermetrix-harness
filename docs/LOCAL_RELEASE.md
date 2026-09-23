@@ -1,6 +1,6 @@
 # Local Hermetrix release (Windows, 2026-09-23)
 
-This checkout is the integrated local pilot on `codex/hermetrix-usable-release`. It combines the validated H2A read-only Platform adapter with the task-first UI, editable IDE, debugger, Discord bridge, and the 16k local-model profile. It is not a Pi-managed-write release and is not production `main`.
+The integrated local pilot is on `main`, with the implementation recorded in commit `c462d43`. It combines the validated H2A read-only Platform adapter with the task-first UI, editable IDE, debugger, Discord bridge, and the 16k local-model profile. It is not a Pi-managed-write release or a production Pi deployment.
 
 ## Start and use
 
@@ -13,9 +13,9 @@ For source builds, run `go test -p 1 -count=1 ./...`, `go vet ./...`, and build 
 ## Verified scope
 
 - The installed API reports schema 49. The local UI created a session and Bonsai returned the requested Thai reply. The isolated demo ran `node --test` through the IDE and passed four tests.
-- The frontend test suite passed 94 tests; the full uncached Go suite and `go vet ./...` passed in the integration checkout. The H1 fixture acceptance demo passed with zero effects, attempts, task runs and real Pi contacts and an unchanged workspace digest.
+- The frontend test suite passed 94 tests; the full uncached Go suite and `go vet ./...` passed again from `main` after integration. The H1 fixture acceptance demo passed with zero effects, attempts, task runs and real Pi contacts and an unchanged workspace digest.
 - The browser integration suite passed after preferring installed Chrome over Edge for its managed DevTools test. The missing-key provider selection regression was reproduced before the fix and passes after it.
-- The original dirty `main` checkout and its data directory were preserved. The installed data is a separate copy. Do not confuse this branch or installation with a clean/validated `main` deployment.
+- The earlier uncommitted source state was saved as Git stash `1aa23973d1bdc71d868fcc6433a08f026ebf9c02` before the fast-forward. Its source files are represented in `main`, the 15 local attachments remain in place, and the original data directory remains separate from the installation. `main` is source authority for this local pilot, not proof of a production Pi deployment.
 
 ## Honest limits
 
