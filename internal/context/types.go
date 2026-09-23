@@ -20,14 +20,17 @@ const (
 	// same claim the six schema-only tables were making (O-42), and it belongs
 	// in the commit that builds it.
 	KindProjectInstruction Kind = "project_instruction"
-	KindSelectedSkill      Kind = "selected_skill"
-	KindConversation       Kind = "conversation"
-	KindToolCall           Kind = "tool_call"
-	KindToolResult         Kind = "tool_result"
-	KindDecision           Kind = "decision"
-	KindOpenTask           Kind = "open_task"
-	KindArtifactReceipt    Kind = "artifact_receipt"
-	KindCheckpoint         Kind = "checkpoint"
+	// Project Brain passages are external reference data, never approved Skills
+	// or instructions. They compete for the active slice and may be dropped.
+	KindProjectKnowledge Kind = "project_knowledge"
+	KindSelectedSkill    Kind = "selected_skill"
+	KindConversation     Kind = "conversation"
+	KindToolCall         Kind = "tool_call"
+	KindToolResult       Kind = "tool_result"
+	KindDecision         Kind = "decision"
+	KindOpenTask         Kind = "open_task"
+	KindArtifactReceipt  Kind = "artifact_receipt"
+	KindCheckpoint       Kind = "checkpoint"
 )
 
 type Fragment struct {

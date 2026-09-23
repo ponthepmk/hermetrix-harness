@@ -209,6 +209,18 @@ because they are read-only; `tools/call`, resource reads and prompt rendering
 are never replayed after an uncertain connection failure. The next distinct
 request starts a fresh process. Discovery is explicit and atomically replaces one server's catalog snapshot. By default Hermetrix treats all MCP annotations as untrusted, so remote calls require approval; enable annotation trust only for a server whose behavior you control or have audited.
 
+### Read-only Pi Project Brain context
+
+Add the Pi Second Brain `/mcp` endpoint in Tool Center as a separate MCP server named `Project Brain`. Store a **read-only, project-scoped** Second Brain credential there, discover its tools, and enable annotation trust only after verifying that this is your audited Pi server. `agent-knowledge` is the Kanban/Agent Platform MCP service; it does not provide Second Brain retrieval.
+
+Automatic Project Brain lookup is opt-in when starting Hermetrix:
+
+```text
+hermetrix serve --workspace PATH --project-brain-server "Project Brain" --project-brain-project PI_PROJECT_SCOPE
+```
+
+The two Project Brain options must be given together. This binding applies only to the local project registered from `--workspace`; another local project cannot inherit its Pi scope. Each user turn may read at most three active, sourced, medium/high-confidence passages using Second Brain's `get_context`. Hermetrix checks each citation with version-bound `read_passage`, labels it as external reference data, and sends it through the existing Context Compiler. A missing Pi or rejected citation contributes no knowledge and does not fail the local turn; the chat shows a warning. No Project Brain read grants write, promotion, or tool-dispatch authority. Configure a separate explicit binding when using another workspace or Pi project.
+
 The Models screen exposes a behavioral qualification suite. Remote gateway metadata can test tools, cancellation, recall and latency, but it cannot certify local allocation. `Certified 64k` requires a verified loaded-runtime probe; missing or failed evidence produces an explicit decision report rather than changing the selected profile silently.
 
 ### The composer

@@ -20,6 +20,7 @@ import (
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/learning"
+	"hermetrix-harness/internal/projectbrain"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
@@ -43,6 +44,10 @@ type Service struct {
 	tools     *toolruntime.Registry
 	skills    *skills.Service
 	learning  *learning.Service
+	brain     *projectbrain.Retriever
+	// A Pi knowledge scope is explicitly bound to exactly one local project.
+	// Other sessions never inherit the process startup workspace's scope.
+	brainLocalProjectID string
 	// embedder is optional. Nil means semantic retrieval is off and every
 	// caller falls back to lexical matching, which is a supported
 	// configuration: an embedder is a second model to run and Hermetrix is
@@ -79,6 +84,12 @@ func (s *Service) DirectToolDefinitions() []toolruntime.Definition {
 
 func (s *Service) WithLearning(service *learning.Service) *Service {
 	s.learning = service
+	return s
+}
+
+func (s *Service) WithProjectBrain(localProjectID string, retriever *projectbrain.Retriever) *Service {
+	s.brainLocalProjectID = localProjectID
+	s.brain = retriever
 	return s
 }
 
@@ -702,6 +713,30 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 	if err != nil {
 		return TurnResult{}, err
 	}
+	// The Pi lookup is an optional, read-only input. It runs once per turn
+	// continuation, outside the model/effect dispatch loop. A missing Pi cannot
+	// convert a healthy local task into a failed task, and no passage can be
+	// treated as an action authorization.
+	var brainFragments []ctxcompiler.Fragment
+	if s.brain != nil && session.ProjectID != "" && session.ProjectID == s.brainLocalProjectID {
+		if events, listErr := s.ListEvents(ctx, session.ID); listErr == nil {
+			for _, event := range events {
+				if event.TurnID == turnID && event.EventKind == "message" && event.Role == "user" {
+					lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					brainFragments, err = s.brain.Retrieve(lookupCtx, event.Content)
+					cancel()
+					if err != nil {
+						brainFragments = nil
+						if emit != nil {
+							_ = emit(StreamEvent{Type: "project_brain_unavailable", TurnID: turnID,
+								Code: "project_brain_read_failed", Error: "Project Brain evidence was unavailable; continuing without it"})
+						}
+					}
+					break
+				}
+			}
+		}
+	}
 	// Read once, at the start of the turn, so every step of this turn measures
 	// with the same ruler. The shared adaptive estimator moved between steps and
 	// made a larger context score smaller than the one before it.
@@ -726,7 +761,8 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		if err != nil {
 			return TurnResult{}, err
 		}
-		compiled, selected, err := s.compileTurn(ctx, profile, events, turnID, session.Contract, scale, transport)
+		compiled, selected, err := s.compileTurnWithKnowledge(ctx, profile, events, turnID, session.Contract,
+			scale, transport, brainFragments)
 		if err != nil {
 			return TurnResult{}, err
 		}
@@ -1808,6 +1844,12 @@ const (
 func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, events []Event, currentTurnID string,
 	contract SessionContract, scale ctxcompiler.ScriptEstimator,
 	transport TransportOverhead) (ctxcompiler.Compiled, []selectedSkill, error) {
+	return s.compileTurnWithKnowledge(ctx, profile, events, currentTurnID, contract, scale, transport, nil)
+}
+
+func (s *Service) compileTurnWithKnowledge(ctx context.Context, profile ctxcompiler.Profile, events []Event, currentTurnID string,
+	contract SessionContract, scale ctxcompiler.ScriptEstimator, transport TransportOverhead,
+	knowledge []ctxcompiler.Fragment) (ctxcompiler.Compiled, []selectedSkill, error) {
 	now := time.Now().UTC()
 	fragments := []ctxcompiler.Fragment{
 		{ID: "identity:hermetrix", Kind: ctxcompiler.KindIdentity, Scope: "runtime", Provenance: "hermetrix",
@@ -1953,6 +1995,7 @@ func (s *Service) compileTurn(ctx context.Context, profile ctxcompiler.Profile, 
 				CacheClass: "rolling", Content: content, CreatedAt: event.CreatedAt, Metadata: metadata})
 		}
 	}
+	fragments = append(fragments, knowledge...)
 	request := ctxcompiler.Request{Profile: profile, Fragments: fragments,
 		MessageOverhead: transport.MessageOverhead, RequestOverhead: transport.RequestOverhead}
 	// Rank what a checkpoint keeps by meaning as well as by words, where an

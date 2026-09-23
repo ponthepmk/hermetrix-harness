@@ -26,6 +26,7 @@ import (
 	"hermetrix-harness/internal/localmodel"
 	"hermetrix-harness/internal/mcp"
 	"hermetrix-harness/internal/product"
+	"hermetrix-harness/internal/projectbrain"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/qualification"
 	"hermetrix-harness/internal/runtime"
@@ -65,6 +66,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT] [--open] [--desktop]")
+	fmt.Fprintln(os.Stderr, "                   [--project-brain-server NAME --project-brain-project SCOPE]")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus export --data PATH --out DIR")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus score  --data PATH --dir DIR [--provider NAME]")
 	fmt.Fprintln(os.Stderr, "  hermetrix taskeval generate --dir DIR [--per-class N] [--seed N]")
@@ -85,6 +87,8 @@ func runServe(args []string) {
 	tlsKey := flags.String("tls-key", "", "TLS private key PEM; required with --tls-cert for non-loopback listeners")
 	debug := flags.Bool("debug", false, "enable debug logging")
 	workspace := flags.String("workspace", ".", "workspace root exposed to bounded core tools")
+	brainServer := flags.String("project-brain-server", "", "exact configured MCP server name for read-only Project Brain retrieval; empty disables automatic lookup")
+	brainProject := flags.String("project-brain-project", "", "Pi Project Brain project scope bound to the startup workspace; required with --project-brain-server")
 	providerName := flags.String("provider-name", "", "optional startup provider profile name")
 	providerAdapter := flags.String("provider-adapter", providers.AdapterOpenAICompatible, "provider protocol: openai-compatible, anthropic-native, or gemini-native")
 	providerBaseURL := flags.String("provider-base-url", "", "provider API base URL, for example https://host/v1")
@@ -111,6 +115,10 @@ func runServe(args []string) {
 		"open the control center in its own application window using an installed "+
 			"Chromium-family browser; falls back to --open behaviour when none is found")
 	_ = flags.Parse(args)
+	if (*brainServer == "") != (*brainProject == "") {
+		fmt.Fprintln(os.Stderr, "--project-brain-server and --project-brain-project must be supplied together")
+		os.Exit(2)
+	}
 	authEnabled := *authTokenEnv != ""
 	tlsEnabled := *tlsCert != "" || *tlsKey != ""
 	if (*tlsCert == "") != (*tlsKey == "") {
@@ -240,6 +248,12 @@ func runServe(args []string) {
 	toolRegistry.SetCatalog(capabilityCatalog)
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).
 		WithLearning(learningService).WithRuntime(productService, productService)
+	if *brainServer != "" {
+		agentService.WithProjectBrain(workspaceProject.ID, &projectbrain.Retriever{Servers: mcpService,
+			Catalog: capabilityCatalog, ServerName: *brainServer, Project: *brainProject})
+		logger.Info("Project Brain read-only lookup bound", "local_project", workspaceProject.ID,
+			"project_brain_scope", *brainProject, "server", *brainServer)
+	}
 	productService.WithAgentRunner(agentService)
 	// An MCP server may ask the client to sample a model or to ask the user a
 	// question. Only the agent service can do either, so it answers those

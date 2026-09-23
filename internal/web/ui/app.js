@@ -1881,6 +1881,8 @@ async function consumeAgentStream(response) {
       } else if (item.type === "step_bound") {
         const status = $("#streamStatus");
         if (status) status.textContent = `${item.context_report?.profile || "context"} · immutable step ${shortHash(item.binding?.id)}`;
+      } else if (item.type === "project_brain_unavailable") {
+        toast(item.error || "Project Brain evidence was unavailable; continuing without it", true);
       } else if (item.type === "delta" && item.delta?.content) {
         const target = $("#streamingAssistant .message-body");
         if (target) target.textContent += item.delta.content;
