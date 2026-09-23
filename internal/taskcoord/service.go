@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/product"
@@ -33,10 +34,14 @@ const (
 var ErrReviewerRequired = errors.New("reviewer_required")
 
 type Service struct {
-	tasks     *taskengine.Service
-	products  *product.Service
-	providers *providers.Service
-	learning  *learning.Service
+	tasks               *taskengine.Service
+	products            *product.Service
+	providers           *providers.Service
+	learning            *learning.Service
+	brain               KnowledgeRetriever
+	brainCompiler       *ctxcompiler.Compiler
+	brainLocalProjectID string
+	brainProject        string
 }
 
 type ProposalInput struct {
@@ -185,6 +190,7 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		Constraints: task.Requirement.Constraints, Unknowns: task.Requirement.Unknowns, Criteria: criteria,
 		AllowedExecutables: product.AvailableCommandExecutables(),
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 8192)}
+	planTask.ProjectBrainRefs = s.projectBrainRefs(ctx, task.ProjectID, task.Objective, profile)
 	if task.ProjectID != "" {
 		manifest, manifestErr := s.products.ProjectFileManifest(ctx, task.ProjectID, 512)
 		if manifestErr != nil {
@@ -215,6 +221,12 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 			DiffArtifactID: escalation.DiffArtifactID}
 	}
 	encodedInput, _ := json.Marshal(planTask)
+	if len(encodedInput) > 60*1024 && len(planTask.ProjectBrainRefs) > 0 {
+		// An optional Pi reference must not consume the planner's bounded input
+		// at the expense of the task's authoritative constraints or manifest.
+		planTask.ProjectBrainRefs = nil
+		encodedInput, _ = json.Marshal(planTask)
+	}
 	run, err := s.tasks.BeginPlannerRun(ctx, task.ID, task.Revision, profile.ID, profile.Revision, worker.Hash(string(encodedInput)))
 	if err != nil {
 		return AutoPlanOutput{}, err
@@ -257,6 +269,7 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		MIMEType: "application/vnd.hermetrix.task-plan+json", Content: string(planBody),
 		Metadata: map[string]any{"task_id": task.ID, "requirement_revision": task.ActiveRequirementRevision,
 			"task_revision": task.Revision, "plan_revision": task.ActivePlanRevision + 1, "planning_packet_hash": worker.Hash(string(encodedInput)),
+			"project_brain_refs": knowledgeRefIdentities(planTask.ProjectBrainRefs),
 			"allowed_file_scope": []string{}, "allowed_effect_scope": allowedEffects, "provider_id": profile.ID,
 			"provider_revision": profile.Revision, "runtime_fingerprint_id": profile.RuntimeFingerprintID,
 			"preset_id": preset.ID, "preset_revision": preset.Revision, "generation_budget": preset.GenerationCap,
@@ -526,6 +539,14 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Files:              files,
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 32768),
 	}
+	workerTask.ProjectBrainRefs = s.projectBrainRefs(ctx, input.Packet.ProjectID,
+		input.Packet.Step.Title+" "+input.Packet.Objective, profile)
+	if len(workerTask.ProjectBrainRefs) > 0 {
+		encodedInput, marshalErr := json.Marshal(workerTask)
+		if marshalErr != nil || len(encodedInput) > 128*1024 {
+			workerTask.ProjectBrainRefs = nil
+		}
+	}
 	effect, err := s.tasks.PlanEffect(ctx, input.Authority, input.AttemptID, proposalEffect, profile.ID+":"+profile.Model,
 		"task-packet:"+input.Packet.CanonicalPacketHash)
 	if err != nil {
@@ -575,7 +596,8 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Metadata: map[string]any{
 			"task_id": input.Packet.TaskID, "step_id": input.Packet.Step.ID, "attempt_id": input.AttemptID,
 			"packet_hash": input.Packet.CanonicalPacketHash, "provider_id": profile.ID,
-			"provider_revision": profile.Revision, "status": result.Status, "operation_id": effect.OperationID,
+			"project_brain_refs": knowledgeRefIdentities(workerTask.ProjectBrainRefs),
+			"provider_revision":  profile.Revision, "status": result.Status, "operation_id": effect.OperationID,
 		},
 	})
 	if err != nil {

@@ -3,12 +3,15 @@ package taskcoord
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/inference"
 	"hermetrix-harness/internal/learning"
 	"hermetrix-harness/internal/product"
@@ -76,9 +79,15 @@ func TestAutoPlanUsesImmutablePresetWithinNative61440Context(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planned, err := New(tasks, products, providerService).AutoPlan(ctx, AutoPlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, ProviderID: profile.ID, Actor: "owner"})
+	brain := &fakeBrain{err: errors.New("Pi unreachable")}
+	planned, err := New(tasks, products, providerService).WithProjectBrain(project.ID, "team-alpha", brain,
+		ctxcompiler.NewCompiler(ctxcompiler.NewAdaptiveEstimator(), nil, nil)).AutoPlan(ctx,
+		AutoPlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, ProviderID: profile.ID, Actor: "owner"})
 	if err != nil || planned.Task.State != taskengine.StateReady || adapter.plannerCalls != 1 {
 		t.Fatalf("61k plan failed: task=%+v calls=%d err=%v", planned.Task, adapter.plannerCalls, err)
+	}
+	if brain.calls != 1 {
+		t.Fatalf("configured Project Brain was not attempted before local planning: %d", brain.calls)
 	}
 	if len(adapter.plannerRequest.Messages) != 2 {
 		t.Fatalf("planner request messages=%d", len(adapter.plannerRequest.Messages))
@@ -103,11 +112,12 @@ func TestAutoPlanUsesImmutablePresetWithinNative61440Context(t *testing.T) {
 }
 
 type proposalAdapter struct {
-	calls          int
-	reviewCalls    int
-	plannerCalls   int
-	plannerRequest providers.ChatRequest
-	selectionCalls int
+	calls           int
+	reviewCalls     int
+	plannerCalls    int
+	plannerRequest  providers.ChatRequest
+	proposalRequest providers.ChatRequest
+	selectionCalls  int
 }
 
 func (a *proposalAdapter) StreamChat(_ context.Context, _ providers.Profile, _ string, request providers.ChatRequest,
@@ -131,6 +141,7 @@ func (a *proposalAdapter) StreamChat(_ context.Context, _ providers.Profile, _ s
 		}}}, nil
 	}
 	a.calls++
+	a.proposalRequest = request
 	return providers.Completion{FinishReason: "tool_calls", ToolCalls: []providers.ToolCall{{
 		Name: "submit_changes", Arguments: `{"summary":"fix addition","recommended_checks":["go test ./..."],"changes":[{"path":"sum.go","edits":[{"old":"return a-b","new":"return a+b"}]}]}`,
 	}}}, nil
@@ -187,17 +198,35 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	planned, err := New(tasks, productService, providerService).AutoPlan(ctx, AutoPlanInput{TaskID: task.ID,
+	brain := &fakeBrain{fragments: []ctxcompiler.Fragment{brainFragment("team-alpha")}}
+	coordinator := New(tasks, productService, providerService).WithProjectBrain(project.ID, "team-alpha", brain,
+		ctxcompiler.NewCompiler(ctxcompiler.NewAdaptiveEstimator(), nil, nil))
+	planned, err := coordinator.AutoPlan(ctx, AutoPlanInput{TaskID: task.ID,
 		ExpectedTaskRevision: task.Revision, ProviderID: profile.ID, Actor: "planner"})
 	if err != nil || planned.Run.State != taskengine.PlannerObserved || planned.Artifact.Kind != "task_plan_proposal" ||
 		planned.Task.State != taskengine.StateReady || len(planned.Task.Plan.Steps) != 1 ||
 		len(planned.Task.Plan.Steps[0].RequirementIDs) != 1 || planned.Task.Plan.Steps[0].RequirementIDs[0] != "AC-1" || adapter.plannerCalls != 1 {
 		t.Fatalf("planned=%+v calls=%d err=%v", planned, adapter.plannerCalls, err)
 	}
+	var plannerInput worker.PlanTask
+	if err = json.Unmarshal([]byte(adapter.plannerRequest.Messages[1].Content), &plannerInput); err != nil ||
+		len(plannerInput.ProjectBrainRefs) != 1 || plannerInput.ProjectBrainRefs[0].Version != brain.fragments[0].Version {
+		t.Fatalf("durable planner did not receive versioned reference: input=%+v err=%v", plannerInput, err)
+	}
+	if planned.Artifact.Metadata["planning_packet_hash"] != worker.Hash(adapter.plannerRequest.Messages[1].Content) {
+		t.Fatalf("planner reference not covered by durable input hash: %+v", planned.Artifact.Metadata)
+	}
 	task = planned.Task
 	packet, err := tasks.BuildNextStepPacket(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err = taskengine.ValidateStepPacket(packet); err != nil {
+		t.Fatalf("Project Brain changed authoritative step packet: %v", err)
+	}
+	encodedPacket, _ := json.Marshal(packet)
+	if strings.Contains(string(encodedPacket), "project_brain_refs") {
+		t.Fatal("external reference entered the authoritative step packet")
 	}
 	run, err := tasks.BeginRun(ctx, taskengine.BeginRunInput{
 		TaskID: task.ID, ExpectedTaskRevision: task.Revision, Owner: "coordinator", LeaseDuration: 5 * time.Minute,
@@ -217,7 +246,6 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		t.Fatal(err)
 	}
 	authority := taskengine.RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}
-	coordinator := New(tasks, productService, providerService)
 	selection, err := coordinator.SelectFiles(ctx, SelectFilesInput{AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority})
 	if err != nil || adapter.selectionCalls != 1 || selection.Artifact.Kind != "task_file_selection" ||
 		selection.Effect.State != taskengine.EffectObserved || len(selection.Result.Files) != 2 {
@@ -247,8 +275,16 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 	if adapter.calls != 1 || output.Result.Status != "proposed_unverified" || output.Artifact.Kind != "code_proposal" || output.Effect.State != taskengine.EffectObserved || output.Proposal.State != taskengine.ProposalPendingReview {
 		t.Fatalf("proposal output=%+v calls=%d", output, adapter.calls)
 	}
+	var proposalInput worker.Task
+	if err = json.Unmarshal([]byte(adapter.proposalRequest.Messages[1].Content), &proposalInput); err != nil ||
+		len(proposalInput.ProjectBrainRefs) != 1 || proposalInput.ProjectBrainRefs[0].Trust != "external_curated_not_verified" ||
+		output.Result.InputSHA256 != worker.Hash(adapter.proposalRequest.Messages[1].Content) {
+		t.Fatalf("proposal lacked bound external reference: input=%+v result=%+v err=%v", proposalInput, output.Result, err)
+	}
+	beforeReplayReads := brain.calls
+	brain.err = fmt.Errorf("Pi offline after observed effect")
 	reusedProposal, err := coordinator.Propose(ctx, ProposalInput{AttemptID: attempt.ID, ProviderID: profile.ID, Authority: authority, Files: selection.Result.Files})
-	if err != nil || adapter.calls != 1 || reusedProposal.Proposal.ID != output.Proposal.ID || reusedProposal.Artifact.ID != output.Artifact.ID {
+	if err != nil || adapter.calls != 1 || brain.calls != beforeReplayReads || reusedProposal.Proposal.ID != output.Proposal.ID || reusedProposal.Artifact.ID != output.Artifact.ID {
 		t.Fatalf("proposal was replayed instead of reused: %+v calls=%d err=%v", reusedProposal, adapter.calls, err)
 	}
 	if _, err = New(tasks, productService, providerService).Apply(ctx, authority, output.Proposal.ID, "owner"); err == nil {

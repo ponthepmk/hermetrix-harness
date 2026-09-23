@@ -249,8 +249,10 @@ func runServe(args []string) {
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).
 		WithLearning(learningService).WithRuntime(productService, productService)
 	if *brainServer != "" {
-		agentService.WithProjectBrain(workspaceProject.ID, &projectbrain.Retriever{Servers: mcpService,
-			Catalog: capabilityCatalog, ServerName: *brainServer, Project: *brainProject})
+		retriever := &projectbrain.Retriever{Servers: mcpService,
+			Catalog: capabilityCatalog, ServerName: *brainServer, Project: *brainProject}
+		agentService.WithProjectBrain(workspaceProject.ID, retriever)
+		taskCoordinator.WithProjectBrain(workspaceProject.ID, *brainProject, retriever, compiler)
 		logger.Info("Project Brain read-only lookup bound", "local_project", workspaceProject.ID,
 			"project_brain_scope", *brainProject, "server", *brainServer)
 	}

@@ -15,8 +15,19 @@ type Task struct {
 	AcceptanceCriteria []string          `json:"acceptance_criteria,omitempty"`
 	Constraints        []string          `json:"constraints,omitempty"`
 	RecommendedChecks  []string          `json:"recommended_checks,omitempty"`
+	ProjectBrainRefs   []KnowledgeRef    `json:"project_brain_refs,omitempty"`
 	Files              map[string]string `json:"files"`
 	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
+}
+
+// KnowledgeRef is version-bound external reference data. It never changes a
+// task requirement, selected file scope, lease, approval, or verification.
+type KnowledgeRef struct {
+	Citation   string `json:"citation"`
+	Version    string `json:"version"`
+	Provenance string `json:"provenance"`
+	Trust      string `json:"trust"`
+	Content    string `json:"content"`
 }
 
 // TextEdit replaces one exact, unique piece of the supplied preimage. Keeping
