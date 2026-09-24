@@ -24,7 +24,8 @@
     "Project is not active": "โปรเจกต์ไม่ได้เปิดใช้งาน",
     "Project export is disabled": "โปรเจกต์ยังไม่อนุญาตให้เลือกข้อมูลส่งออก",
     "Task export is disabled": "งานนี้ยังเป็นส่วนตัว",
-    "Task has no active requirement revision": "งานไม่มีเกณฑ์ตรวจฉบับปัจจุบัน"
+    "Task has no active requirement revision": "งานไม่มีเกณฑ์ตรวจฉบับปัจจุบัน",
+    "Task belongs to another local project": "งานนี้อยู่ในโปรเจกต์อื่น ไม่ได้ผูกกับ Project Brain ที่กำลังใช้"
   };
   function recordFor(task) {
     if (!records.has(task.id)) {

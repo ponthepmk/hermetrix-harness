@@ -77,12 +77,14 @@ func (s StageService) Eligibility(ctx context.Context, taskID string) (StageElig
 	if err != nil {
 		return StageEligibility{}, fmt.Errorf("owner task unavailable: %w", err)
 	}
-	if projectID != s.LocalProjectID || projectOwner != actor {
+	if projectOwner != actor {
 		return StageEligibility{}, ErrExportRevoked
 	}
 	result := StageEligibility{TaskID: taskID, Title: title, State: state,
 		TaskRevision: revision, Validations: []StageValidationChoice{}}
-	if state != taskengine.StateCompleted {
+	if projectID != s.LocalProjectID {
+		result.Reason = "Task belongs to another local project"
+	} else if state != taskengine.StateCompleted {
 		result.Reason = "Task is not completed"
 	} else if projectState != "active" {
 		result.Reason = "Project is not active"

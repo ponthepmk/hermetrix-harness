@@ -328,3 +328,13 @@ func TestStagePreviewRejectsDeniedAndChangedReview(t *testing.T) {
 		t.Fatal("revoked artifact allowed a preview")
 	}
 }
+
+func TestStageEligibilityExplainsForeignLocalProjectWithoutExport(t *testing.T) {
+	f := newStageFixture(t)
+	f.stage.LocalProjectID = "another-local-project"
+	result, err := f.stage.Eligibility(f.ctx, f.input.TaskID)
+	if err != nil || result.Eligible || result.Reason != "Task belongs to another local project" ||
+		len(result.Validations) != 0 {
+		t.Fatalf("foreign project eligibility: %+v %v", result, err)
+	}
+}
