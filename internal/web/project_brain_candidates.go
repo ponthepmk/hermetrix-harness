@@ -94,7 +94,9 @@ func (s *Server) stageProjectBrainCandidate(w http.ResponseWriter, r *http.Reque
 	}
 	// The durable outbox is the authority for delivery. A temporary Pi outage
 	// leaves the candidate pending and never changes the completed local task.
-	deliveryCtx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	// A browser disconnect cannot cancel a claimed outbox row halfway through
+	// delivery and leave it in "sending" until the next process restart.
+	deliveryCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 12*time.Second)
 	defer cancel()
 	if _, err := s.brainOutbox.Drain(deliveryCtx, 1); err != nil {
 		s.logger.Warn("Project Brain candidate delivery deferred", "reason", "outbox_unavailable")
