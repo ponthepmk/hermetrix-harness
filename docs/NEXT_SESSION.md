@@ -1,9 +1,28 @@
-# Current state — 2026-09-23
+# Next session — 2026-09-24
 
-The integrated local pilot is now on `main` and `origin/main`, with implementation commit `c462d43` on top of H2A (`8b5b9ca`). Its separate Windows installation is at `C:\Users\ZP2E0\AppData\Local\Hermetrix`. See [LOCAL_RELEASE.md](LOCAL_RELEASE.md) for the launch path, verified behavior and limits. The earlier uncommitted state is retained in stash `1aa23973d1bdc71d868fcc6433a08f026ebf9c02`; the original data directory and 15 local attachments remain in place.
+State: Pi Kanban and Second Brain run with project-scoped MCP credentials,
+Project Brain candidate admission, and explicit Platform Project grants. Codex,
+Hermes, and installed Hermetrix have separate credentials. The Codex→Pi→Bonsai
+loop was observed on the live `hermetrix-harness` project: a curated lesson with
+Git/evidence digests reached a version-bound Hermetrix context snapshot and
+Bonsai answered a natural planning question. See
+`project-brain-rollout-review.md` for exact SHAs, receipts and safety limits.
 
-The local UI, Bonsai chat at a truthful 16k context, editable IDE, direct Test, and H1 fixture proof have passed. The full Go suite, 94 frontend tests and vet passed again from `main` after integration. The stable installation uses copied data at schema 49. Discord is paused. A model with no credential no longer gets chosen as the background reviewer.
+Source: `main` and `origin/main` contain Hermetrix `fe27153`, Kanban
+`e22cc27`, and Second Brain `454bc00`. The installed Hermetrix binary was
+built from a clean detached worktree at `fe27153`, and the Pi runs the two Pi
+source SHAs. Concurrent unrelated work under
+`internal/product`, `internal/skills` and `internal/web` is uncommitted in the
+original Windows worktree; preserve it and use the clean release worktree for
+this rollout.
 
-Do not claim full Platform managed execution. H2A's real Pi read-only proof still needs a scoped credential/live Pi acceptance. Self-service token issuance is not implemented, and managed write authority is not implemented. A second independent model/endpoint is also needed to close a coding task that requires post-review. Do not use the local pilot for unattended production writes.
+Next: keep the scoped Project Brain loop operational, rotate credentials before
+expiry, and review the separate uncommitted Windows work before integrating
+it. Future product work is automatic candidate extraction, measured knowledge
+reuse, deliberate shared/global scope, and a separate Platform Router if
+needed. No managed write authority or unattended production coding was added.
 
-Next engineering milestone: provide an intentional Pi token pairing flow and run the H2A read-only acceptance with a scoped credential; then add a second qualified local reviewer and complete one end-to-end coding task on an isolated fixture. Keep all authority, effect no-replay and independent-review gates intact. Retain the pre-integration stash until its backup value has been independently reviewed.
+Blockers: none for scoped Project Brain use. Full target architecture remains
+partial. Four Pi Second Brain client credentials expire on 2026-12-22
+19:30:19 UTC and need rotation before that date. `go test -race` remains an
+unverified environment limitation.

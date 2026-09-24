@@ -1,10 +1,15 @@
 {
   "version": 1,
-  "updated": "2026-09-22",
+  "updated": "2026-09-24",
   "docs_root": "docs/",
   "files": [
-    {"path":"docs/NEXT_SESSION.md","role":"module","summary":"Current handoff, release/runtime receipts and pending live Discord acceptance boundary."},
+    {"path":"docs/NEXT_SESSION.md","role":"module","summary":"Current source/runtime handoff, Project Brain acceptance and remaining scope."},
     {"path":"docs/FILE_MAP.json","role":"config","summary":"Selective navigation index for current features; not an exhaustive source inventory."},
+    {"path":"docs/PROJECT_BRAIN_OPERATIONS.md","role":"feature","summary":"Simple URLs, launch steps, scoped credentials and candidate admission for the live Pi services."},
+    {"path":"docs/project-brain-rollout-review.md","role":"feature","summary":"Post-rollout Pi and Hermetrix architecture reality, test receipts, bugs fixed and remaining limits."},
+    {"path":"docs/project-brain-verified-planning-flow.md","role":"feature","summary":"Immutable live evidence receipt for Platform Project versus board project ID binding."},
+    {"path":"internal/projectbrain/retrieval.go","role":"module","summary":"Scoped version-bound Project Brain retrieval and bounded natural-query retry into Hermetrix context."},
+    {"path":"internal/capabilities/catalog.go","role":"module","summary":"Capability catalog including preserved trusted MCP metadata across copies."},
     {"path":"docs/h1-agent-platform-readonly-integration-proposal.md","role":"feature","summary":"Approved fixture-only H1 scope, safety boundary, mapping and acceptance plan."},
     {"path":"cmd/hermetrix-h1/main.go","role":"module","summary":"Isolated H1 acceptance demo, workspace receipt and local fixture composition."},
     {"path":"internal/agentplatform/","role":"module","summary":"Signed managed-envelope validation, trusted binding, atomic task projection, read-only observation, outbox and safety guards."},
