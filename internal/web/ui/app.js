@@ -3559,7 +3559,7 @@ function renderTaskCockpit(body) {
       ${providers.length && !providers.some(provider => taskEligibleProviders(selected, provider.id).length) ? `<p class="task-readiness">วางแผนและเสนอการแก้ไขได้ แต่การตรวจงานขั้นสุดท้ายต้องเพิ่มโมเดลหรือ endpoint อิสระอีกหนึ่งตัวใน Models</p>` : ""}
       ${!steps.length ? `<label>Planning model<select id="taskPlannerProvider">${taskProviderOptions(providers)}</select></label><button class="primary" id="taskAutoPlan" ${busy || !providers.length ? "disabled" : ""}>${taskActions.get(selected.id) || "Create plan"}</button>` : `<ol class="task-plan-steps">${steps.map(step => `<li><details ${step.state === "completed" ? "" : "open"}><summary><strong>${escapeHTML(step.title)}</strong> ${pill(step.state, step.state === "completed" ? "green" : "blue")}</summary><p>${escapeHTML(step.instructions)}</p><p><strong>Checks to run</strong></p><ul>${(step.checks || []).map(check => `<li><code>${escapeHTML(check)}</code></li>`).join("")}</ul><small>Success criteria: ${escapeHTML((step.requirement_ids || []).join(", "))}</small></details></li>`).join("")}</ol><p class="form-note neutral">The plan proposes a path; feasibility is established by actual checks and review. Commands run directly without a shell.</p>`}
       ${steps.length && canReplan ? `<details><summary>Revise this plan</summary><p>Generate a new plan from the same goal and success criteria. Review it before starting again.</p><label>Planning model<select id="taskPlannerProvider">${taskProviderOptions(providers)}</select></label><button class="ghost" id="taskAutoPlan" ${providers.length ? "" : "disabled"}>Generate revised plan</button></details>` : ""}
-    </section>${taskExecutionHTML(selected, execution)}${taskDecisionLabHTML(selected)}` : ""}</div>`;
+    </section>${taskExecutionHTML(selected, execution)}<div id="taskProjectBrain"></div>${taskDecisionLabHTML(selected)}` : ""}</div>`;
   $("#durableTaskForm")?.addEventListener("submit", createDurableTask);
   $("#durableTaskForm")?.addEventListener("input", event => {
     const form = new FormData(event.currentTarget);
@@ -3586,6 +3586,9 @@ function renderTaskCockpit(body) {
   $("#taskDecisionAdmission")?.addEventListener("click", event => changeTaskDecisionAdmission(event, body));
   $("#taskDecisionRecommend")?.addEventListener("click", () => recommendTaskDecision(body));
   $("#taskReload")?.addEventListener("click", () => refreshDurableTask(selected.id, body));
+  window.HermetrixProjectBrain?.render($("#taskProjectBrain", body), selected,
+    state.projects.find(project => project.id === selected?.project_id),
+    {api, askAction, load, currentActor, escapeHTML, formatDate});
   maintainTaskLease(selected, execution, body);
   if (selected && !Object.prototype.hasOwnProperty.call(state.taskExecutions, selected.id)) {
     state.taskExecutions[selected.id] = null;

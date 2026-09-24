@@ -1,5 +1,8 @@
 # Using the Pi Agent Platform and Project Brain
 
+For the first-use steps and an observable checklist, start with
+[`PROJECT_BRAIN_QUICKSTART.md`](PROJECT_BRAIN_QUICKSTART.md).
+
 The Raspberry Pi hosts two independent MCP services. Both use project-scoped
 Bearer credentials; Cloudflare Tunnel supplies HTTPS ingress but does not add a
 Cloudflare Access service token.

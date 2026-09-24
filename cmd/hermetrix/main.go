@@ -89,6 +89,9 @@ func runServe(args []string) {
 	workspace := flags.String("workspace", ".", "workspace root exposed to bounded core tools")
 	brainServer := flags.String("project-brain-server", "", "exact configured MCP server name for read-only Project Brain retrieval; empty disables automatic lookup")
 	brainProject := flags.String("project-brain-project", "", "Pi Project Brain project scope bound to the startup workspace; required with --project-brain-server")
+	brainSubmitServer := flags.String("project-brain-submit-server", "", "separate MCP profile with a project-scoped candidate-write credential; empty disables candidate sharing")
+	brainNodeID := flags.String("project-brain-node-id", "", "Pi node identity for immutable candidate provenance")
+	brainAgentID := flags.String("project-brain-agent-id", "", "Pi agent identity matching the candidate-write credential")
 	providerName := flags.String("provider-name", "", "optional startup provider profile name")
 	providerAdapter := flags.String("provider-adapter", providers.AdapterOpenAICompatible, "provider protocol: openai-compatible, anthropic-native, or gemini-native")
 	providerBaseURL := flags.String("provider-base-url", "", "provider API base URL, for example https://host/v1")
@@ -117,6 +120,11 @@ func runServe(args []string) {
 	_ = flags.Parse(args)
 	if (*brainServer == "") != (*brainProject == "") {
 		fmt.Fprintln(os.Stderr, "--project-brain-server and --project-brain-project must be supplied together")
+		os.Exit(2)
+	}
+	if *brainSubmitServer != "" && (*brainProject == "" || *brainNodeID == "" ||
+		*brainAgentID == "" || *brainSubmitServer == *brainServer) {
+		fmt.Fprintln(os.Stderr, "candidate sharing requires a Pi project, node ID, agent ID, and a separate MCP submit profile")
 		os.Exit(2)
 	}
 	authEnabled := *authTokenEnv != ""
@@ -256,6 +264,25 @@ func runServe(args []string) {
 		logger.Info("Project Brain read-only lookup bound", "local_project", workspaceProject.ID,
 			"project_brain_scope", *brainProject, "server", *brainServer)
 	}
+	var brainStage *projectbrain.StageService
+	var brainOutbox *projectbrain.CandidateOutbox
+	if *brainSubmitServer != "" {
+		brainOutbox = &projectbrain.CandidateOutbox{DB: dataStore.DB,
+			Submitter: projectbrain.MCPSubmitter{Servers: mcpService, Catalog: capabilityCatalog,
+				ServerName: *brainSubmitServer, Project: *brainProject}}
+		brainStage = &projectbrain.StageService{Store: dataStore, Outbox: brainOutbox,
+			LocalProjectID: workspaceProject.ID, PiProjectID: *brainProject,
+			OriginNodeID: *brainNodeID, AgentID: *brainAgentID}
+		brainOutbox.Authorize = brainStage.AuthorizeQueued
+		if recovered, recoverErr := brainOutbox.Recover(ctx); recoverErr != nil {
+			logger.Error("recover Project Brain candidate outbox", "error", recoverErr)
+			os.Exit(1)
+		} else if recovered > 0 {
+			logger.Warn("requeued interrupted inert Project Brain submissions", "count", recovered)
+		}
+		logger.Info("Project Brain candidate sharing bound", "local_project", workspaceProject.ID,
+			"project_brain_scope", *brainProject, "submit_server", *brainSubmitServer)
+	}
 	productService.WithAgentRunner(agentService)
 	// An MCP server may ask the client to sample a model or to ask the user a
 	// question. Only the agent service can do either, so it answers those
@@ -312,6 +339,7 @@ func runServe(args []string) {
 		localProber, providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
 		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService)
+	webServer.WithProjectBrainCandidates(brainStage, brainOutbox)
 	if authEnabled {
 		webServer.WithAuthentication(authToken, strings.TrimSpace(*authPrincipal), tlsEnabled)
 	}
@@ -338,6 +366,13 @@ func runServe(args []string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				if brainOutbox != nil {
+					if delivered, drainErr := brainOutbox.Drain(ctx, 10); drainErr != nil {
+						logger.Warn("drain Project Brain candidate outbox", "reason", "outbox_unavailable")
+					} else if delivered > 0 {
+						logger.Info("submitted inert Project Brain candidates for review", "count", delivered)
+					}
+				}
 				if processed, drainErr := learningService.DrainPending(ctx, 20); drainErr != nil {
 					logger.Warn("drain committed learning triggers", "error", drainErr)
 				} else if processed > 0 {

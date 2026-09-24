@@ -591,6 +591,53 @@ dialog::backdrop { background: rgba(5, 5, 5, .72); }
 .task-proposal-preview pre { max-height: 380px; overflow: auto; font-size: 13px; }
 .task-feedback { margin: 12px 0; padding: 14px; border: 1px solid #825b5b; border-radius: 10px; background: #322525; color: #ffc7c7; overflow-wrap: anywhere; font-size: 13px; }
 .task-readiness { margin: 14px 0; padding: 12px 14px; background: #27251f; border: 1px solid #4b4431; border-radius: 10px; color: #e1cf9e; }
+.brain-share { min-width: 0; }
+.pane-body[data-pane-kind="tasks"] .brain-share p,
+.pane-body[data-pane-kind="tasks"] .brain-share label { font-size: 0.875rem; line-height: 1.55; }
+.brain-share small { font-size: 0.8125rem; line-height: 1.5; }
+.brain-share-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; }
+.brain-share-head h3 { margin: 0; }
+.brain-share-head p:last-child { margin: 0.25rem 0 0; max-width: 65ch; }
+.brain-toggle { min-height: 2.75rem; margin-top: 0.75rem; }
+.brain-share-body { display: grid; gap: 1rem; margin-top: 1rem; min-width: 0; }
+.brain-share-body > .ghost { justify-self: start; min-height: 2.75rem; }
+.brain-form { display: grid; gap: 1rem; min-width: 0; }
+.brain-form label { display: grid; gap: 0.35rem; min-width: 0; }
+.brain-form select, .brain-form .action-row button { min-height: 2.75rem; }
+.brain-form textarea { width: 100%; min-height: 8rem; resize: vertical; }
+.brain-evidence { display: grid; gap: 0.5rem; padding: 0.8rem !important; border: 1px solid var(--line) !important; border-radius: var(--radius-sm); }
+.brain-evidence legend { padding: 0 0.3rem !important; }
+.brain-evidence > small { color: var(--muted); line-height: 1.5; }
+.brain-evidence-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.brain-evidence-row:last-of-type { border-bottom: 0; }
+.brain-evidence-row label { display: flex; align-items: center; flex: 1 1 15rem; min-height: 2.75rem; gap: 0.65rem; cursor: pointer; }
+.brain-evidence-row input { width: 1.1rem; height: 1.1rem; flex: none; }
+.brain-evidence-row span { min-width: 0; }
+.brain-evidence-row strong, .brain-evidence-row small { display: block; overflow-wrap: anywhere; }
+.brain-evidence-row small { color: var(--muted); }
+.brain-evidence-row button { min-height: 2.75rem; }
+.brain-empty { padding: 0.85rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.brain-empty p { margin: 0 0 0.6rem; }
+.brain-empty small { display: block; margin-top: 0.5rem; color: var(--muted); }
+.brain-preview { padding: 1rem; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface); min-width: 0; }
+.brain-preview h4 { margin: 0 0 0.65rem; }
+.brain-preview dl { display: grid; grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr); gap: 0.55rem 0.9rem; margin: 0; }
+.brain-preview dt { color: var(--muted); }
+.brain-preview dd { margin: 0; overflow-wrap: anywhere; }
+.brain-preview-evidence { margin: 0; padding-left: 1.1rem; }
+.brain-preview-evidence li { margin-bottom: 0.3rem; overflow-wrap: anywhere; }
+.brain-prose { white-space: pre-wrap; max-height: 14rem; overflow: auto; }
+.brain-preview > button { min-height: 2.75rem; margin-top: 0.6rem; }
+.brain-delivery { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; padding: 0.9rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.brain-delivery > div { min-width: 0; flex: 1 1 17rem; }
+.brain-delivery p { margin: 0.4rem 0; }
+.brain-delivery small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.brain-delivery button { min-height: 2.75rem; }
+@media (max-width: 700px) {
+  .brain-preview dl { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
+  .brain-preview dd { margin-bottom: 0.6rem; }
+  .brain-toggle, .brain-evidence-row button, .brain-preview > button, .brain-delivery button { width: 100%; }
+}
 .planning-toolbar { padding: 14px 28px; }
 .planning-toolbar strong { font-size: 15px; }
 .planning-toolbar small { font-size: 12px; }

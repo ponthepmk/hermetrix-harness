@@ -363,6 +363,11 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 			return fmt.Errorf("apply schema v49: %w", err)
 		}
 	}
+	if version < 50 {
+		if err := migrateV50(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v50: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -375,7 +380,7 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 49
+const CurrentSchemaVersion = 50
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (
