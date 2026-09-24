@@ -17,10 +17,12 @@ type fixedServers []mcp.Server
 func (s fixedServers) List(context.Context) ([]mcp.Server, error) { return s, nil }
 
 type fakeCatalog struct {
-	entries []capabilities.Entry
-	calls   []string
-	pack    string
-	passage string
+	entries     []capabilities.Entry
+	calls       []string
+	queries     []string
+	pack        string
+	packByQuery map[string]string
+	passage     string
 }
 
 func (f *fakeCatalog) Search(query, _ string, _ int) []capabilities.SearchResult {
@@ -49,11 +51,17 @@ func (f *fakeCatalog) Call(_ context.Context, id, _ string, arguments json.RawMe
 	}
 	f.calls = append(f.calls, id)
 	if id == "get_context" {
-		if args["project"] != "client-a" || args["query"] != "state db corruption recovery" ||
+		if args["project"] != "client-a" ||
 			args["limit"] != float64(contextLimit) || args["max_bytes"] != float64(contextBudgetBytes) {
 			return capabilities.CallResult{}, capabilities.Entry{}, errors.New("unscoped or unexpected context request")
 		}
-		return capabilities.CallResult{Output: textResult(f.pack)}, capabilities.Entry{}, nil
+		query, _ := args["query"].(string)
+		f.queries = append(f.queries, query)
+		pack := f.pack
+		if alternate, ok := f.packByQuery[query]; ok {
+			pack = alternate
+		}
+		return capabilities.CallResult{Output: textResult(pack)}, capabilities.Entry{}, nil
 	}
 	if id == "read_passage" {
 		if args["path"] != "entities/recovery.md" || args["start_line"] != float64(5) || args["end_line"] != float64(7) ||
@@ -96,6 +104,9 @@ func TestRetrieveCuratedVersionBoundContextOnly(t *testing.T) {
 	if len(catalog.calls) != 2 || catalog.calls[0] != "get_context" || catalog.calls[1] != "read_passage" {
 		t.Fatalf("retrieval dispatched unexpected tools: %v", catalog.calls)
 	}
+	if len(catalog.queries) != 1 || catalog.queries[0] != "state db corruption recovery" {
+		t.Fatalf("successful exact query was unexpectedly broadened: %v", catalog.queries)
+	}
 	if len(fragments) != 1 || fragments[0].Kind != ctxcompiler.KindProjectKnowledge ||
 		fragments[0].Trust != "external_curated_not_verified" || fragments[0].Pinned ||
 		!strings.Contains(fragments[0].Content, "entities/recovery.md#L5-L7@sha256:") ||
@@ -135,7 +146,26 @@ func TestRetrieveNoMatchDoesNotInventKnowledge(t *testing.T) {
 	retriever, catalog := validFixture()
 	catalog.pack = `{"status":"no_match","items":[]}`
 	fragments, err := retriever.Retrieve(context.Background(), "state db corruption recovery")
-	if err != nil || len(fragments) != 0 || len(catalog.calls) != 1 {
-		t.Fatalf("no-match result was not empty: calls=%v fragments=%v err=%v", catalog.calls, fragments, err)
+	if err != nil || len(fragments) != 0 || len(catalog.calls) != 2 ||
+		strings.Join(catalog.queries, ",") != "state db corruption recovery,state db" {
+		t.Fatalf("no-match retry invented knowledge or exceeded its bound: calls=%v queries=%v fragments=%v err=%v",
+			catalog.calls, catalog.queries, fragments, err)
+	}
+}
+
+func TestRetrieveNaturalQuestionRetriesFocusedReadOnlyQuery(t *testing.T) {
+	retriever, catalog := validFixture()
+	good := catalog.pack
+	catalog.pack = `{"status":"no_match","items":[]}`
+	catalog.packByQuery = map[string]string{"Hermetrix planning": good}
+	fragments, err := retriever.Retrieve(context.Background(),
+		"How do I add a Hermetrix planning task after a 403 project write access denied? Use the Project Brain knowledge if relevant.")
+	if err != nil || len(fragments) != 1 || len(catalog.calls) != 3 ||
+		strings.Join(catalog.queries, ",") != "How do I add a Hermetrix planning task after a 403 project,Hermetrix planning" {
+		t.Fatalf("natural question did not yield a verified scoped citation: calls=%v queries=%v fragments=%v err=%v",
+			catalog.calls, catalog.queries, fragments, err)
+	}
+	if focusedQuery("ช่วยแก้การวางแผนของ Hermetrix") != "" {
+		t.Fatal("whitespace extraction must not rewrite Thai questions")
 	}
 }

@@ -78,12 +78,6 @@ func (r Retriever) Retrieve(ctx context.Context, query string) ([]ctxcompiler.Fr
 	if err != nil {
 		return nil, err
 	}
-	request, _ := json.Marshal(map[string]any{"query": query, "project": r.Project,
-		"limit": contextLimit, "max_bytes": contextBudgetBytes})
-	result, _, err := r.Catalog.Call(ctx, getContext.ID, getContext.Revision, request)
-	if err != nil {
-		return nil, fmt.Errorf("retrieve Project Brain context: %w", err)
-	}
 	var pack struct {
 		Status string `json:"status"`
 		Items  []struct {
@@ -100,8 +94,30 @@ func (r Retriever) Retrieve(ctx context.Context, query string) ([]ctxcompiler.Fr
 			Readiness  string   `json:"readiness"`
 		} `json:"items"`
 	}
-	if err := decodeTextResult(result.Output, &pack); err != nil {
-		return nil, fmt.Errorf("decode Project Brain context: %w", err)
+	lookup := func(terms string) error {
+		request, _ := json.Marshal(map[string]any{"query": terms, "project": r.Project,
+			"limit": contextLimit, "max_bytes": contextBudgetBytes})
+		result, _, err := r.Catalog.Call(ctx, getContext.ID, getContext.Revision, request)
+		if err != nil {
+			return fmt.Errorf("retrieve Project Brain context: %w", err)
+		}
+		if err := decodeTextResult(result.Output, &pack); err != nil {
+			return fmt.Errorf("decode Project Brain context: %w", err)
+		}
+		return nil
+	}
+	if err := lookup(query); err != nil {
+		return nil, err
+	}
+	// The Pi lexical gateway deliberately rejects broad, multi-clause requests.
+	// Retry only a genuine no-match with two topic words. This stays read-only,
+	// project-scoped, and bounded to one extra lookup; citations are verified below.
+	if pack.Status == "no_match" && len(pack.Items) == 0 {
+		if focused := focusedQuery(query); focused != "" && focused != query {
+			if err := lookup(focused); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if pack.Status == "no_match" && len(pack.Items) == 0 {
 		return nil, nil
@@ -220,4 +236,36 @@ func boundedQuery(query string) string {
 		query = string(runes[:len(runes)-1])
 	}
 	return strings.TrimSpace(query)
+}
+
+var queryFiller = map[string]bool{
+	"a": true, "an": true, "the": true, "how": true, "to": true, "is": true,
+	"are": true, "of": true, "for": true, "and": true, "do": true, "i": true,
+	"in": true, "on": true, "with": true, "what": true, "can": true, "my": true,
+	"me": true, "please": true, "help": true, "need": true, "want": true,
+	"would": true, "could": true, "should": true, "after": true, "before": true,
+	"add": true, "fix": true, "use": true, "using": true,
+}
+
+func focusedQuery(query string) string {
+	terms := make([]string, 0, 2)
+	for _, word := range strings.Fields(query) {
+		word = strings.Trim(word, `.,?!:;()[]{}"'`)
+		if word == "" {
+			continue
+		}
+		// Preserve non-English requests for the Pi's own tokenizer. A partial
+		// whitespace-based extraction would silently lose their meaning.
+		if utf8.RuneCountInString(word) != len(word) {
+			return ""
+		}
+		if queryFiller[strings.ToLower(word)] {
+			continue
+		}
+		terms = append(terms, word)
+		if len(terms) == 2 {
+			return strings.Join(terms, " ")
+		}
+	}
+	return ""
 }
