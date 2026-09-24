@@ -250,8 +250,9 @@ func cloneEntry(entry Entry) Entry {
 	entry.OutputSchema = append(json.RawMessage(nil), entry.OutputSchema...)
 	entry.Annotations = append(json.RawMessage(nil), entry.Annotations...)
 	if entry.Metadata != nil {
+		original := entry.Metadata
 		entry.Metadata = make(map[string]any, len(entry.Metadata))
-		for key, value := range entry.Metadata {
+		for key, value := range original {
 			entry.Metadata[key] = value
 		}
 	}

@@ -63,3 +63,25 @@ func TestCatalogExactRevisionAndAtomicReplacement(t *testing.T) {
 		t.Fatalf("old snapshot survived replacement: %v", err)
 	}
 }
+
+func TestCatalogPreservesTrustedMetadataAcrossClones(t *testing.T) {
+	catalog := NewCatalog()
+	catalog.SetExecutor(SourceMCP, &testExecutor{})
+	entry := Entry{ID: "mcp:brain:get_context", Name: "get_context", Source: SourceMCP,
+		SourceRef: "brain", Revision: "r1", Effect: "read", Readiness: ReadinessReady,
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Metadata:    map[string]any{"annotations_trusted": true, "kind": "tool"}}
+	if err := catalog.ReplaceSourceRef(SourceMCP, "brain", []Entry{entry}); err != nil {
+		t.Fatal(err)
+	}
+	entry.Metadata["annotations_trusted"] = false
+	described, err := catalog.Describe(entry.ID)
+	if err != nil || described.Metadata["annotations_trusted"] != true || described.Metadata["kind"] != "tool" {
+		t.Fatalf("trusted MCP metadata was lost on catalog replacement: metadata=%v err=%v", described.Metadata, err)
+	}
+	described.Metadata["annotations_trusted"] = false
+	_, called, err := catalog.Call(context.Background(), entry.ID, entry.Revision, json.RawMessage(`{}`))
+	if err != nil || called.Metadata["annotations_trusted"] != true {
+		t.Fatalf("trusted MCP metadata was lost on capability call: metadata=%v err=%v", called.Metadata, err)
+	}
+}
