@@ -8,6 +8,8 @@ Hermetrix is a local-first, provider-flexible agent harness built around three h
 2. token-efficient context compilation across 16k, 32k, 64k, 96k, 128k, 256k and 1M envelopes while keeping declared, probed and qualified context evidence distinct.
 3. an auditable agent loop that freezes model, context and capabilities before every sampling step.
 
+For a Thai-language overview of the product contract, implemented scope, and pending release gates, see [the specification summary](docs/SPEC-SUMMARY.md). This is a reference document; the application does not need it to run.
+
 The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
 
 The name reflects the architecture: a **hermetic core** for bounded local authority plus a **matrix** of versioned skills, tools, context and model capabilities. Product-owned identity files and their usage contract live in [assets/brand](assets/brand/README.md).

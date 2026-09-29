@@ -4,6 +4,12 @@
 
 > **วิธีอ่านสถานะ:** `มีแล้ว` หมายถึงเอกสารระบุว่ามี implementation หรือหลักฐานใช้งาน ณ วันที่ของเอกสารนั้น; `เป้าหมาย` คือ contract ที่ต้องพัฒนา/ตรวจรับ; `อนาคต` คือแนวทางที่ยังไม่เป็นความสามารถของ release ปัจจุบัน ไฟล์นี้เป็นสรุปสำหรับอ่านภาพรวม ไม่แทน requirement ID, API schema หรือเกณฑ์ตรวจรับฉบับเต็ม
 
+## อ่านก่อนใช้งาน
+
+- **ไฟล์นี้คืออะไร:** แผนที่อ่านสเปกทั้งโครงการแบบย่อ ใช้ทำความเข้าใจขอบเขตและตามลิงก์ไปยังข้อกำหนดฉบับเต็ม ไม่ใช่ไฟล์ตั้งค่าหรือขั้นตอนบังคับในการเปิดแอป
+- **ใช้งานได้แค่ไหน:** ซอร์สใน checkout วันที่ 2026-09-30 build, vet, Go tests และ UI unit tests ผ่าน แต่การผ่านชุดทดสอบเหล่านี้ยังไม่ยืนยันว่า workflow ทุกชนิดพร้อมใช้งานจริงหรือผ่านเกณฑ์ release บนทุกเครื่อง; รายการที่ยังต้องพิสูจน์อยู่ใน [บันทึกงานล่าสุด](NEXT_SESSION.md)
+- **ตัดสินใจจากอะไร:** เมื่อต้องลงมือพัฒนา ให้ดู requirement ID ในสเปกต้นฉบับและตรวจซอร์ส/พฤติกรรมปัจจุบัน; เมื่อต้องใช้ฟีเจอร์ ให้ดู capability ที่แอปแสดงและผลตรวจของ workflow นั้น
+
 ## 1. เอกสารหลักและลำดับการอ้างอิง
 
 | เอกสาร | บทบาท | สถานะที่ควรตีความ |
@@ -67,7 +73,7 @@ Hermetrix คือ workbench ของ agent แบบ **local-first, single-ho
 5. **Verification/review:** รัน checks ที่ตรึงไว้ผ่าน managed jobs และเก็บ evidence; mandatory check ไม่ผ่านต้อง rollback/fail; reviewer ใช้ provider profile แยกและตรวจ exact applied source/evidence ก่อน promote validations และปิดงาน. สเปกแม่เดิมกำหนดให้ model หรือ endpoint ต่างกันด้วย แต่ README/implementation ปัจจุบันยอมให้ profile แยกใช้ model/endpoint เดียวกันได้ จึงเป็น review อีก pass ไม่ใช่หลักฐานความเป็นอิสระของโมเดล
 6. **Recovery:** restart ไม่ส่ง provider/command/browser/MCP effect ซ้ำ; ambiguity หลัง apply หรือ receipt ล้มเหลวต้องมี hold/recovery state ที่ผู้ใช้เห็น; งานที่เสร็จต้องมีผลตรวจทุก criterion กับ revision ปัจจุบัน
 
-Task UI ฉบับปรับล่าสุดให้เริ่มจากเลือก Project → ใส่เป้าหมาย → Chat หรือ Plans → ข้อเสนอทีละขั้น → ตรวจผลก่อนปิดงาน. หน้า Plans ต้องส่ง run ID/lease token ใน protected actions, ต่ออายุ lease, ป้องกันกดซ้ำ และบอกตั้งแต่ต้นเมื่อยังไม่มี reviewer อิสระพร้อมใช้
+Task UI ฉบับปรับล่าสุดให้เริ่มจากเลือก Project → ใส่เป้าหมาย → Chat หรือ Plans → ข้อเสนอทีละขั้น → ตรวจผลก่อนปิดงาน. หน้า Plans ต้องส่ง run ID/lease token ใน protected actions, ต่ออายุ lease, ป้องกันกดซ้ำ และบอกตั้งแต่ต้นเมื่อยังไม่มี reviewer profile แยกที่พร้อมใช้
 
 ## 7. เครื่องมือ, MCP และ agent teams
 

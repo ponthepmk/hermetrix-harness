@@ -4,6 +4,7 @@
   "docs_root": "docs/",
   "files": [
     {"path":"docs/NEXT_SESSION.md","role":"module","summary":"Current source/runtime handoff, Project Brain acceptance and remaining scope."},
+    {"path":"docs/SPEC-SUMMARY.md","role":"feature","summary":"Thai-language map of the product specification, current implementation claims, target contracts, and open release gates."},
     {"path":"docs/FILE_MAP.json","role":"config","summary":"Selective navigation index for current features; not an exhaustive source inventory."},
     {"path":"docs/reviews/2026-09-28-live-skill-mcp-token-audit.md","role":"feature","summary":"Observed Preview Skill/Pi MCP calls, token ledger, CMS Task actions, source fixes and remaining blockers."},
     {"path":"docs/redesign/2026-09-26-goal-driven-workbench-v2-master-plan.md","role":"feature","summary":"Review-ready full v2 implementation plan, phased work, user journeys, acceptance gates and desktop/video/content/publishing scope."},
