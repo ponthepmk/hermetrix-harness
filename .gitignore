@@ -33,3 +33,10 @@ tmp-mockup-data/
 # Subagent-driven development scratch: ledgers, briefs and review packages.
 # The git history is the record; these are the notes taken while making it.
 .superpowers/
+
+# Local build/test caches, browser profiles, and per-machine Git settings.
+/.tmp-go-cache/
+/.tmp-ui/
+/internal/web/.tmp-ui/
+/.hermetrix-gitconfig
+/.hermetrix-pi-release.gitconfig
