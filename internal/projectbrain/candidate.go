@@ -28,31 +28,34 @@ type CommittedTaskFacts struct {
 	ProjectID     string
 	// The existing sharing policy defaults to private/deny. These facts must
 	// be read from the same committed source revision as the task projection.
-	ProjectVisibility   string
-	ProjectExportPolicy string
-	Visibility          string
-	ExportPolicy        string
-	OriginNodeID        string
-	AgentID             string
-	PlatformTaskID      string
-	PlatformRunID       string
-	Title               string
-	Problem             string
-	Solution            string
-	CompletedAt         time.Time
+	ProjectVisibility      string
+	ProjectExportPolicy    string
+	ProjectSharingRevision int
+	Visibility             string
+	ExportPolicy           string
+	SharingRevision        int
+	OriginNodeID           string
+	AgentID                string
+	PlatformTaskID         string
+	PlatformRunID          string
+	Title                  string
+	Problem                string
+	Solution               string
+	CompletedAt            time.Time
 }
 
 // CommittedEvidence carries the exact immutable bytes that the caller read
 // from local CAS. Only their digest and opaque identity leave this builder.
 type CommittedEvidence struct {
-	ID            string
-	Type          string
-	Content       []byte
-	ContentDigest string
-	CreatedAt     time.Time
-	HarnessRef    string
-	Visibility    string
-	ExportPolicy  string
+	ID              string
+	Type            string
+	Content         []byte
+	ContentDigest   string
+	CreatedAt       time.Time
+	HarnessRef      string
+	Visibility      string
+	ExportPolicy    string
+	SharingRevision int
 }
 
 // CandidateExportApproval is an explicit selection of exactly this text and
@@ -60,13 +63,20 @@ type CommittedEvidence struct {
 // authorization credential: a runtime adapter must verify a persisted owner
 // approval and its revision before calling this pure builder or sending bytes.
 type CandidateExportApproval struct {
-	Actor           string
-	ProjectID       string
-	HarnessTaskID   string
-	TaskRevision    int
-	ContentDigest   string
-	EvidenceDigests map[string]string
-	ApprovedAt      time.Time
+	Actor                  string            `json:"actor"`
+	ProjectID              string            `json:"project_id"`
+	HarnessTaskID          string            `json:"harness_task_id"`
+	TaskRevision           int               `json:"task_revision"`
+	ValidationID           string            `json:"validation_id"`
+	CheckID                string            `json:"check_id"`
+	SubjectRevision        string            `json:"subject_revision"`
+	VerificationKind       string            `json:"verification_kind"`
+	ContentDigest          string            `json:"content_digest"`
+	EvidenceDigests        map[string]string `json:"evidence_digests"`
+	ProjectSharingRevision int               `json:"project_sharing_revision"`
+	TaskSharingRevision    int               `json:"task_sharing_revision"`
+	EvidenceRevisions      map[string]int    `json:"evidence_revisions"`
+	ApprovedAt             time.Time         `json:"approved_at"`
 }
 
 // CommittedVerification identifies one passed check of the active subject.
@@ -148,7 +158,8 @@ func BuildKnowledgeCandidate(task CommittedTaskFacts, check CommittedVerificatio
 		return KnowledgeCandidate{}, errors.New("candidate requires a committed completed task revision")
 	}
 	if task.ProjectVisibility != "project_shared" || task.ProjectExportPolicy != "explicit_selection" ||
-		task.Visibility != "project_shared" || task.ExportPolicy != "explicit_selection" {
+		task.Visibility != "project_shared" || task.ExportPolicy != "explicit_selection" ||
+		task.ProjectSharingRevision < 1 || task.SharingRevision < 1 {
 		return KnowledgeCandidate{}, errors.New("candidate source project and task are not eligible for explicit export")
 	}
 	for name, value := range map[string]string{
@@ -174,8 +185,14 @@ func BuildKnowledgeCandidate(task CommittedTaskFacts, check CommittedVerificatio
 	}
 	if !candidateAtom(approval.Actor) || approval.ProjectID != task.ProjectID ||
 		approval.HarnessTaskID != task.HarnessTaskID || approval.TaskRevision != task.TaskRevision ||
+		!candidateAtom(approval.ValidationID) || approval.CheckID != check.CheckID ||
+		approval.SubjectRevision != check.SubjectRevision ||
+		approval.VerificationKind != check.Kind ||
+		approval.ProjectSharingRevision != task.ProjectSharingRevision ||
+		approval.TaskSharingRevision != task.SharingRevision ||
 		approval.ContentDigest != contentDigest || approval.ApprovedAt.IsZero() ||
-		len(approval.EvidenceDigests) != len(check.Evidence) {
+		len(approval.EvidenceDigests) != len(check.Evidence) ||
+		len(approval.EvidenceRevisions) != len(check.Evidence) {
 		return KnowledgeCandidate{}, errors.New("candidate lacks a matching explicit export selection")
 	}
 	if check.Outcome != "pass" || !verificationKinds[check.Kind] || check.ObservedAt.IsZero() ||
@@ -189,6 +206,7 @@ func BuildKnowledgeCandidate(task CommittedTaskFacts, check CommittedVerificatio
 			!candidateDigestPattern.MatchString(evidence.ContentDigest) || evidence.CreatedAt.IsZero() ||
 			len(evidence.Content) == 0 || seen[evidence.ID] ||
 			evidence.Visibility != "project_shared" || evidence.ExportPolicy != "explicit_selection" ||
+			evidence.SharingRevision < 1 || approval.EvidenceRevisions[evidence.ID] != evidence.SharingRevision ||
 			approval.EvidenceDigests[evidence.ID] != evidence.ContentDigest ||
 			(evidence.HarnessRef != "" && !candidateHarnessRef(evidence.HarnessRef)) {
 			return KnowledgeCandidate{}, errors.New("candidate evidence identity, type, content, or provenance is invalid")
@@ -211,11 +229,11 @@ func BuildKnowledgeCandidate(task CommittedTaskFacts, check CommittedVerificatio
 	identityFacts := struct {
 		ProjectID, NodeID, AgentID, HarnessTaskID, PlatformTaskID, PlatformRunID string
 		TaskRevision                                                             int
-		SubjectRevision, CheckID                                                 string
+		SubjectRevision, CheckID, ValidationID                                   string
 		EvidenceRefs                                                             []CandidateEvidenceRef
 	}{task.ProjectID, task.OriginNodeID, task.AgentID, task.HarnessTaskID,
 		task.PlatformTaskID, task.PlatformRunID, task.TaskRevision,
-		check.SubjectRevision, check.CheckID, refs}
+		check.SubjectRevision, check.CheckID, approval.ValidationID, refs}
 	identityRaw, err := json.Marshal(identityFacts)
 	if err != nil {
 		return KnowledgeCandidate{}, err

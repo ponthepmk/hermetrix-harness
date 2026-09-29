@@ -14,8 +14,9 @@ func candidateTestFacts() (CommittedTaskFacts, CommittedVerification, CandidateE
 	task := CommittedTaskFacts{HarnessTaskID: "task-local-9", TaskRevision: 7,
 		State: "completed", ProjectID: "hermetrix-harness", OriginNodeID: "node-windows-1",
 		ProjectVisibility: "project_shared", ProjectExportPolicy: "explicit_selection",
-		Visibility: "project_shared", ExportPolicy: "explicit_selection",
-		AgentID: "hermetrix-windows", PlatformTaskID: "platform-task-3",
+		ProjectSharingRevision: 2, Visibility: "project_shared", ExportPolicy: "explicit_selection",
+		SharingRevision: 3,
+		AgentID:         "hermetrix-windows", PlatformTaskID: "platform-task-3",
 		PlatformRunID: "platform-run-5", Title: "Repair migration reopen",
 		Problem:     "The migration reopened with the wrong schema.",
 		Solution:    "Commit the migration, reopen SQLite, and check its schema version.",
@@ -27,12 +28,17 @@ func candidateTestFacts() (CommittedTaskFacts, CommittedVerification, CandidateE
 		Evidence: []CommittedEvidence{{ID: "artifact-test-42", Type: "test_output", Content: content,
 			ContentDigest: "sha256:" + hex.EncodeToString(sum[:]), CreatedAt: created.Add(time.Minute),
 			HarnessRef: "artifact:artifact-test-42", Visibility: "project_shared",
-			ExportPolicy: "explicit_selection"}}}
+			ExportPolicy: "explicit_selection", SharingRevision: 4}}}
 	contentDigest, _ := CandidateExportContentDigest(task)
 	approval := CandidateExportApproval{Actor: "owner", ProjectID: task.ProjectID,
 		HarnessTaskID: task.HarnessTaskID, TaskRevision: task.TaskRevision,
+		ValidationID: "validation-42", CheckID: check.CheckID, SubjectRevision: check.SubjectRevision,
+		VerificationKind:       check.Kind,
+		ProjectSharingRevision: task.ProjectSharingRevision, TaskSharingRevision: task.SharingRevision,
 		ContentDigest: contentDigest, EvidenceDigests: map[string]string{
-			check.Evidence[0].ID: check.Evidence[0].ContentDigest}, ApprovedAt: created.Add(4 * time.Minute)}
+			check.Evidence[0].ID: check.Evidence[0].ContentDigest},
+		EvidenceRevisions: map[string]int{check.Evidence[0].ID: check.Evidence[0].SharingRevision},
+		ApprovedAt:        created.Add(4 * time.Minute)}
 	return task, check, approval
 }
 
@@ -87,8 +93,9 @@ func TestBuildKnowledgeCandidateStableAcrossRetryAndEvidenceOrder(t *testing.T) 
 	check.Evidence = append(check.Evidence, CommittedEvidence{ID: "artifact-review-44", Type: "artifact",
 		Content: otherContent, ContentDigest: "sha256:" + hex.EncodeToString(otherSum[:]),
 		CreatedAt: check.ObservedAt, HarnessRef: "artifact:artifact-review-44",
-		Visibility: "project_shared", ExportPolicy: "explicit_selection"})
+		Visibility: "project_shared", ExportPolicy: "explicit_selection", SharingRevision: 2})
 	approval.EvidenceDigests["artifact-review-44"] = "sha256:" + hex.EncodeToString(otherSum[:])
+	approval.EvidenceRevisions["artifact-review-44"] = 2
 	first, err := BuildKnowledgeCandidate(task, check, approval)
 	if err != nil {
 		t.Fatal(err)
@@ -164,8 +171,29 @@ func TestBuildKnowledgeCandidateRequiresExplicitExportSelection(t *testing.T) {
 		"stale task revision": func(_ *CommittedTaskFacts, _ *CommittedVerification, approval *CandidateExportApproval) {
 			approval.TaskRevision--
 		},
+		"different validation": func(_ *CommittedTaskFacts, _ *CommittedVerification, approval *CandidateExportApproval) {
+			approval.ValidationID = ""
+		},
+		"different check": func(_ *CommittedTaskFacts, _ *CommittedVerification, approval *CandidateExportApproval) {
+			approval.CheckID = "different-check"
+		},
+		"different verification kind": func(_ *CommittedTaskFacts, _ *CommittedVerification, approval *CandidateExportApproval) {
+			approval.VerificationKind = "review"
+		},
+		"stale subject": func(_ *CommittedTaskFacts, _ *CommittedVerification, approval *CandidateExportApproval) {
+			approval.SubjectRevision = "requirement:old"
+		},
 		"unselected evidence": func(_ *CommittedTaskFacts, _ *CommittedVerification, approval *CandidateExportApproval) {
 			approval.EvidenceDigests = nil
+		},
+		"revoked project revision": func(task *CommittedTaskFacts, _ *CommittedVerification, _ *CandidateExportApproval) {
+			task.ProjectSharingRevision++
+		},
+		"revoked task revision": func(task *CommittedTaskFacts, _ *CommittedVerification, _ *CandidateExportApproval) {
+			task.SharingRevision++
+		},
+		"revoked evidence revision": func(_ *CommittedTaskFacts, check *CommittedVerification, _ *CandidateExportApproval) {
+			check.Evidence[0].SharingRevision++
 		},
 		"text changed after approval": func(task *CommittedTaskFacts, _ *CommittedVerification, _ *CandidateExportApproval) {
 			task.Problem += " Added a private detail."

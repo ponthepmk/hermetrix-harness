@@ -34,6 +34,7 @@ import (
 	"hermetrix-harness/internal/localmodel"
 	"hermetrix-harness/internal/mcp"
 	"hermetrix-harness/internal/product"
+	"hermetrix-harness/internal/projectbrain"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/qualification"
 	"hermetrix-harness/internal/secrets"
@@ -62,6 +63,8 @@ type Server struct {
 	product            *product.Service
 	tasks              *taskengine.Service
 	coord              *taskcoord.Service
+	brainStage         *projectbrain.StageService
+	brainOutbox        *projectbrain.CandidateOutbox
 	discord            *discordbridge.Service
 	store              *store.Store
 	logger             *slog.Logger
@@ -106,6 +109,13 @@ func (s *Server) WithTaskEngine(service *taskengine.Service) *Server {
 
 func (s *Server) WithTaskCoordinator(service *taskcoord.Service) *Server {
 	s.coord = service
+	return s
+}
+
+func (s *Server) WithProjectBrainCandidates(stage *projectbrain.StageService,
+	outbox *projectbrain.CandidateOutbox) *Server {
+	s.brainStage = stage
+	s.brainOutbox = outbox
 	return s
 }
 
@@ -289,6 +299,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/decision-read-only", s.decideTaskReadOnly)
 	mux.HandleFunc("GET /api/tasks/{id}/progress", s.getTaskProgress)
 	mux.HandleFunc("GET /api/tasks/{id}/knowledge", s.getTaskKnowledge)
+	mux.HandleFunc("GET /api/tasks/{id}/project-brain-eligibility", s.getProjectBrainEligibility)
+	mux.HandleFunc("POST /api/project-brain/candidates/preview", s.previewProjectBrainCandidate)
+	mux.HandleFunc("POST /api/project-brain/candidates", s.stageProjectBrainCandidate)
+	mux.HandleFunc("GET /api/project-brain/candidates/{id}", s.getProjectBrainCandidate)
 	mux.HandleFunc("GET /api/decision/fixtures", s.listDecisionFixtures)
 	mux.HandleFunc("GET /api/decision/benchmarks", s.listDecisionBenchmarks)
 	mux.HandleFunc("POST /api/decision/benchmarks", s.runDecisionBenchmark)

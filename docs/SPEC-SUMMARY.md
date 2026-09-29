@@ -21,7 +21,7 @@
 | [Architecture](ARCHITECTURE.md), [README](../README.md), [Local Release](LOCAL_RELEASE.md) | ภาพระบบและสิ่งที่ build/ติดตั้งได้ | ใช้ตรวจความจริงของ implementation เทียบกับสเปกเก่า |
 | [Pi rollout review](project-brain-rollout-review.md), [Pi operations](PROJECT_BRAIN_OPERATIONS.md) | หลักฐานและวิธีใช้ Pi Agent Platform/Project Brain | ยืนยัน scoped read/candidate flow ณ 2026-09-24; full target architecture ยังไม่ครบ |
 
-ซอร์สใน checkout นี้กำหนด `CurrentSchemaVersion = 72` ที่ `internal/store/store.go` ส่วนเอกสารสเปกแม่อ้าง v36 และ overlay เสนอเลข migration v37–v46 จึง **ห้ามใช้เลข migration ในเอกสารเก่าเป็นแผนลงโค้ดโดยไม่ตรวจ HEAD ใหม่** สรุปนี้ไม่ได้รับรองว่าทุกฟีเจอร์ใหม่ผ่านเกณฑ์ release ครบแล้ว
+ซอร์สใน checkout นี้กำหนด `CurrentSchemaVersion = 73` ที่ `internal/store/store.go` ส่วนเอกสารสเปกแม่อ้าง v36 และ overlay เสนอเลข migration v37–v46 จึง **ห้ามใช้เลข migration ในเอกสารเก่าเป็นแผนลงโค้ดโดยไม่ตรวจ HEAD ใหม่** สรุปนี้ไม่ได้รับรองว่าทุกฟีเจอร์ใหม่ผ่านเกณฑ์ release ครบแล้ว
 
 ## 2. เป้าหมายผลิตภัณฑ์และขอบเขต
 
@@ -114,7 +114,7 @@ Task UI ฉบับปรับล่าสุดให้เริ่มจา
 
 ## 11. การเชื่อมต่อ Raspberry Pi ที่ตรวจแล้ว
 
-ณ [rollout review 2026-09-24](project-brain-rollout-review.md), Pi มีบริการแยกสองชุด: Agent Platform/board สำหรับ identity และงาน กับ Project Brain สำหรับ curated knowledge. ใช้ MCP credentials แยกต่อ client/project/scope; Hermetrix และ Hermes มีสิทธิ์อ่าน Project Brain ส่วน Codex มีสิทธิ์งานที่ grant และส่ง knowledge candidate ได้. Pi เก็บ project/work identity, grants และ knowledge lifecycle; Hermetrix ยังถือ local paths, Context Compiler, DecisionEngine, leases, effect intents และกฎ no-replay
+ณ [rollout review 2026-09-24](project-brain-rollout-review.md), Pi มีบริการแยกสองชุด: Agent Platform/board สำหรับ identity และงาน กับ Project Brain สำหรับ curated knowledge. ใช้ MCP credentials แยกต่อ client/project/scope; Hermetrix และ Hermes มีสิทธิ์อ่าน Project Brain ส่วน Codex มีสิทธิ์งานที่ grant และส่ง knowledge candidate ได้. โค้ดปัจจุบันเพิ่มทางให้ Hermetrix ส่ง **inert candidate** จาก Task ที่เสร็จแล้ว โดยเลือกหลักฐาน, ตรวจตัวอย่าง, ยืนยัน และเก็บใน outbox ก่อนส่งผ่าน credential แยก; Pi ยังต้องให้ curator ตรวจรับก่อนเข้า retrieval. ดู [ขั้นตอนใช้งาน](PROJECT_BRAIN_QUICKSTART.md) และ [วิธีดูแล](PROJECT_BRAIN_OPERATIONS.md). Pi เก็บ project/work identity, grants และ knowledge lifecycle; Hermetrix ยังถือ local paths, Context Compiler, DecisionEngine, leases, effect intents และกฎ no-replay
 
 เส้นทางจริงที่ตรวจ: Project Brain passage ที่ curator รับแล้วถูกดึงเข้ามาเป็น context fragment แบบ version-bound ใน local Bonsai session และโมเดลตอบคำถามจากเนื้อหานั้นได้. **ยังไม่มี** managed remote execution/write handoff, autonomous coding, automatic knowledge extraction ทุก session, shared/global knowledge policy หรือ measured reuse rate. ข้อมูลบน Pi ต้องอ่านเป็นหลักฐานภายนอกที่ตรวจ applicability ก่อนใช้
 

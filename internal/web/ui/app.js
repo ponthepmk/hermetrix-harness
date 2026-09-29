@@ -5149,7 +5149,7 @@ function renderTaskCockpit(body) {
       ${!providers.length ? `<p class="session-error">No ready ${selected.egress_policy === "remote_allowed" ? "" : "local "}model is configured for this task. Connect one or fix its credentials in Models.</p><button class="ghost" data-task-models>Open Models</button>` : ""}
       ${providers.length && !providers.some(provider => taskEligibleProviders(selected, provider.id).length) ? `<p class="task-readiness">วางแผนและเสนอการแก้ไขได้ แต่การตรวจงานขั้นสุดท้ายต้องมีโปรไฟล์อีกตัวสำหรับการตรวจรอบแยกใน Models</p>` : ""}
       <div id="taskResults">${taskCompletionHTML(selected, execution)}</div>
-    </section>${taskActivityHTML(execution)}<details id="taskOptionalTools" class="task-optional-tools" ${taskOptionalToolsOpen.has(selected.id) || (execution?.research || []).length || execution?.content?.brief || (execution?.socialPosts || []).length ? "open" : ""}><summary>เครื่องมือคอนเทนต์ · ค้นแหล่งข้อมูลและเตรียมโพสต์</summary>${taskResearchHTML(selected, execution)}${taskContentHTML(selected, execution)}</details>${taskDesktopActionsHTML(selected, execution)}${taskBrowserActionsHTML(selected, execution)}${taskDecisionLabHTML(selected)}` : ""}</div>`;
+    </section>${taskActivityHTML(execution)}<details id="taskOptionalTools" class="task-optional-tools" ${taskOptionalToolsOpen.has(selected.id) || (execution?.research || []).length || execution?.content?.brief || (execution?.socialPosts || []).length ? "open" : ""}><summary>เครื่องมือคอนเทนต์ · ค้นแหล่งข้อมูลและเตรียมโพสต์</summary>${taskResearchHTML(selected, execution)}${taskContentHTML(selected, execution)}</details>${taskDesktopActionsHTML(selected, execution)}${taskBrowserActionsHTML(selected, execution)}<div id="taskProjectBrain"></div>${taskDecisionLabHTML(selected)}` : ""}</div>`;
   $("#taskOptionalTools")?.addEventListener("toggle", event => {
     if (event.currentTarget.open) taskOptionalToolsOpen.add(selected.id);
     else taskOptionalToolsOpen.delete(selected.id);
@@ -5212,6 +5212,7 @@ function renderTaskCockpit(body) {
   $("#taskDecisionAdmission")?.addEventListener("click", event => changeTaskDecisionAdmission(event, body));
   $("#taskDecisionRecommend")?.addEventListener("click", () => recommendTaskDecision(body));
   $("#taskReload")?.addEventListener("click", () => refreshDurableTask(selected.id));
+  window.HermetrixProjectBrain?.render($("#taskProjectBrain", body), selected, state.projects.find(project => project.id === selected?.project_id), {api, askAction, load, currentActor, escapeHTML, formatDate});
   $("#taskComplete")?.addEventListener("click", () => completeDurableTaskFromCockpit(body));
   $("#taskAcceptResult")?.addEventListener("click", () => acceptDurableTaskResult(body));
   $("#taskApprovePlan")?.addEventListener("click", () => reviewDurablePlan("approved", body));

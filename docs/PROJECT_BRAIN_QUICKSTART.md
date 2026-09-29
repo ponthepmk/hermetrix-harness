@@ -7,7 +7,7 @@
 1. ดับเบิลคลิก `C:\Users\ZP2E0\AppData\Local\Hermetrix\Start Hermetrix.cmd` แล้วเปิด `http://127.0.0.1:7331/` บนเครื่องเดียวกัน
 2. เลือกโปรเจกต์ `hermetrix-harness` และเริ่มแชทใหม่ ลองถามว่า **“ในโปรเจกต์นี้ ถ้าจะเพิ่ม planning task ต้องใช้ Platform Project ID หรือ board project ID? อธิบายวิธีตรวจให้ถูกต้อง”** Hermetrix จะค้นความรู้ที่ Pi รับรองแล้วให้ local model ก่อนตอบ คำตอบที่ผ่านการทดสอบจริงแยก ID สองชนิดนี้ได้
 3. หากต้องการดูบอร์ดงาน ให้ดับเบิลคลิก `C:\Users\ZP2E0\AppData\Local\Hermetrix\Show Pi Board Login.cmd` โปรแกรมจะเปิด `https://kanban.go2gether-tech.online/` และแสดงรหัส `owner` ในหน้าต่างของเครื่องนี้ อย่าส่งรหัสในแชท
-4. หากต้องการให้ Codex อ่านหรือแก้ planning บน Pi ให้เปิด **Codex session ใหม่** เพื่อโหลด MCP profiles ที่บันทึกไว้ แล้วสั่งด้วยภาษาปกติ เช่น “ดูงานของ hermetrix-harness บน Pi และสร้างแผนสำหรับ …” Codex มีสิทธิ์ `work.read`/`work.write` เฉพาะโปรเจกต์ที่ได้รับ grant; Hermetrix มีสิทธิ์ **อ่าน Project Brain** เท่านั้น
+4. หากต้องการให้ Codex อ่านหรือแก้ planning บน Pi ให้เปิด **Codex session ใหม่** เพื่อโหลด MCP profiles ที่บันทึกไว้ แล้วสั่งด้วยภาษาปกติ เช่น “ดูงานของ hermetrix-harness บน Pi และสร้างแผนสำหรับ …” Codex มีสิทธิ์ `work.read`/`work.write` เฉพาะโปรเจกต์ที่ได้รับ grant; Hermetrix ใช้ profile อ่านความรู้แยกจาก profile `candidate_submit` สำหรับส่งข้อเสนอที่เจ้าของงานยืนยัน
 
 | สิ่งที่ใช้ | ปลายทาง | เจ้าของงาน |
 |---|---|---|
@@ -15,7 +15,7 @@
 | ความรู้ที่คัดเลือกแล้วผ่าน MCP | `https://secondbrain.go2gether-tech.online/mcp` | Pi Second Brain / Project Brain |
 | หน้าบอร์ดสำหรับคน | `https://kanban.go2gether-tech.online/` | Kanban UI |
 
-สอง MCP ใช้ Bearer token คนละชุดที่เก็บในเครื่องนี้ Cloudflare Tunnel เป็นทางเข้า HTTPS; การตั้งค่านี้ **ไม่ต้องใช้ Cloudflare Access service token** เว็บบอร์ดใช้ Basic login แยกจาก MCP token
+สอง MCP ใช้ Bearer token คนละชุดที่เก็บในเครื่องนี้ Cloudflare Tunnel เป็นทางเข้า HTTPS; การตั้งค่านี้ **ไม่ต้องใช้ Cloudflare Access service token** เว็บบอร์ดใช้ Basic login แยกจาก MCP token สำหรับ Hermetrix โทเคน `candidate_submit` เป็นอีกชุดหนึ่ง: ส่งได้เฉพาะข้อเสนอของโปรเจกต์ `hermetrix-harness` อ่านความรู้ เขียนข้อมูลทั่วไป และรับรองข้อเสนอไม่ได้
 
 ## เช็กว่าใช้งานได้จริง
 
@@ -28,6 +28,14 @@
 
 ## ความรู้ใหม่เข้าระบบอย่างไร
 
-Codex ส่ง `submit_knowledge_candidate` พร้อมผลตรวจและหลักฐานที่อ้างอิงแบบ immutable ได้ แต่ candidate ยังไม่เป็นความรู้ที่ระบบหยิบไปใช้ ผู้ดูแล Pi ต้องตรวจหลักฐาน ความซ้ำ และความขัดแย้ง แล้วจึงเรียก `review_knowledge_candidate` หลังรับรอง Hermetrix/Bonsai และ agent อื่นจึงค้นหน้าเดียวกันได้ ขั้นตอนรับรองยังเป็นงานคน; ยังไม่มีการดึงบทเรียนจากทุก session หรือ promote อัตโนมัติ
+Codex ส่ง `submit_knowledge_candidate` พร้อมผลตรวจและหลักฐานที่อ้างอิงแบบ immutable ได้ ส่วน Hermetrix มีทางส่งจากงานในเครื่องที่ **เสร็จแล้ว** ดังนี้:
 
-Credential ของ Project Brain ชุดนี้หมดอายุ **2026-12-22 19:30:19 UTC** ต้องหมุนเวียนก่อนวันนั้น ระบบยังไม่มี Platform Router, managed remote execution, หรือสิทธิ์เขียน Pi จาก Hermetrix ดูรายละเอียดการดูแลและขอบเขตที่ตรวจจริงใน [คู่มือปฏิบัติการ](PROJECT_BRAIN_OPERATIONS.md) และ [ผลทดสอบหลัง rollout](project-brain-rollout-review.md)
+1. เปิด **Plans** แล้วเลือก Task ที่ขึ้นสถานะ `completed` เลื่อนมาที่หัวข้อ **แชร์วิธีแก้ที่ตรวจแล้ว**
+2. หากโปรเจกต์ งาน หรือ artifact ยังเป็นส่วนตัว ให้กดอนุญาตเฉพาะรายการที่ต้องการ ระบบถามยืนยันทุกครั้ง การเปิดสิทธิ์เลือกส่งออกยังไม่ส่งข้อมูลไป Pi
+3. เลือกผลตรวจ `pass` ของเกณฑ์งานฉบับปัจจุบัน เลือก artifact ที่ต้องการอ้างอิง 1–8 รายการ และเขียนวิธีแก้ที่นำกลับมาใช้ได้
+4. กด **ตรวจสิ่งที่จะส่ง** เพื่อดูปัญหา วิธีแก้ ผลตรวจ และ digest ของหลักฐาน แล้วกด **ยืนยันส่งข้อเสนอนี้ให้ Pi ตรวจ** อีกครั้ง ระบบไม่ส่งอัตโนมัติ
+5. ดูสถานะใน Task: **รอส่งไป Pi** หมายถึงอยู่ใน outbox ทนทานของเครื่อง; **Pi รับข้อเสนอแล้ว** หมายถึงส่งถึง Pi แต่ยังไม่ผ่านการรับรอง ถ้าส่งไม่ได้ให้ดูสาเหตุและตรวจสิทธิ์แชร์/ผลตรวจอีกครั้ง การส่งซ้ำไม่รันงานหรือ Effect ใหม่
+
+candidate ยังไม่เป็นความรู้ที่ระบบหยิบไปใช้ ผู้ดูแล Pi แยกจากผู้ส่งต้องตรวจหลักฐาน ความซ้ำ และความขัดแย้งในคิว แล้วจึงรับรอง หลังรับรอง Hermetrix/Bonsai และ agent อื่นจึงค้นหน้าเดียวกันได้ ขั้นตอนรับรองยังเป็นงานคน; ยังไม่มีการดึงบทเรียนจากทุก session หรือ promote อัตโนมัติ
+
+Credential อ่าน Project Brain ชุดเดิมหมดอายุ **2026-12-22 19:30:19 UTC** และ credential ส่ง candidate ใหม่หมดอายุ **2026-12-23 04:14:13 UTC** ต้องหมุนเวียนก่อนวันดังกล่าว Hermetrix ยังไม่มีสิทธิ์เขียน planning หรือรับรองความรู้บน Pi; ระบบยังไม่มี Platform Router หรือ managed remote execution ดูรายละเอียดการดูแลและขอบเขตที่ตรวจจริงใน [คู่มือปฏิบัติการ](PROJECT_BRAIN_OPERATIONS.md) และ [ผลทดสอบหลัง rollout](project-brain-rollout-review.md)
