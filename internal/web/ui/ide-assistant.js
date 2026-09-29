@@ -1,7 +1,7 @@
-// Local coding conversations share the audited chat turn and approval pipeline.
+// Workspace coding conversations share the audited chat turn and approval pipeline.
 // Keep this pane mounted during a turn so streaming never destroys the editor.
 (() => {
-  const preferred = new Map();
+  let explicitlySelectedModel = false;
   const renderedLogs = new WeakMap();
   const contextLimit = 24000;
   let busy = false;
@@ -10,17 +10,22 @@
   let error = "";
   let pendingContext = null;
 
-  function providers() { return taskEligibleProviders({egress_policy:"local_only"}); }
+  function providers() { return taskEligibleProviders({egress_policy:"remote_allowed"}); }
   function provider() {
     const eligible = providers();
     const selected = state.sessionDetail?.session;
-    return eligible.find(item => item.id === preferred.get(state.currentProject?.id))
-      || eligible.find(item => selected?.project_id === state.currentProject?.id && item.id === selected.provider_id)
-      || eligible.find(item => item.id === state.draftProviderID) || eligible[0];
+    const active = eligible.find(item => selected?.project_id === state.currentProject?.id && item.id === selected.provider_id);
+    return (explicitlySelectedModel ? eligible.find(item => item.id === state.draftProviderID) : active)
+      || eligible.find(item => item.id === state.draftProviderID)
+      || active
+      || eligible[0];
   }
   function localSession() {
     const session = state.sessionDetail?.session;
-    return session?.project_id === state.currentProject?.id && providers().some(item => item.id === session.provider_id) ? session : null;
+    return session?.project_id === state.currentProject?.id && !session.team_child && providers().some(item => item.id === session.provider_id) ? session : null;
+  }
+  function sessionNeedsRecovery() {
+    return String(state.chatTurnError || "").includes("provider/model revision changed after session creation");
   }
   function blocked() { return busy || state.sending || state.sessionCreationPending || state.startingSession; }
   function context() {
@@ -77,23 +82,36 @@
     if (!session) return `<div class="ide-ai-welcome"><h3>วันนี้ให้ช่วยอะไรดี?</h3><p>ถามเรื่องโค้ดในโปรเจกต์นี้ หรือเลือกจุดเริ่มต้นด้านล่าง</p><div class="ide-ai-suggestions"><button type="button" data-assistant-suggestion="ช่วยตรวจคุณภาพโค้ดในไฟล์ที่เปิดอยู่ พร้อมเสนอจุดที่ควรแก้ก่อน">ตรวจคุณภาพโค้ด</button><button type="button" data-assistant-suggestion="อธิบายโค้ดในไฟล์ที่เปิดอยู่ให้เข้าใจง่าย">อธิบายไฟล์นี้</button><button type="button" data-assistant-suggestion="ช่วยหาสาเหตุของข้อผิดพลาดในไฟล์ที่เปิดอยู่">หาสาเหตุของปัญหา</button><button type="button" data-assistant-suggestion="ช่วยวางแผนปรับปรุงโค้ดในโปรเจกต์นี้">วางแผนปรับปรุง</button></div></div>`;
     const events = (state.sessionDetail.events || []).filter(item => ["message","tool_call","tool_result","approval_required","approval_decision","turn_failed"].includes(item.event_kind));
     const transient = state.sending && stream.sessionID === session.id && stream.text
-      ? `<article class="chat-message assistant"><div class="message-role">Hermetrix</div><div class="message-body">${escapeHTML(stream.text)}</div></article>` : "";
-    return groupTimeline(events).map(renderTimelineItem).join("") + transient
+      ? `<article class="chat-message assistant"><div class="message-role">Hermetrix</div><div class="message-body">${HermetrixRuntime.renderChatMarkdown(stream.text)}</div></article>` : "";
+    return renderConversationTimeline(events) + transient
       + (state.elicitations || []).map(elicitationCardHTML).join("");
   }
   function refreshBody(body) {
     const select = body.querySelector('[data-assistant-provider]');
     if (!select) return;
     const chosen = provider();
-    const options = providers().map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.model)}</option>`).join("") || '<option value="">ไม่มีโมเดลบนเครื่องที่พร้อม</option>';
+    const options = providers().map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(providerOptionLabel(item))}</option>`).join("") || '<option value="">ไม่มีโมเดลที่พร้อม</option>';
     if (select.innerHTML !== options) select.innerHTML = options;
     select.value = chosen?.id || "";
+    select.title = chosen?.model || "";
     select.disabled = blocked() || !chosen;
+    const usagePanel = body.querySelector('.ide-assistant-usage');
+    usagePanel.innerHTML = sessionUsageHTML(localSession(), state.sessionDetail?.events, state.sessionDetail?.latest_context_snapshot);
+    usagePanel.querySelector('.session-usage')?.addEventListener('toggle', event => { tokenUsageDetailsOpen = event.currentTarget.open; });
     const file = state.projectFile?.projectID === state.currentProject?.id ? state.projectFile : null;
     body.querySelector('.ide-assistant-context').textContent = file ? `${file.path}${file.content !== file.originalContent ? " · ยังไม่บันทึก" : ""} · เลือกข้อความเพื่อจำกัดบริบท` : "เปิดไฟล์เพื่อแนบบริบทของโค้ด";
     const status = body.querySelector('.ide-assistant-status');
-    status.textContent = error || (busy ? "กำลังเตรียมแชทบนเครื่อง…" : state.sending ? stream.status || "โมเดลกำลังทำงาน…" : chosen ? "ใช้โมเดลบนเครื่อง · การเขียนไฟล์ต้องผ่านการอนุมัติ" : "เพิ่มโมเดล localhost ใน Models เพื่อเริ่มใช้งาน");
+    const activeSession = localSession();
+    const newDefault = state.providers.find(item => item.id === state.draftProviderID);
+    const selectionNotice = activeSession && chosen?.id !== activeSession.provider_id
+      ? `เลือก ${chosen.name} · ส่งครั้งถัดไปจะเริ่มแชทใหม่`
+      : activeSession && newDefault && newDefault.id !== activeSession.provider_id
+        ? `แชทนี้ใช้ ${chosen.name} · งานใหม่ใช้ ${newDefault.name}` : "";
+    status.textContent = error || (busy ? "กำลังเตรียมแชท…" : state.sending ? stream.status || "โมเดลกำลังทำงาน…" : chosen ? `${selectionNotice || (taskProviderIsLocal(chosen) ? "โมเดลในเครื่อง" : activeSession?.provider_id === chosen.id ? "โมเดลภายนอก · อนุญาตแล้วในแชทนี้" : "โมเดลภายนอก · ขออนุญาตก่อนเริ่มแชท")} · การเขียนไฟล์ต้องผ่านการอนุมัติ` : "เพิ่มหรือเชื่อมต่อโมเดลใน Models เพื่อเริ่มใช้งาน");
     status.classList.toggle("error", Boolean(error));
+    const recovery = body.querySelector('[data-assistant-recover]');
+    recovery.hidden = !sessionNeedsRecovery();
+    recovery.disabled = blocked() || !chosen;
     const input = body.querySelector('.pane-chat-input');
     input.disabled = Boolean(blocked());
     if (document.activeElement !== input && input.value !== (state.paneChatDraft || "")) input.value = state.paneChatDraft || "";
@@ -103,7 +121,9 @@
     const html = logHTML();
     if (renderedLogs.get(log) !== html) {
       const bottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+      const expanded = new Set([...log.querySelectorAll('.ide-tool-batch[open]')].map(item => item.dataset.batchKey));
       log.innerHTML = html;
+      for (const item of log.querySelectorAll('.ide-tool-batch')) item.open = expanded.has(item.dataset.batchKey);
       renderedLogs.set(log, html);
       for (const form of log.querySelectorAll('[data-elicit-accept]')) form.addEventListener("submit", async event => { await answerElicitation(event); refresh(); });
       if (bottom) log.scrollTop = log.scrollHeight;
@@ -116,25 +136,29 @@
       if (!body.querySelector('.ide-assistant')) render(body); else refreshBody(body);
     }
   }
-  async function send(content, captured) {
+  async function send(content, captured, forceNew = false) {
     if (blocked() || !content.trim()) return false;
     const chosen = provider(), projectID = state.currentProject?.id;
-    if (!chosen || !projectID) { error = "เลือกโปรเจกต์และเพิ่มโมเดลบนเครื่องที่พร้อมก่อนส่ง"; refresh(); return false; }
+    if (!chosen || !projectID) { error = "เลือกโปรเจกต์และโมเดลที่พร้อมก่อนส่ง"; refresh(); return false; }
     busy = true;
     error = "";
     refresh();
     try {
       const current = localSession();
-      if (!current || current.provider_id !== chosen.id) {
+      if (forceNew || !current || current.provider_id !== chosen.id) {
         state.draftProviderID = chosen.id;
         const profile = bestProfileFor(chosen, availableProfiles(chosen));
         if (!profile || !profileAdmission(chosen, profile).admitted) throw new Error("โมเดลนี้ยังไม่มีขนาดบริบทที่พร้อมใช้งาน เปิด Models เพื่อตรวจสอบโมเดลก่อน");
         state.draftProfileName = profile.name;
         state.draftProjectID = projectID;
-        if (!await createAgentSession(content)) throw new Error(state.sessionError || "สร้างแชทไม่สำเร็จ ข้อความของคุณยังอยู่");
+        if (!await createAgentSession(content, {projectID,stayInWorkspace:true})) {
+          if (!state.sessionError) { setDraft(content); return false; }
+          throw new Error(state.sessionError);
+        }
       }
       // Recheck after session creation: model readiness and project can change
-      // during network requests. Never fall through to a remote conversation.
+      // during network requests. A new remote session must have passed the
+      // shared explicit egress approval before this point.
       const session = localSession();
       if (!session || session.provider_id !== chosen.id || state.currentProject?.id !== projectID) throw new Error("โปรเจกต์หรือโมเดลเปลี่ยน กรุณาตรวจสอบแล้วส่งอีกครั้ง");
       const value = captured === undefined ? context() : captured;
@@ -142,7 +166,7 @@
       setDraft("");
       stream = {sessionID:session.id,text:"",status:"โมเดลกำลังทำงาน…"};
       const ok = await submitChatText(content.trim() + contextText(value));
-      if (!ok) throw new Error("ส่งข้อความไม่สำเร็จ ข้อความยังอยู่ด้านล่าง ตรวจสอบโมเดลแล้วลองอีกครั้ง");
+      if (!ok) throw new Error(state.chatTurnError ? turnFailureGuidance(state.chatTurnError) : "ส่งข้อความไม่สำเร็จ ข้อความยังอยู่ด้านล่าง ตรวจสอบโมเดลแล้วลองอีกครั้ง");
       pendingContext = null;
       return true;
     } catch (failure) {
@@ -152,19 +176,30 @@
     } finally { busy = false; refresh(); }
   }
   function render(body) {
-    body.innerHTML = `<section class="ide-assistant"><header class="ide-assistant-head"><strong>Local AI</strong><button type="button" class="ghost compact" data-assistant-models>Models</button><div class="ide-assistant-actions action-row">${["explain","edit","review","plan"].map(mode=>`<button type="button" class="ghost compact" data-assistant-action="${mode}">${mode[0].toUpperCase()+mode.slice(1)}</button>`).join("")}</div></header><small class="ide-assistant-context"></small><div class="ide-assistant-log pane-chat-log" role="log" aria-label="Coding conversation"></div><div class="ide-assistant-bottom"><label>โมเดลบนเครื่อง<select data-assistant-provider aria-label="Local coding model"></select></label><p class="ide-assistant-status" role="status"></p><form class="pane-chat-form"><textarea class="pane-chat-input" rows="3" maxlength="1048576" aria-label="Ask local coding assistant" placeholder="ถามหรือบอกสิ่งที่ต้องการแก้ไข… Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่">${escapeHTML(state.paneChatDraft || "")}</textarea><button class="primary" data-assistant-send>Send</button></form></div></section>`;
-    body.querySelector('[data-assistant-provider]').addEventListener("change", event => { preferred.set(state.currentProject?.id,event.target.value); error = ""; refresh(); });
+     body.innerHTML = `<section class="ide-assistant"><header class="ide-assistant-head"><div class="ide-assistant-title"><div><button type="button" class="ghost compact ide-assistant-more" data-assistant-more aria-expanded="false" aria-controls="assistantQuickActions">ตัวช่วย</button><button type="button" class="ghost compact" data-assistant-models>โมเดล</button></div></div><div class="ide-assistant-actions action-row" id="assistantQuickActions">${[["explain","อธิบาย"],["edit","แก้ไข"],["review","ตรวจ"],["plan","วางแผน"]].map(([mode,label])=>`<button type="button" class="ghost compact" data-assistant-action="${mode}">${label}</button>`).join("")}</div></header><small class="ide-assistant-context"></small><div class="ide-assistant-log pane-chat-log" role="log" aria-label="แชตเรื่องโค้ด"></div><div class="ide-assistant-bottom"><div class="ide-assistant-usage"></div><label>โมเดล<select data-assistant-provider aria-label="โมเดล"></select></label><p class="ide-assistant-status" role="status"></p><button type="button" class="ghost ide-assistant-recovery" data-assistant-recover hidden>เริ่มแชตใหม่และส่งข้อความเดิม</button><form class="pane-chat-form"><textarea class="pane-chat-input" rows="3" maxlength="1048576" aria-label="พิมพ์ถึงโมเดล" placeholder="พิมพ์คำถามหรือสั่งแก้ไฟล์…">${escapeHTML(state.paneChatDraft || "")}</textarea><small class="ide-assistant-compose-hint">แตะส่งเมื่อพร้อม</small><button type="button" class="ghost ide-assistant-dismiss" data-assistant-dismiss>เสร็จ</button><button class="primary" data-assistant-send>ส่ง</button></form></div></section>`;
+    body.querySelector('[data-assistant-provider]').addEventListener("change", event => { selectDraftProvider(event.target.value); explicitlySelectedModel = true; error = ""; refresh(); });
     body.querySelector('[data-assistant-models]').addEventListener("click", () => openConfig("providers"));
+    body.querySelector('[data-assistant-more]').addEventListener("click", event => {
+      const actions = body.querySelector('.ide-assistant-actions');
+      const expanded = actions.classList.toggle('expanded');
+      event.currentTarget.setAttribute('aria-expanded', String(expanded));
+    });
     for (const button of body.querySelectorAll('[data-assistant-action]')) button.addEventListener("click", () => void action(button.dataset.assistantAction));
     const input = body.querySelector('.pane-chat-input'), form = body.querySelector('.pane-chat-form');
+    body.querySelector('[data-assistant-dismiss]').addEventListener('click', () => input.blur());
     input.addEventListener("input", () => { state.paneChatDraft = input.value; });
     input.addEventListener("keydown", event => {
-      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+      if (event.key === 'Escape') { input.blur(); return; }
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && !window.matchMedia('(max-width: 700px)').matches) { event.preventDefault(); form.requestSubmit(); }
     });
     form.addEventListener("submit", event => {
       event.preventDefault();
       const current = context();
       void send(input.value,pendingContext?.projectID === current?.projectID && pendingContext?.path === current?.path ? pendingContext : current);
+    });
+    body.querySelector('[data-assistant-recover]').addEventListener('click', () => {
+      const current = context();
+      void send(input.value, pendingContext?.projectID === current?.projectID && pendingContext?.path === current?.path ? pendingContext : current, true);
     });
     body.querySelector('.ide-assistant-log').addEventListener("click", async event => {
       const suggestion = event.target.closest('[data-assistant-suggestion]');

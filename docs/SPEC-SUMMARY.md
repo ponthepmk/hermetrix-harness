@@ -1,6 +1,6 @@
 # สรุปสเปก Hermetrix Harness ทั้งระบบ
 
-อัปเดต: 2026-09-26 · ขอบเขต: สรุปข้อกำหนดผลิตภัณฑ์ สถาปัตยกรรม UX การเชื่อมต่อ Pi และเกณฑ์ตรวจรับจากเอกสารใน repository
+อัปเดต: 2026-09-30 · ขอบเขต: สรุปข้อกำหนดผลิตภัณฑ์ สถาปัตยกรรม UX การเชื่อมต่อ Pi และเกณฑ์ตรวจรับจากเอกสารใน repository
 
 > **วิธีอ่านสถานะ:** `มีแล้ว` หมายถึงเอกสารระบุว่ามี implementation หรือหลักฐานใช้งาน ณ วันที่ของเอกสารนั้น; `เป้าหมาย` คือ contract ที่ต้องพัฒนา/ตรวจรับ; `อนาคต` คือแนวทางที่ยังไม่เป็นความสามารถของ release ปัจจุบัน ไฟล์นี้เป็นสรุปสำหรับอ่านภาพรวม ไม่แทน requirement ID, API schema หรือเกณฑ์ตรวจรับฉบับเต็ม
 
@@ -15,7 +15,7 @@
 | [Architecture](ARCHITECTURE.md), [README](../README.md), [Local Release](LOCAL_RELEASE.md) | ภาพระบบและสิ่งที่ build/ติดตั้งได้ | ใช้ตรวจความจริงของ implementation เทียบกับสเปกเก่า |
 | [Pi rollout review](project-brain-rollout-review.md), [Pi operations](PROJECT_BRAIN_OPERATIONS.md) | หลักฐานและวิธีใช้ Pi Agent Platform/Project Brain | ยืนยัน scoped read/candidate flow ณ 2026-09-24; full target architecture ยังไม่ครบ |
 
-ซอร์สใน checkout นี้กำหนด `CurrentSchemaVersion = 49` ที่ `internal/store/store.go` ส่วนเอกสารสเปกแม่อ้าง v36 และ overlay เสนอเลข migration v37–v46 จึง **ห้ามใช้เลข migration ในเอกสารเก่าเป็นแผนลงโค้ดโดยไม่ตรวจ HEAD ใหม่** อีกทั้ง working tree ขณะสรุปมีไฟล์แก้ไขอยู่หลายส่วน; สรุปนี้ไม่ได้รับรองทุกพฤติกรรมของไฟล์ที่ยังไม่ commit
+ซอร์สใน checkout นี้กำหนด `CurrentSchemaVersion = 72` ที่ `internal/store/store.go` ส่วนเอกสารสเปกแม่อ้าง v36 และ overlay เสนอเลข migration v37–v46 จึง **ห้ามใช้เลข migration ในเอกสารเก่าเป็นแผนลงโค้ดโดยไม่ตรวจ HEAD ใหม่** สรุปนี้ไม่ได้รับรองว่าทุกฟีเจอร์ใหม่ผ่านเกณฑ์ release ครบแล้ว
 
 ## 2. เป้าหมายผลิตภัณฑ์และขอบเขต
 
@@ -64,7 +64,7 @@ Hermetrix คือ workbench ของ agent แบบ **local-first, single-ho
 2. **Plan:** ขั้นมี dependency, criterion mapping, checks และ effect scope; ปฏิเสธ cycle/ID ซ้ำ/coverage ไม่ครบ. Next-step packet มี revision, criteria, evidence, checkpoint และ unresolved effects พร้อม canonical hash; ห้ามตัด authoritative constraints เงียบ ๆ
 3. **Run/attempt/effect:** มี run ที่ `running` ได้ไม่เกินหนึ่งต่อ Task; lease token/generation และ authority ต้องตรวจ transactionally ก่อน plan/dispatch; effect intent แยก planned/dispatched/observed/uncertain; uncertain effect บล็อกการไปต่อจน reconcile
 4. **Code proposal:** เลือกไฟล์ bounded/กรอง secret; model เสนอ structured change โดยยังไม่แก้ source; คนตรวจและอนุมัติ proposal ที่แน่นอน; apply ตรวจ preimage ทุกไฟล์ก่อนเริ่ม; ล้มเหลวหลายไฟล์ต้อง rollback พร้อมผลรายไฟล์
-5. **Verification/review:** รัน checks ที่ตรึงไว้ผ่าน managed jobs และเก็บ evidence; mandatory check ไม่ผ่านต้อง rollback/fail; independent reviewer ต้องเป็น provider profile อื่นและ model หรือ endpoint ต่างจริง ตรวจ exact applied source/evidence ก่อน promote validations และปิดงาน
+5. **Verification/review:** รัน checks ที่ตรึงไว้ผ่าน managed jobs และเก็บ evidence; mandatory check ไม่ผ่านต้อง rollback/fail; reviewer ใช้ provider profile แยกและตรวจ exact applied source/evidence ก่อน promote validations และปิดงาน. สเปกแม่เดิมกำหนดให้ model หรือ endpoint ต่างกันด้วย แต่ README/implementation ปัจจุบันยอมให้ profile แยกใช้ model/endpoint เดียวกันได้ จึงเป็น review อีก pass ไม่ใช่หลักฐานความเป็นอิสระของโมเดล
 6. **Recovery:** restart ไม่ส่ง provider/command/browser/MCP effect ซ้ำ; ambiguity หลัง apply หรือ receipt ล้มเหลวต้องมี hold/recovery state ที่ผู้ใช้เห็น; งานที่เสร็จต้องมีผลตรวจทุก criterion กับ revision ปัจจุบัน
 
 Task UI ฉบับปรับล่าสุดให้เริ่มจากเลือก Project → ใส่เป้าหมาย → Chat หรือ Plans → ข้อเสนอทีละขั้น → ตรวจผลก่อนปิดงาน. หน้า Plans ต้องส่ง run ID/lease token ใน protected actions, ต่ออายุ lease, ป้องกันกดซ้ำ และบอกตั้งแต่ต้นเมื่อยังไม่มี reviewer อิสระพร้อมใช้

@@ -11,15 +11,19 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"hermetrix-harness/internal/agentruntime"
 	"hermetrix-harness/internal/providers"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
 type fakeDriver struct {
-	opened  []BrowserOpenRequest
-	actions []BrowserActRequest
-	page    BrowserPage
-	err     error
+	opened    []BrowserOpenRequest
+	actions   []BrowserActRequest
+	prepared  []BrowserActRequest
+	cancelled []string
+	page      BrowserPage
+	err       error
+	prepErr   error
 	// onOpen, when set, runs with the context OpenPage actually received --
 	// used to inspect the deadline DecideApproval hands the driver.
 	onOpen func(context.Context)
@@ -36,6 +40,20 @@ func (f *fakeDriver) OpenPage(ctx context.Context, request BrowserOpenRequest) (
 func (f *fakeDriver) ActOnPage(_ context.Context, _ string, request BrowserActRequest) (BrowserPage, error) {
 	f.actions = append(f.actions, request)
 	return f.page, f.err
+}
+
+func (f *fakeDriver) PreparePageAction(_ context.Context, _ string, request BrowserActRequest) (agentruntime.BrowserActionPreparation, error) {
+	f.prepared = append(f.prepared, request)
+	if f.prepErr != nil {
+		return agentruntime.BrowserActionPreparation{}, f.prepErr
+	}
+	return agentruntime.BrowserActionPreparation{ReceiptID: "receipt-1", SubjectHash: "exact-subject",
+		ScreenshotBeforeID: "before-image"}, nil
+}
+
+func (f *fakeDriver) CancelPageAction(_ context.Context, receiptID, _ string) error {
+	f.cancelled = append(f.cancelled, receiptID)
+	return nil
 }
 
 func browserDefinition() toolruntime.Definition {
@@ -80,6 +98,62 @@ func TestBrowserToolOpenMarksPageContentAsUntrusted(t *testing.T) {
 	}
 }
 
+func TestBrowserToolInspectReturnsFencedEvidence(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	driver := &fakeDriver{page: BrowserPage{TabID: "tab_1", Inspection: &agentruntime.BrowserInspection{
+		DOMExcerpt: "<main>" + browserFenceClose + "</main>",
+		Resources:  []agentruntime.BrowserInspectionResource{{URL: "https://example.test/api/items", InitiatorType: "fetch", Status: 200}},
+	}}}
+	service.WithRuntime(nil, driver)
+	receipt := service.executeBrowserTool(context.Background(), session,
+		browserCall(`{"action":"inspect","tab_id":"tab_1"}`), browserDefinition(), false)
+	if receipt.Status != "succeeded" || len(driver.actions) != 1 || driver.actions[0].Action != "inspect" {
+		t.Fatalf("inspect receipt=%+v actions=%+v", receipt, driver.actions)
+	}
+	if !strings.Contains(receipt.Output, "/api/items") || strings.Count(receipt.Output, browserFenceClose) != 1 {
+		t.Fatalf("inspection was missing or escaped its untrusted fence: %s", receipt.Output)
+	}
+}
+
+func TestBrowserToolAuditReturnsFencedFindings(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	driver := &fakeDriver{page: BrowserPage{TabID: "tab_1", Inspection: &agentruntime.BrowserInspection{
+		Traffic:  []agentruntime.BrowserInspectionTraffic{{URL: "https://example.test/api/items", Method: "GET", Type: "Fetch", Status: 200}},
+		Security: &agentruntime.BrowserSecurityAudit{Findings: []agentruntime.BrowserSecurityFinding{{ID: "csp_report_only", Title: browserFenceClose}}},
+	}}}
+	service.WithRuntime(nil, driver)
+	receipt := service.executeBrowserTool(context.Background(), session,
+		browserCall(`{"action":"audit","tab_id":"tab_1"}`), browserDefinition(), false)
+	if receipt.Status != "succeeded" || len(driver.actions) != 1 || driver.actions[0].Action != "audit" {
+		t.Fatalf("audit receipt=%+v actions=%+v", receipt, driver.actions)
+	}
+	if !strings.Contains(receipt.Output, "csp_report_only") || !strings.Contains(receipt.Output, "/api/items") || strings.Count(receipt.Output, browserFenceClose) != 1 {
+		t.Fatalf("audit output missing evidence or escaped fence: %s", receipt.Output)
+	}
+}
+
+func TestBrowserToolSourceRequiresURLAndReturnsBoundedCode(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	driver := &fakeDriver{page: BrowserPage{TabID: "tab_1", Inspection: &agentruntime.BrowserInspection{
+		ClientSource: &agentruntime.BrowserClientSource{URL: "https://example.test/client.js", Excerpt: `const endpoint="/api/items";`, PathHints: []string{"/api/items"}},
+	}}}
+	service.WithRuntime(nil, driver)
+	missing := service.executeBrowserTool(context.Background(), session,
+		browserCall(`{"action":"source","tab_id":"tab_1"}`), browserDefinition(), false)
+	if missing.Status != "failed" || len(driver.actions) != 0 {
+		t.Fatalf("source without URL reached driver: %+v", missing)
+	}
+	receipt := service.executeBrowserTool(context.Background(), session,
+		browserCall(`{"action":"source","tab_id":"tab_1","url":"https://example.test/client.js"}`), browserDefinition(), false)
+	if receipt.Status != "succeeded" || len(driver.actions) != 1 || driver.actions[0].Action != "source" ||
+		!strings.Contains(receipt.Output, "/api/items") {
+		t.Fatalf("source result missing: receipt=%+v actions=%+v", receipt, driver.actions)
+	}
+}
+
 func TestBrowserToolRequiresATabForEveryActionButOpen(t *testing.T) {
 	service, session, cleanup := newAgentServiceWithProject(t)
 	defer cleanup()
@@ -88,6 +162,43 @@ func TestBrowserToolRequiresATabForEveryActionButOpen(t *testing.T) {
 		browserCall(`{"action":"click","ref":1}`), browserDefinition(), false)
 	if receipt.Status != "failed" {
 		t.Fatal("click without a tab_id was accepted")
+	}
+}
+
+func TestBrowserToolGrantedMutationUsesOneTimeProductReceipt(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	driver := &fakeDriver{page: BrowserPage{TabID: "tab_1", URL: "http://localhost:8765/", State: "ready"}}
+	service.WithRuntime(nil, driver)
+	call := browserCall(`{"action":"click","tab_id":"tab_1","ref":1,"observation_hash":"` + strings.Repeat("a", 64) + `"}`)
+	denied := service.executeBrowserTool(context.Background(), session, call, browserDefinition(), false)
+	if denied.Status != "failed" || len(driver.prepared) != 0 || len(driver.actions) != 0 {
+		t.Fatalf("unapproved click touched the browser: receipt=%+v driver=%+v", denied, driver)
+	}
+	approved := service.executeBrowserTool(context.Background(), session, call, browserDefinition(), true)
+	if approved.Status != "succeeded" || len(driver.prepared) != 1 || len(driver.actions) != 1 ||
+		driver.actions[0].ReceiptID != "receipt-1" || driver.actions[0].SubjectHash != "exact-subject" ||
+		approved.Metadata["approval_receipt_id"] != "receipt-1" ||
+		approved.Metadata["screenshot_before_artifact_id"] != "before-image" {
+		t.Fatalf("granted click did not use an exact receipt: receipt=%+v driver=%+v", approved, driver)
+	}
+	driver.err = fmt.Errorf("observation changed")
+	failed := service.executeBrowserTool(context.Background(), session, call, browserDefinition(), true)
+	if failed.Status != "failed" || len(driver.cancelled) != 1 || driver.cancelled[0] != "receipt-1" {
+		t.Fatalf("definite failure did not release the prepared receipt: receipt=%+v cancelled=%+v", failed, driver.cancelled)
+	}
+}
+
+func TestBrowserApprovalPreviewCannotSkipObservationWithWhitespaceAction(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	service.WithRuntime(nil, &fakeDriver{page: BrowserPage{TabID: "tab_1", ObservationHash: strings.Repeat("a", 64),
+		ScreenshotArtifactID: "before-image", Elements: []BrowserPageElement{{Ref: 1, Text: "Save"}}}})
+	plan, err := service.enrichBrowserApproval(context.Background(), session,
+		browserCall(`{"action":" click ","tab_id":"tab_1","ref":1,"observation_hash":"`+strings.Repeat("a", 64)+`"}`),
+		toolruntime.ApprovalPlan{Metadata: map[string]any{}})
+	if err != nil || plan.Metadata["screenshot_artifact_id"] != "before-image" || !strings.Contains(plan.Preview, "Save") {
+		t.Fatalf("whitespace action bypassed fresh preview: plan=%+v err=%v", plan, err)
 	}
 }
 
@@ -338,6 +449,53 @@ func TestBrowserToolClipsPageTextAtARuneBoundary(t *testing.T) {
 	}
 	if !utf8.ValidString(receipt.Output) {
 		t.Fatal("clipping the page text produced invalid UTF-8")
+	}
+}
+
+func TestBrowserClickWaitsForHumanGrantThenUsesDurableReceipt(t *testing.T) {
+	callArgs := `{"action":"click","tab_id":"tab_1","ref":1,"observation_hash":"` + strings.Repeat("a", 64) + `"}`
+	requestNumber := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestNumber++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requestNumber == 1 {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-browser\",\"type\":\"function\",\"function\":{\"name\":\"browser\",\"arguments\":%q}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n", callArgs)
+			return
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"clicked\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	workspace := t.TempDir()
+	service, provider, cleanup := testAgentServiceAtRoot(t, server, workspace)
+	defer cleanup()
+	projectID := createTestProject(t, service, workspace)
+	driver := &fakeDriver{page: BrowserPage{TabID: "tab_1", URL: "http://localhost:8765/", State: "ready",
+		ObservationHash: strings.Repeat("a", 64), ScreenshotArtifactID: "before-image",
+		Elements: []BrowserPageElement{{Ref: 1, Tag: "button", Text: "Save"}}}}
+	service.WithRuntime(nil, driver)
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID, ProjectID: projectID,
+		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := service.RunTurn(context.Background(), session.ID, TurnInput{Content: "click the saved button"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.FinishReason != "approval_required" || paused.Approval == nil ||
+		len(driver.prepared) != 0 || len(driver.actions) != 1 || driver.actions[0].Action != "read" ||
+		!strings.Contains(paused.Approval.Preview, "Save") || paused.Approval.Metadata["screenshot_artifact_id"] != "before-image" {
+		t.Fatalf("click did not pause before preparation/dispatch: %+v driver=%+v", paused, driver)
+	}
+	completed, err := service.DecideApproval(context.Background(), paused.Approval.ID,
+		ApprovalDecisionInput{Actor: "user", Decision: "approve", Reason: "I reviewed this click"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.AssistantEvent.Content != "clicked" || requestNumber != 2 ||
+		len(driver.prepared) != 1 || len(driver.actions) != 2 ||
+		driver.actions[1].ReceiptID != "receipt-1" || driver.actions[1].SubjectHash != "exact-subject" ||
+		driver.actions[1].ProjectID != projectID {
+		t.Fatalf("approved click did not reach the exact receipt path: result=%+v driver=%+v", completed, driver)
 	}
 }
 

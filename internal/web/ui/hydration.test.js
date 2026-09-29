@@ -22,15 +22,17 @@ function harness(api) {
     state:{currentProject:project, projects:[project], selectedProject:"a", projectPath:"", projectFiles:[], workspaceFiles:[],
       teams:[], terminals:[], browserTabs:[], sessions:[], qualifications:[], providers:[], skills:[],
       activeTab:"chat", view:"chat", startDraft:"Keep this unsent goal", panes:["files","editor"]},
-    api, asList, Map, Set, console, CONFIG_PAGE_IDS:["maintenance","projects","office","insights"],
-    $:()=>({classList:{contains:()=>true}}),
+    api, asList, Map, Set, console, CONFIG_PAGE_IDS:["maintenance","projects","office","insights"], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id",
+    $:()=>({classList:{contains:()=>true},setAttribute(){},removeAttribute(){}}),
+    HermetrixRuntime:{preferredProvider:providers=>providers[0]},
+    localStorage:{getItem:()=>null}, selectDraftProvider:id=>{context.state.draftProviderID=id;},
     renderAll:()=>{renders.all++;}, renderChat:()=>{renders.chat++;},
     renderConfigPage:()=>{renders.config++;}, renderPanes:()=>{renders.panes++;},
     captureCodeDraft:()=>{}, captureWorkspaceDrafts:()=>{}, restoreWorkspaceDrafts:()=>{},
     showShell:()=>{}, applyLayoutForView:()=>{}, selectSession:async()=>{},
     toast:message=>messages.push(message),
   });
-  vm.runInContext("let navigationGeneration = 0;", context);
+  vm.runInContext("let navigationGeneration = 0; let providerDefaultLoaded = false;", context);
   vm.runInContext(section("const SURFACE_DATA =", "function renderAll()"), context);
   vm.runInContext(section("let projectOpenGeneration =", "async function createProjectFromPicker("), context);
   return {context, renders, messages};
@@ -54,14 +56,15 @@ test("late file responses cannot overwrite another project's files or ready cach
 });
 
 test("a superseded failure does not evict a newer hydration request", async () => {
-  const old = deferred(); let requests = 0;
-  const {context} = harness(async () => ++requests === 1 ? old.promise : [{id:"new-task"}]);
+  const old = deferred(); const requests = [];
+  const {context} = harness(async path => { requests.push(path); return requests.length === 1 ? old.promise : [{id:"new-task"}]; });
   const first = context.hydrateSurface("tasks");
   assert.equal(await context.hydrateSurface("tasks", true), true);
   old.reject(new Error("old request failed"));
   assert.equal(await first, false);
   await context.hydrateSurface("tasks");
-  assert.equal(requests, 2);
+  assert.equal(requests.filter(path => path === "/api/tasks?limit=100").length, 2);
+  assert.equal(requests.filter(path => path === "/api/social/connections").length, 2);
   assert.equal(context.state.durableTasks[0].id, "new-task");
 });
 
@@ -102,6 +105,21 @@ test("optional startup failure does not blank Chat and null collections are norm
   assert.equal(context.state.sessions.length, 0);
   assert.equal(context.state.runtimeCapabilities.interactive_terminal, undefined);
   assert.deepEqual(messages, ["qualification unavailable"]);
+});
+
+test("saved Models default replaces a stale chat-only provider choice at startup", async () => {
+  const {context} = harness(async path => {
+    if (path === "/api/bootstrap") return {providers:[
+      {id:"qwen", enabled:true, credential_ready:true},
+      {id:"bonsai", enabled:true, credential_ready:true},
+    ]};
+    if (path === "/api/settings") return [{key:"ui.default_provider_id", value:"qwen"}];
+    return [];
+  });
+  context.state.draftProviderID = "bonsai";
+  assert.equal(await context.load(), true);
+  assert.equal(context.state.defaultProviderID, "qwen");
+  assert.equal(context.state.draftProviderID, "qwen");
 });
 
 test("bootstrap failure leaves an actionable error and preserves the unsent goal", async () => {

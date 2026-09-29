@@ -69,17 +69,50 @@ func (s *Service) OpenPage(ctx context.Context, request agentruntime.BrowserOpen
 // package: the agent addresses elements by ref, so a model cannot hand the page
 // a selector of its own.
 func (s *Service) ActOnPage(ctx context.Context, tabID string, request agentruntime.BrowserActRequest) (agentruntime.BrowserPage, error) {
+	if err := s.checkAgentBrowserProject(ctx, tabID, request.ProjectID); err != nil {
+		return agentruntime.BrowserPage{}, err
+	}
 	tab, err := s.BrowserAction(ctx, tabID, BrowserActionInput{Action: request.Action, URL: request.URL,
-		Ref: request.Ref, Text: request.Text, Actor: request.Actor})
+		Ref: request.Ref, Text: request.Text, ObservationHash: request.ObservationHash, Actor: request.Actor,
+		ReceiptID: request.ReceiptID, SubjectHash: request.SubjectHash})
 	if err != nil {
 		return agentruntime.BrowserPage{}, err
 	}
 	return browserPageFromTab(tab), nil
 }
 
+func (s *Service) PreparePageAction(ctx context.Context, tabID string, request agentruntime.BrowserActRequest) (agentruntime.BrowserActionPreparation, error) {
+	if err := s.checkAgentBrowserProject(ctx, tabID, request.ProjectID); err != nil {
+		return agentruntime.BrowserActionPreparation{}, err
+	}
+	receipt, err := s.PrepareBrowserAction(ctx, tabID, BrowserActionInput{Action: request.Action,
+		Ref: request.Ref, Text: request.Text, ObservationHash: request.ObservationHash, Actor: request.Actor})
+	if err != nil {
+		return agentruntime.BrowserActionPreparation{}, err
+	}
+	return agentruntime.BrowserActionPreparation{ReceiptID: receipt.ID, SubjectHash: receipt.SubjectHash,
+		ScreenshotBeforeID: receipt.ScreenshotBeforeID}, nil
+}
+
+func (s *Service) checkAgentBrowserProject(ctx context.Context, tabID, projectID string) error {
+	tab, err := s.GetBrowserTab(ctx, tabID)
+	if err != nil {
+		return err
+	}
+	if tab.ProjectID != projectID {
+		return fmt.Errorf("browser tab does not belong to this agent project")
+	}
+	return nil
+}
+
+func (s *Service) CancelPageAction(ctx context.Context, receiptID, subjectHash string) error {
+	_, err := s.CancelBrowserAction(ctx, receiptID, subjectHash)
+	return err
+}
+
 func browserPageFromTab(tab BrowserTab) agentruntime.BrowserPage {
-	page := agentruntime.BrowserPage{TabID: tab.ID, URL: tab.URL, Title: tab.Title, State: tab.State,
-		Text: tab.TextSnapshot, ScreenshotArtifactID: tab.ScreenshotArtifactID, Error: tab.Error,
+	page := agentruntime.BrowserPage{TabID: tab.ID, ObservationHash: tab.ObservationHash, URL: tab.URL, Title: tab.Title, State: tab.State,
+		Text: tab.TextSnapshot, ScreenshotArtifactID: tab.ScreenshotArtifactID, Error: tab.Error, Inspection: tab.Inspection,
 		Elements: make([]agentruntime.BrowserPageElement, 0, len(tab.Elements))}
 	for _, element := range tab.Elements {
 		page.Elements = append(page.Elements, agentruntime.BrowserPageElement{Ref: element.Ref, Tag: element.Tag,

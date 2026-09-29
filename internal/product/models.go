@@ -1,6 +1,10 @@
 package product
 
-import "time"
+import (
+	"time"
+
+	"hermetrix-harness/internal/agentruntime"
+)
 
 type Project struct {
 	ID       string `json:"id"`
@@ -149,28 +153,37 @@ type BrowserLink struct {
 }
 
 type BrowserElement struct {
-	Ref         int    `json:"ref"`
-	Tag         string `json:"tag"`
-	Role        string `json:"role,omitempty"`
-	Text        string `json:"text,omitempty"`
-	Placeholder string `json:"placeholder,omitempty"`
-	Selector    string `json:"selector"`
+	Ref         int     `json:"ref"`
+	Tag         string  `json:"tag"`
+	Role        string  `json:"role,omitempty"`
+	Text        string  `json:"text,omitempty"`
+	Placeholder string  `json:"placeholder,omitempty"`
+	Selector    string  `json:"selector"`
+	IsPassword  bool    `json:"is_password,omitempty"`
+	Value       string  `json:"value,omitempty"`
+	ValueHash   string  `json:"value_hash,omitempty"`
+	XPct        float64 `json:"x_pct,omitempty"`
+	YPct        float64 `json:"y_pct,omitempty"`
+	WidthPct    float64 `json:"width_pct,omitempty"`
+	HeightPct   float64 `json:"height_pct,omitempty"`
 }
 
 type BrowserTab struct {
-	ID                   string           `json:"id"`
-	ProjectID            string           `json:"project_id,omitempty"`
-	URL                  string           `json:"url"`
-	Title                string           `json:"title"`
-	State                string           `json:"state"`
-	AllowPrivate         bool             `json:"allow_private"`
-	TextSnapshot         string           `json:"text_snapshot,omitempty"`
-	Links                []BrowserLink    `json:"links"`
-	Elements             []BrowserElement `json:"elements"`
-	ScreenshotArtifactID string           `json:"screenshot_artifact_id,omitempty"`
-	Error                string           `json:"error,omitempty"`
-	CreatedAt            time.Time        `json:"created_at"`
-	UpdatedAt            time.Time        `json:"updated_at"`
+	ID                   string                          `json:"id"`
+	ProjectID            string                          `json:"project_id,omitempty"`
+	URL                  string                          `json:"url"`
+	Title                string                          `json:"title"`
+	State                string                          `json:"state"`
+	AllowPrivate         bool                            `json:"allow_private"`
+	TextSnapshot         string                          `json:"text_snapshot,omitempty"`
+	Links                []BrowserLink                   `json:"links"`
+	Elements             []BrowserElement                `json:"elements"`
+	ScreenshotArtifactID string                          `json:"screenshot_artifact_id,omitempty"`
+	ObservationHash      string                          `json:"observation_hash,omitempty"`
+	Error                string                          `json:"error,omitempty"`
+	Inspection           *agentruntime.BrowserInspection `json:"inspection,omitempty"`
+	CreatedAt            time.Time                       `json:"created_at"`
+	UpdatedAt            time.Time                       `json:"updated_at"`
 }
 
 type OpenBrowserTabInput struct {
@@ -181,11 +194,44 @@ type OpenBrowserTabInput struct {
 }
 
 type BrowserActionInput struct {
-	Action string `json:"action"`
-	URL    string `json:"url,omitempty"`
-	Ref    int    `json:"ref,omitempty"`
-	Text   string `json:"text,omitempty"`
-	Actor  string `json:"actor"`
+	Action          string `json:"action"`
+	URL             string `json:"url,omitempty"`
+	Ref             int    `json:"ref,omitempty"`
+	Text            string `json:"text,omitempty"`
+	ObservationHash string `json:"observation_hash,omitempty"`
+	TaskID          string `json:"task_id,omitempty"`
+	ReceiptID       string `json:"receipt_id,omitempty"`
+	SubjectHash     string `json:"subject_hash,omitempty"`
+	Actor           string `json:"actor"`
+}
+
+type BrowserActionReceipt struct {
+	ID                 string                       `json:"id"`
+	TaskID             string                       `json:"task_id,omitempty"`
+	TabID              string                       `json:"tab_id"`
+	Action             string                       `json:"action"`
+	ElementRef         int                          `json:"element_ref"`
+	Target             BrowserElement               `json:"target"`
+	ObservationHash    string                       `json:"observation_hash"`
+	SubjectHash        string                       `json:"subject_hash"`
+	ScreenshotBeforeID string                       `json:"screenshot_before_id,omitempty"`
+	ScreenshotAfterID  string                       `json:"screenshot_after_id,omitempty"`
+	State              string                       `json:"state"`
+	Error              string                       `json:"error,omitempty"`
+	CreatedAt          time.Time                    `json:"created_at"`
+	ExpiresAt          time.Time                    `json:"expires_at"`
+	Reconciliation     *BrowserActionReconciliation `json:"reconciliation,omitempty"`
+}
+
+type BrowserActionReconciliation struct {
+	ActionID             string    `json:"action_id"`
+	VerificationTabID    string    `json:"verification_tab_id"`
+	Resolution           string    `json:"resolution"`
+	ObservationHash      string    `json:"observation_hash"`
+	ScreenshotArtifactID string    `json:"screenshot_artifact_id"`
+	Actor                string    `json:"actor"`
+	Note                 string    `json:"note"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 type Artifact struct {
@@ -283,6 +329,8 @@ type TeamTask struct {
 	MemberInstructions string     `json:"member_instructions,omitempty"`
 	Title              string     `json:"title"`
 	Prompt             string     `json:"prompt"`
+	ProviderID         string     `json:"provider_id"`
+	ContextProfile     string     `json:"context_profile"`
 	DependsOn          []string   `json:"depends_on"`
 	State              string     `json:"state"`
 	SessionID          string     `json:"session_id,omitempty"`
@@ -300,45 +348,56 @@ type TeamTask struct {
 }
 
 type TeamRun struct {
-	ID                  string     `json:"id"`
-	TeamID              string     `json:"team_id"`
-	TeamName            string     `json:"team_name"`
-	TeamInstructions    string     `json:"team_instructions,omitempty"`
-	ProjectID           string     `json:"project_id,omitempty"`
-	Objective           string     `json:"objective"`
-	ProviderID          string     `json:"provider_id"`
-	ContextProfile      string     `json:"context_profile"`
-	State               string     `json:"state"`
-	MaxParallel         int        `json:"max_parallel"`
-	Actor               string     `json:"actor"`
-	QualificationReason string     `json:"qualification_reason,omitempty"`
-	Error               string     `json:"error,omitempty"`
-	PromptTokens        int        `json:"prompt_tokens"`
-	CompletionTokens    int        `json:"completion_tokens"`
-	Tasks               []TeamTask `json:"tasks"`
-	CreatedAt           time.Time  `json:"created_at"`
-	StartedAt           *time.Time `json:"started_at,omitempty"`
-	CompletedAt         *time.Time `json:"completed_at,omitempty"`
+	ID                   string              `json:"id"`
+	TeamID               string              `json:"team_id"`
+	TeamName             string              `json:"team_name"`
+	TeamInstructions     string              `json:"team_instructions,omitempty"`
+	ProjectID            string              `json:"project_id,omitempty"`
+	Objective            string              `json:"objective"`
+	ProviderID           string              `json:"provider_id"`
+	ContextProfile       string              `json:"context_profile"`
+	State                string              `json:"state"`
+	MaxParallel          int                 `json:"max_parallel"`
+	Actor                string              `json:"actor"`
+	QualificationReason  string              `json:"qualification_reason,omitempty"`
+	EgressPolicy         string              `json:"egress_policy"`
+	RemoteEgressApproval *TeamEgressApproval `json:"remote_egress_approval,omitempty"`
+	Error                string              `json:"error,omitempty"`
+	PromptTokens         int                 `json:"prompt_tokens"`
+	CompletionTokens     int                 `json:"completion_tokens"`
+	Tasks                []TeamTask          `json:"tasks"`
+	CreatedAt            time.Time           `json:"created_at"`
+	StartedAt            *time.Time          `json:"started_at,omitempty"`
+	CompletedAt          *time.Time          `json:"completed_at,omitempty"`
 }
 
 type TeamTaskInput struct {
-	ID        string   `json:"id,omitempty"`
-	MemberID  string   `json:"member_id"`
-	Title     string   `json:"title"`
-	Prompt    string   `json:"prompt"`
-	DependsOn []string `json:"depends_on,omitempty"`
+	ID             string   `json:"id,omitempty"`
+	MemberID       string   `json:"member_id"`
+	Title          string   `json:"title"`
+	Prompt         string   `json:"prompt"`
+	ProviderID     string   `json:"provider_id,omitempty"`
+	ContextProfile string   `json:"context_profile,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"`
 }
 
 type StartTeamRunInput struct {
-	TeamID              string          `json:"team_id"`
-	ProjectID           string          `json:"project_id,omitempty"`
-	Objective           string          `json:"objective"`
-	ProviderID          string          `json:"provider_id"`
-	ContextProfile      string          `json:"context_profile"`
-	Actor               string          `json:"actor"`
-	MaxParallel         int             `json:"max_parallel"`
-	QualificationReason string          `json:"qualification_reason,omitempty"`
-	Tasks               []TeamTaskInput `json:"tasks,omitempty"`
+	TeamID               string              `json:"team_id"`
+	ProjectID            string              `json:"project_id,omitempty"`
+	Objective            string              `json:"objective"`
+	ProviderID           string              `json:"provider_id"`
+	ContextProfile       string              `json:"context_profile"`
+	Actor                string              `json:"actor"`
+	MaxParallel          int                 `json:"max_parallel"`
+	QualificationReason  string              `json:"qualification_reason,omitempty"`
+	EgressPolicy         string              `json:"egress_policy,omitempty"`
+	RemoteEgressApproval *TeamEgressApproval `json:"remote_egress_approval,omitempty"`
+	Tasks                []TeamTaskInput     `json:"tasks,omitempty"`
+}
+
+type TeamEgressApproval struct {
+	Actor  string `json:"actor"`
+	Reason string `json:"reason"`
 }
 
 type TeamApprovalDecisionInput struct {

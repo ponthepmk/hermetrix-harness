@@ -91,10 +91,34 @@ func TestDirectToolsOverflowFailsClosed(t *testing.T) {
 func TestPinnedGoalNeverDropsSilently(t *testing.T) {
 	compiler := testCompiler(t)
 	_, err := compiler.Compile(stdcontext.Background(), Request{Profile: Compact32K(), Fragments: []Fragment{{
-		ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: strings.Repeat("ก", 2200),
+		ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: strings.Repeat("ก", 70000),
 	}}})
 	if !errors.Is(err, ErrPinnedOverflow) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLongCurrentGoalBorrowsIdleSlicesWithoutLosingReserve(t *testing.T) {
+	compiler := testCompiler(t)
+	profile := Certified64K()
+	goal := "BEGIN cedar MIDDLE harbor END orchid. "
+	for compiler.estimator.Count(goal) < 46000 {
+		goal += strings.Repeat("ordinary context record. ", 1000)
+	}
+	result, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile,
+		Fragments: []Fragment{{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: goal}},
+		WorstCaseToolBurst: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Fragments[0].Content, "BEGIN cedar MIDDLE harbor END orchid") {
+		t.Fatal("current goal was not retained intact")
+	}
+	if result.Report.Slices["pinned"].Budget <= profile.PinnedBudget {
+		t.Fatal("idle slices were not reassigned to the long current goal")
+	}
+	if result.Report.PredictedInput+result.Report.OutputReserve+result.Report.UncertaintyReserve > profile.Total {
+		t.Fatal("long goal consumed the output or uncertainty reserve")
 	}
 }
 

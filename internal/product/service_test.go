@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"hermetrix-harness/internal/agent"
+	"hermetrix-harness/internal/agentruntime"
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/skills"
@@ -80,6 +81,43 @@ func testProductService(t *testing.T) (*Service, *skills.Service, *store.Store) 
 	service := NewService(dataStore, skillService)
 	t.Cleanup(service.Close)
 	return service, skillService, dataStore
+}
+
+func TestProjectArchiveKeepsFilesAndCanRestore(t *testing.T) {
+	service, _, _ := testProductService(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Keep", RootPath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetProjectArchived(ctx, project.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	active, err := service.ListProjects(ctx)
+	if err != nil || len(active) != 0 {
+		t.Fatalf("active=%v err=%v", active, err)
+	}
+	archived, err := service.ListArchivedProjects(ctx)
+	if err != nil || len(archived) != 1 || archived[0].ID != project.ID {
+		t.Fatalf("archived=%v err=%v", archived, err)
+	}
+	if _, err := service.MarkProjectOpened(ctx, project.ID); err == nil {
+		t.Fatal("archived project reopened")
+	}
+	if _, err := os.Stat(filepath.Join(root, "keep.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetProjectArchived(ctx, project.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	active, err = service.ListProjects(ctx)
+	if err != nil || len(active) != 1 {
+		t.Fatalf("restored=%v err=%v", active, err)
+	}
 }
 
 func TestProjectArtifactSettingsAndExplicitMemorySafety(t *testing.T) {
@@ -439,9 +477,10 @@ func TestManagedBrowserInteractsWithProjectPageAndCapturesEvidence(t *testing.T)
 	root := t.TempDir()
 	pagePath := filepath.Join(root, "browser-fixture.html")
 	page := `<!doctype html><html><head><title>Hermetrix Browser Fixture</title></head><body>
-<label>Name <input id="name" placeholder="Name"></label>
+<label>Name <input id="name" placeholder="Name" onkeydown="if(event.key==='Enter') document.querySelector('#result').textContent='Keyboard '+this.value"></label>
+<label>Password <input id="secret" type="password" value="do-not-record-me" placeholder="Private password"></label>
 <button id="apply" onclick="document.querySelector('#result').textContent='Hello '+document.querySelector('#name').value">Apply</button>
-<p id="result">Waiting</p></body></html>`
+<p id="result">Waiting</p><div style="height:1200px"></div><p id="bottom">Bottom marker</p></body></html>`
 	if err := os.WriteFile(pagePath, []byte(page), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -475,15 +514,150 @@ func TestManagedBrowserInteractsWithProjectPageAndCapturesEvidence(t *testing.T)
 	if inputRef == 0 || buttonRef == 0 {
 		t.Fatalf("interactive element references missing: %+v", tab.Elements)
 	}
-	if _, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: inputRef, Text: "Neurix", Actor: "test-user"}); err != nil {
-		t.Fatal(err)
+	for _, element := range tab.Elements {
+		if (element.Ref == inputRef || element.Ref == buttonRef) && (element.WidthPct <= 0 || element.HeightPct <= 0) {
+			t.Fatalf("visible browser control has no screenshot hotspot: %+v", element)
+		}
 	}
-	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "click", Ref: buttonRef, Actor: "test-user"})
+	for _, element := range tab.Elements {
+		if strings.Contains(element.Text+element.Placeholder, "do-not-record-me") || strings.Contains(element.Text+element.Placeholder, "Private password") {
+			t.Fatalf("password field leaked into browser observation: %+v", element)
+		}
+		if element.IsPassword {
+			if _, err := service.PrepareBrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: element.Ref, Text: "guess", ObservationHash: tab.ObservationHash, Actor: "test-user"}); err == nil {
+				t.Fatal("password field accepted a managed browser action")
+			}
+		}
+	}
+	initialObservationHash := tab.ObservationHash
+	if _, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: inputRef, Text: "Neurix", ObservationHash: tab.ObservationHash, Actor: "test-user"}); err == nil {
+		t.Fatal("direct browser mutation bypassed one-use approval")
+	}
+	typeReceipt, err := service.PrepareBrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: inputRef, Text: "Neurix", ObservationHash: tab.ObservationHash, Actor: "test-user"})
+	if err != nil || typeReceipt.State != "prepared" || typeReceipt.ScreenshotBeforeID == "" {
+		t.Fatalf("browser type preparation=%+v err=%v", typeReceipt, err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: inputRef, Text: "Neurix", ObservationHash: tab.ObservationHash,
+		ReceiptID: typeReceipt.ID, SubjectHash: typeReceipt.SubjectHash, Actor: "test-user"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, element := range tab.Elements {
+		if element.Ref == inputRef && (element.Value != "" || element.ValueHash == "" || strings.Contains(element.Text, "Neurix")) {
+			t.Fatalf("browser typed value was exposed or not included in observation hash: %+v", element)
+		}
+	}
+	typeReceipt, err = service.GetBrowserActionReceipt(ctx, typeReceipt.ID)
+	if err != nil || typeReceipt.State != "completed" || typeReceipt.ScreenshotAfterID == "" {
+		t.Fatalf("browser type receipt=%+v err=%v", typeReceipt, err)
+	}
+	if _, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "type", Ref: inputRef, Text: "Neurix", ObservationHash: tab.ObservationHash,
+		ReceiptID: typeReceipt.ID, SubjectHash: typeReceipt.SubjectHash, Actor: "test-user"}); err == nil {
+		t.Fatal("completed browser action was replayed")
+	}
+	if _, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "click", Ref: buttonRef, ObservationHash: initialObservationHash, Actor: "test-user"}); err == nil {
+		t.Fatal("stale browser observation was accepted")
+	}
+	clickRequest := agentruntime.BrowserActRequest{ProjectID: project.ID, Action: "click", Ref: buttonRef,
+		ObservationHash: tab.ObservationHash, Actor: "agent:test-session"}
+	clickPreparation, err := service.PreparePageAction(ctx, tab.ID, clickRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clickRequest.ReceiptID, clickRequest.SubjectHash = clickPreparation.ReceiptID, clickPreparation.SubjectHash
+	if _, err = service.ActOnPage(ctx, tab.ID, clickRequest); err != nil {
+		t.Fatal(err)
+	}
+	tab, err = service.GetBrowserTab(ctx, tab.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clickReceipt, err := service.GetBrowserActionReceipt(ctx, clickPreparation.ReceiptID)
+	if err != nil || clickReceipt.State != "completed" || clickReceipt.ScreenshotAfterID == "" {
+		t.Fatalf("agent browser receipt=%+v err=%v", clickReceipt, err)
+	}
 	if !strings.Contains(tab.TextSnapshot, "Hello Neurix") {
 		t.Fatalf("browser action did not update the page: %q", tab.TextSnapshot)
+	}
+	keyReceipt, err := service.PrepareBrowserAction(ctx, tab.ID, BrowserActionInput{Action: "key", Ref: inputRef, Text: "Enter", ObservationHash: tab.ObservationHash, Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "key", Ref: inputRef, Text: "Enter", ObservationHash: tab.ObservationHash,
+		ReceiptID: keyReceipt.ID, SubjectHash: keyReceipt.SubjectHash, Actor: "test-user"})
+	if err != nil || !strings.Contains(tab.TextSnapshot, "Keyboard Neurix") {
+		t.Fatalf("keyboard action did not update page: %q err=%v", tab.TextSnapshot, err)
+	}
+	if _, err := service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "key", Ref: inputRef, Text: "Enter", ObservationHash: tab.ObservationHash,
+		ReceiptID: keyReceipt.ID, SubjectHash: keyReceipt.SubjectHash, Actor: "test-user"}); err == nil {
+		t.Fatal("completed browser key action was replayed")
+	}
+	buttonKeyReceipt, err := service.PrepareBrowserAction(ctx, tab.ID, BrowserActionInput{Action: "key", Ref: buttonRef, Text: "Enter", ObservationHash: tab.ObservationHash, Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "key", Ref: buttonRef, Text: "Enter", ObservationHash: tab.ObservationHash,
+		ReceiptID: buttonKeyReceipt.ID, SubjectHash: buttonKeyReceipt.SubjectHash, Actor: "test-user"})
+	if err != nil || !strings.Contains(tab.TextSnapshot, "Hello Neurix") {
+		t.Fatalf("keyboard Enter did not activate button: %q err=%v", tab.TextSnapshot, err)
+	}
+	secondPath := filepath.Join(root, "browser-second.html")
+	if err := os.WriteFile(secondPath, []byte(`<!doctype html><title>Second browser page</title><body>Second page marker</body>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "navigate", URL: testFileURL(secondPath), Actor: "test-user"})
+	if err != nil || !strings.Contains(tab.TextSnapshot, "Second page marker") {
+		t.Fatalf("browser navigate=%q err=%v", tab.TextSnapshot, err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "back", Actor: "test-user"})
+	if err != nil || tab.Title != "Hermetrix Browser Fixture" {
+		t.Fatalf("browser back title=%q text=%q err=%v", tab.Title, tab.TextSnapshot, err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "forward", Actor: "test-user"})
+	if err != nil || !strings.Contains(tab.TextSnapshot, "Second page marker") {
+		t.Fatalf("browser forward=%q err=%v", tab.TextSnapshot, err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "reload", Actor: "test-user"})
+	if err != nil || !strings.Contains(tab.TextSnapshot, "Second page marker") {
+		t.Fatalf("browser reload=%q err=%v", tab.TextSnapshot, err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "back", Actor: "test-user"})
+	if err != nil || tab.Title != "Hermetrix Browser Fixture" {
+		t.Fatalf("browser return title=%q text=%q err=%v", tab.Title, tab.TextSnapshot, err)
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "scroll_down", Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range tab.Elements {
+		if element.Ref == buttonRef && element.HeightPct > 0 {
+			t.Fatalf("scrolled-out control still has a screenshot hotspot: %+v", element)
+		}
+	}
+	tab, err = service.BrowserAction(ctx, tab.ID, BrowserActionInput{Action: "scroll_up", Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, element := range tab.Elements {
+		if element.Ref == buttonRef && element.HeightPct <= 0 {
+			t.Fatalf("control did not return to screenshot after scrolling up: %+v", element)
+		}
+	}
+	if _, err := service.store.DB.ExecContext(ctx, `UPDATE browser_action_receipts SET state='uncertain' WHERE id=?`, clickReceipt.ID); err != nil {
+		t.Fatal(err)
+	}
+	verificationTab, err := service.OpenBrowserTab(ctx, OpenBrowserTabInput{ProjectID: project.ID, URL: pageURL, Actor: "test-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciled, err := service.ReconcileBrowserAction(ctx, clickReceipt.ID, verificationTab.ID, "observed_not_applied",
+		verificationTab.ObservationHash, "test-user", "inspected the reopened page")
+	if err != nil || reconciled.Reconciliation == nil || reconciled.Reconciliation.VerificationTabID != verificationTab.ID {
+		t.Fatalf("browser replacement-tab reconciliation=%+v err=%v", reconciled, err)
+	}
+	if _, err := service.ReconcileBrowserAction(ctx, clickReceipt.ID, verificationTab.ID, "observed_not_applied",
+		verificationTab.ObservationHash, "test-user", "second attempt must fail"); err == nil {
+		t.Fatal("browser action was reconciled twice")
 	}
 	artifact, image, err := service.GetArtifact(ctx, tab.ScreenshotArtifactID)
 	if err != nil || artifact.MIMEType != "image/png" || len(image) < 100 {
@@ -493,6 +667,7 @@ func TestManagedBrowserInteractsWithProjectPageAndCapturesEvidence(t *testing.T)
 	if err != nil || closed.State != "closed" {
 		t.Fatalf("closed tab=%+v err=%v", closed, err)
 	}
+	_, _ = service.BrowserAction(ctx, verificationTab.ID, BrowserActionInput{Action: "close", Actor: "test-user"})
 }
 
 func TestManagedBrowserURLPolicy(t *testing.T) {
@@ -595,6 +770,10 @@ func TestNativeOfficeDeliverablesAreRealAuditablePackages(t *testing.T) {
 
 type fakeTeamAgent struct {
 	mu               sync.Mutex
+	remote           bool
+	remoteProviders  map[string]bool
+	routeErr         error
+	sessions         []agent.CreateSessionInput
 	next             int
 	active           int
 	maxActive        int
@@ -612,9 +791,17 @@ type fakeTeamAgent struct {
 	approvalBlock    chan struct{}
 }
 
+func (f *fakeTeamAgent) TeamProviderRoute(_ context.Context, providerID string) (bool, error) {
+	if f.remoteProviders != nil {
+		return f.remoteProviders[providerID], f.routeErr
+	}
+	return f.remote, f.routeErr
+}
+
 func (f *fakeTeamAgent) CreateSession(_ context.Context, input agent.CreateSessionInput) (agent.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.sessions = append(f.sessions, input)
 	f.next++
 	id := fmt.Sprintf("fake-session-%d", f.next)
 	if f.titles == nil {
@@ -778,6 +965,124 @@ func TestAgentTeamPersistsDefinitionRunsDAGConcurrentlyAndSynthesizes(t *testing
 		}})
 	if err == nil || !strings.Contains(err.Error(), "cycle") {
 		t.Fatalf("cyclic team graph was accepted: %v", err)
+	}
+}
+
+func TestAgentTeamRemoteEgressPreflightAndChildContracts(t *testing.T) {
+	service, _, _ := testProductService(t)
+	runner := &fakeTeamAgent{remote: true}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Remote team fixture", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{ProjectID: project.ID, Name: "Remote evidence team",
+		Actor: "test-user", Instructions: "Use project evidence.", Members: []TeamMemberInput{
+			{Name: "Worker", Role: "test", Instructions: "Run the check."},
+			{Name: "Main", Role: "lead", Instructions: "Review the result.", IsLead: true},
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := StartTeamRunInput{TeamID: team.ID, ProjectID: project.ID, Objective: "Check a fixture",
+		ProviderID: "remote-provider", ContextProfile: "certified-64k", Actor: "test-user", MaxParallel: 1,
+		Tasks: []TeamTaskInput{
+			{ID: "worker", MemberID: team.Members[0].ID, Title: "Verify", Prompt: "Run the fixture."},
+			{ID: "main", MemberID: team.Members[1].ID, Title: "Review", Prompt: "Review evidence.", DependsOn: []string{"worker"}},
+		}}
+	if _, err := service.StartTeamRun(ctx, input); err == nil || !strings.Contains(err.Error(), "remote_allowed") {
+		t.Fatalf("missing remote approval should fail before queueing: %v", err)
+	}
+	input.EgressPolicy = "remote_allowed"
+	input.RemoteEgressApproval = &TeamEgressApproval{Actor: "test-user", Reason: "Reviewed fixture egress to remote provider"}
+	run, err := service.StartTeamRun(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for run.State != "completed" && run.State != "failed" {
+		if time.Now().After(deadline) {
+			t.Fatalf("remote team run did not finish: %+v", run)
+		}
+		time.Sleep(15 * time.Millisecond)
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if run.State != "completed" || run.EgressPolicy != "remote_allowed" || run.RemoteEgressApproval == nil ||
+		run.RemoteEgressApproval.Reason != input.RemoteEgressApproval.Reason {
+		t.Fatalf("remote run authority or outcome was lost: %+v", run)
+	}
+	runner.mu.Lock()
+	sessions := append([]agent.CreateSessionInput(nil), runner.sessions...)
+	prompts := append([]string(nil), runner.prompts...)
+	runner.mu.Unlock()
+	if len(sessions) != 2 || len(prompts) != 2 || !strings.Contains(prompts[1], "verified result from") {
+		t.Fatalf("Worker to Main handoff failed: sessions=%d prompts=%v", len(sessions), prompts)
+	}
+	for _, session := range sessions {
+		if session.EgressPolicy != "remote_allowed" || session.RemoteEgressApproval == nil ||
+			session.RemoteEgressApproval.Reason != input.RemoteEgressApproval.Reason {
+			t.Fatalf("child session lost remote authority: %+v", session)
+		}
+	}
+}
+
+func TestAgentTeamMixedRoutesFreezeEveryChildAndRequireRemoteApproval(t *testing.T) {
+	service, _, _ := testProductService(t)
+	runner := &fakeTeamAgent{remoteProviders: map[string]bool{"local": false, "remote": true}}
+	service.WithAgentRunner(runner)
+	ctx := context.Background()
+	team, err := service.SaveAgentTeam(ctx, AgentTeamInput{Name: "Mixed fixture", Actor: "test-user", Instructions: "Use evidence.", Members: []TeamMemberInput{
+		{Name: "Worker", Role: "test", Instructions: "Check files."},
+		{Name: "Main", Role: "lead", Instructions: "Verify Worker evidence.", IsLead: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := StartTeamRunInput{TeamID: team.ID, Objective: "Verify fixture", ProviderID: "local", ContextProfile: "compact-32k", Actor: "test-user", MaxParallel: 1, Tasks: []TeamTaskInput{
+		{ID: "worker", MemberID: team.Members[0].ID, Title: "Worker check", Prompt: "Check evidence", ProviderID: "remote", ContextProfile: "certified-64k"},
+		{ID: "main", MemberID: team.Members[1].ID, Title: "Main review", Prompt: "Review evidence", DependsOn: []string{"worker"}},
+	}}
+	if _, err := service.StartTeamRun(ctx, input); err == nil || !strings.Contains(err.Error(), "remote_allowed") {
+		t.Fatalf("mixed route skipped egress preflight: %v", err)
+	}
+	input.EgressPolicy = "remote_allowed"
+	input.RemoteEgressApproval = &TeamEgressApproval{Actor: "test-user", Reason: "Fixture route to remote Worker reviewed"}
+	run, err := service.StartTeamRun(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for run.State != "completed" && run.State != "failed" {
+		if time.Now().After(deadline) {
+			t.Fatalf("mixed team did not finish: %+v", run)
+		}
+		time.Sleep(15 * time.Millisecond)
+		run, err = service.GetTeamRun(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	byTitle := map[string]TeamTask{}
+	for _, task := range run.Tasks {
+		byTitle[task.Title] = task
+	}
+	if run.State != "completed" || len(run.Tasks) != 2 || byTitle["Worker check"].ProviderID != "remote" || byTitle["Worker check"].ContextProfile != "certified-64k" || byTitle["Main review"].ProviderID != "local" {
+		t.Fatalf("child routes were not frozen: %+v", run)
+	}
+	runner.mu.Lock()
+	sessions := append([]agent.CreateSessionInput(nil), runner.sessions...)
+	runner.mu.Unlock()
+	if len(sessions) != 2 || sessions[0].ProviderID != "remote" || sessions[0].ContextProfile != "certified-64k" || sessions[1].ProviderID != "local" || sessions[1].ContextProfile != "compact-32k" {
+		t.Fatalf("child session routes differ from frozen tasks: %+v", sessions)
+	}
+	for _, session := range sessions {
+		if session.EgressPolicy != "remote_allowed" || session.RemoteEgressApproval == nil {
+			t.Fatalf("child lost exact egress authority: %+v", session)
+		}
 	}
 }
 

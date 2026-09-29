@@ -56,7 +56,7 @@ func decisionFixture(t *testing.T, adapter *decisionAdapter, baseURL string) (*S
 		TaskID: task.ID, ExpectedTaskRevision: task.Revision,
 		RequirementRevision: task.ActiveRequirementRevision, Reason: "bounded work", Actor: "planner",
 		Steps: []taskengine.StepSpec{{
-			Key: "fix", Title: "Fix", Instructions: "inspect and correct", Checks: []string{"go test ./..."},
+			Key: "fix", Title: "Fix", Instructions: "inspect and correct", RequirementIDs: []string{"AC-1"}, Checks: []string{"go test ./..."},
 		}},
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestBonsaiDecisionAgainstLocalServer(t *testing.T) {
 	}
 	task, err = tasks.CreatePlan(ctx, taskengine.CreatePlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision,
 		RequirementRevision: task.ActiveRequirementRevision, Reason: "inspect first", Actor: "planner",
-		Steps: []taskengine.StepSpec{{Key: "inspect", Title: "Inspect source", Instructions: "read the relevant implementation"}}})
+		Steps: []taskengine.StepSpec{{Key: "inspect", Title: "Inspect source", Instructions: "read the relevant implementation", RequirementIDs: []string{"AC-1"}, Checks: []string{"source-inspected"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}

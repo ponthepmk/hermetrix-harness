@@ -35,12 +35,11 @@ func TestHermetrixCockpitExposesEveryNativeWorkbenchRoom(t *testing.T) {
 		`data-editor-action`, `editorCommandFor`, `runEditorAction`, `codeSymbols`, `data-code-symbol`, `codeCursor`,
 		`renderDeliverableDraftPreview`, `data-team-member`, `data-team-task`, `/cancel`, `cancelWorkbenchTeamRun`,
 		`data-team-approval`, `/approval`, `decideWorkbenchTeamApproval`,
-		// The right workspace is a real 1–4 pane canvas. Every pane can choose
-		// any native work surface and both internal axes are draggable.
-		`const MAX_PANES = 4`, `const PANE_CONTENT`, `id: "review"`, `id: "artifacts"`, `id: "team"`,
-		`data-pane-content`, `data-pane-divider`, `startPaneDrag`, `--pane-split-x`, `--pane-split-y`,
+		// The right workspace grows horizontally with independent notes panes.
+		`const PANE_CONTENT`, `id: "review"`, `id: "artifacts"`, `id: "team"`, `id: "notes"`,
+		`data-pane-content`, `data-pane-divider`, `startPaneDrag`, `--pane-split-x`, `--pane-left-y`, `--pane-right-y`,
 		`draggable="true"`, `data-pane-drag`, `data-pane-drop-edge`, `movePane`, `placePaneAtEdge`,
-		`bottom-wide`, `top-wide`, `left-wide`, `right-wide`, `paneLayoutSelect`,
+		`PANE_SPLIT_FIELDS`, `paneSplitLeftY`, `paneSplitRightY`, `id="workspaceIDE"`,
 		// Navigation is persistent and projects own their session rows.
 		`renderRailNavigation`, `data-rail-view`, `data-rail-project`, `rail-project-sessions`,
 		`data-rail-project-toggle`, `railProjectsOpen`, `railSetupOpen`, `id="sessionSetup"`,
@@ -149,9 +148,9 @@ func TestDurableTaskCockpitIsWiredToTheTaskAPI(t *testing.T) {
 		`expected_task_revision`,
 		`function startTaskProposal`,
 		`/select-files`,
-		`Leave empty for bounded automatic selection`,
+		`เว้นว่างเพื่อให้ระบบเลือกไฟล์จากโปรเจกต์`,
 		`taskReconcileEffects`,
-		`Reconciliation only inspects durable local evidence`,
+		`ระบบจะอ่านหลักฐานที่บันทึกไว้โดยไม่เรียกการกระทำนั้นซ้ำ`,
 		`data-task-proposal-decision`,
 		`taskApplyProposal`,
 		`verify-frozen`,
@@ -199,18 +198,19 @@ func TestShellHasOneViewSwitchAndDraggableZones(t *testing.T) {
 // nothing checked that an id someone put in the document was ever selected.
 func TestEveryCockpitElementIDIsWiredToBehaviour(t *testing.T) {
 	index := mustUIFile(t, "ui/index.html")
-	javascript := mustUIFile(t, "ui/app.js")
+	javascript := mustUIFile(t, "ui/app.js") + mustUIFile(t, "ui/voice.js") + mustUIFile(t, "ui/hardware-monitor.js")
 	// Presentation-only ids belong here with the reason they need no handler.
 	presentationOnly := map[string]string{
 		"sessionSetupTitle": "accessible name referenced by the model-settings dialog's aria-labelledby",
+		"voiceTitle":        "accessible name referenced by the voice panel's aria-labelledby",
 	}
 	for _, match := range regexp.MustCompile(`id="([A-Za-z][\w-]*)"`).FindAllStringSubmatch(index, -1) {
 		id := match[1]
 		if _, allowed := presentationOnly[id]; allowed {
 			continue
 		}
-		if !strings.Contains(javascript, "#"+id) {
-			t.Errorf("index.html declares id %q but app.js never selects #%s: the element is dead markup", id, id)
+		if !strings.Contains(javascript, "#"+id) && !strings.Contains(javascript, `getElementById("`+id+`")`) {
+			t.Errorf("index.html declares id %q but UI scripts never select #%s: the element is dead markup", id, id)
 		}
 	}
 }
@@ -222,7 +222,7 @@ func TestCapabilityPickerPreservesSessionAndApprovalContracts(t *testing.T) {
 	javascript := mustUIFile(t, "ui/app.js")
 	for _, marker := range []string{
 		`contract?.skill_catalog`, `binding.skill_id`, `binding.version_id`,
-		`not in this session’s frozen catalog`, `tool_search`, `tool_describe`, `tool_call`,
+		`เริ่มแชทใหม่เพื่อใช้`, `bindingForCurrentSession`, `frozen version`, `tool_search`, `tool_describe`, `tool_call`,
 		`do not bypass required approval`, `preserve every approval requirement`,
 	} {
 		if !strings.Contains(javascript, marker) {
@@ -377,15 +377,14 @@ func TestLayoutIsRememberedPerProjectAndView(t *testing.T) {
 	}
 }
 
-// TestPanesGiveTerminalAndBrowserRoom is the correction the spec opens with: a
-// terminal in a 320px rail is the same mistake as a file tree in one. Content
-// that needs room must be able to take it, up to a ceiling that stays testable.
+// Content that needs room extends a horizontal strip instead of shrinking into
+// a fixed matrix. Notes can be added after every tool surface is already open.
 func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 	javascript := mustUIFile(t, "ui/app.js")
 	stylesheet := mustUIFile(t, "ui/style.css") + "\n" + mustUIFile(t, "ui/codex-theme.css")
 	for _, marker := range []string{
 		"const PANE_CONTENT", "function splitPane", "function setPaneContent",
-		"function maximisePane", "function movePane", "function placePaneAtEdge", "MAX_PANES",
+		"function maximisePane", "function movePane", "function placePaneAtEdge", "notes:${crypto.randomUUID()}",
 	} {
 		if !strings.Contains(javascript, marker) {
 			t.Errorf("pane support is missing %s", marker)
@@ -397,10 +396,10 @@ func TestPanesGiveTerminalAndBrowserRoom(t *testing.T) {
 			t.Errorf("pane content is missing %s", id)
 		}
 	}
-	if !strings.Contains(stylesheet, ".pane-grid") || !strings.Contains(stylesheet, "--pane-columns") ||
-		!strings.Contains(stylesheet, ".pane-arrangement-bottom-wide") ||
-		!strings.Contains(stylesheet, ".pane-arrangement-top-wide") {
-		t.Error("stylesheet does not define the pane grid")
+	if !strings.Contains(stylesheet, ".workspace-pane-host { overflow-x: auto") ||
+		!strings.Contains(stylesheet, "flex-wrap: nowrap") ||
+		!strings.Contains(stylesheet, ".pane-size-handle") {
+		t.Error("stylesheet does not define the resizable horizontal pane strip")
 	}
 }
 

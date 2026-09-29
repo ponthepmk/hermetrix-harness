@@ -17,7 +17,7 @@ import (
 // a registered project, which is unavoidable -- you cannot pick a root from
 // inside the roots you have already picked. It is bounded to match: directory
 // names only, never file contents, never sizes, never anything from a file at
-// all, and only over a loopback listener.
+// all. Remote listeners require the server's authentication and TLS gates.
 
 // maxBrowseEntries caps one listing. A home directory with tens of thousands of
 // entries should answer slowly-but-bounded rather than building a response
@@ -37,6 +37,7 @@ type DirectoryListing struct {
 	// offering "up".
 	Parent      string           `json:"parent"`
 	Home        string           `json:"home"`
+	Roots       []DirectoryEntry `json:"roots"`
 	Entries     []DirectoryEntry `json:"entries"`
 	Truncated   bool             `json:"truncated"`
 	Unreadable  bool             `json:"unreadable"`
@@ -62,7 +63,7 @@ func (s *Service) BrowseDirectories(path string) (DirectoryListing, error) {
 	if err != nil {
 		return DirectoryListing{}, err
 	}
-	listing := DirectoryListing{Path: resolved, Home: home, Entries: []DirectoryEntry{}}
+	listing := DirectoryListing{Path: resolved, Home: home, Roots: availableBrowseRoots(), Entries: []DirectoryEntry{}}
 	if parent := filepath.Dir(resolved); parent != resolved {
 		listing.Parent = parent
 	}

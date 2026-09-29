@@ -10,7 +10,7 @@ import (
 )
 
 func TestFullRecoverySnapshotsSQLiteAndCASWithoutVault(t *testing.T) {
-	service, _, _ := testProductService(t)
+	service, _, dataStore := testProductService(t)
 	ctx := context.Background()
 	root := t.TempDir()
 	project, err := service.SaveProject(ctx, ProjectInput{Name: "Recovery Source", RootPath: root})
@@ -18,6 +18,22 @@ func TestFullRecoverySnapshotsSQLiteAndCASWithoutVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	artifact, err := service.CreateArtifact(ctx, ArtifactInput{ProjectID: project.ID, Name: "proof.txt", Kind: "proof", MIMEType: "text/plain", Content: "recovery evidence"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerID, err := dataStore.OwnerPrincipalID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = dataStore.DB.ExecContext(ctx, `INSERT INTO browser_tabs(id,project_id,url,title,state,created_at,updated_at)
+		VALUES('recovery-tab',?,'https://example.test/','Recovery page','interrupted','2026-09-26T00:00:00Z','2026-09-26T00:00:00Z')`, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = dataStore.DB.ExecContext(ctx, `INSERT INTO browser_action_receipts(id,owner_principal_id,task_id,tab_id,action,
+		element_ref,target_json,text_hash,observation_hash,subject_hash,screenshot_before_id,state,created_at,expires_at)
+		VALUES('recovery-action',?,'','recovery-tab','click',1,'{}','text-hash','observation-hash','subject-hash',?,
+		'uncertain','2026-09-26T00:00:00Z','2026-09-26T00:02:00Z')`, ownerID, artifact.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +78,11 @@ func TestFullRecoverySnapshotsSQLiteAndCASWithoutVault(t *testing.T) {
 	var blobRef string
 	if err = restored.DB.QueryRow(`SELECT blob_ref FROM artifacts WHERE id=?`, artifact.ID).Scan(&blobRef); err != nil {
 		t.Fatal(err)
+	}
+	var actionState, screenshotID string
+	if err = restored.DB.QueryRow(`SELECT state,screenshot_before_id FROM browser_action_receipts WHERE id='recovery-action'`).
+		Scan(&actionState, &screenshotID); err != nil || actionState != "uncertain" || screenshotID != artifact.ID {
+		t.Fatalf("restored browser receipt = %q %q err=%v", actionState, screenshotID, err)
 	}
 	body, err := restored.Blobs.Get(blobRef)
 	if err != nil || string(body) != "recovery evidence" {

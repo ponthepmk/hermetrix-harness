@@ -34,7 +34,7 @@ function harness(overrides = {}) {
     return [];
   };
   const context = vm.createContext({
-    state, asList, Map, Set, CONFIG_PAGE_IDS:[], console,
+    state, asList, Map, Set, CONFIG_PAGE_IDS:[], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id", console,
     $:selector=>selector === "#chatInput" ? input : selector === "#startPrompt" ? start : selector === "#zones" ? {classList:{contains:()=>true}} : null,
     document:{activeElement:null}, $$:()=>[],
     api:async (...args)=>{calls.push(args[0]); return overrides.api ? overrides.api(args[0], defaultAPI) : defaultAPI(...args);},
@@ -42,6 +42,9 @@ function harness(overrides = {}) {
     toast:message=>messages.push(message), captureCodeDraft:()=>{}, showShell:()=>{}, applyLayoutForView:()=>{},
     renderPanes:()=>{}, renderConfigPage:()=>{}, refreshPaneChat:()=>{}, pollElicitations:()=>{}, setTimeout:()=>{},
     profileAdmission:()=>({mode:"compatibility"}), profileLabel:()=>"Compact", currentActor:()=>"test-user",
+    taskProviderIsLocal:()=>true, HermetrixRuntime:{preferredProvider:providers=>providers[0]},
+    selectDraftProvider:id=>{state.draftProviderID=id;state.draftProfileName="";},
+    localStorage:{getItem:()=>null},
     switchTab:tab=>{state.activeTab=tab;}, switchView:view=>{views.push(view);state.view=view;},
     openContentPane:id=>{if(!state.panes.includes(id))state.panes.push(id);},
   });
@@ -52,7 +55,7 @@ function harness(overrides = {}) {
     renders.push({session:state.sessionDetail?.session?.id, text:input?.value, attachments:state.composerAttachments.slice()});
   };
   context.renderAll = context.renderChat;
-  vm.runInContext("let navigationGeneration = 0;", context);
+  vm.runInContext("let navigationGeneration = 0; let providerDefaultLoaded = false;", context);
   vm.runInContext(section("const SURFACE_DATA =", "function renderAll()"), context);
   vm.runInContext(section("let projectOpenGeneration =", "async function createProjectFromPicker("), context);
   vm.runInContext(section("function captureComposer()", "async function createAgentSession("), context);

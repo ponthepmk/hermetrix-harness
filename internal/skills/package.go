@@ -123,16 +123,33 @@ func ParseManifest(markdown string) Manifest {
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return m
 	}
+	multiline := ""
 	for _, raw := range lines[1:] {
 		line := strings.TrimSpace(raw)
 		if line == "---" {
 			break
+		}
+		if multiline != "" {
+			if strings.HasPrefix(raw, " ") || strings.HasPrefix(raw, "\t") {
+				if multiline == "description" {
+					if m.Description != "" {
+						m.Description += " "
+					}
+					m.Description += line
+				}
+				continue
+			}
+			multiline = ""
 		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
 		value = strings.Trim(strings.TrimSpace(value), "\"'")
+		if value == "|" || value == ">" {
+			multiline = strings.TrimSpace(key)
+			continue
+		}
 		switch strings.TrimSpace(key) {
 		case "name":
 			m.Name = value

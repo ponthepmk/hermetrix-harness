@@ -14,9 +14,13 @@ function harness(overrides = {}) {
   const context = vm.createContext({state,window:{},Map,WeakMap,Set,console,
     document:{querySelectorAll:()=>[],querySelector:()=>null},requestAnimationFrame:callback=>frames.push(callback),
     captureCodeDraft(){},activeCodeEditor:{getSelection:()=>overrides.selection || {text:"",fromLine:1,toLine:1}},
-    taskEligibleProviders:()=>state.providers.filter(item=>item.enabled && item.credential_ready && item.base_url.startsWith("http://127.0.0.1:")),
+    taskEligibleProviders:task=>state.providers.filter(item=>item.enabled && item.credential_ready && (task.egress_policy === "remote_allowed" || item.base_url.startsWith("http://127.0.0.1:"))),
+    taskProviderIsLocal:item=>item.base_url.startsWith("http://127.0.0.1:"),
+    providerModelLabel:item=>String(item.model || "").split(/[\\/]/).pop(),
+    providerOptionLabel:item=>`${item.name} · ${item.model || ""}`,
+    selectDraftProvider:id=>{state.draftProviderID=id;state.draftProfileName="";},
     availableProfiles:()=>state.profiles,bestProfileFor:(_provider,profiles)=>profiles[0],profileAdmission:()=>({admitted:true}),
-    createAgentSession:async title=>{created.push({title,provider:state.draftProviderID,project:state.draftProjectID});
+    createAgentSession:async (title,options)=>{created.push({title,provider:state.draftProviderID,project:state.draftProjectID,options});
       if (overrides.create) return overrides.create(state);
       state.sessionDetail={session:{id:"local-session",provider_id:state.draftProviderID,project_id:state.draftProjectID},events:[],approvals:[]};return state.sessionDetail.session;},
     submitChatText:async text=>{sent.push(text);return overrides.sendOK !== false;},
@@ -26,23 +30,32 @@ function harness(overrides = {}) {
   return {state,api:context.window.HermetrixAssistant,sent,created,panes,frames};
 }
 
-test("Explain creates a local project session instead of using the selected remote model", async()=>{
+test("Workspace reuses the selected ready remote session for the current project", async()=>{
   const h=harness();await h.api.action("explain");
-  assert.equal(h.created.length,1);assert.equal(h.created[0].provider,"local");assert.equal(h.created[0].project,"p");
+  assert.equal(h.created.length,0);
   assert.match(h.sent[0],/src\/main.js/);assert.match(h.sent[0],/unsaved editor buffer/);assert.match(h.sent[0],/do not overwrite this file/);
   assert.equal(h.state.projectFile.content,"const x = 2;");
 });
-test("same local session is reused; other project sessions are not reused",async()=>{
+test("current project session is reused; another project's session is not",async()=>{
   const h=harness({state:{sessionDetail:{session:{id:"l",provider_id:"local",project_id:"p"},events:[]}}});
   await h.api.action("review");assert.equal(h.created.length,0);assert.equal(h.sent.length,1);
   h.state.sessionDetail.session.project_id="other";await h.api.action("review");assert.equal(h.created.length,1);
+  assert.equal(h.created[0].options.stayInWorkspace,true);
 });
-test("no ready local model means no session or model call",async()=>{
-  const h=harness();h.state.providers[1].credential_ready=false;await h.api.action("explain");
+test("Workspace starts a new conversation instead of appending to an Agent Team child",async()=>{
+  const h=harness({state:{sessionDetail:{session:{id:"team-child",provider_id:"remote",project_id:"p",team_child:true},events:[]}}});
+  await h.api.action("explain");
+  assert.equal(h.created.length,1);
+  assert.equal(h.created[0].provider,"remote");
+  assert.equal(h.state.sessionDetail.session.id,"local-session");
+  assert.equal(h.sent.length,1);
+});
+test("no ready model means no session or model call",async()=>{
+  const h=harness();h.state.providers.forEach(item=>item.credential_ready=false);await h.api.action("explain");
   assert.equal(h.created.length,0);assert.equal(h.sent.length,0);
 });
-test("provider locality is checked again after asynchronous session creation",async()=>{
-  const h=harness({create:state=>{state.providers[1].base_url="https://model.example/v1";state.sessionDetail={session:{id:"l",provider_id:"local",project_id:"p"}};return state.sessionDetail.session;}});
+test("provider identity is checked again after asynchronous session creation",async()=>{
+  const h=harness({state:{sessionDetail:null},create:state=>{state.sessionDetail={session:{id:"l",provider_id:"local",project_id:"p"}};return state.sessionDetail.session;}});
   await h.api.action("explain");assert.equal(h.sent.length,0);assert.match(h.state.paneChatDraft,/อธิบาย/);
 });
 test("file context stays within the budget and uses the selected lines",async()=>{

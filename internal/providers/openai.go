@@ -23,6 +23,7 @@ const maxProviderResponseBytes = 32 << 20
 
 type OpenAIAdapter struct {
 	client                     *http.Client
+	defaultTimeout             bool
 	capabilityMu               sync.Mutex
 	localReasoningCapabilities map[string]localReasoningCapability
 }
@@ -35,10 +36,23 @@ type localReasoningCapability struct {
 var llamaReasoningBuild = regexp.MustCompile(`^b([0-9]+)(?:-[0-9a-fA-F]+)?$`)
 
 func NewOpenAIAdapter(client *http.Client) *OpenAIAdapter {
+	defaultTimeout := client == nil
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Minute}
 	}
-	return &OpenAIAdapter{client: client}
+	return &OpenAIAdapter{client: client, defaultTimeout: defaultTimeout}
+}
+
+func (a *OpenAIAdapter) clientForProfile(profile Profile) *http.Client {
+	if !a.defaultTimeout || !IsLocalProfile(profile) {
+		return a.client
+	}
+	// CPU-assisted local models can need more than ten minutes to finish a
+	// bounded review. Keep the shorter default for remote providers and honor
+	// explicitly supplied clients used by callers and tests.
+	local := *a.client
+	local.Timeout = 30 * time.Minute
+	return &local
 }
 
 func (a *OpenAIAdapter) StreamChat(ctx context.Context, profile Profile, apiKey string, request ChatRequest, emit func(Delta) error) (Completion, error) {
@@ -77,7 +91,7 @@ func (a *OpenAIAdapter) StreamChat(ctx context.Context, profile Profile, apiKey 
 	if apiKey != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+apiKey)
 	}
-	response, err := a.client.Do(httpRequest)
+	response, err := a.clientForProfile(profile).Do(httpRequest)
 	if err != nil {
 		return Completion{}, fmt.Errorf("provider request failed: %w", err)
 	}

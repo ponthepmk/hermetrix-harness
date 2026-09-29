@@ -1,12 +1,14 @@
 package web
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,7 +46,95 @@ func testHTTPServer(t *testing.T) *httptest.Server {
 	return server
 }
 
+func TestHTTPSkillImportAndProjectArchive(t *testing.T) {
+	server := testHTTPServer(t)
+	var packed bytes.Buffer
+	archive := zip.NewWriter(&packed)
+	for path, body := range map[string]string{
+		"sample-skill/SKILL.md":            "---\nname: sample-skill\ndescription: |\n  Helps with a task.\n  Uses evidence first.\n---\n# Sample\n",
+		"sample-skill/references/guide.md": "Reference document",
+	} {
+		entry, err := archive.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var payload bytes.Buffer
+	form := multipart.NewWriter(&payload)
+	file, err := form.CreateFormFile("file", "sample-skill.skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write(packed.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/skills/import", &payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var candidate struct {
+		ID            string `json:"id"`
+		CanonicalName string `json:"canonical_name"`
+		State         string `json:"state"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&candidate); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusCreated || candidate.CanonicalName != "sample-skill" || candidate.State != "needs_review" {
+		t.Fatalf("import status=%d candidate=%+v", response.StatusCode, candidate)
+	}
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/projects", http.MethodPost, map[string]any{"name": "Archive me", "root_path": ""}, http.StatusCreated), &project); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.URL+"/api/projects/"+project.ID+"/archive", http.MethodPost, map[string]any{}, http.StatusOK)
+	var active []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/projects", http.MethodGet, nil, http.StatusOK), &active); err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("archived project remains in active list: %+v", active)
+	}
+	var removed []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/projects?archived=true", http.MethodGet, nil, http.StatusOK), &removed); err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0].ID != project.ID {
+		t.Fatalf("missing archived project: %+v", removed)
+	}
+	requestJSON(t, server.URL+"/api/projects/"+project.ID+"/restore", http.MethodPost, map[string]any{}, http.StatusOK)
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/projects", http.MethodGet, nil, http.StatusOK), &active); err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0].ID != project.ID {
+		t.Fatalf("project not restored: %+v", active)
+	}
+}
+
 type webTeamAgent struct{}
+
+func (webTeamAgent) TeamProviderRoute(context.Context, string) (bool, error) { return false, nil }
 
 func (webTeamAgent) CreateSession(_ context.Context, input agent.CreateSessionInput) (agent.Session, error) {
 	return agent.Session{ID: "web-child-" + strings.ReplaceAll(input.Title, " ", "-"), Title: input.Title}, nil
@@ -105,7 +195,7 @@ func testHandler(t *testing.T) http.Handler {
 	return New(skillService, learningService, curatorService, compiler, estimator,
 		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
-		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).Handler()
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).WithSocialVault(vault).Handler()
 }
 
 func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
@@ -134,7 +224,7 @@ func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
 	}
 	plannedBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/plans", http.MethodPost, taskengine.CreatePlanInput{
 		ExpectedTaskRevision: task.Revision, RequirementRevision: task.ActiveRequirementRevision,
-		Reason: "bounded plan", Actor: "planner", Steps: []taskengine.StepSpec{{Key: "verify", Title: "Verify", Instructions: "run check", Checks: []string{"test"}, EffectScope: []string{"workspace.run"}}},
+		Reason: "bounded plan", Actor: "planner", Steps: []taskengine.StepSpec{{Key: "verify", Title: "Verify", Instructions: "run check", RequirementIDs: []string{"AC-1"}, Checks: []string{"test"}, EffectScope: []string{"workspace.run"}}},
 	}, http.StatusCreated)
 	if err := json.Unmarshal(plannedBody, &task); err != nil {
 		t.Fatal(err)
@@ -277,10 +367,10 @@ func TestBootstrapCollectionsAreArraysAndUIHasSecurityHeaders(t *testing.T) {
 		t.Fatal("missing CSP")
 	}
 	content, _ := io.ReadAll(page.Body)
-	if !bytes.Contains(content, []byte("Agent Workspace")) || !bytes.Contains(content, []byte("Hermetrix Engine")) {
+	if !bytes.Contains(content, []byte("aria-label=\"พื้นที่ทำงาน\"")) || !bytes.Contains(content, []byte("Hermetrix Engine")) {
 		t.Fatal("embedded UI was not served")
 	}
-	logo, err := http.Get(server.URL + "/assets/brand/hermetrix-favicon-v3-48.png")
+	logo, err := http.Get(server.URL + "/assets/brand/hermetrix-logo.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -726,8 +816,16 @@ func TestEndToEndAgentSearchDescribeAndCallRealMCPServer(t *testing.T) {
 	if err := json.Unmarshal(providerBody, &provider); err != nil {
 		t.Fatal(err)
 	}
+	projectBody := requestJSON(t, harness.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "MCP E2E workspace", "root_path": ""}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
 	sessionBody := requestJSON(t, harness.URL+"/api/sessions", http.MethodPost, map[string]any{
-		"title": "MCP E2E", "provider_id": provider.ID, "context_profile": "certified-64k",
+		"title": "MCP E2E", "project_id": project.ID, "provider_id": provider.ID, "context_profile": "certified-64k",
 		"qualification_override": map[string]any{"actor": "test", "reason": "reviewed MCP E2E fixture"},
 	}, http.StatusCreated)
 	var session agent.Session

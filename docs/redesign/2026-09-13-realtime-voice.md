@@ -1,8 +1,22 @@
-# Realtime voice — Future extension design
+# Realtime voice — design and implementation status
 
-วันที่: 2026-09-13 · สถานะ: architecture proposal รองรับ R28 ไม่ใช่ implemented/benchmarked feature และไม่มีการเปิดไมค์หรือเรียก speech provider ในรอบนี้
+วันที่ออกแบบ: 2026-09-13 · อัปเดตการลงมือ: 2026-09-27
+
+ผลล่าสุดของ Voice Mode แบบ Whisper Large v3 Turbo, Bonsai และหน้า Chat/Workspace/Plans อยู่ใน [บันทึกตรวจเทียบ 2026-09-27](2026-09-27-bonsai-voice-implementation-status.md) เนื้อหาด้านล่างบันทึกสถานะ Preview รุ่นก่อนเพื่อรักษาประวัติการตัดสินใจ
 
 เชื่อมกับ [blueprint](2026-09-13-blueprint.md), [requirements Q32–Q34](2026-09-13-requirements.md) และ [Pi Knowledge Hub](2026-09-13-knowledge-hub.md)
+
+## สถานะที่ตรวจได้ใน Windows Preview
+
+ผู้ใช้เลือกให้ประมวลผลเสียงในเครื่องเท่านั้นและยอมรับความหน่วงเพิ่มขึ้น ปุ่ม “พูด” ในหน้าเริ่มงานและแชตเปิดแผงสถานะเสียง โดยใช้ Whisper ในเครื่องถอดเสียง, โมเดลข้อความที่เลือกใน session ตอบผ่านเส้นทางแชตเดิม และ Windows Speech ในเครื่องอ่านคำตอบเป็นช่วง ๆ ไม่มีเส้นทางส่งเสียงไป speech provider ภายนอก ไฟล์เสียงชั่วคราวถูกลบหลังประมวลผล ส่วนข้อความที่ส่งเข้าบทสนทนาเป็น transcript ที่เห็นและแก้ได้
+
+ใน Codex in-app browser การขอสิทธิ์ไมค์ผ่าน browser ค้าง จึงเพิ่มตัวเลือกไมค์ Windows โดยตรงพร้อมรายชื่ออุปกรณ์และสถานะระดับเสียง ผู้ใช้ต้องกดเปิดโหมดพูด/เลือกอุปกรณ์เอง ระบบหยุดจับเสียงเมื่อปิดแผงหรือซ่อนหน้า UI รองรับหยุดเสียงตอบและพูดแทรกโดยหยุดเล่นเสียงเก่า แล้วรอการสร้างคำตอบเดิมให้จบก่อนส่งข้อความใหม่ เพื่อไม่ทำให้ runtime ในเครื่องถูกพัก การส่งข้อความอัตโนมัติเป็นตัวเลือกที่ปิดไว้เป็นค่าเริ่มต้น; เมื่อเปิดจะรอช่วงตรวจแก้ 1.8 วินาทีและรอคำตอบก่อนหน้าจบ หน้าเริ่มงานใส่ transcript เป็น Goal draft เพื่อให้ตรวจเป้าหมาย/แผนก่อนเริ่มลงมือ
+
+หลักฐานบน Preview แยกข้อมูล: ไมค์ Windows ส่งระดับสัญญาณจริง, Whisper ถอดคำพูด, แชตใช้ Ollama ในเครื่องตอบใน session เดิม และลำโพงเล่นเสียงตอบจนจบ ผ่านการทดสอบเสียงไทยแบบ SAPI→Whisper และ UI จริง ระหว่างใช้จริงพบว่าการยกเลิก local model กลางคำตอบทำให้ inference scheduler พัก resource และเสียงพื้นหลังถูกถอดเป็นข้อความ จึงแก้การพูดแทรกกับค่าเริ่มต้นการส่งอัตโนมัติ และยืนยันว่า provider กลับตอบ `HERMETRIX_OK` หลังรีสตาร์ต Preview รุ่นถัดมาแก้ข้อความผิดพลาดในแชตให้บอกสาเหตุตามที่เกิดจริงแทนการกล่าวว่าเกินงบโมเดลทุกกรณี ยังต้องตรวจการพูดแทรกซ้ำบน build นี้, วัด p50/p95 latency, ทดสอบสอง OS, การตัดเสียงลำโพงย้อนเข้ากับไมค์ Windows, อุปกรณ์ถอด/เสียบใหม่, sleep/reconnect และสถานการณ์อนุมัติ action ขณะพูดครบทุกกรณี จึงยังไม่ผ่านเกณฑ์ V1/release ทั้งหมดตามหัวข้อ 6
+
+Preview ใช้ข้อมูลแยกจาก Hermetrix ที่ติดตั้งอยู่ โมเดล Ollama alias `hermetrix-voice-preview` ถูกเพิ่มเฉพาะ Preview เพื่อทดสอบบทสนทนา ไม่ได้ยืนยันคุณภาพโมเดลสำหรับงาน production
+
+การวัดแบบ synthetic 3 ครั้งบนเครื่องนี้: ถอดเสียงด้วย Whisper ใช้ 5.9–6.0 วินาที, Windows Speech สร้างเสียง 0.4–0.6 วินาที, local model connectivity probe ใช้ 1.6–5.8 วินาที ผลนี้เป็นเวลาของแต่ละ endpoint ไม่ใช่ latency ที่ผู้ใช้รับรู้จากพูดจบจนได้ยินคำตอบ และยังไม่ใช่ p95 ของการใช้งานจริง
 
 ## 1. เป้าหมายและขอบเขต
 
@@ -97,4 +111,4 @@ Mandatory acceptance สำหรับ voice release:
 7. เล่นเสียงขณะ coding/tests/learning ใช้ทรัพยากร → วัด p50/p95 latency, interruption และ starvation ตาม threshold ที่ตกลง
 8. Raw audio/transcripts ไม่ค้างใน logs/DB/Hub เมื่อไม่อนุญาต; consent/revoke/delete/retention และ cloud/local fallback ทำตาม policy ไม่เปลี่ยนปลายทางเอง
 
-Open decisions: Q32–Q34 เรื่องภาษา/mic mode, voice providers/cloud/local, retention, latency, background conversation และ authority ยังไม่ล็อก ไม่เริ่ม provider installation/download/recording ก่อนขอบเขตชัดเจน
+Open decisions: Q32–Q34 ยังต้องล็อกภาษา, retention ของ transcript/บทเรียน, latency, background conversation และ authority เพิ่มเติม โดย audio processing ยึด local-only ตามคำตอบผู้ใช้วันที่ 2026-09-26

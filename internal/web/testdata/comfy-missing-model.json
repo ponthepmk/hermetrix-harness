@@ -1,0 +1,6 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {"ckpt_name": "Hermetrix_missing_model_for_preflight.safetensors"}
+  }
+}

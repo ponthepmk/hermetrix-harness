@@ -77,9 +77,14 @@ func TestMediaRejectsForgedMimeAndUnavailableProcessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.StartMediaJob(ctx, MediaJobInput{SourceArtifactID: artifact.ID, ProcessorKind: "audio_transcribe",
+	_, err = service.StartMediaJob(ctx, MediaJobInput{SourceArtifactID: artifact.ID, ProcessorKind: "unapproved_processor",
 		OperationID: "stt", IdempotencyKey: "one"})
 	if !errors.Is(err, ErrMediaProcessorUnsupported) {
 		t.Fatalf("unsupported processor err=%v", err)
+	}
+	_, err = service.StartMediaJob(ctx, MediaJobInput{SourceArtifactID: artifact.ID, ProcessorKind: "audio_transcribe",
+		OperationID: "stt", IdempotencyKey: "video-only"})
+	if err == nil {
+		t.Fatal("video transcription accepted an image")
 	}
 }

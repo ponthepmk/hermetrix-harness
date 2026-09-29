@@ -82,10 +82,12 @@ func StdioCommand(commandLine string) (string, []string, error) {
 
 func validateStdioCommand(launcher string, arguments []string) (string, []string, error) {
 	launcher = strings.TrimSpace(launcher)
-	if filepath.Base(launcher) != launcher {
+	if isLocalComfyMCP(launcher) {
+		// This one installed application is an explicit opt-in exception to
+		// the generic launcher names. It is validated with its sibling CLI.
+	} else if filepath.Base(launcher) != launcher {
 		return "", nil, fmt.Errorf("the command must be a program name without a path, not %q", launcher)
-	}
-	if !stdioLaunchers[launcher] {
+	} else if !stdioLaunchers[launcher] {
 		return "", nil, fmt.Errorf("%q is not an allowed MCP launcher; allowed: %s", launcher, allowedLaunchers())
 	}
 	if len(arguments) > 64 {
@@ -97,6 +99,15 @@ func validateStdioCommand(launcher string, arguments []string) (string, []string
 		}
 	}
 	return launcher, append([]string(nil), arguments...), nil
+}
+
+// ValidateLocalComfyExecutable is the narrower boundary for the dedicated
+// Comfy connector. Generic launchers remain available only in the MCP registry.
+func ValidateLocalComfyExecutable(path string) error {
+	if !isLocalComfyMCP(strings.TrimSpace(path)) {
+		return fmt.Errorf("select comfy-mcp.exe from an installed Comfy .venv/Scripts directory")
+	}
+	return nil
 }
 
 func encodeStdioCommand(executable string, arguments []string) (string, error) {
@@ -185,10 +196,13 @@ func (c *Client) startStdio(ctx context.Context, server Server, credential strin
 // other provider and server token this Hermetrix knows.
 func stdioEnvironment(server Server, credential string) []string {
 	values := []string{}
-	for _, key := range []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SystemRoot", "APPDATA", "LOCALAPPDATA"} {
+	for _, key := range []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SystemRoot", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "PROGRAMDATA"} {
 		if value := os.Getenv(key); value != "" {
 			values = append(values, key+"="+value)
 		}
+	}
+	if isLocalComfyMCP(server.Executable) {
+		values = append(values, "COMFY_BIN="+filepath.Join(filepath.Dir(server.Executable), "comfy.exe"))
 	}
 	if strings.TrimSpace(credential) != "" {
 		name := server.APIKeyEnv

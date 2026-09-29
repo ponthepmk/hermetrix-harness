@@ -7,14 +7,14 @@ const runtime = require("./runtime.js");
 function cockpit(overrides = {}) {
   const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
   const start = source.indexOf("const taskActions = new Map()");
-  const end = source.indexOf("// Four is the ceiling", start);
+  const end = source.indexOf("// Tool surfaces have stable form IDs", start);
   assert.ok(start > 0 && end > start);
   const timers = new Map();
   const context = vm.createContext({
     state:{durableTasks:[], taskExecutions:{}, providers:[], selectedDurableTask:"task-1"},
     URL, Date, Map, setInterval:callback => { const id = timers.size + 1; timers.set(id, callback); return id; },
     clearInterval:id => timers.delete(id), escapeHTML:runtime.escapeHTML,
-    $:() => null, $$:() => [], currentActor:() => "test-user", toast:() => {}, asList:runtime.asList,
+    $:() => null, $$:() => [], document:{querySelector:() => null}, currentActor:() => "test-user", toast:() => {}, asList:runtime.asList, formatDate:value => value,
     pill:text => text, renderPanes:() => {}, askAction:async () => "Reviewed the proposed files",
     FormData:class { constructor(form) { this.form = form; } get(key) { return this.form[key]; } },
     ...overrides,
@@ -27,6 +27,49 @@ const model = {id:"local", name:"Local", enabled:true, credential_ready:true, mo
 const liveRun = () => ({id:"run-1", state:"running", plan_revision:1, lease_token:"private-lease", lease_expires_at:new Date(Date.now()+600000).toISOString()});
 const baseTask = () => ({id:"task-1", title:"Fix sum", objective:"Addition returns sum", state:"ready", revision:2, active_plan_revision:1, egress_policy:"local_only", plan:{steps:[{key:"fix", title:"Fix", state:"pending"}]}});
 
+test("failed step names the recovery target until a fresh proposal reaches review", () => {
+  const {context} = cockpit();
+  const task = {...baseTask(), state:"paused", plan:{steps:[{key:"fix", title:"Fix sum", state:"failed"}]}};
+  assert.match(context.taskStage(task, {effects:[]}).detail, /Fix sum/);
+  assert.equal(context.taskStage(task, {run:{plan_revision:1}, proposal:{state:"pending_review"}}).label, "ตรวจการแก้ไข");
+});
+
+test("failed mandatory check keeps the plan and rollback guidance honest", () => {
+  const {context} = cockpit();
+  const task = {...baseTask(), state:"paused", plan:{steps:[{key:"fix", title:"Fix sum", state:"failed", last_error:"mandatory check node test.js failed"}]}};
+  assert.match(context.taskPlanReferenceNote(task), /ตรวจไม่ผ่าน/);
+  assert.doesNotMatch(context.taskPlanReferenceNote(task), /เสร็จแล้ว/);
+  const execution = {run:{state:"paused"}, attempt:{state:"failed"}, proposal:{state:"verification_failed", artifact_id:"artifact-proposal"},
+    effects:[{action:"workspace.run",state:"observed",receipt:{evidence_refs:["artifact:failed-check"]}}]};
+  const html = context.taskExecutionHTML(task, execution);
+  assert.match(html, /วิธีตรวจ node test.js ไม่ผ่าน/);
+  assert.match(html, /พยายามคืนไฟล์/);
+  assert.match(html, /\/api\/artifacts\/failed-check\/content/);
+});
+
+test("task errors tell a person what happened without hiding the recovery step", () => {
+  const {context} = cockpit();
+  assert.match(context.taskFriendlyError("invalid proposal JSON"), /โมเดลส่งข้อเสนอในรูปแบบที่ระบบอ่านไม่ได้/);
+  assert.match(context.taskFriendlyError("completion blocked by User acceptance: User acceptance is required"), /รอคุณตรวจและรับรอง/);
+  assert.match(context.taskFriendlyError("mandatory check node test.js failed"), /วิธีตรวจ node test.js ไม่ผ่าน/);
+  assert.equal(context.taskFriendlyError("unknown fixture error"), "unknown fixture error");
+});
+
+test("chat failures explain the observed cause instead of claiming every error exhausted model steps", () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const start = source.indexOf("function turnFailureGuidance(");
+  const end = source.indexOf("// An elicitation", start);
+  assert.ok(start > 0 && end > start);
+  const context = vm.createContext({escapeHTML:runtime.escapeHTML, pill:text => text, state:{sessionDetail:null}});
+  vm.runInContext(source.slice(start, end), context);
+  const failed = content => context.renderTimelineEvent({event_kind:"turn_failed", content});
+  assert.match(failed("inference resource is quarantined: cancelled_runtime_idle_unconfirmed"), /โมเดลในเครื่องถูกพัก/);
+  assert.doesNotMatch(failed("inference resource is quarantined"), /เกินจำนวนขั้นของโมเดล/);
+  assert.match(failed("read provider stream: context canceled"), /คำตอบถูกขัดจังหวะก่อนจบ/);
+  assert.match(failed("too many model steps"), /ครบจำนวนขั้นของงานนี้/);
+  assert.match(failed("provider unavailable"), /ตรวจสถานะโมเดล/);
+});
+
 test("task failures remain visible after refresh and clear only on the next action", async () => {
   const {context} = cockpit();
   context.refreshDurableTask = async () => {};
@@ -37,7 +80,230 @@ test("task failures remain visible after refresh and clear only on the next acti
   assert.equal(vm.runInContext('taskErrors.has("task-1")', context), false);
 });
 
-test("local task excludes remote, disabled and credential-missing providers; reviewer must differ in model or endpoint", () => {
+test("uncertain Windows action shows fresh observation and reconciles once with an exact receipt", async () => {
+  const task = baseTask();
+  const action = {id:"native-1", handle:101, process_id:202, action:"invoke", state:"uncertain",
+    target:{name:"Apply"}, created_at:"2026-09-26T10:00:00Z", subject_hash:"subject"};
+  const observation = {window:{handle:101, process_id:202}, observation_hash:"fresh-hash", screenshot_artifact_id:"image-1"};
+  const calls = [];
+  const {context} = cockpit({state:{durableTasks:[task], selectedDurableTask:task.id,
+    taskExecutions:{[task.id]:{desktopActions:[action]}}, desktopObservation:observation},
+    api:async (path, options = {}) => { calls.push({path, body:JSON.parse(options.body)}); return {...action, reconciliation:{resolution:"observed_applied"}}; },
+    askAction:async () => "The fixture button changed the window title",
+  });
+  context.refreshDurableTask = async () => {};
+  const card = context.taskDesktopActionsHTML(task, context.state.taskExecutions[task.id]);
+  assert.match(card, /ตรวจว่าเกิดผลแล้ว/);
+  assert.match(card, /image-1/);
+  await context.reconcileTaskDesktopAction(task.id, action.id, "observed_applied", {isConnected:false});
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/api/desktop/actions/native-1/reconcile");
+  assert.equal(calls[0].body.observation_hash, "fresh-hash");
+  assert.equal(calls[0].body.resolution, "observed_applied");
+  assert.equal(context.state.desktopObservation, null);
+});
+
+test("uncertain browser action offers same-project tab recovery and exact screenshot evidence", () => {
+  const task = {...baseTask(),project_id:"project-1"};
+  const action = {id:"browser-1",tab_id:"old-tab",action:"click",state:"uncertain",target:{text:"Apply"},
+    screenshot_before_id:"before-1",created_at:"2026-09-26T10:00:00Z"};
+  const {context} = cockpit({state:{durableTasks:[task],selectedDurableTask:task.id,
+    taskExecutions:{[task.id]:{browserActions:[action]}},browserTabs:[
+      {id:"old-tab",state:"interrupted",project_id:"project-1",url:"https://example.com/page"},
+      {id:"new-tab",state:"ready",project_id:"project-1",url:"https://example.com/page",observation_hash:"fresh",screenshot_artifact_id:"after-1"},
+      {id:"other",state:"ready",project_id:"project-2",url:"https://example.com/page"},
+    ]}});
+  const html = context.taskBrowserActionsHTML(task, context.state.taskExecutions[task.id]);
+  assert.match(html, /data-browser-verify-tab="browser-1"/);
+  assert.match(html, /value="new-tab"/);
+  assert.doesNotMatch(html, /value="other"/);
+  assert.match(html, /\/api\/artifacts\/before-1\/content/);
+  assert.match(html, /\/api\/artifacts\/after-1\/content/);
+  assert.match(html, /ตรวจว่าเกิดผลแล้ว/);
+});
+
+test("TikTok export shows only current creator options with no default and explicit posting choices", () => {
+  const {context} = cockpit();
+  const direct = context.taskTikTokExportFieldsHTML({platform:"tiktok"}, {id:"tt-1", display_name:"@creator", capability:"video.publish_creator_info"},
+    {privacy_level_options:["SELF_ONLY"], max_video_post_duration_sec:120, comment_disabled:true});
+  assert.match(direct, /<option value="">เลือกการมองเห็น/);
+  assert.match(direct, /<option value="SELF_ONLY">/);
+  assert.doesNotMatch(direct, /PUBLIC_TO_EVERYONE/);
+  assert.match(direct, /name="allow_comment" disabled/);
+  assert.match(direct, /name="commercial_disclosure"/);
+  assert.match(direct, /name="music_consent" required/);
+  const draft = context.taskTikTokExportFieldsHTML({platform:"tiktok"}, {capability:"video.upload_identity"}, null);
+  assert.doesNotMatch(draft, /name="privacy_level"/);
+});
+
+test("important article claim asks for a distinct second source and excerpt", () => {
+  const {context} = cockpit();
+  const html = context.taskClaimFormHTML([{id:"source-a",title:"Study A"},{id:"source-b",title:"Study B"}],
+    {source_id:"source-a",consequential:true,corroborating_source_id:"source-b",corroborating_excerpt:"Second study evidence"},"task-1");
+  assert.match(html, /name="consequential" checked/);
+  assert.match(html, /name="corroborating_source_id" required/);
+  assert.match(html, /Second study evidence/);
+  assert.match(html, /เปิดต้นทางของทั้งสองบทความ/);
+});
+
+test("task completion shows current criterion and check progress with old evidence marked stale", () => {
+  const {context} = cockpit();
+  const html = context.taskCompletionHTML(baseTask(), {completion:{task_revision:2,can_complete:false,gates:[
+    {id:"criterion:AC-1",label:"Page works",status:"pass",evidence_refs:["artifact:proof-1"]},
+    {id:"criterion:AC-2",label:"Mobile works",status:"stale",reason:"Only a previous revision has validation; check the current goal and plan again"},
+    {id:"check:step-1:build",label:"build",status:"not_run"},
+  ]}});
+  assert.match(html, /เกณฑ์สำเร็จ 1\/2/);
+  assert.match(html, /วิธีตรวจ 0\/1/);
+  assert.match(html, /หลักฐานเก่า/);
+  assert.match(html, /ต้องตรวจ Goal และแผนฉบับปัจจุบันอีกครั้ง/);
+  assert.match(html, /\/api\/artifacts\/proof-1\/content/);
+});
+
+test("task activity keeps old decisions visible without treating them as current", () => {
+  const {context} = cockpit();
+  const html = context.taskActivityHTML({activity:[
+    {id:"new",kind:"validation",label:"AC-1",status:"pass",current:true,created_at:"2026-09-26T10:00:00Z",evidence_refs:["artifact:current"]},
+    {id:"old",kind:"validation",label:"AC-1",status:"pass",current:false,created_at:"2026-09-25T10:00:00Z",evidence_refs:["artifact:old"]},
+    {id:"failed",kind:"failure",label:"test",status:"confirmed",current:true,created_at:"2026-09-26T11:00:00Z",evidence_refs:["rollback_artifact:rollback-1"]},
+  ]});
+  assert.match(html, /ฉบับปัจจุบัน/);
+  assert.match(html, /ฉบับก่อน/);
+  assert.match(html, /\/api\/artifacts\/current\/content/);
+  assert.match(html, /\/api\/artifacts\/old\/content/);
+  assert.match(html, /ผลคืนไฟล์/);
+  assert.match(html, /\/api\/artifacts\/rollback-1\/content/);
+});
+
+test("answering a Task unknown records an exact clarification and starts a new Goal revision", async () => {
+  const task = {...baseTask(), requirement:{unknowns:["Which Page?", "Which audience?"],
+    constraints:["review before posting"], criteria:[{id:"AC-1",description:"draft reviewed"}],
+    contract:{require_plan_review:true,require_user_acceptance:true,clarifications:[]}}};
+  const calls = [];
+  const {context} = cockpit({state:{durableTasks:[task],selectedDurableTask:task.id,taskExecutions:{}},
+    api:async (path, options) => { calls.push({path,body:JSON.parse(options.body)}); return {...task,revision:task.revision+1}; },
+    askAction:async () => true});
+  context.performTaskAction = async (_id,_body,_label,action) => action();
+  await context.clarifyDurableTask({preventDefault(){},currentTarget:{question:"Which Page?",answer:"Company Page"}}, {});
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/api/tasks/task-1/requirements");
+  assert.equal(calls[0].body.expected_task_revision, task.revision);
+  assert.deepEqual(calls[0].body.unknowns, ["Which audience?"]);
+  assert.equal(calls[0].body.contract.clarifications[0].question, "Which Page?");
+  assert.equal(calls[0].body.contract.clarifications[0].answer, "Company Page");
+  assert.equal(calls[0].body.contract.require_user_acceptance, true);
+});
+
+test("clarification draft survives reload in the same tab and expires with its Goal revision", () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const start = source.indexOf("const taskClarificationDrafts = new Map();");
+  const end = source.indexOf("const taskPlanReviewFeedbacks = new Map();", start);
+  const values = new Map();
+  const sessionStorage = {getItem:key => values.get(key) || null,
+    setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key)};
+  const code = `${source.slice(start,end)};({taskClarificationDraft,persistTaskClarificationDraft,clearTaskClarificationDraft})`;
+  const first = vm.runInNewContext(code, {Map,JSON,sessionStorage});
+  const task = {id:"task-1",active_requirement_revision:3,requirement:{unknowns:["Which Page?"]}};
+  first.persistTaskClarificationDraft(task, {question:"Which Page?",answer:"Company Page"});
+  const afterReload = vm.runInNewContext(code, {Map,JSON,sessionStorage});
+  assert.equal(afterReload.taskClarificationDraft(task).answer, "Company Page");
+  assert.equal(afterReload.taskClarificationDraft({...task,active_requirement_revision:4}).answer, "");
+  afterReload.clearTaskClarificationDraft(task.id);
+  assert.equal(vm.runInNewContext(code, {Map,JSON,sessionStorage}).taskClarificationDraft(task).answer, "");
+});
+
+test("Task shortcut points to unresolved Windows and remote effects before completion", () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const reviewStart = source.indexOf("function taskPlanAwaitsReview(");
+  const reviewEnd = source.indexOf("function taskCanStartStep(", reviewStart);
+  const start = source.indexOf("function taskJumpAction(");
+  const end = source.indexOf("function taskPlanDiffHTML(", start);
+  const jump = vm.runInNewContext(`${source.slice(reviewStart,reviewEnd)}${source.slice(start,end)};taskJumpAction`);
+  const task = {state:"verifying",active_plan_revision:1,plan:{review_status:"approved"}};
+  assert.equal(jump(task, {desktopActions:[{state:"uncertain"}],completion:{can_complete:true}}).target, "taskDesktopActionsHeading");
+  assert.equal(jump(task, {socialPosts:[{state:"uncertain"}],completion:{can_complete:true}}).label, "ตรวจผลโพสต์");
+  assert.equal(jump(task, {comfyJobs:[{state:"uncertain"}],completion:{can_complete:true}}).label, "ตรวจคิว Comfy");
+  assert.equal(jump(task, {completion:{can_complete:true}}).target, "taskComplete");
+  assert.notEqual(jump({...task,plan:{review_status:"pending"}}, {completion:{can_complete:true}}).target, "taskPlanReview");
+  assert.equal(jump({...task,state:"waiting_for_input",requirement:{contract:{require_plan_review:true}},plan:{review_status:"pending"}}, {}).target, "taskPlanReview");
+});
+
+test("context meter distinguishes unknown usage from provider reported input and reserves", () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const start = source.indexOf("function contextSelectionHTML(");
+  const end = source.indexOf("const CONFIG_PAGE_INTROS", start);
+  assert.ok(start > 0 && end > start);
+  const meter = vm.runInNewContext(`${source.slice(start,end)};sessionContextMeterHTML`, {Number,Math,escapeHTML:runtime.escapeHTML});
+  const profile = {total:32768,output_reserve:4096,uncertainty_reserve:2048};
+  assert.match(meter({id:"session-1"}, profile, []), /การใช้จริงยังไม่ทราบ/);
+  assert.doesNotMatch(meter({id:"session-1"}, profile, []), /ใช้จริงล่าสุด 0/);
+  const snapshot = {report:{predicted_prompt:11800,selected_ids:["goal:<unsafe>","project-brain:current"],
+    dropped_ids:["old-tool","project-brain:omitted"],spilled:[]}};
+  const measured = meter({id:"session-1"}, profile, [{metadata:{usage:{prompt_tokens:12000}}}], snapshot);
+  assert.match(measured, /ใช้จริงล่าสุด 12,000/);
+  assert.match(measured, /ประมาณก่อนส่งครั้งล่าสุด 11,800/);
+  assert.match(measured, /งบ input 26,624/);
+  assert.match(measured, /สำรองคำตอบ 4,096/);
+  assert.match(measured, /goal:&lt;unsafe&gt;/);
+  assert.match(measured, /old-tool/);
+  assert.match(measured, /Project Brain ในคำขอนี้/);
+  assert.match(measured, /อยู่ในบริบทที่ส่ง 1 · เสนอแต่ไม่ส่ง 1/);
+  assert.doesNotMatch(measured, /goal:<unsafe>/);
+});
+
+test("Skill picker labels actual last-request inclusion separately from suggestions", () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const start = source.indexOf("function skillPresenceBadge(");
+  const end = source.indexOf("function renderCapabilityPicker()", start);
+  const badge = vm.runInNewContext(`${source.slice(start,end)};skillPresenceBadge`, {pill:(label) => label, Set});
+  const skill = {skill_id:"skill-1",version_id:"version-1",canonical_name:"review",pinned:false};
+  assert.equal(badge(skill, new Set(["review"]), new Set()), "suggested");
+  assert.equal(badge(skill, new Set(["review"]), new Set(["skill:skill-1:version-1"])), "in last request");
+  assert.equal(badge({...skill,pinned:true}, new Set(), new Set()), "pinned");
+  const subtitle = vm.runInNewContext(`${source.slice(start,end)};skillSelectionSubtitle`);
+  assert.equal(subtitle({...skill,summary:"Reviews changes"}, [{skill_id:"skill-1",version_id:"version-1",selection_reason:"name matches the goal"}]),
+    "Reviews changes · Suggested because: name matches the goal");
+  assert.equal(subtitle({...skill,summary:"Reviews changes"}, []), "Reviews changes");
+});
+
+test("video evidence separates timed speech from sampled frames and escapes recognized text", () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const start = source.indexOf("function videoFrameEvidenceHTML(");
+  const end = source.indexOf("function renderArtifacts()", start);
+  assert.ok(start > 0 && end > start);
+  const body = new Map([["transcript-1", {language:"en", segments:[{start_ms:1200,end_ms:2400,text:"<unsafe> speech"}]}]]);
+  const context = vm.createContext({state:{artifacts:[]},videoTranscriptBodies:body,escapeHTML:runtime.escapeHTML,Number,Math});
+  vm.runInContext(source.slice(start,end), context);
+  const html = context.videoFrameEvidenceHTML({id:"video-1"}, [{processor_kind:"audio_transcribe",state:"completed",result_artifact_ids:["transcript-1"]}]);
+  assert.match(html, /1\.2 วินาที/);
+  assert.match(html, /&lt;unsafe&gt; speech/);
+  assert.match(html, /data-video-seek="video-1"/);
+  assert.doesNotMatch(html, /<img/);
+  assert.doesNotMatch(html, /<unsafe>/);
+});
+
+test("browser click prepares an exact one-use receipt before dispatch", async () => {
+  const source = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  const start = source.indexOf("async function openWorkbenchBrowser(");
+  const end = source.indexOf("// Files, terminal and browser", start);
+  assert.ok(start > 0 && end > start);
+  const tab = {id:"tab-1",project_id:"project-1",url:"https://example.com",updated_at:"now",observation_hash:"view-1",elements:[{ref:2,text:"Apply"}]};
+  const state = {browserTabs:[tab],selectedBrowserTab:tab.id,durableTasks:[{id:"task-1",project_id:"project-1"}],selectedDurableTask:"task-1"};
+  const calls = [];
+  const context = vm.createContext({state,URL,FormData:class {},encodeURIComponent,currentActor:()=>"owner",toast:()=>{},
+    $:()=>null,askAction:async ()=>true,refreshWorkbenchSurface:()=>{},loadTaskExecution:async ()=>{},
+    api:async (path, options) => { calls.push({path,body:JSON.parse(options.body)}); return path.endsWith("/prepare") ?
+      {id:"receipt-1",subject_hash:"exact-1",target:{text:"Apply"},screenshot_before_id:"image-1"} : {...tab,updated_at:"after"}; },
+  });
+  vm.runInContext(source.slice(start,end), context);
+  await context.browserWorkbenchAction("click",2);
+  assert.equal(calls[0].path,"/api/browser/tabs/tab-1/actions/prepare");
+  assert.equal(calls[0].body.task_id,"task-1");
+  assert.equal(calls[1].body.receipt_id,"receipt-1");
+  assert.equal(calls[1].body.subject_hash,"exact-1");
+});
+
+test("local task excludes remote, disabled and credential-missing providers; second-pass reviewer uses a distinct profile", () => {
   const providers = [model,
     {...model, id:"clone"},
     {...model, id:"reviewer", model:"review-model"},
@@ -47,8 +313,8 @@ test("local task excludes remote, disabled and credential-missing providers; rev
   ];
   const {context} = cockpit({state:{providers}});
   assert.deepEqual(Array.from(context.taskEligibleProviders(baseTask()), item => item.id), ["local","clone","reviewer"]);
-  assert.deepEqual(Array.from(context.taskEligibleProviders(baseTask(), "local"), item => item.id), ["reviewer"]);
-  assert.deepEqual(Array.from(context.taskEligibleProviders({...baseTask(), egress_policy:"remote_allowed"}, "local"), item => item.id), ["reviewer","remote"]);
+  assert.deepEqual(Array.from(context.taskEligibleProviders(baseTask(), "local"), item => item.id), ["clone","reviewer"]);
+  assert.deepEqual(Array.from(context.taskEligibleProviders({...baseTask(), egress_policy:"remote_allowed"}, "local"), item => item.id), ["clone","reviewer","remote"]);
   assert.equal(context.taskProviderIsLocal({...model, base_url:"http://localhost.evil.test"}), false);
 });
 
@@ -74,7 +340,7 @@ test("completed first step offers next step and preserves all authority fields o
     },
   });
   assert.equal(context.taskCanStartStep(task, execution), true);
-  assert.match(context.taskExecutionHTML(task, execution), /Start next step/);
+  assert.match(context.taskExecutionHTML(task, execution), /เริ่มขั้นถัดไป/);
   await context.startTaskProposal({preventDefault(){}, currentTarget:{provider_id:"local", files:""}}, {isConnected:false});
   assert.equal(calls.filter(call => call.path.endsWith("/runs")).length, 0);
   assert.equal(calls.filter(call => call.path.endsWith("/proposals")).length, 1);
@@ -133,7 +399,7 @@ test("expired lease and uncertain effects cannot start work", async () => {
   assert.equal(context.taskCanStartStep(baseTask(), {effects:[{state:"uncertain"}]}), false);
   await assert.rejects(context.renewTaskAuthority("task-1"), /lease has expired/);
   assert.equal(requests, 0);
-  assert.match(context.taskExecutionHTML(task, {run, effects:[]}), /Recover saved work/);
+  assert.match(context.taskExecutionHTML(task, {run, effects:[]}), /กู้งานที่บันทึกไว้/);
 });
 
 test("expired run recovery is revision-bound and exposed as an explicit action", async () => {
@@ -159,8 +425,17 @@ test("a newly reviewed plan can start without inheriting the previous plan's rej
   const execution = {run:{...liveRun(), plan_revision:1, lease_expires_at:"2020-01-01T00:00:00Z"}, proposal:{state:"rejected"}, effects:[]};
   const {context} = cockpit({state:{providers:[model]}});
   assert.equal(context.taskCanStartStep(task, execution), true);
-  assert.match(context.taskExecutionHTML(task, execution), /Generate proposed changes/);
+  assert.match(context.taskExecutionHTML(task, execution), /สร้างข้อเสนอให้ตรวจ/);
   assert.doesNotMatch(context.taskExecutionHTML(task, execution), /run's lease expired/);
+});
+
+test("failed post-test review offers a fresh attempt on the same approved plan", () => {
+  const task = {...baseTask(), state:"paused", active_plan_revision:1};
+  const execution = {run:{...liveRun(), state:"failed"}, attempt:{state:"failed"}, proposal:{state:"post_review_rejected"}, effects:[{state:"observed"}]};
+  const {context} = cockpit({state:{providers:[model]}});
+  assert.equal(context.taskCanStartStep(task, execution), true);
+  assert.match(context.taskExecutionHTML(task, execution), /แก้แล้วลองขั้นนี้ใหม่/);
+  assert.match(context.taskExecutionHTML(task, execution), /taskProposalForm/);
 });
 
 test("lease heartbeat stops when the task surface is closed", async () => {
@@ -193,7 +468,12 @@ test("replacing the task surface immediately moves its heartbeat to the new body
 test("proposal contents load from immutable artifact and are escaped before approval", async () => {
   const task = baseTask();
   const proposal = {id:"p", artifact_id:"artifact-1", state:"pending_review"};
-  const {context} = cockpit({state:{providers:[model], taskExecutions:{}}, api:async path => path.endsWith("/execution") ? {task, proposal, effects:[]} : {summary:"Change addition", changes:[{path:"sum.go", content:"<script>alert(1)</script>"}]}});
+  const {context} = cockpit({state:{providers:[model], durableTasks:[task], taskExecutions:{}}, api:async path => {
+    if (path.endsWith("/execution")) return {task, proposal, effects:[]};
+    if (path.includes("/completion?")) return {task_revision:task.revision, gates:[], can_complete:false};
+    if (path.includes("/next-action?")) return {decision:{action_id:"inspect_proposal"}};
+    return {summary:"Change addition", changes:[{path:"sum.go", content:"<script>alert(1)</script>"}]};
+  }});
   await context.loadTaskExecution(task.id);
   const html = context.taskExecutionHTML(task, context.state.taskExecutions[task.id]);
   assert.match(html, /sum\.go/);
@@ -214,12 +494,12 @@ test("decision lab shows immutable evidence and makes the read-only boundary exp
   }};
   const {context} = cockpit({state:{providers:[model], taskDecisionLabs:labs}});
   const html = context.taskDecisionLabHTML(task);
-  assert.match(html, /read-only enabled/);
-  assert.match(html, /6\/6 correct/);
+  assert.match(html, /แนะนำงานอ่านได้/);
+  assert.match(html, /ถูก 6\/6 กรณี/);
   assert.match(html, /inspect_file/);
-  assert.match(html, /Attempts left/);
+  assert.match(html, /เหลือลองได้/);
   assert.match(html, /Use &lt;safe&gt; retry/);
-  assert.match(html, /cannot execute tools or edit files/);
+  assert.match(html, /ไม่สามารถเรียกเครื่องมือหรือแก้ไฟล์/);
 });
 
 test("read-only recommendation is revision-bound and never dispatches an execution endpoint", async () => {

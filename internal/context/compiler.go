@@ -89,12 +89,30 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 	}
 	selectedSystem, droppedSystem, systemUsed := c.selectWithin(groups["system"], profile.SystemBudget)
 	selectedSkills, droppedSkills, skillsUsed := c.selectWithin(groups["skills_project"], profile.SkillProjectBudget)
-	selectedPinned, droppedPinned, pinnedUsed := c.selectWithin(groups["pinned"], profile.PinnedBudget)
+	// The pinned slice is a normal reservation, not a hard limit on the current
+	// user message. A long input may use otherwise idle slices, while keeping
+	// the output, uncertainty, tool burst and checkpoint reserves intact.
+	pinnedBudget := profile.PinnedBudget
+	activeSliceBudget := profile.ActiveBudget
+	if pinnedNeeded := tokens(c.estimator, groups["pinned"]); pinnedNeeded > pinnedBudget {
+		available := profile.Total - profile.OutputReserve - profile.UncertaintyReserve -
+			systemUsed - skillsUsed - toolTokens - request.WorstCaseToolBurst - profile.SummaryTarget
+		if pinnedNeeded > available {
+			return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrPinnedOverflow, pinnedNeeded, available)
+		}
+		pinnedBudget = pinnedNeeded
+		activeSliceBudget = profile.Total - profile.OutputReserve - profile.UncertaintyReserve -
+			systemUsed - skillsUsed - toolTokens - pinnedBudget
+		report.Slices["system"] = SliceUsage{Budget: systemUsed}
+		report.Slices["tools"] = SliceUsage{Budget: toolTokens, Used: toolTokens}
+		report.Slices["skills_project"] = SliceUsage{Budget: skillsUsed}
+	}
+	selectedPinned, droppedPinned, pinnedUsed := c.selectWithin(groups["pinned"], pinnedBudget)
 	if len(droppedPinned) > 0 {
 		return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrPinnedOverflow,
-			pinnedUsed+tokens(c.estimator, droppedPinned), profile.PinnedBudget)
+			pinnedUsed+tokens(c.estimator, droppedPinned), pinnedBudget)
 	}
-	activeBudget := profile.ActiveBudget - request.WorstCaseToolBurst
+	activeBudget := activeSliceBudget - request.WorstCaseToolBurst
 	if activeBudget < 0 {
 		return Compiled{}, fmt.Errorf("%w: worst-case tool burst exceeds active budget", ErrContextOverflow)
 	}
@@ -120,10 +138,12 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 			report.CompactedTokens = checkpointTokens
 		}
 	}
-	report.Slices["system"] = SliceUsage{Budget: profile.SystemBudget, Used: systemUsed}
-	report.Slices["skills_project"] = SliceUsage{Budget: profile.SkillProjectBudget, Used: skillsUsed}
-	report.Slices["pinned"] = SliceUsage{Budget: profile.PinnedBudget, Used: pinnedUsed}
-	report.Slices["active"] = SliceUsage{Budget: profile.ActiveBudget, Used: activeUsed + request.WorstCaseToolBurst}
+	if pinnedBudget == profile.PinnedBudget {
+		report.Slices["system"] = SliceUsage{Budget: profile.SystemBudget, Used: systemUsed}
+		report.Slices["skills_project"] = SliceUsage{Budget: profile.SkillProjectBudget, Used: skillsUsed}
+	}
+	report.Slices["pinned"] = SliceUsage{Budget: pinnedBudget, Used: pinnedUsed}
+	report.Slices["active"] = SliceUsage{Budget: activeSliceBudget, Used: activeUsed + request.WorstCaseToolBurst}
 	selected := append([]Fragment{}, selectedSystem...)
 	selected = append(selected, selectedSkills...)
 	selected = append(selected, selectedPinned...)

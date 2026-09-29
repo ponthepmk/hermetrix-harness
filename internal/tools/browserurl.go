@@ -7,8 +7,8 @@ import (
 )
 
 // BrowserNeedsApproval reports whether a browser action has to be approved
-// before it runs. Only open and navigate carry a destination; the rest act on a
-// tab the user already approved.
+// before it runs. Click and type can change remote data even on a tab that was
+// already opened, so they always require a separate exact-action approval.
 //
 // Loopback is free because it is the developer's own dev server -- the thing
 // they asked the agent to look at. Everything else is the open internet.
@@ -20,6 +20,9 @@ import (
 // the user gets asked.
 func BrowserNeedsApproval(action, rawURL string) bool {
 	action = strings.TrimSpace(action)
+	if action == "click" || action == "type" {
+		return true
+	}
 	if action != "open" && action != "navigate" {
 		return false
 	}

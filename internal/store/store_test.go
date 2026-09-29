@@ -181,7 +181,7 @@ func TestMigrationV26BackfillsFrozenTeamAndMemberInstructions(t *testing.T) {
 			teamName, teamInstructions, memberName, memberRole, memberInstructions, memberState)
 	}
 	for table, columns := range map[string][]string{
-		"agent_team_runs":  {"qualification_reason"},
+		"agent_team_runs":  {"qualification_reason", "egress_policy", "remote_egress_actor", "remote_egress_reason"},
 		"agent_team_tasks": {"approval_id", "approval_summary", "approval_preview", "approval_effect"},
 	} {
 		for _, column := range columns {
@@ -192,17 +192,19 @@ func TestMigrationV26BackfillsFrozenTeamAndMemberInstructions(t *testing.T) {
 			}
 		}
 	}
-	var qualificationReason, approvalID, approvalSummary, approvalPreview, approvalEffect string
-	if err := dataStore.DB.QueryRow(`SELECT qualification_reason FROM agent_team_runs WHERE id='run-1'`).Scan(&qualificationReason); err != nil {
+	var qualificationReason, egressPolicy, remoteActor, remoteReason, approvalID, approvalSummary, approvalPreview, approvalEffect string
+	if err := dataStore.DB.QueryRow(`SELECT qualification_reason,egress_policy,remote_egress_actor,remote_egress_reason
+		FROM agent_team_runs WHERE id='run-1'`).Scan(&qualificationReason, &egressPolicy, &remoteActor, &remoteReason); err != nil {
 		t.Fatal(err)
 	}
 	if err := dataStore.DB.QueryRow(`SELECT approval_id,approval_summary,approval_preview,approval_effect
 		FROM agent_team_tasks WHERE id='task-1'`).Scan(&approvalID, &approvalSummary, &approvalPreview, &approvalEffect); err != nil {
 		t.Fatal(err)
 	}
-	if qualificationReason != "" || approvalID != "" || approvalSummary != "" || approvalPreview != "" || approvalEffect != "" {
-		t.Fatalf("v27 defaults are not empty: qualification=%q approval=%q/%q/%q/%q",
-			qualificationReason, approvalID, approvalSummary, approvalPreview, approvalEffect)
+	if qualificationReason != "" || egressPolicy != "local_only" || remoteActor != "" || remoteReason != "" ||
+		approvalID != "" || approvalSummary != "" || approvalPreview != "" || approvalEffect != "" {
+		t.Fatalf("team migration defaults are wrong: qualification=%q egress=%q/%q/%q approval=%q/%q/%q/%q",
+			qualificationReason, egressPolicy, remoteActor, remoteReason, approvalID, approvalSummary, approvalPreview, approvalEffect)
 	}
 }
 

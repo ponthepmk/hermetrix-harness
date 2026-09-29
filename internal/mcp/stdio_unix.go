@@ -7,6 +7,8 @@ import (
 	"syscall"
 )
 
+func isLocalComfyMCP(string) bool { return false }
+
 // configureStdioTermination puts the MCP server in its own process group so
 // stopping it takes its children with it. An `npx` launcher is a shim in front
 // of the real server process, and killing only the shim leaves that server

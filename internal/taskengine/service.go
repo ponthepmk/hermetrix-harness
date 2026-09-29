@@ -49,15 +49,20 @@ func (s *Service) ReviseRequirements(ctx context.Context, input ReviseRequiremen
 	if err := validateCriteria(input.Criteria); err != nil {
 		return Task{}, err
 	}
+	if input.Contract != nil {
+		if err := validateGoalContract(*input.Contract); err != nil {
+			return Task{}, err
+		}
+	}
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return Task{}, err
 	}
 	defer tx.Rollback()
 	var taskRevision, activeRequirement int
-	var state string
-	if err = tx.QueryRowContext(ctx, `SELECT revision,active_requirement_revision,state FROM durable_tasks WHERE id=?`, input.TaskID).
-		Scan(&taskRevision, &activeRequirement, &state); err != nil {
+	var state, currentObjective string
+	if err = tx.QueryRowContext(ctx, `SELECT revision,active_requirement_revision,state,objective FROM durable_tasks WHERE id=?`, input.TaskID).
+		Scan(&taskRevision, &activeRequirement, &state, &currentObjective); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, ErrNotFound
 		}
@@ -69,9 +74,74 @@ func (s *Service) ReviseRequirements(ctx context.Context, input ReviseRequiremen
 	if state == StateCompleted || state == StateCancelled {
 		return Task{}, fmt.Errorf("cannot revise terminal task in state %s", state)
 	}
-	var supersedesID string
-	if err = tx.QueryRowContext(ctx, `SELECT id FROM task_requirement_revisions WHERE task_id=? AND revision=?`, input.TaskID, activeRequirement).Scan(&supersedesID); err != nil {
+	var activeRuns, unresolvedEffects, openProposals int
+	for _, check := range []struct {
+		query string
+		dest  *int
+	}{
+		{`SELECT COUNT(*) FROM task_runs WHERE task_id=? AND state='running'`, &activeRuns},
+		{`SELECT COUNT(*) FROM task_effect_intents WHERE task_id=? AND state IN ('planned','dispatched','uncertain')`, &unresolvedEffects},
+		{`SELECT COUNT(*) FROM task_code_proposals WHERE task_id=? AND state NOT IN ('verified','rejected','post_review_rejected','apply_failed','verification_failed')`, &openProposals},
+	} {
+		if err = tx.QueryRowContext(ctx, check.query, input.TaskID).Scan(check.dest); err != nil {
+			return Task{}, err
+		}
+	}
+	if activeRuns > 0 || unresolvedEffects > 0 || openProposals > 0 {
+		return Task{}, fmt.Errorf("finish or reconcile active work before revising the goal")
+	}
+	var supersedesID, previousContractJSON string
+	if err = tx.QueryRowContext(ctx, `SELECT id,contract_json FROM task_requirement_revisions WHERE task_id=? AND revision=?`, input.TaskID, activeRequirement).Scan(&supersedesID, &previousContractJSON); err != nil {
 		return Task{}, err
+	}
+	if input.Contract != nil {
+		var previousContract GoalContract
+		if err := json.Unmarshal([]byte(previousContractJSON), &previousContract); err != nil {
+			return Task{}, fmt.Errorf("decode previous goal contract: %w", err)
+		}
+		if len(input.Contract.Clarifications) < len(previousContract.Clarifications) {
+			return Task{}, fmt.Errorf("goal revision must retain earlier clarification history")
+		}
+		for index, previous := range previousContract.Clarifications {
+			if input.Contract.Clarifications[index] != previous {
+				return Task{}, fmt.Errorf("goal revision cannot change earlier clarification history")
+			}
+		}
+		if len(input.Contract.Clarifications) > len(previousContract.Clarifications) {
+			var previousUnknowns []string
+			var previousUnknownsJSON string
+			if err := tx.QueryRowContext(ctx, `SELECT unknowns_json FROM task_requirement_revisions WHERE id=?`, supersedesID).Scan(&previousUnknownsJSON); err != nil {
+				return Task{}, err
+			}
+			if err := json.Unmarshal([]byte(previousUnknownsJSON), &previousUnknowns); err != nil {
+				return Task{}, fmt.Errorf("decode previous unknowns: %w", err)
+			}
+			oldQuestions := make(map[string]bool, len(previousUnknowns))
+			for _, question := range previousUnknowns {
+				oldQuestions[question] = true
+			}
+			remaining := make(map[string]bool, len(input.Unknowns))
+			for _, question := range cleanStrings(input.Unknowns) {
+				remaining[question] = true
+			}
+			for _, clarification := range input.Contract.Clarifications[len(previousContract.Clarifications):] {
+				if !oldQuestions[clarification.Question] || remaining[clarification.Question] {
+					return Task{}, fmt.Errorf("answered question must be removed from current unknowns")
+				}
+				delete(oldQuestions, clarification.Question)
+			}
+		}
+	}
+	contractJSON := previousContractJSON
+	nextObjective := currentObjective
+	if input.Contract != nil {
+		goalContract := normalizeGoalContract(*input.Contract)
+		if goalContract.Outcome == "" {
+			goalContract.Outcome = currentObjective
+		}
+		nextObjective = goalContract.Outcome
+		contract, _ := json.Marshal(goalContract)
+		contractJSON = string(contract)
 	}
 	nextRevision := activeRequirement + 1
 	now := time.Now().UTC()
@@ -79,14 +149,14 @@ func (s *Service) ReviseRequirements(ctx context.Context, input ReviseRequiremen
 	unknowns, _ := json.Marshal(cleanStrings(input.Unknowns))
 	criteria, _ := json.Marshal(input.Criteria)
 	if _, err = tx.ExecContext(ctx, `INSERT INTO task_requirement_revisions
-		(id,task_id,revision,constraints_json,unknowns_json,criteria_json,supersedes_id,actor,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, identity.New("reqrev"), input.TaskID, nextRevision, string(constraints),
-		string(unknowns), string(criteria), supersedesID, strings.TrimSpace(input.Actor), formatTime(now)); err != nil {
+		(id,task_id,revision,constraints_json,unknowns_json,criteria_json,contract_json,supersedes_id,actor,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, identity.New("reqrev"), input.TaskID, nextRevision, string(constraints),
+		string(unknowns), string(criteria), contractJSON, supersedesID, strings.TrimSpace(input.Actor), formatTime(now)); err != nil {
 		return Task{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET active_requirement_revision=?,active_plan_revision=0,state='draft',
+	result, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET objective=?,active_requirement_revision=?,active_plan_revision=0,state='draft',
 		pause_reason='requirements changed; create a new plan',revision=revision+1,updated_at=? WHERE id=? AND revision=?`,
-		nextRevision, formatTime(now), input.TaskID, input.ExpectedTaskRevision)
+		nextObjective, nextRevision, formatTime(now), input.TaskID, input.ExpectedTaskRevision)
 	if err != nil {
 		return Task{}, err
 	}
@@ -129,9 +199,13 @@ func (s *Service) CreatePlan(ctx context.Context, input CreatePlanInput) (Task, 
 	if state == StateCompleted || state == StateCancelled {
 		return Task{}, fmt.Errorf("cannot replan terminal task in state %s", state)
 	}
-	var criteriaJSON string
-	if err = tx.QueryRowContext(ctx, `SELECT criteria_json FROM task_requirement_revisions WHERE task_id=? AND revision=?`, input.TaskID, activeRequirement).Scan(&criteriaJSON); err != nil {
+	var criteriaJSON, contractJSON string
+	if err = tx.QueryRowContext(ctx, `SELECT criteria_json,contract_json FROM task_requirement_revisions WHERE task_id=? AND revision=?`, input.TaskID, activeRequirement).Scan(&criteriaJSON, &contractJSON); err != nil {
 		return Task{}, err
+	}
+	var goalContract GoalContract
+	if err = json.Unmarshal([]byte(contractJSON), &goalContract); err != nil {
+		return Task{}, fmt.Errorf("decode active goal contract: %w", err)
 	}
 	var criteria []Criterion
 	if err = json.Unmarshal([]byte(criteriaJSON), &criteria); err != nil {
@@ -141,14 +215,30 @@ func (s *Service) CreatePlan(ctx context.Context, input CreatePlanInput) (Task, 
 	for _, criterion := range criteria {
 		criterionIDs[criterion.ID] = true
 	}
+	coveredCriteria := map[string]bool{}
 	for _, spec := range input.Steps {
-		for _, requirementID := range cleanStrings(spec.RequirementIDs) {
+		stepCriteria := cleanStrings(spec.RequirementIDs)
+		if len(stepCriteria) == 0 {
+			return Task{}, fmt.Errorf("step %s requires an acceptance-criterion mapping before its frozen checks can run", spec.Key)
+		}
+		for _, requirementID := range stepCriteria {
 			if !criterionIDs[requirementID] {
 				return Task{}, fmt.Errorf("step %s references unknown acceptance criterion %s", spec.Key, requirementID)
 			}
+			if len(cleanStrings(spec.Checks)) == 0 {
+				return Task{}, fmt.Errorf("step %s maps acceptance criterion %s without a verification check", spec.Key, requirementID)
+			}
+			coveredCriteria[requirementID] = true
 		}
 	}
-	nextPlan++
+	for _, criterion := range criteria {
+		if !coveredCriteria[criterion.ID] {
+			return Task{}, fmt.Errorf("acceptance criterion %s is not mapped to a checked plan step", criterion.ID)
+		}
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(revision),0)+1 FROM task_plan_revisions WHERE task_id=?`, input.TaskID).Scan(&nextPlan); err != nil {
+		return Task{}, err
+	}
 	now := time.Now().UTC()
 	planID := identity.New("planrev")
 	if _, err = tx.ExecContext(ctx, `INSERT INTO task_plan_revisions
@@ -168,8 +258,12 @@ func (s *Service) CreatePlan(ctx context.Context, input CreatePlanInput) (Task, 
 			return Task{}, err
 		}
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET active_plan_revision=?,state='ready',pause_reason='',revision=revision+1,updated_at=?
-		WHERE id=? AND revision=?`, nextPlan, formatTime(now), input.TaskID, input.ExpectedTaskRevision)
+	nextState := StateReady
+	if goalContract.RequirePlanReview {
+		nextState = StateWaitingForInput
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET active_plan_revision=?,state=?,pause_reason='',revision=revision+1,updated_at=?
+		WHERE id=? AND revision=?`, nextPlan, nextState, formatTime(now), input.TaskID, input.ExpectedTaskRevision)
 	if err != nil {
 		return Task{}, err
 	}
@@ -231,6 +325,9 @@ func (s *Service) transitionStep(ctx context.Context, taskID, stepKey string, ex
 		return Task{}, fmt.Errorf("stale step revision")
 	}
 	if next == StepRunning {
+		if err = requireApprovedPlan(ctx, tx, taskID, planRevision); err != nil {
+			return Task{}, err
+		}
 		if state != StepPending && state != StepBlocked && state != StepFailed {
 			return Task{}, fmt.Errorf("step %s cannot start from %s", stepKey, state)
 		}
@@ -340,29 +437,39 @@ func (s *Service) CompleteTask(ctx context.Context, taskID string, expectedRevis
 	if task.Revision != expectedRevision {
 		return Task{}, ErrStaleRevision
 	}
-	if task.State != StateVerifying {
-		return Task{}, fmt.Errorf("task cannot complete from state %s", task.State)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
 	}
-	if task.ActivePlanRevision == 0 {
-		return Task{}, fmt.Errorf("task has no active plan")
+	defer tx.Rollback()
+	var currentRevision int
+	if err = tx.QueryRowContext(ctx, `SELECT revision FROM durable_tasks WHERE id=?`, taskID).Scan(&currentRevision); err != nil {
+		return Task{}, err
 	}
-	for _, step := range task.Plan.Steps {
-		if step.State != StepCompleted && step.State != StepSkipped {
-			return Task{}, fmt.Errorf("step %s is %s", step.Key, step.State)
+	if currentRevision != expectedRevision {
+		return Task{}, ErrStaleRevision
+	}
+	report, err := completionReport(ctx, tx, task)
+	if err != nil {
+		return Task{}, err
+	}
+	if !report.CanComplete {
+		for _, gate := range report.Gates {
+			if gate.Status != ValidationPass {
+				return Task{}, fmt.Errorf("completion blocked by %s: %s", gate.Label, gate.Reason)
+			}
 		}
+		return Task{}, fmt.Errorf("completion gate is not satisfied")
 	}
-	for _, criterion := range task.Requirement.Criteria {
-		var count int
-		if err = s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_validations WHERE task_id=? AND requirement_id=? AND subject_revision=? AND status='pass'`, taskID, criterion.ID, RequirementSubjectRevision(task)).Scan(&count); err != nil || count == 0 {
-			return Task{}, fmt.Errorf("acceptance criterion %s has no passing validation", criterion.ID)
-		}
-	}
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE durable_tasks SET state='completed',pause_reason='',revision=revision+1,updated_at=? WHERE id=? AND revision=?`, formatTime(time.Now().UTC()), taskID, expectedRevision)
+	result, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET state='completed',pause_reason='',revision=revision+1,updated_at=? WHERE id=? AND revision=?`, formatTime(time.Now().UTC()), taskID, expectedRevision)
 	if err != nil {
 		return Task{}, err
 	}
 	if changed, _ := result.RowsAffected(); changed != 1 {
 		return Task{}, ErrStaleRevision
+	}
+	if err = tx.Commit(); err != nil {
+		return Task{}, err
 	}
 	return s.Get(ctx, taskID)
 }
@@ -502,8 +609,22 @@ func (s *Service) Get(ctx context.Context, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	if item.Requirement.Contract.Outcome == "" {
+		item.Requirement.Contract.Outcome = item.Objective
+	}
+	if item.Requirement.Contract.ReviewerPolicy == "" {
+		item.Requirement.Contract.ReviewerPolicy = "independent_code_changes"
+	}
 	if item.ActivePlanRevision > 0 {
 		item.Plan, err = s.plan(ctx, id, item.ActivePlanRevision)
+		if err != nil {
+			return Task{}, err
+		}
+		item.Plan.SubjectHash, err = planSubjectHash(item.Plan)
+		if err != nil {
+			return Task{}, err
+		}
+		item.Plan.ReviewStatus, item.Plan.ReviewReason, err = planReviewDecision(ctx, s.store.DB, item)
 		if err != nil {
 			return Task{}, err
 		}
@@ -556,15 +677,18 @@ func (s *Service) List(ctx context.Context, projectID string, limit int) ([]Task
 
 func (s *Service) requirement(ctx context.Context, taskID string, revision int) (RequirementRevision, error) {
 	var item RequirementRevision
-	var constraints, unknowns, criteria, created string
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id,task_id,revision,constraints_json,unknowns_json,criteria_json,supersedes_id,actor,created_at FROM task_requirement_revisions WHERE task_id=? AND revision=?`, taskID, revision).
-		Scan(&item.ID, &item.TaskID, &item.Revision, &constraints, &unknowns, &criteria, &item.SupersedesID, &item.Actor, &created)
+	var constraints, unknowns, criteria, contract, created string
+	err := s.store.DB.QueryRowContext(ctx, `SELECT id,task_id,revision,constraints_json,unknowns_json,criteria_json,contract_json,supersedes_id,actor,created_at FROM task_requirement_revisions WHERE task_id=? AND revision=?`, taskID, revision).
+		Scan(&item.ID, &item.TaskID, &item.Revision, &constraints, &unknowns, &criteria, &contract, &item.SupersedesID, &item.Actor, &created)
 	if err != nil {
 		return item, err
 	}
 	_ = json.Unmarshal([]byte(constraints), &item.Constraints)
 	_ = json.Unmarshal([]byte(unknowns), &item.Unknowns)
 	_ = json.Unmarshal([]byte(criteria), &item.Criteria)
+	if err := json.Unmarshal([]byte(contract), &item.Contract); err != nil {
+		return RequirementRevision{}, fmt.Errorf("decode goal contract: %w", err)
+	}
 	item.CreatedAt, _ = parseTime(created)
 	return item, nil
 }
@@ -600,6 +724,30 @@ func (s *Service) plan(ctx context.Context, taskID string, revision int) (PlanRe
 	return item, rows.Err()
 }
 
+// GetPlanRevision returns a historical plan only after checking task ownership.
+func (s *Service) GetPlanRevision(ctx context.Context, taskID string, revision int) (PlanRevision, error) {
+	task, err := s.Get(ctx, taskID)
+	if err != nil {
+		return PlanRevision{}, err
+	}
+	if revision < 1 || revision > task.ActivePlanRevision {
+		return PlanRevision{}, ErrNotFound
+	}
+	plan, err := s.plan(ctx, taskID, revision)
+	if err != nil {
+		return PlanRevision{}, err
+	}
+	plan.SubjectHash, err = planSubjectHash(plan)
+	if err != nil {
+		return PlanRevision{}, err
+	}
+	if revision == task.ActivePlanRevision {
+		plan.ReviewStatus = task.Plan.ReviewStatus
+		plan.ReviewReason = task.Plan.ReviewReason
+	}
+	return plan, nil
+}
+
 func validateCriteria(items []Criterion) error {
 	if len(items) == 0 {
 		return fmt.Errorf("at least one acceptance criterion is required")
@@ -616,6 +764,47 @@ func validateCriteria(items []Criterion) error {
 		seen[item.ID] = true
 	}
 	return nil
+}
+
+func validateGoalContract(contract GoalContract) error {
+	if contract.ReviewerPolicy != "" && contract.ReviewerPolicy != "independent_code_changes" {
+		return fmt.Errorf("unsupported goal reviewer policy %q", contract.ReviewerPolicy)
+	}
+	if len([]rune(contract.Outcome)) > 4000 || len([]rune(contract.Scope)) > 2000 || len([]rune(contract.ExperiencePreview)) > 4000 || len([]rune(contract.Verification)) > 2000 ||
+		len(contract.Assumptions) > 20 || len(contract.AffectedJourneys) > 12 || len(contract.Clarifications) > 20 {
+		return fmt.Errorf("goal contract exceeds its bounded fields")
+	}
+	for _, value := range append(append([]string{}, contract.Assumptions...), contract.AffectedJourneys...) {
+		if len([]rune(value)) > 1000 {
+			return fmt.Errorf("goal contract item is too long")
+		}
+	}
+	seenQuestions := map[string]bool{}
+	for _, clarification := range contract.Clarifications {
+		question, answer := strings.TrimSpace(clarification.Question), strings.TrimSpace(clarification.Answer)
+		if question == "" || answer == "" || len([]rune(question)) > 1000 || len([]rune(answer)) > 2000 || seenQuestions[question] {
+			return fmt.Errorf("goal clarification needs one distinct bounded question and answer")
+		}
+		seenQuestions[question] = true
+	}
+	return nil
+}
+
+func normalizeGoalContract(contract GoalContract) GoalContract {
+	contract.Outcome = strings.TrimSpace(contract.Outcome)
+	contract.Scope = strings.TrimSpace(contract.Scope)
+	contract.ExperiencePreview = strings.TrimSpace(contract.ExperiencePreview)
+	contract.Verification = strings.TrimSpace(contract.Verification)
+	if contract.ReviewerPolicy == "" {
+		contract.ReviewerPolicy = "independent_code_changes"
+	}
+	contract.Assumptions = cleanStrings(contract.Assumptions)
+	contract.AffectedJourneys = cleanStrings(contract.AffectedJourneys)
+	for index := range contract.Clarifications {
+		contract.Clarifications[index].Question = strings.TrimSpace(contract.Clarifications[index].Question)
+		contract.Clarifications[index].Answer = strings.TrimSpace(contract.Clarifications[index].Answer)
+	}
+	return contract
 }
 
 func validateSteps(items []StepSpec) error {

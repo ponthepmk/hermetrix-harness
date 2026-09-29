@@ -9,7 +9,22 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestDefaultOpenAIClientAllowsSlowLocalReviewWithoutChangingRemoteOrExplicitTimeouts(t *testing.T) {
+	adapter := NewOpenAIAdapter(nil)
+	if got := adapter.clientForProfile(Profile{BaseURL: "http://127.0.0.1:8089/v1"}).Timeout; got != 30*time.Minute {
+		t.Fatalf("local default timeout = %s", got)
+	}
+	if got := adapter.clientForProfile(Profile{BaseURL: "https://example.com/v1"}).Timeout; got != 10*time.Minute {
+		t.Fatalf("remote default timeout = %s", got)
+	}
+	explicit := NewOpenAIAdapter(&http.Client{Timeout: 2 * time.Second})
+	if got := explicit.clientForProfile(Profile{BaseURL: "http://127.0.0.1:8089/v1"}).Timeout; got != 2*time.Second {
+		t.Fatalf("explicit timeout = %s", got)
+	}
+}
 
 func TestLocalLlamaPresetReasoningBudgetIsSentAndCapabilityCacheIsRuntimeBound(t *testing.T) {
 	probes, calls := 0, 0

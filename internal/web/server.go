@@ -14,9 +14,12 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	brandassets "hermetrix-harness/assets"
 	"hermetrix-harness/internal/agent"
@@ -44,26 +47,31 @@ import (
 var uiFiles embed.FS
 
 type Server struct {
-	skills    *skills.Service
-	learning  *learning.Service
-	curator   *curator.Service
-	compiler  *ctxcompiler.Compiler
-	estimator *ctxcompiler.AdaptiveEstimator
-	models    *localmodel.Prober
-	providers *providers.Service
-	agent     *agent.Service
-	mcp       *mcp.Service
-	catalog   *capabilities.Catalog
-	fidelity  *fidelity.Service
-	qualifier *qualification.Service
-	product   *product.Service
-	tasks     *taskengine.Service
-	coord     *taskcoord.Service
-	discord   *discordbridge.Service
-	store     *store.Store
-	logger    *slog.Logger
-	auth      *authenticator
-	boundary  *requestBoundary
+	skills             *skills.Service
+	learning           *learning.Service
+	curator            *curator.Service
+	compiler           *ctxcompiler.Compiler
+	estimator          *ctxcompiler.AdaptiveEstimator
+	models             *localmodel.Prober
+	providers          *providers.Service
+	agent              *agent.Service
+	mcp                *mcp.Service
+	catalog            *capabilities.Catalog
+	fidelity           *fidelity.Service
+	qualifier          *qualification.Service
+	product            *product.Service
+	tasks              *taskengine.Service
+	coord              *taskcoord.Service
+	discord            *discordbridge.Service
+	store              *store.Store
+	logger             *slog.Logger
+	auth               *authenticator
+	boundary           *requestBoundary
+	comfyMu            sync.Mutex
+	socialVault        socialCredentialVault
+	socialClient       *http.Client
+	socialFacebookBase string
+	socialTikTokBase   string
 }
 
 func (s *Server) WithAuthentication(token, principal string, secureCookie bool) *Server {
@@ -134,7 +142,14 @@ func New(skillService *skills.Service, learningService *learning.Service, curato
 	}
 	return &Server{skills: skillService, learning: learningService, curator: curatorService, compiler: compiler,
 		estimator: estimator, models: models, providers: providerService, agent: agentService,
-		store: dataStore, logger: logger}
+		store: dataStore, logger: logger,
+		socialClient:       &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		socialFacebookBase: "https://graph.facebook.com/v25.0", socialTikTokBase: "https://open.tiktokapis.com"}
+}
+
+func (s *Server) WithSocialVault(vault socialCredentialVault) *Server {
+	s.socialVault = vault
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
@@ -162,6 +177,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/skills/{id}", s.getSkill)
 	mux.HandleFunc("PATCH /api/skills/{id}", s.updateSkillControls)
 	mux.HandleFunc("POST /api/skills/custom", s.createCustomSkill)
+	mux.HandleFunc("POST /api/skills/import", s.importSkill)
 	mux.HandleFunc("POST /api/skills/{id}/improvements", s.proposeImprovement)
 	mux.HandleFunc("POST /api/skills/{id}/fork", s.forkSkill)
 	mux.HandleFunc("POST /api/skills/{id}/archive", s.archiveSkill)
@@ -214,6 +230,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/mcp/servers/{id}/credential", s.setMCPCredential)
 	mux.HandleFunc("PUT /api/mcp/servers/{id}/access-credential", s.setMCPAccessCredential)
 	mux.HandleFunc("POST /api/mcp/servers/{id}/discover", s.discoverMCPServer)
+	mux.HandleFunc("POST /api/comfy/connect", s.connectLocalComfy)
+	mux.HandleFunc("GET /api/comfy/readiness", s.localComfyReadiness)
+	mux.HandleFunc("POST /api/comfy/preflight", s.preflightLocalComfyWorkflow)
+	mux.HandleFunc("GET /api/comfy/jobs", s.listComfyJobs)
+	mux.HandleFunc("POST /api/comfy/jobs", s.startComfyJob)
+	mux.HandleFunc("POST /api/comfy/jobs/{id}/refresh", s.refreshComfyJob)
+	mux.HandleFunc("POST /api/comfy/jobs/{id}/cancel", s.cancelComfyJob)
+	mux.HandleFunc("GET /api/social/connections", s.listSocialConnections)
+	mux.HandleFunc("POST /api/social/connections", s.connectSocialAccount)
+	mux.HandleFunc("POST /api/social/connections/{id}/check", s.checkSocialConnection)
+	mux.HandleFunc("GET /api/social/connections/{id}/creator-info", s.getTikTokCreatorInfo)
+	mux.HandleFunc("DELETE /api/social/connections/{id}", s.disconnectSocialAccount)
+	mux.HandleFunc("GET /api/tasks/{id}/social/posts", s.listSocialPosts)
+	mux.HandleFunc("POST /api/tasks/{id}/social/posts", s.createSocialPost)
+	mux.HandleFunc("POST /api/social/posts/{id}/approve", s.approveSocialPost)
+	mux.HandleFunc("POST /api/social/posts/{id}/dispatch", s.dispatchSocialPost)
+	mux.HandleFunc("POST /api/social/posts/{id}/refresh", s.refreshSocialPost)
+	mux.HandleFunc("POST /api/social/posts/{id}/retry", s.retryFailedSocialPost)
 	mux.HandleFunc("GET /api/capabilities", s.listCapabilities)
 	mux.HandleFunc("GET /api/capabilities/{id}", s.getCapability)
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
@@ -221,13 +255,34 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.listSessionEvents)
 	mux.HandleFunc("POST /api/sessions/{id}/turns", s.runTurn)
+	mux.HandleFunc("GET /api/voice/capabilities", s.voiceCapabilities)
+	mux.HandleFunc("GET /api/voice/devices", s.voiceDevices)
+	mux.HandleFunc("POST /api/voice/native/stream", s.streamNativeVoice)
+	mux.HandleFunc("GET /api/voice/live", s.streamBrowserVoice)
+	mux.HandleFunc("POST /api/voice/transcribe", s.transcribeVoice)
+	mux.HandleFunc("POST /api/voice/speak", s.speakVoice)
 	mux.HandleFunc("POST /api/approvals/{id}/decisions", s.decideApproval)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.deleteSession)
 	mux.HandleFunc("GET /api/tasks", s.listDurableTasks)
 	mux.HandleFunc("POST /api/tasks", s.createDurableTask)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getDurableTask)
+	mux.HandleFunc("GET /api/tasks/{id}/research", s.listTaskResearch)
+	mux.HandleFunc("POST /api/tasks/{id}/research/search", s.searchTaskResearch)
+	mux.HandleFunc("POST /api/tasks/{id}/research/{candidateID}/selection", s.selectTaskResearch)
+	mux.HandleFunc("GET /api/tasks/{id}/content", s.getTaskContent)
+	mux.HandleFunc("GET /api/tasks/{id}/content/suggestions", s.suggestTaskContent)
+	mux.HandleFunc("PUT /api/tasks/{id}/content/brief", s.saveTaskContentBrief)
+	mux.HandleFunc("POST /api/tasks/{id}/content/claims", s.createTaskContentClaim)
+	mux.HandleFunc("POST /api/tasks/{id}/content/claims/{claimID}/review", s.reviewTaskContentClaim)
+	mux.HandleFunc("DELETE /api/tasks/{id}/content/claims/{claimID}", s.removeTaskContentClaim)
+	mux.HandleFunc("POST /api/tasks/{id}/content/drafts", s.saveTaskContentDraft)
+	mux.HandleFunc("POST /api/tasks/{id}/content/drafts/{draftID}/approval", s.approveTaskContentDraft)
 	mux.HandleFunc("GET /api/tasks/{id}/next-packet", s.getTaskNextPacket)
 	mux.HandleFunc("GET /api/tasks/{id}/next-action", s.getTaskNextAction)
+	mux.HandleFunc("GET /api/tasks/{id}/completion", s.getTaskCompletion)
+	mux.HandleFunc("POST /api/tasks/{id}/user-acceptance", s.acceptTaskResult)
+	mux.HandleFunc("POST /api/tasks/{id}/plan-review", s.reviewTaskPlan)
+	mux.HandleFunc("GET /api/tasks/{id}/plans/{revision}", s.getTaskPlanRevision)
 	mux.HandleFunc("POST /api/tasks/{id}/decision-shadow", s.shadowTaskDecision)
 	mux.HandleFunc("GET /api/tasks/{id}/decision-shadows", s.listTaskDecisionShadows)
 	mux.HandleFunc("GET /api/tasks/{id}/decision-shadow-metrics", s.getTaskDecisionShadowMetrics)
@@ -244,6 +299,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/planning-decision", s.classifyTaskPlanning)
 	mux.HandleFunc("POST /api/tasks/{id}/runs", s.beginTaskRun)
 	mux.HandleFunc("POST /api/tasks/{id}/recover-expired-run", s.recoverExpiredTaskRun)
+	mux.HandleFunc("POST /api/tasks/{id}/resume-observed-review", s.resumeObservedTaskReview)
+	mux.HandleFunc("POST /api/tasks/{id}/resume-approved-review", s.resumeApprovedTaskReview)
+	mux.HandleFunc("POST /api/tasks/{id}/retry-failed-proposal", s.retryFailedTaskProposal)
+	mux.HandleFunc("POST /api/tasks/{id}/retry-rejected-proposal", s.retryRejectedTaskProposal)
 	mux.HandleFunc("POST /api/task-runs/{id}/lease", s.renewTaskRunLease)
 	mux.HandleFunc("POST /api/task-runs/{id}/attempts", s.beginTaskAttempt)
 	mux.HandleFunc("POST /api/task-attempts/{id}/effects", s.planTaskEffect)
@@ -268,10 +327,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/checkpoints", s.createTaskCheckpoint)
 	mux.HandleFunc("POST /api/tasks/{id}/complete", s.completeDurableTask)
 	mux.HandleFunc("GET /api/filesystem/directories", s.browseDirectories)
+	mux.HandleFunc("GET /api/system/metrics", s.systemMetrics)
 	mux.HandleFunc("GET /api/elicitations", s.listElicitations)
 	mux.HandleFunc("POST /api/elicitations/{id}/answer", s.answerElicitation)
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("POST /api/projects", s.saveProject)
+	mux.HandleFunc("POST /api/projects/{id}/archive", s.archiveProject)
+	mux.HandleFunc("POST /api/projects/{id}/restore", s.restoreProject)
 	mux.HandleFunc("PUT /api/projects/{id}/pin", s.pinProject)
 	mux.HandleFunc("POST /api/projects/{id}/open", s.openProject)
 	mux.HandleFunc("GET /api/projects/{id}/files", s.browseProject)
@@ -289,6 +351,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/browser/tabs", s.listBrowserTabs)
 	mux.HandleFunc("POST /api/browser/tabs", s.openBrowserTab)
 	mux.HandleFunc("POST /api/browser/tabs/{id}/actions", s.browserAction)
+	mux.HandleFunc("POST /api/browser/tabs/{id}/actions/prepare", s.prepareBrowserAction)
+	mux.HandleFunc("GET /api/tasks/{id}/browser/actions", s.listTaskBrowserActions)
+	mux.HandleFunc("GET /api/tasks/{id}/activity", s.listTaskActivity)
+	mux.HandleFunc("GET /api/browser/actions/{id}", s.getBrowserActionReceipt)
+	mux.HandleFunc("POST /api/browser/actions/{id}/cancel", s.cancelBrowserAction)
+	mux.HandleFunc("POST /api/browser/actions/{id}/reconcile", s.reconcileBrowserAction)
 	mux.HandleFunc("GET /api/teams", s.listAgentTeams)
 	mux.HandleFunc("POST /api/teams", s.saveAgentTeam)
 	mux.HandleFunc("GET /api/team-runs", s.listTeamRuns)
@@ -302,7 +370,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/artifacts", s.createArtifact)
 	mux.HandleFunc("POST /api/artifacts/upload", s.uploadImageArtifact)
 	mux.HandleFunc("POST /api/media/uploads", s.uploadMedia)
+	mux.HandleFunc("POST /api/media/videos", s.uploadVideo)
+	mux.HandleFunc("GET /api/desktop/windows", s.listDesktopWindows)
+	mux.HandleFunc("POST /api/desktop/observe", s.observeDesktopWindow)
+	mux.HandleFunc("POST /api/desktop/actions", s.prepareDesktopAction)
+	mux.HandleFunc("GET /api/desktop/actions/{id}", s.getDesktopAction)
+	mux.HandleFunc("POST /api/desktop/actions/{id}/confirm", s.confirmDesktopAction)
+	mux.HandleFunc("POST /api/desktop/actions/{id}/cancel", s.cancelDesktopAction)
+	mux.HandleFunc("POST /api/desktop/actions/{id}/reconcile", s.reconcileDesktopAction)
+	mux.HandleFunc("GET /api/tasks/{id}/desktop/actions", s.listTaskDesktopActions)
 	mux.HandleFunc("POST /api/media/jobs", s.startMediaJob)
+	mux.HandleFunc("GET /api/media/jobs", s.listMediaJobs)
 	mux.HandleFunc("GET /api/media/jobs/{id}", s.getMediaJob)
 	mux.HandleFunc("POST /api/media/jobs/{id}/cancel", s.cancelMediaJob)
 	mux.HandleFunc("POST /api/projects/{id}/share/previews", s.createSharePreview)
@@ -321,6 +399,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/recovery/verify", s.verifyFullRecovery)
 	mux.HandleFunc("POST /api/deliverables", s.createDeliverable)
 	mux.HandleFunc("GET /api/artifacts/{id}/content", s.getArtifactContent)
+	mux.HandleFunc("GET /api/artifacts/{id}/stream", s.streamVideoArtifact)
 	mux.HandleFunc("GET /api/settings", s.listSettings)
 	mux.HandleFunc("PUT /api/settings", s.saveSetting)
 	mux.HandleFunc("GET /api/memories", s.listMemories)
@@ -764,6 +843,51 @@ func (s *Server) createCustomSkill(w http.ResponseWriter, r *http.Request) {
 		ScopeKind: input.ScopeKind, ScopeRef: input.ScopeRef, Origin: "user_created", Owner: "user", ChangeKind: "create",
 		CreatedBy: "local-user", TriggerKind: "custom_skill_studio", Reason: input.Reason,
 		EvidenceRefs: append([]string{"ui:skill-studio"}, input.EvidenceRefs...), Markdown: input.Markdown})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 9<<20)
+	if err := r.ParseMultipartForm(9 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid or oversized skill upload"})
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "choose a .skill file"})
+		return
+	}
+	defer file.Close()
+	if !strings.EqualFold(filepath.Ext(header.Filename), ".skill") {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "expected a .skill archive"})
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(file, (8<<20)+1))
+	if err != nil || len(data) > 8<<20 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "skill archive exceeds 8 MiB"})
+		return
+	}
+	name, pkg, err := skills.ParseSkillArchive(data)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	files := make([]skills.File, 0, len(pkg.Files)-1)
+	for _, item := range pkg.Files {
+		if item.Path != "SKILL.md" {
+			files = append(files, item)
+		}
+	}
+	item, err := s.skills.CreateCandidate(r.Context(), skills.CreateCandidateInput{
+		CanonicalName: name, ScopeKind: "user", Origin: "user_created", Owner: "user",
+		ChangeKind: "create", CreatedBy: "local-user", TriggerKind: "skill_import",
+		Reason: "Imported from " + filepath.Base(header.Filename), EvidenceRefs: []string{"ui:skill-studio-import"},
+		Markdown: pkg.Markdown(), Files: files,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1293,8 +1417,8 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
 
 // browseDirectories backs the folder picker on the Projects screen. A browser
 // will not hand a web page an absolute path, so registering a project root has
-// to walk the filesystem here. It answers directory names only, and the control
-// server refuses to listen anywhere but loopback.
+// to walk the filesystem here. It answers directory names only; remote
+// listeners require authentication and TLS.
 func (s *Server) browseDirectories(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
@@ -1563,7 +1687,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusUnprocessableEntity
 	case errors.Is(err, learning.ErrNoQueuedReview):
 		status = http.StatusConflict
-	case errors.Is(err, product.ErrProjectHasNoCode), errors.Is(err, agent.ErrSessionHasNoRoot):
+	case errors.Is(err, product.ErrProjectHasNoCode), errors.Is(err, agent.ErrSessionHasNoRoot),
+		errors.Is(err, product.ErrTeamRemoteApprovalRequired):
 		// The request itself was fine; the project it named just has nothing on
 		// disk to act on. That is a client-fixable precondition, not a server
 		// fault, so it belongs with the other 422s rather than falling through
@@ -1659,6 +1784,9 @@ func spa(next http.Handler, assets fs.FS) http.Handler {
 			}
 			return
 		}
+		// Embedded assets change with each preview binary. Reusing a cached script
+		// after a restart would leave the visible UI on the previous release.
+		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1668,7 +1796,7 @@ func contentSecurityPolicy(styleNonce string) string {
 	if styleNonce != "" {
 		stylePolicy += " 'nonce-" + styleNonce + "'"
 	}
-	return "default-src 'self'; " + stylePolicy + "; script-src 'self'; img-src 'self' data:; connect-src 'self'"
+	return "default-src 'self'; " + stylePolicy + "; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*"
 }
 
 func securityHeaders(next http.Handler) http.Handler {

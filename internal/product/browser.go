@@ -3,8 +3,12 @@ package product
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +25,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"hermetrix-harness/internal/agentruntime"
 	"hermetrix-harness/internal/identity"
 )
 
@@ -34,17 +39,29 @@ type browserRuntime struct {
 }
 
 type browserTabRuntime struct {
-	mu       sync.Mutex
-	tab      BrowserTab
-	targetID string
-	client   *cdpClient
+	mu        sync.Mutex
+	tab       BrowserTab
+	targetID  string
+	client    *cdpClient
+	valueSalt []byte
 }
 
 type cdpClient struct {
-	mu           sync.Mutex
-	conn         *websocket.Conn
-	nextID       int64
-	requestGuard func(context.Context, string) error
+	mu             sync.Mutex
+	conn           *websocket.Conn
+	nextID         int64
+	requestGuard   func(context.Context, string) error
+	pageErrors     []string
+	requestMethods map[string]string
+	traffic        []agentruntime.BrowserInspectionTraffic
+	scripts        []observedScript
+}
+
+type observedScript struct {
+	requestID string
+	url       string
+	finished  bool
+	size      int64
 }
 
 // browserRequestGuard applies the URL policy at the last interception point
@@ -104,7 +121,7 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 		return BrowserTab{}, fmt.Errorf("connect Chrome DevTools target: %w", err)
 	}
 	guard := &browserRequestGuard{service: s, projectID: input.ProjectID, allowPrivate: input.AllowPrivate, pins: map[string]string{}}
-	client := &cdpClient{conn: conn, requestGuard: func(requestCtx context.Context, requestURL string) error {
+	client := &cdpClient{conn: conn, requestMethods: map[string]string{}, requestGuard: func(requestCtx context.Context, requestURL string) error {
 		return guard.validate(requestCtx, requestURL)
 	}}
 	// Fetch interception runs before Chrome releases a request to the network.
@@ -122,6 +139,10 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 		_ = conn.Close()
 		return BrowserTab{}, fmt.Errorf("enable browser runtime domain: %w", err)
 	}
+	if err := client.call(ctx, "Network.enable", map[string]any{}, nil); err != nil {
+		_ = conn.Close()
+		return BrowserTab{}, fmt.Errorf("enable browser network observations: %w", err)
+	}
 	if err := client.call(ctx, "Page.navigate", map[string]any{"url": validatedURL}, nil); err != nil {
 		_ = conn.Close()
 		return BrowserTab{}, fmt.Errorf("navigate managed browser: %w", err)
@@ -134,7 +155,12 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	tab := BrowserTab{ID: identity.New("btab"), ProjectID: input.ProjectID, URL: validatedURL,
 		State: "ready", AllowPrivate: input.AllowPrivate, Links: []BrowserLink{}, Elements: []BrowserElement{},
 		CreatedAt: now, UpdatedAt: now}
-	runtimeTab := &browserTabRuntime{tab: tab, targetID: target.ID, client: client}
+	valueSalt := make([]byte, 32)
+	if _, err := rand.Read(valueSalt); err != nil {
+		_ = conn.Close()
+		return BrowserTab{}, fmt.Errorf("initialize browser observation salt: %w", err)
+	}
+	runtimeTab := &browserTabRuntime{tab: tab, targetID: target.ID, client: client, valueSalt: valueSalt}
 	if err := s.refreshBrowserTab(ctx, runtimeTab, true); err != nil {
 		_ = conn.Close()
 		return BrowserTab{}, fmt.Errorf("capture initial browser state: %w", err)
@@ -156,7 +182,7 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 	return tab, nil
 }
 
-func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserActionInput) (BrowserTab, error) {
+func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserActionInput) (resultTab BrowserTab, actionErr error) {
 	input.Actor, input.Action = strings.TrimSpace(input.Actor), strings.TrimSpace(input.Action)
 	if input.Actor == "" {
 		return BrowserTab{}, fmt.Errorf("browser actor is required")
@@ -167,6 +193,54 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 	}
 	runtimeTab.mu.Lock()
 	defer runtimeTab.mu.Unlock()
+	if input.Action == "click" || input.Action == "type" || input.Action == "key" {
+		if input.ObservationHash == "" || input.ObservationHash != runtimeTab.tab.ObservationHash {
+			return BrowserTab{}, fmt.Errorf("browser observation changed; read the page again before acting")
+		}
+		if err := s.refreshBrowserTab(ctx, runtimeTab, false); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		if input.ObservationHash != runtimeTab.tab.ObservationHash {
+			_ = s.persistBrowserTab(ctx, runtimeTab.tab)
+			return BrowserTab{}, fmt.Errorf("browser observation changed; read the page again before acting")
+		}
+		receipt, receiptErr := s.GetBrowserActionReceipt(ctx, input.ReceiptID)
+		if receiptErr != nil || receipt.State != "prepared" || receipt.TabID != id || receipt.TaskID != input.TaskID ||
+			receipt.Action != input.Action || receipt.ElementRef != input.Ref || receipt.ObservationHash != input.ObservationHash ||
+			receipt.SubjectHash != input.SubjectHash || time.Now().UTC().After(receipt.ExpiresAt) {
+			return BrowserTab{}, fmt.Errorf("browser approval is missing, stale, expired or already used")
+		}
+		textSum := sha256.Sum256([]byte(input.Text))
+		var storedTextHash string
+		if err := s.store.DB.QueryRowContext(ctx, `SELECT text_hash FROM browser_action_receipts WHERE id=?`, receipt.ID).Scan(&storedTextHash); err != nil || storedTextHash != hex.EncodeToString(textSum[:]) {
+			return BrowserTab{}, fmt.Errorf("browser text changed after review")
+		}
+		ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
+		if ownerErr != nil {
+			return BrowserTab{}, ownerErr
+		}
+		result, dispatchErr := s.store.DB.ExecContext(ctx, `UPDATE browser_action_receipts SET state='dispatched',actor=?,dispatched_at=?
+			WHERE id=? AND owner_principal_id=? AND subject_hash=? AND state='prepared' AND expires_at>?`,
+			input.Actor, formatTime(time.Now().UTC()), receipt.ID, ownerID, receipt.SubjectHash, formatTime(time.Now().UTC()))
+		if dispatchErr != nil {
+			return BrowserTab{}, dispatchErr
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return BrowserTab{}, fmt.Errorf("browser approval was already used")
+		}
+		defer func() {
+			status, message, screenshot := "completed", "", runtimeTab.tab.ScreenshotArtifactID
+			if actionErr != nil {
+				status, message, screenshot = "uncertain", actionErr.Error(), ""
+			}
+			if len(message) > 500 {
+				message = message[:500]
+			}
+			_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE browser_action_receipts SET state=?,error=?,screenshot_after_id=?,completed_at=?
+				WHERE id=? AND state='dispatched'`, status, message, screenshot, formatTime(time.Now().UTC()), receipt.ID)
+		}()
+	}
+	inspect := input.Action == "inspect" || input.Action == "audit"
 	switch input.Action {
 	case "navigate":
 		validated, err := s.validateBrowserURL(ctx, runtimeTab.tab.ProjectID, input.URL, runtimeTab.tab.AllowPrivate)
@@ -186,7 +260,30 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		if readyErr := waitForPageReady(ctx, runtimeTab.client); isBrowserPolicyError(readyErr) {
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, readyErr)
 		}
-	case "read":
+	case "forward":
+		if _, err := runtimeTab.client.evaluate(ctx, `history.forward(); true`); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		if readyErr := waitForPageReady(ctx, runtimeTab.client); isBrowserPolicyError(readyErr) {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, readyErr)
+		}
+	case "reload":
+		if err := runtimeTab.client.call(ctx, "Page.reload", map[string]any{}, nil); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		if readyErr := waitForPageReady(ctx, runtimeTab.client); isBrowserPolicyError(readyErr) {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, readyErr)
+		}
+	case "read", "inspect", "audit", "source":
+	case "scroll_up", "scroll_down":
+		direction := 1
+		if input.Action == "scroll_up" {
+			direction = -1
+		}
+		expression := fmt.Sprintf(`(() => { window.scrollBy(0, Math.round(innerHeight * 0.7) * %d); return true })()`, direction)
+		if _, err := runtimeTab.client.evaluate(ctx, expression); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
 	case "click":
 		selector, err := browserSelector(runtimeTab.tab.Elements, input.Ref)
 		if err != nil {
@@ -209,6 +306,34 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		if _, err := runtimeTab.client.evaluate(ctx, expression); err != nil {
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
+	case "key":
+		code, valid := browserKeyCode(input.Text)
+		if !valid {
+			return BrowserTab{}, fmt.Errorf("unsupported browser key %q", input.Text)
+		}
+		selector, err := browserSelector(runtimeTab.tab.Elements, input.Ref)
+		if err != nil {
+			return BrowserTab{}, err
+		}
+		focus := fmt.Sprintf(`(() => { const el=document.querySelector(%s); if(!el) throw new Error("element ref is stale"); el.focus(); return true })()`, jsString(selector))
+		if _, err := runtimeTab.client.evaluate(ctx, focus); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		args := map[string]any{"key": input.Text, "code": input.Text, "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code}
+		args["type"] = "rawKeyDown"
+		if input.Text == "Enter" {
+			args["type"] = "keyDown"
+			args["text"] = "\r"
+			args["unmodifiedText"] = "\r"
+		}
+		if err := runtimeTab.client.call(ctx, "Input.dispatchKeyEvent", args, nil); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		args["type"] = "keyUp"
+		if err := runtimeTab.client.call(ctx, "Input.dispatchKeyEvent", args, nil); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		time.Sleep(200 * time.Millisecond)
 	case "capture":
 	case "close":
 		return s.closeBrowserTabLocked(ctx, runtimeTab)
@@ -221,7 +346,47 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 	if err := s.persistBrowserTab(ctx, runtimeTab.tab); err != nil {
 		return BrowserTab{}, err
 	}
-	return runtimeTab.tab, nil
+	result := runtimeTab.tab
+	if input.Action == "source" {
+		source, err := readObservedBrowserScript(ctx, runtimeTab.client, input.URL)
+		if err != nil {
+			return BrowserTab{}, err
+		}
+		result.Inspection = &agentruntime.BrowserInspection{ClientSource: &source}
+	}
+	if inspect {
+		inspection, err := s.inspectBrowserTab(ctx, runtimeTab)
+		if err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
+		if input.Action == "audit" {
+			audit := auditBrowserInspection(result.URL, inspection)
+			inspection.Security = &audit
+		}
+		result.Inspection = &inspection
+	}
+	return result, nil
+}
+
+func browserKeyCode(key string) (int, bool) {
+	switch key {
+	case "Tab":
+		return 9, true
+	case "Enter":
+		return 13, true
+	case "Escape":
+		return 27, true
+	case "ArrowUp":
+		return 38, true
+	case "ArrowDown":
+		return 40, true
+	}
+	return 0, false
+}
+
+func supportedBrowserKey(key string) bool {
+	_, ok := browserKeyCode(key)
+	return ok
 }
 
 func isBrowserPolicyError(err error) bool {
@@ -264,7 +429,7 @@ func (s *Service) refreshBrowserTab(ctx context.Context, runtimeTab *browserTabR
 	expression := `(() => {
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
 const nodes=[...document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"]')].slice(0,200);
-const elements=nodes.map((el,i)=>{const ref=i+1;el.setAttribute('data-hermetrix-ref',String(ref));return {ref,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',text:clean(el.innerText||el.value||el.getAttribute('aria-label')),placeholder:el.getAttribute('placeholder')||'',selector:'[data-hermetrix-ref="'+ref+'"]'}});
+const elements=nodes.map((el,i)=>{const ref=i+1;el.setAttribute('data-hermetrix-ref',String(ref));const secret=el.matches('input[type="password"],[autocomplete="current-password"],[autocomplete="new-password"]');const r=el.getBoundingClientRect(),css=getComputedStyle(el),visible=r.width>=5&&r.height>=5&&r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight&&css.visibility!=='hidden'&&css.display!=='none';const pct=(n,total)=>Math.round(n/total*10000)/100;const left=visible?Math.max(0,r.left):0,top=visible?Math.max(0,r.top):0,width=visible?Math.max(0,Math.min(innerWidth,r.right)-left):0,height=visible?Math.max(0,Math.min(innerHeight,r.bottom)-top):0;return {ref,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',text:secret?'':clean(el.innerText||el.getAttribute('aria-label')||el.getAttribute('placeholder')),placeholder:secret?'':el.getAttribute('placeholder')||'',selector:'[data-hermetrix-ref="'+ref+'"]',is_password:secret,value:secret?'':String(el.value||''),x_pct:width?pct(left,innerWidth):0,y_pct:height?pct(top,innerHeight):0,width_pct:width?pct(width,innerWidth):0,height_pct:height?pct(height,innerHeight):0}});
 const links=[...document.querySelectorAll('a[href]')].slice(0,200).map(a=>({text:clean(a.innerText||a.getAttribute('aria-label')),url:a.href}));
 return JSON.stringify({title:document.title||'',url:location.href,text:clean(document.body?.innerText||'').slice(0,262144),links,elements});
 })()`
@@ -315,10 +480,30 @@ func (s *Service) acceptBrowserSnapshot(ctx context.Context, runtimeTab *browser
 	if _, err := s.validateBrowserURL(ctx, runtimeTab.tab.ProjectID, snapshot.URL, runtimeTab.tab.AllowPrivate); err != nil {
 		return fmt.Errorf("browser navigation reached a disallowed URL: %w", err)
 	}
+	for index := range snapshot.Elements {
+		element := &snapshot.Elements[index]
+		if element.Value != "" && !element.IsPassword {
+			mac := hmac.New(sha256.New, runtimeTab.valueSalt)
+			_, _ = mac.Write([]byte(element.Value))
+			element.ValueHash = hex.EncodeToString(mac.Sum(nil))
+		}
+		element.Value = ""
+	}
 	runtimeTab.tab.Title, runtimeTab.tab.URL, runtimeTab.tab.TextSnapshot = snapshot.Title, snapshot.URL, snapshot.Text
 	runtimeTab.tab.Links, runtimeTab.tab.Elements = snapshot.Links, snapshot.Elements
+	runtimeTab.tab.ObservationHash = browserObservationHash(runtimeTab.tab)
 	runtimeTab.tab.State, runtimeTab.tab.Error, runtimeTab.tab.UpdatedAt = "ready", "", time.Now().UTC()
 	return nil
+}
+
+func browserObservationHash(tab BrowserTab) string {
+	body, _ := json.Marshal(struct {
+		ID, URL, Title, Text string
+		Elements             []BrowserElement
+		Links                []BrowserLink
+	}{tab.ID, tab.URL, tab.Title, tab.TextSnapshot, tab.Elements, tab.Links})
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }
 
 // blockBrowserTab closes a tab that crossed its URL policy boundary and clears
@@ -397,7 +582,14 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
-	profile, err := os.MkdirTemp(s.store.Root, "chrome-profile-")
+	// Chromium requires an absolute user-data-dir on Windows. The CLI accepts a
+	// relative --data path, so resolve it before handing a temporary profile to
+	// a separate process.
+	root, err := filepath.Abs(s.store.Root)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := os.MkdirTemp(root, "chrome-profile-")
 	if err != nil {
 		return nil, err
 	}
@@ -737,15 +929,73 @@ func (c *cdpClient) call(ctx context.Context, method string, params any, result 
 			Method string `json:"method"`
 			Params struct {
 				RequestID string `json:"requestId"`
+				Type      string `json:"type"`
 				Request   struct {
-					URL string `json:"url"`
+					URL    string `json:"url"`
+					Method string `json:"method"`
 				} `json:"request"`
+				Response struct {
+					URL     string         `json:"url"`
+					Status  int            `json:"status"`
+					Headers map[string]any `json:"headers"`
+				} `json:"response"`
+				EncodedDataLength float64 `json:"encodedDataLength"`
+				ExceptionDetails  struct {
+					Text      string `json:"text"`
+					Exception struct {
+						Description string `json:"description"`
+					} `json:"exception"`
+				} `json:"exceptionDetails"`
+				Args []struct {
+					Value       any    `json:"value"`
+					Description string `json:"description"`
+				} `json:"args"`
 			} `json:"params"`
 		}
 		if json.Unmarshal(data, &event) == nil && event.Method == "Fetch.requestPaused" {
 			if guardErr := c.answerPausedRequest(ctx, event.Params.RequestID, event.Params.Request.URL); guardErr != nil {
 				blocked = errors.Join(blocked, guardErr)
 			}
+			continue
+		}
+		if event.Method == "Network.requestWillBeSent" {
+			if len(c.requestMethods) >= 300 {
+				c.requestMethods = map[string]string{}
+			}
+			c.requestMethods[event.Params.RequestID] = event.Params.Request.Method
+			continue
+		}
+		if event.Method == "Network.responseReceived" {
+			c.recordTraffic(event.Params.Response.URL, c.requestMethods[event.Params.RequestID],
+				event.Params.Type, event.Params.Response.Status, event.Params.Response.Headers)
+			if event.Params.Type == "Script" && event.Params.Response.Status >= 200 && event.Params.Response.Status < 300 {
+				c.recordScript(event.Params.RequestID, event.Params.Response.URL)
+			}
+			delete(c.requestMethods, event.Params.RequestID)
+			continue
+		}
+		if event.Method == "Network.loadingFinished" {
+			c.finishScript(event.Params.RequestID, int64(event.Params.EncodedDataLength))
+			continue
+		}
+		if event.Method == "Runtime.exceptionThrown" {
+			message := event.Params.ExceptionDetails.Exception.Description
+			if message == "" {
+				message = event.Params.ExceptionDetails.Text
+			}
+			c.recordPageError(message)
+			continue
+		}
+		if event.Method == "Runtime.consoleAPICalled" && event.Params.Type == "error" {
+			parts := make([]string, 0, len(event.Params.Args))
+			for _, arg := range event.Params.Args {
+				if arg.Description != "" {
+					parts = append(parts, arg.Description)
+				} else if arg.Value != nil {
+					parts = append(parts, fmt.Sprint(arg.Value))
+				}
+			}
+			c.recordPageError(strings.Join(parts, " "))
 			continue
 		}
 		var response cdpResponse
@@ -763,6 +1013,117 @@ func (c *cdpClient) call(ctx context.Context, method string, params any, result 
 		}
 		return nil
 	}
+}
+
+// recordPageError is called only while c.mu is held by call.
+func (c *cdpClient) recordPageError(message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	if len(message) > 512 {
+		message = message[:512]
+	}
+	if len(c.pageErrors) == 30 {
+		copy(c.pageErrors, c.pageErrors[1:])
+		c.pageErrors = c.pageErrors[:29]
+	}
+	c.pageErrors = append(c.pageErrors, message)
+}
+
+func (c *cdpClient) snapshotPageErrors() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string{}, c.pageErrors...)
+}
+
+var observedSecurityHeaders = map[string]bool{
+	"content-security-policy": true, "content-security-policy-report-only": true,
+	"strict-transport-security": true, "x-frame-options": true,
+	"x-content-type-options": true, "referrer-policy": true,
+	"permissions-policy": true, "access-control-allow-origin": true,
+}
+
+// recordTraffic runs inside c.call, while c.mu is held. Network events provide
+// observed responses only; this never initiates a request or retains bodies.
+func (c *cdpClient) recordTraffic(rawURL, method, kind string, status int, rawHeaders map[string]any) {
+	normalized := inspectionURL(rawURL)
+	if normalized == "" || status < 100 || status > 599 {
+		return
+	}
+	headers := map[string]string{}
+	for key, raw := range rawHeaders {
+		name := strings.ToLower(key)
+		if !observedSecurityHeaders[name] {
+			continue
+		}
+		value, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		if len(value) > 512 {
+			value = value[:501] + "[truncated]"
+		}
+		headers[name] = value
+	}
+	if method != "GET" && method != "POST" && method != "HEAD" && method != "PUT" && method != "PATCH" && method != "DELETE" {
+		method = ""
+	}
+	if len(kind) > 32 {
+		kind = kind[:32]
+	}
+	item := agentruntime.BrowserInspectionTraffic{URL: normalized, Method: method, Type: kind,
+		Status: status, SecurityHeaders: headers}
+	if len(c.traffic) == 200 {
+		copy(c.traffic, c.traffic[1:])
+		c.traffic = c.traffic[:199]
+	}
+	c.traffic = append(c.traffic, item)
+}
+
+func (c *cdpClient) snapshotTraffic() []agentruntime.BrowserInspectionTraffic {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]agentruntime.BrowserInspectionTraffic{}, c.traffic...)
+}
+
+// These methods run inside c.call while c.mu is held. The request ID never
+// leaves the product runtime; the model selects only an observed script URL.
+func (c *cdpClient) recordScript(requestID, rawURL string) {
+	url := inspectionURL(rawURL)
+	if requestID == "" || url == "" {
+		return
+	}
+	if len(c.scripts) == 40 {
+		copy(c.scripts, c.scripts[1:])
+		c.scripts = c.scripts[:39]
+	}
+	c.scripts = append(c.scripts, observedScript{requestID: requestID, url: url})
+}
+
+func (c *cdpClient) finishScript(requestID string, size int64) {
+	for index := len(c.scripts) - 1; index >= 0; index-- {
+		if c.scripts[index].requestID == requestID {
+			c.scripts[index].finished = true
+			c.scripts[index].size = size
+			return
+		}
+	}
+}
+
+func (c *cdpClient) observedScript(rawURL string) (observedScript, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	wanted := inspectionURL(rawURL)
+	if wanted == "" {
+		return observedScript{}, false
+	}
+	for index := len(c.scripts) - 1; index >= 0; index-- {
+		if c.scripts[index].url == wanted && c.scripts[index].finished {
+			return c.scripts[index], true
+		}
+	}
+	return observedScript{}, false
 }
 
 type browserRequestPolicyError struct {
@@ -880,5 +1241,6 @@ func scanBrowserTab(row browserTabScanner) (BrowserTab, error) {
 	_ = json.Unmarshal([]byte(elementsJSON), &item.Elements)
 	item.CreatedAt, _ = parseTime(created)
 	item.UpdatedAt, _ = parseTime(updated)
+	item.ObservationHash = browserObservationHash(item)
 	return item, nil
 }

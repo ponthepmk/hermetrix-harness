@@ -1,6 +1,6 @@
 # Hermetrix Harness
 
-![Hermetrix Engine](assets/brand/hermetrix-engine-v3-512.png)
+![Hermetrix logo](assets/brand/hermetrix-logo.png)
 
 Hermetrix is a local-first, provider-flexible agent harness built around three hard problems:
 
@@ -38,7 +38,7 @@ The name reflects the architecture: a **hermetic core** for bounded local author
 - durable run leases, step attempts and effect intents exposed through the local API: every effect action must be present in the step's frozen scope, pre-dispatch intents become abandoned after restart, and post-dispatch effects become uncertain and block resume until reconciled
 - a proposal-only task coordinator that binds an exact packet hash and attempt to 1–32 explicit or automatically selected project files, rejects the active provider credential before egress, records provider dispatch/receipt, persists immutable file-selection/code-proposal artifacts and never writes the source workspace before approval
 - durable code-proposal review decisions and an explicit apply gate: unreviewed output cannot write source, every preimage hash must still match, multi-file failure rolls already-written files back, and apply effects remain recoverable/inspectable
-- post-apply command verification that must cover every frozen step check exactly once, persists an immutable evidence bundle, and rolls the proposal back on mandatory failure; a distinct provider profile using a different model or endpoint must then independently approve the exact source/evidence bundle before criterion evidence is promoted and the task can close
+- post-apply command verification that must cover every frozen step check exactly once, persists an immutable evidence bundle, and rolls the proposal back on mandatory failure; a distinct provider profile performs a fresh review of the exact source/evidence bundle before criterion evidence is promoted and the task can close. That profile may use the same model and endpoint, so it is a separate review pass rather than model-diverse evidence
 - deterministic effect reconciliation keyed by the durable operation ID: managed commands look up the existing job/receipt, file-selection/proposal provider calls look up immutable operation-bound artifacts, and neither path replays an uncertain action; unsupported post-review/browser/MCP effect types remain explicitly unresolved
 - bounded automatic planning tied to the exact task/requirement revision, with durable pre/post-dispatch states, strict structured output, dependency validation, explicit acceptance-criterion coverage and an allowlist of executable effect scopes
 - a project-scoped Task cockpit in the split workspace for creating durable requirements, automatic planning, secret-filtered bounded file selection, restart-safe run/attempt recovery, bounded provider proposals, one-shot human review/apply, frozen-command verification and independent post-test review
@@ -272,6 +272,16 @@ marked **promoted by agent** with the date and the policy revision, and the row
 carries an **Undo this promotion** button. Automatic *archiving* stays off, and
 nothing is ever hard-deleted. To hold every promotion for review instead, set
 Skill authority to Manual on the Skill Studio screen.
+
+### Inspect a website in the managed browser
+
+Open a tab in the Browser pane or ask the local agent to use `browser` with `action=open` and the URL. After the page loads, use **Inspect page** in the pane or `browser` with `action=inspect` and the returned `tab_id`. The inspection reports a bounded DOM excerpt, client script references and inline excerpts, forms, same-origin links, console errors, loaded resources, and observed network requests with method, response status and selected security headers. Fetch/XHR entries identify API calls the page actually made. Interact with the page and inspect again to capture requests made by that workflow.
+
+The local agent can call `browser` with `action=audit` on the same `tab_id` to receive structured security signals. It checks the observed document response for CSP, HSTS, nosniff and framing controls, and highlights password forms targeting HTTP. Each finding carries an ID, severity, evidence and interpretation. The agent can use the result to choose a specific route or workflow to inspect next; a finding does not establish exploitability. `audit` uses only the current tab's existing page and network observations.
+
+For client code, the agent can call `browser` with `action=source`, that `tab_id`, and one script `url` returned by `inspect`. This reads the script response Chrome already loaded and returns a 16 KiB excerpt plus bounded literal path hints from scripts up to 512 KiB. Hints from code are candidates, not observed API requests; use `inspect` traffic or a scoped browser navigation to verify behavior.
+
+Inspection is passive: it does not make new script requests, guess and call endpoints, submit forms, or assert that an error response is a vulnerability. URL lists omit credentials, queries and fragments; page source excerpts can still contain application data. Use a target you own or have permission to assess. A specific bug claim needs a separate, scoped reproduction and expected-versus-actual evidence.
 
 ## Test
 

@@ -125,6 +125,58 @@ type CodeReview struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// LatestPostCodeReview lets a resumed coordinator finish an already observed
+// reviewer decision without asking the provider to decide the same proposal
+// again. The proposal and its immutable verification bundle remain the binding.
+func (s *Service) LatestPostCodeReview(ctx context.Context, proposalID string) (CodeReview, error) {
+	var item CodeReview
+	var findingsJSON, createdAt string
+	err := s.store.DB.QueryRowContext(ctx, `SELECT id,proposal_id,reviewer,verdict,rationale,findings_json,created_at
+		FROM task_code_reviews WHERE proposal_id=? AND reviewer LIKE 'provider:%'
+		ORDER BY created_at DESC LIMIT 1`, proposalID).Scan(&item.ID, &item.ProposalID, &item.Reviewer,
+		&item.Verdict, &item.Rationale, &findingsJSON, &createdAt)
+	if err != nil {
+		return CodeReview{}, err
+	}
+	if err = json.Unmarshal([]byte(findingsJSON), &item.Findings); err != nil {
+		return CodeReview{}, err
+	}
+	item.CreatedAt, err = parseTime(createdAt)
+	return item, err
+}
+
+// LatestRejectedProposalFeedback retains recent user reviews for this exact
+// step so a correction does not discard an earlier constraint. It never
+// imports a provider review or another task's instructions.
+func (s *Service) LatestRejectedProposalFeedback(ctx context.Context, taskID, stepID string) (string, error) {
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT r.rationale FROM task_code_reviews r
+		JOIN task_code_proposals p ON p.id=r.proposal_id
+		WHERE p.task_id=? AND p.step_id=? AND p.state='rejected' AND r.verdict='rejected'
+		ORDER BY r.created_at DESC LIMIT 3`, taskID, stepID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	feedback := make([]string, 0, 3)
+	for rows.Next() {
+		var rationale string
+		if err := rows.Scan(&rationale); err != nil {
+			return "", err
+		}
+		if len([]rune(rationale)) > 2000 {
+			return "", fmt.Errorf("proposal feedback is too long")
+		}
+		feedback = append(feedback, rationale)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	for i, j := 0, len(feedback)-1; i < j; i, j = i+1, j-1 {
+		feedback[i], feedback[j] = feedback[j], feedback[i]
+	}
+	return strings.Join(feedback, "\n\nNext review correction:\n"), nil
+}
+
 type RecordCodeProposalInput struct {
 	ID, TaskID, StepID, AttemptID, ProjectID, PacketHash string
 	ProviderID, ProviderRevision, ArtifactID, ResultHash string

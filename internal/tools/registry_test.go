@@ -233,6 +233,27 @@ func TestPlanBrowserApprovalRejectsAURLThatDoesNotParse(t *testing.T) {
 	}
 }
 
+func TestBrowserMutationApprovalBindsExactObservedAction(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := strings.Repeat("a", 64)
+	call := providers.ToolCall{ID: "action-1", Name: "browser", Arguments: `{"action":"type","tab_id":"tab-1","ref":2,"text":"save draft","observation_hash":"` + hash + `"}`}
+	required, err := registry.RequiresApproval(call)
+	if err != nil || !required {
+		t.Fatalf("type approval required=%v err=%v", required, err)
+	}
+	plan, err := registry.PlanApproval(context.Background(), call)
+	if err != nil || !strings.Contains(plan.Preview, "save draft") || !strings.Contains(plan.Preview, hash) || plan.ArgumentsHash == "" {
+		t.Fatalf("exact type action preview=%+v err=%v", plan, err)
+	}
+	call.Arguments = `{"action":"click","tab_id":"tab-1","ref":2}`
+	if _, err := registry.PlanApproval(context.Background(), call); err == nil {
+		t.Fatal("click without current observation hash was approvable")
+	}
+}
+
 func TestDeferredSearchDescribeCallAndDynamicApproval(t *testing.T) {
 	registry, err := NewRegistry(t.TempDir())
 	if err != nil {
@@ -507,8 +528,8 @@ func TestBillableTextIsLargerThanTheBareSchema(t *testing.T) {
 }
 
 // With the real payload counted, the smallest envelope must still fit the
-// direct tools. If this fails, the tool waist has outgrown Compact 32k and the
-// fix is fewer or smaller tools, not a bigger budget.
+// direct tools. Keep these schemas small; a separate calibrated check covers
+// the headroom needed by frozen session contracts.
 func TestRealPayloadFitsEveryProfileDirectToolBudget(t *testing.T) {
 	registry, err := NewRegistry(t.TempDir())
 	if err != nil {
@@ -524,6 +545,25 @@ func TestRealPayloadFitsEveryProfileDirectToolBudget(t *testing.T) {
 			t.Fatalf("direct tools bill %d tokens, over the %s budget of %d", used, profile.Name, profile.DirectToolBudget)
 		}
 		t.Logf("%s: %d of %d direct-tool tokens used", profile.Name, used, profile.DirectToolBudget)
+	}
+}
+
+// A local provider's token calibration can grow after a session freezes its
+// tool bindings. Keep the smallest profile usable without rewriting that
+// session contract when the measured model is costlier than the base heuristic.
+func TestCalibratedDirectToolsFitCompact16K(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	estimator := ctxcompiler.ScriptEstimator{Scale: 1.2}
+	used := 0
+	for _, spec := range registry.ContextSpecs() {
+		used += estimator.Count(spec.BillableText())
+	}
+	budget := ctxcompiler.Compact16K().DirectToolBudget
+	if used > budget {
+		t.Fatalf("calibrated direct tools bill %d tokens, over compact-16k budget %d", used, budget)
 	}
 }
 

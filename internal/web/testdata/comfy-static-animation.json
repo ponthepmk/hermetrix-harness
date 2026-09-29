@@ -1,0 +1,17 @@
+{
+  "1": {
+    "class_type": "EmptyImage",
+    "inputs": {"width": 256, "height": 256, "batch_size": 12, "color": 2042487}
+  },
+  "2": {
+    "class_type": "SaveAnimatedWEBP",
+    "inputs": {
+      "images": ["1", 0],
+      "filename_prefix": "HermetrixSmoke",
+      "fps": 6,
+      "lossless": true,
+      "quality": 80,
+      "method": "default"
+    }
+  }
+}

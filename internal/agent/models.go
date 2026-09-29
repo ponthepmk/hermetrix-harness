@@ -20,6 +20,7 @@ type Session struct {
 	ExportPolicy       string          `json:"export_policy"`
 	SharingRevision    int             `json:"sharing_revision"`
 	EgressPolicy       string          `json:"egress_policy"`
+	TeamChild          bool            `json:"team_child"`
 	ContextProfile     string          `json:"context_profile"`
 	State              string          `json:"state"`
 	ActiveTurnID       string          `json:"active_turn_id,omitempty"`
@@ -63,11 +64,12 @@ type QualificationBinding struct {
 }
 
 type SessionSkillBinding struct {
-	SkillID       string `json:"skill_id"`
-	VersionID     string `json:"version_id"`
-	CanonicalName string `json:"canonical_name"`
-	Summary       string `json:"summary"`
-	Pinned        bool   `json:"pinned"`
+	SkillID         string `json:"skill_id"`
+	VersionID       string `json:"version_id"`
+	CanonicalName   string `json:"canonical_name"`
+	Summary         string `json:"summary"`
+	Pinned          bool   `json:"pinned"`
+	SelectionReason string `json:"selection_reason,omitempty"`
 }
 
 type InferencePresetBinding struct {
@@ -177,8 +179,9 @@ type StepBinding struct {
 }
 
 type TurnInput struct {
-	Content string      `json:"content"`
-	Parts   []EventPart `json:"parts,omitempty"`
+	Content        string      `json:"content"`
+	Parts          []EventPart `json:"parts,omitempty"`
+	IdempotencyKey string      `json:"idempotency_key,omitempty"`
 }
 
 type TurnResult struct {
@@ -234,9 +237,17 @@ type StreamEvent struct {
 }
 
 type SessionDetail struct {
-	Session   Session        `json:"session"`
-	Events    []Event        `json:"events"`
-	Approvals []ToolApproval `json:"approvals"`
+	Session               Session                 `json:"session"`
+	Events                []Event                 `json:"events"`
+	Approvals             []ToolApproval          `json:"approvals"`
+	LatestContextSnapshot *ContextSnapshotSummary `json:"latest_context_snapshot,omitempty"`
+	ContextSnapshotError  string                  `json:"context_snapshot_error,omitempty"`
+}
+
+type ContextSnapshotSummary struct {
+	ID        string             `json:"id"`
+	CreatedAt time.Time          `json:"created_at"`
+	Report    ctxcompiler.Report `json:"report"`
 }
 
 // SkillRetrievalStats answers the question ADR-7 left open: when a session had

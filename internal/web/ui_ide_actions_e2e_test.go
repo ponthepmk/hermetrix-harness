@@ -61,6 +61,12 @@ func TestIDEFormatRunTestAndDebugInBrowser(t *testing.T) {
 	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.navigate", map[string]any{"url": server.URL}, nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
 		t.Fatal(err)
 	}

@@ -76,6 +76,84 @@ func (s *Server) getTaskNextAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) getTaskCompletion(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	revision, err := strconv.Atoi(r.URL.Query().Get("revision"))
+	if err != nil || revision < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a positive task revision is required"})
+		return
+	}
+	report, err := s.tasks.EvaluateCompletion(r.Context(), r.PathValue("id"), revision)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) acceptTaskResult(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input struct {
+		ExpectedTaskRevision int    `json:"expected_task_revision"`
+		SubjectHash          string `json:"subject_hash"`
+		Actor                string `json:"actor"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	report, err := s.tasks.RecordUserAcceptance(r.Context(), r.PathValue("id"), input.ExpectedTaskRevision,
+		input.SubjectHash, effectiveActor(r.Context(), input.Actor))
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) reviewTaskPlan(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input struct {
+		ExpectedTaskRevision int    `json:"expected_task_revision"`
+		SubjectHash          string `json:"subject_hash"`
+		Actor                string `json:"actor"`
+		Verdict              string `json:"verdict"`
+		Reason               string `json:"reason"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	task, err := s.tasks.ReviewPlan(r.Context(), r.PathValue("id"), input.ExpectedTaskRevision, input.SubjectHash,
+		effectiveActor(r.Context(), input.Actor), input.Verdict, input.Reason)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) getTaskPlanRevision(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	revision, err := strconv.Atoi(r.PathValue("revision"))
+	if err != nil || revision < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "positive plan revision is required"})
+		return
+	}
+	plan, err := s.tasks.GetPlanRevision(r.Context(), r.PathValue("id"), revision)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
 func (s *Server) getTaskProgress(w http.ResponseWriter, r *http.Request) {
 	if !s.requireTaskEngine(w) {
 		return
@@ -236,6 +314,78 @@ func (s *Server) recoverExpiredTaskRun(w http.ResponseWriter, r *http.Request) {
 		TaskID: r.PathValue("id"), ExpectedTaskRevision: input.ExpectedTaskRevision,
 		Actor: effectiveActor(r.Context(), input.Actor),
 	})
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) resumeObservedTaskReview(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input taskengine.RecoverExpiredRunInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.TaskID = r.PathValue("id")
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, err := s.tasks.ResumeObservedReview(r.Context(), input)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) resumeApprovedTaskReview(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input taskengine.RecoverExpiredRunInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.TaskID = r.PathValue("id")
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, err := s.tasks.ResumeApprovedReview(r.Context(), input)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) retryFailedTaskProposal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input taskengine.RecoverExpiredRunInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.TaskID = r.PathValue("id")
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, err := s.tasks.RetryFailedProposalAttempt(r.Context(), input)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) retryRejectedTaskProposal(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	var input taskengine.RecoverExpiredRunInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.TaskID = r.PathValue("id")
+	input.Actor = effectiveActor(r.Context(), input.Actor)
+	item, err := s.tasks.RetryRejectedProposalAttempt(r.Context(), input)
 	if err != nil {
 		taskError(w, err)
 		return
@@ -733,4 +883,17 @@ func taskError(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func (s *Server) listTaskActivity(w http.ResponseWriter, r *http.Request) {
+	if !s.requireTaskEngine(w) {
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	items, err := s.tasks.ListActivity(r.Context(), r.PathValue("id"), limit)
+	if err != nil {
+		taskError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }

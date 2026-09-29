@@ -36,6 +36,12 @@ func (s *Service) CreateInTx(ctx context.Context, tx *sql.Tx, input CreateTaskIn
 	if err := validateCriteria(input.Criteria); err != nil {
 		return CreatedTask{}, err
 	}
+	if err := validateGoalContract(input.Contract); err != nil {
+		return CreatedTask{}, err
+	}
+	if input.Contract.Outcome != "" && strings.TrimSpace(input.Contract.Outcome) != strings.TrimSpace(input.Objective) {
+		return CreatedTask{}, fmt.Errorf("goal contract outcome must match the task objective")
+	}
 	egressPolicy := strings.TrimSpace(input.EgressPolicy)
 	if egressPolicy == "" {
 		egressPolicy = "local_only"
@@ -75,9 +81,12 @@ func (s *Service) CreateInTx(ctx context.Context, tx *sql.Tx, input CreateTaskIn
 	constraints, _ := json.Marshal(cleanStrings(input.Constraints))
 	unknowns, _ := json.Marshal(cleanStrings(input.Unknowns))
 	criteria, _ := json.Marshal(input.Criteria)
+	goalContract := normalizeGoalContract(input.Contract)
+	goalContract.Outcome = strings.TrimSpace(input.Objective)
+	contract, _ := json.Marshal(goalContract)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO task_requirement_revisions
-		(id,task_id,revision,constraints_json,unknowns_json,criteria_json,actor,created_at)
-		VALUES(?,?,1,?,?,?,?,?)`, created.RequirementID, created.TaskID, string(constraints), string(unknowns), string(criteria),
+		(id,task_id,revision,constraints_json,unknowns_json,criteria_json,contract_json,actor,created_at)
+		VALUES(?,?,1,?,?,?,?,?,?)`, created.RequirementID, created.TaskID, string(constraints), string(unknowns), string(criteria), string(contract),
 		strings.TrimSpace(input.Actor), formatTime(now)); err != nil {
 		return CreatedTask{}, err
 	}

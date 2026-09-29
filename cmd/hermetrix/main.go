@@ -181,8 +181,10 @@ func runServe(args []string) {
 	// Pinning is a convenience, so a failure here is reported and stepped over:
 	// a server that refuses to start because a preference did not save would be
 	// trading the whole product for the ordering of one list.
-	if _, pinErr := productService.PinProject(ctx, workspaceProject.ID, true); pinErr != nil {
-		logger.Warn("pin workspace project", "error", pinErr, "project", workspaceProject.Name)
+	if workspaceProject.State == "active" {
+		if _, pinErr := productService.PinProject(ctx, workspaceProject.ID, true); pinErr != nil {
+			logger.Warn("pin workspace project", "error", pinErr, "project", workspaceProject.Name)
+		}
 	}
 	fidelityService := fidelity.NewService(dataStore, compiler)
 	if err := fidelityService.EnsureDefaultCorpus(ctx); err != nil {
@@ -311,7 +313,7 @@ func runServe(args []string) {
 	webServer := web.New(skillService, learningService, curatorService, compiler, estimator,
 		localProber, providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
-		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService)
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).WithSocialVault(vault)
 	if authEnabled {
 		webServer.WithAuthentication(authToken, strings.TrimSpace(*authPrincipal), tlsEnabled)
 	}

@@ -363,6 +363,121 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 			return fmt.Errorf("apply schema v49: %w", err)
 		}
 	}
+	if version < 50 {
+		if err := migrateV50(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v50: %w", err)
+		}
+	}
+	if version < 51 {
+		if err := migrateV51(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v51: %w", err)
+		}
+	}
+	if version < 52 {
+		if err := migrateV52(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v52: %w", err)
+		}
+	}
+	if version < 53 {
+		if err := migrateV53(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v53: %w", err)
+		}
+	}
+	if version < 54 {
+		if err := migrateV54(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v54: %w", err)
+		}
+	}
+	if version < 55 {
+		if err := migrateV55(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v55: %w", err)
+		}
+	}
+	if version < 56 {
+		if err := migrateV56(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v56: %w", err)
+		}
+	}
+	if version < 57 {
+		if err := migrateV57(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v57: %w", err)
+		}
+	}
+	if version < 58 {
+		if err := migrateV58(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v58: %w", err)
+		}
+	}
+	if version < 59 {
+		if err := migrateV59(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v59: %w", err)
+		}
+	}
+	if version < 60 {
+		if err := migrateV60(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v60: %w", err)
+		}
+	}
+	if version < 61 {
+		if err := migrateV61(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v61: %w", err)
+		}
+	}
+	if version < 62 {
+		if err := migrateV62(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v62: %w", err)
+		}
+	}
+	if version < 63 {
+		if err := migrateV63(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v63: %w", err)
+		}
+	}
+	if version < 64 {
+		if err := migrateV64(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v64: %w", err)
+		}
+	}
+	if version < 65 {
+		if err := migrateV65(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v65: %w", err)
+		}
+	}
+	if version < 66 {
+		if err := migrateV66(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v66: %w", err)
+		}
+	}
+	if version < 67 {
+		if err := migrateV67(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v67: %w", err)
+		}
+	}
+	if version < 68 {
+		if err := migrateV68(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v68: %w", err)
+		}
+	}
+	if version < 69 {
+		if err := migrateV69(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v69: %w", err)
+		}
+	}
+	if version < 70 {
+		if err := migrateV70(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v70: %w", err)
+		}
+	}
+	if version < 71 {
+		if err := migrateV71(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v71: %w", err)
+		}
+	}
+	if version < 72 {
+		if err := migrateV72(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v72: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -375,7 +490,7 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 49
+const CurrentSchemaVersion = 72
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (

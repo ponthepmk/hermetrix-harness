@@ -64,11 +64,13 @@ func Compact32K() Profile {
 
 // Compact16K fits a local runtime that actually allocated only 16k tokens.
 // Keep all reserves inside that observed capacity instead of advertising a
-// 32k profile that the model cannot run.
+// 32k profile that the model cannot run. The direct-tool slice leaves room for
+// provider calibration after a session has frozen its tool bindings; that room
+// comes from the active slice, not from the output or uncertainty reserves.
 func Compact16K() Profile {
 	return Profile{Name: "compact-16k", Total: 16384, OutputReserve: 3072,
-		UncertaintyReserve: 1024, SystemBudget: 1024, DirectToolBudget: 3072,
-		SkillProjectBudget: 1024, PinnedBudget: 1024, ActiveBudget: 6144,
+		UncertaintyReserve: 1024, SystemBudget: 1024, DirectToolBudget: 3584,
+		SkillProjectBudget: 1024, PinnedBudget: 1024, ActiveBudget: 5632,
 		SummaryTarget: 512, MaxInlineTool: 800}
 }
 

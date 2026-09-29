@@ -11,13 +11,14 @@ Hermetrix combines four ideas:
 
 | File | Role |
 |---|---|
-| `hermetrix-mark-flat.svg` | quiet flat app/runtime mark for the document-first desktop theme |
-| `hermetrix-mark-v3.png` | current compact 1,254px transparent galactic mark |
-| `hermetrix-engine-v3.png` | current 1,322×1,190px transparent engine master |
-| `hermetrix-engine-v3-512.png` | current detailed UI emblem |
-| `hermetrix-icon-v3-512.png` | current application/store icon |
-| `hermetrix-icon-v3-192.png` | current web/app runtime icon |
-| `hermetrix-favicon-v3-48.png` | current browser favicon |
+| `hermetrix-logo.png` | current user-supplied Hermetrix logo; exact transparent master used in the desktop shell and favicon |
+| `hermetrix-mark-flat.svg` | previous flat shell mark, retained for history |
+| `hermetrix-mark-v3.png` | earlier compact 1,254px transparent galactic mark |
+| `hermetrix-engine-v3.png` | earlier 1,322×1,190px transparent engine master |
+| `hermetrix-engine-v3-512.png` | earlier detailed UI emblem |
+| `hermetrix-icon-v3-512.png` | earlier application/store icon |
+| `hermetrix-icon-v3-192.png` | earlier web/app runtime icon |
+| `hermetrix-favicon-v3-48.png` | earlier browser favicon |
 | `hermetrix-mark-v4.png` | exploratory AI-companion variation |
 | `hermetrix-engine-v4.png` | exploratory assistant-engine variation |
 | `hermetrix-engine-v4-512.png` | exploratory detailed emblem |
@@ -37,13 +38,11 @@ Hermetrix combines four ideas:
 | `hermetrix-engine.png` | 1,254px transparent Hermetrix Engine master emblem |
 | `hermetrix-engine-512.png` | optimized UI engine emblem |
 
-All masters are original raster assets generated for this project. The selected v3 identity keeps the friendly intelligent-tool silhouette and turns the central core into a restrained galactic learning nucleus. The assistant role is expressed primarily through product behavior and UX rather than adding a literal chat symbol to the brand mark. Cyan/teal remains the primary signal, lime represents continuity and violet distinguishes capability evolution. It does not reuse Aetox branding or source assets.
-
-The desktop interface uses the flat SVG mark and the line-icon sprite in
-`assets/icons/hermetrix-ui.svg`. These preserve the bracket-and-core identity
-while matching the quieter workspace theme; the detailed raster masters remain
-available for launch, marketing, and larger identity surfaces.
-
+The user-supplied Hermetrix logo is the current product mark. The desktop shell,
+project picker, settings header, chat welcome state, browser favicon and touch
+icon all reference the same transparent master. The monochrome line icons in
+`assets/icons/hermetrix-ui.svg` remain action icons rather than brand marks.
+Earlier v3 and v4 artwork is retained as design history.
 ## Palette
 
 - Intelligence cyan: `#45E8E8`
@@ -54,7 +53,7 @@ available for launch, marketing, and larger identity surfaces.
 - Cool silver: `#EEF1F5`
 - Muted steel: `#929BA8`
 
-The v3 engine is the current product mark and is exported at app and favicon sizes. The detailed emblem uses orbital capability paths; the compact mark keeps the galaxy entirely inside the core so it remains legible at favicon size. The v4 assistant-symbol experiment remains in the repository as design provenance, but new surfaces should reference the `v3` files.
+The previous v3 and v4 variations remain available for provenance; new branded surfaces should use `hermetrix-logo.png`.
 
 ### AI companion engine — v4 final prompt
 

@@ -30,9 +30,9 @@ func createPlannedTask(t *testing.T, service *Service) Task {
 	task, err = service.CreatePlan(ctx, CreatePlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision,
 		RequirementRevision: task.ActiveRequirementRevision, Reason: "first evidence-bound plan", Actor: "planner",
 		Steps: []StepSpec{
-			{Key: "reproduce", Title: "Reproduce", Instructions: "capture the failing case", Checks: []string{"failure-captured"},
+			{Key: "reproduce", Title: "Reproduce", Instructions: "capture the failing case", RequirementIDs: []string{"AC-1"}, Checks: []string{"failure-captured"},
 				EffectScope: []string{"workspace.run", "desktop.click", "desktop.type", "write"}},
-			{Key: "fix", Title: "Fix", Instructions: "apply the smallest patch", Dependencies: []string{"reproduce"}, Checks: []string{"targeted-test"}},
+			{Key: "fix", Title: "Fix", Instructions: "apply the smallest patch", RequirementIDs: []string{"AC-1"}, Dependencies: []string{"reproduce"}, Checks: []string{"targeted-test"}},
 		}})
 	if err != nil {
 		t.Fatal(err)
@@ -187,6 +187,36 @@ func TestPlanRejectsUnknownAcceptanceCriterionMapping(t *testing.T) {
 		}}})
 	if err == nil {
 		t.Fatal("plan mapped a step to an unknown acceptance criterion")
+	}
+}
+
+func TestPlanRequiresCheckedCoverageForEveryCriterion(t *testing.T) {
+	service, _ := testService(t)
+	ctx := context.Background()
+	task, err := service.Create(ctx, CreateTaskInput{Title: "Coverage", Objective: "verify both outcomes", OriginalRequest: "cover criteria",
+		Criteria: []Criterion{{ID: "AC-1", Description: "first outcome"}, {ID: "AC-2", Description: "second outcome"}}, Actor: "owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := CreatePlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, RequirementRevision: task.ActiveRequirementRevision,
+		Reason: "checked plan", Actor: "planner", Steps: []StepSpec{{Key: "verify", Title: "Verify", Instructions: "run checks",
+			RequirementIDs: []string{"AC-1"}, Checks: []string{"first-check"}}}}
+	if _, err := service.CreatePlan(ctx, input); err == nil {
+		t.Fatal("plan omitted AC-2")
+	}
+	input.Steps = append(input.Steps, StepSpec{Key: "unmapped", Title: "Unmapped", Instructions: "change source", Checks: []string{"go test ./..."}})
+	if _, err := service.CreatePlan(ctx, input); err == nil {
+		t.Fatal("plan accepted a step whose frozen checks cannot map to a criterion")
+	}
+	input.Steps = input.Steps[:1]
+	input.Steps[0].RequirementIDs = []string{"AC-1", "AC-2"}
+	input.Steps[0].Checks = nil
+	if _, err := service.CreatePlan(ctx, input); err == nil {
+		t.Fatal("plan mapped criteria without a check")
+	}
+	input.Steps[0].Checks = []string{"both-checks"}
+	if _, err := service.CreatePlan(ctx, input); err != nil {
+		t.Fatalf("fully mapped plan rejected: %v", err)
 	}
 }
 

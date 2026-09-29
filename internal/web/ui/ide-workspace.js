@@ -34,18 +34,18 @@
     if (state.view !== "code") switchView("code");
     collapseZone("rail", true);
     const side = ["files", "chat", "git", "environment"].includes(state.panes[1]) ? state.panes[1] : "files";
-    state.panes = ["editor", side];
+    state.panes = [state.projectFile ? "editor" : "review", side];
     if (consoleKind) state.panes.push(consoleKind);
     state.paneLayout = "ide";
     state.maximisedPane = null;
-    state.compactPane = "editor";
+    state.compactPane = state.projectFile ? "editor" : side;
     renderPanes(); saveLayout();
   }
   function panel(kind) {
     if (["files", "chat", "git", "environment"].includes(kind)) {
       if (state.view !== "code" || state.paneLayout !== "ide") open();
-      state.panes[1] = kind;
-      state.compactPane = window.innerWidth <= 900 ? kind : "editor";
+      if (!state.panes.includes(kind)) state.panes.splice(1, 0, kind);
+      state.compactPane = window.innerWidth <= 900 || !state.projectFile ? kind : "editor";
       renderPanes(); saveLayout();
     } else if (["output", "debug", "terminal"].includes(kind)) open(kind);
     else openContentPane(kind);

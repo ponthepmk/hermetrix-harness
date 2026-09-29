@@ -59,11 +59,23 @@ type BrowserOpenRequest struct {
 
 // BrowserActRequest drives an already-open tab.
 type BrowserActRequest struct {
-	Action string
-	URL    string
-	Ref    int
-	Text   string
-	Actor  string
+	ProjectID       string
+	Action          string
+	URL             string
+	Ref             int
+	Text            string
+	ObservationHash string
+	Actor           string
+	ReceiptID       string
+	SubjectHash     string
+}
+
+// BrowserActionPreparation is a one-use, exact-subject receipt created after
+// the agent's tool call has received a human approval grant.
+type BrowserActionPreparation struct {
+	ReceiptID          string
+	SubjectHash        string
+	ScreenshotBeforeID string
 }
 
 // BrowserPageElement is one thing on the page that can be clicked or typed
@@ -82,6 +94,7 @@ type BrowserPageElement struct {
 // the agent is data, never a command.
 type BrowserPage struct {
 	TabID                string
+	ObservationHash      string
 	URL                  string
 	Title                string
 	State                string
@@ -89,4 +102,66 @@ type BrowserPage struct {
 	Elements             []BrowserPageElement
 	ScreenshotArtifactID string
 	Error                string
+	Inspection           *BrowserInspection
+}
+
+// BrowserInspection is passive evidence from the current document and the
+// browser's resource timing buffer. It does not probe unvisited endpoints.
+type BrowserInspection struct {
+	DOMExcerpt   string                      `json:"dom_excerpt,omitempty"`
+	Scripts      []BrowserInspectionScript   `json:"scripts"`
+	Forms        []BrowserInspectionForm     `json:"forms"`
+	Resources    []BrowserInspectionResource `json:"resources"`
+	Traffic      []BrowserInspectionTraffic  `json:"traffic,omitempty"`
+	Routes       []string                    `json:"routes"`
+	PageErrors   []string                    `json:"page_errors"`
+	Security     *BrowserSecurityAudit       `json:"security,omitempty"`
+	ClientSource *BrowserClientSource        `json:"client_source,omitempty"`
+}
+
+type BrowserInspectionScript struct {
+	URL           string `json:"url,omitempty"`
+	InlineExcerpt string `json:"inline_excerpt,omitempty"`
+}
+
+type BrowserInspectionForm struct {
+	Method      string `json:"method"`
+	Action      string `json:"action"`
+	HasPassword bool   `json:"has_password,omitempty"`
+}
+
+type BrowserInspectionResource struct {
+	URL           string `json:"url"`
+	InitiatorType string `json:"initiator_type"`
+	Status        int    `json:"status,omitempty"`
+}
+
+// BrowserInspectionTraffic contains only already observed requests. Headers
+// are restricted to security policy names; credentials and bodies are omitted.
+type BrowserInspectionTraffic struct {
+	URL             string            `json:"url"`
+	Method          string            `json:"method,omitempty"`
+	Type            string            `json:"type,omitempty"`
+	Status          int               `json:"status"`
+	SecurityHeaders map[string]string `json:"security_headers,omitempty"`
+}
+
+type BrowserSecurityAudit struct {
+	Scope    string                   `json:"scope"`
+	Findings []BrowserSecurityFinding `json:"findings"`
+}
+
+type BrowserSecurityFinding struct {
+	ID       string `json:"id"`
+	Severity string `json:"severity"`
+	Title    string `json:"title"`
+	Evidence string `json:"evidence"`
+	Meaning  string `json:"meaning"`
+}
+
+type BrowserClientSource struct {
+	URL       string   `json:"url"`
+	Excerpt   string   `json:"excerpt"`
+	Truncated bool     `json:"truncated"`
+	PathHints []string `json:"path_hints"`
 }

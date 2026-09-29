@@ -12,7 +12,7 @@ function harness() {
   const state = {view:"code", projects, currentProject:projects[0], draftProjectID:"a",
     providers:[{id:"local", name:"Local", model:"model", enabled:true, credential_ready:true}],
     profiles:[{name:"compact"}], sessions:[], elicitations:[], railProjectOpen:{}, railProjectsOpen:true,
-    draftQualificationReason:"", sessionDetail:null, selectedSession:null, sending:false};
+    draftQualificationReason:"", chatTurnError:"", sessionDetail:null, selectedSession:null, sending:false};
   const nodes = new Map();
   for (const id of ["sessionDock", "sessionSetupBody", "railNewSession", "sessionSetup", "chatProviderSelect", "chatQualificationReason", "openProvidersFromDock"]) {
     nodes.set(`#${id}`, {innerHTML:"", disabled:false, listeners:{}, focus(){},
@@ -21,6 +21,9 @@ function harness() {
   const actions = [];
   const context = vm.createContext({state, $:selector=>nodes.get(selector), $$:()=>[],
     captureComposer:()=>{}, HermetrixRuntime:{preferredProvider:providers=>providers[0]},
+    selectDraftProvider:id=>{state.draftProviderID=id;state.draftProfileName="";},
+    providerOptionLabel:provider=>`${provider.name} · ${provider.model}`,
+    taskProviderIsLocal:()=>true,
     availableProfiles:()=>state.profiles, bestProfileFor:(_provider, profiles)=>profiles[0],
     profileAdmission:()=>({admitted:true, mode:"compatibility", budget:512}),
     suggestedOverrideReason:()=>"Reviewed reason", profileLabel:profile=>profile.name,
@@ -31,20 +34,19 @@ function harness() {
   return {state, nodes, context, actions, projects};
 }
 
-test("Workspace project switch updates global rail and model setup without a mounted Chat view", () => {
+test("Workspace project switch updates the global rail while personal Chat keeps its model setup", () => {
   const {state, nodes, context, projects, actions} = harness();
   assert.equal(nodes.has("#view-chat"), false);
   context.renderChat();
   assert.match(nodes.get("#sessionDock").innerHTML, /rail-project active[\s\S]*?data-rail-project="a"/);
-  assert.match(nodes.get("#sessionSetupBody").innerHTML, /Project A/);
+  assert.match(nodes.get("#sessionSetupBody").innerHTML, /แชทส่วนตัว/);
   state.currentProject = projects[1];
   state.draftProjectID = "b";
   context.renderChat();
   const rail = nodes.get("#sessionDock").innerHTML;
   assert.match(rail, /rail-project active[\s\S]*?data-rail-project="b"/);
   assert.doesNotMatch(rail, /rail-project active[\s\S]*?data-rail-project="a"/);
-  assert.match(nodes.get("#sessionSetupBody").innerHTML, /Project B/);
-  assert.doesNotMatch(nodes.get("#sessionSetupBody").innerHTML, /Project A/);
+  assert.match(nodes.get("#sessionSetupBody").innerHTML, /แชทส่วนตัว/);
   nodes.get("#sessionSetup").listeners.click();
   assert.deepEqual(actions, ["setup"]);
   assert.equal(typeof nodes.get("#chatProviderSelect").listeners.change, "function");
@@ -56,7 +58,7 @@ test("a configured model missing credentials retains a direct recovery action in
   context.renderChat();
   assert.equal(state.sessionReady, false);
   const body = nodes.get("#sessionSetupBody").innerHTML;
-  assert.match(body, /has no API key/);
+  assert.match(body, /ยังไม่มี API key/);
   assert.match(body, /id="openProvidersFromDock">จัดการโมเดลและการเชื่อมต่อ/);
   nodes.get("#openProvidersFromDock").listeners.click();
   assert.deepEqual(actions, ["close", "providers"]);

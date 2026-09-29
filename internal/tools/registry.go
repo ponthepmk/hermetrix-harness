@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -723,8 +724,12 @@ func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolC
 		return ApprovalPlan{}, err
 	}
 	var args struct {
-		Action string `json:"action"`
-		URL    string `json:"url"`
+		Action          string `json:"action"`
+		URL             string `json:"url"`
+		TabID           string `json:"tab_id"`
+		Ref             int    `json:"ref"`
+		Text            string `json:"text"`
+		ObservationHash string `json:"observation_hash"`
 	}
 	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
 		return ApprovalPlan{}, fmt.Errorf("invalid browser arguments: %w", err)
@@ -734,6 +739,24 @@ func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolC
 	// driver, so the preview built below and the destination actually opened
 	// once approved are the same bytes.
 	args.URL = NormalizeBrowserURL(args.URL)
+	if args.Action == "click" || args.Action == "type" {
+		if strings.TrimSpace(args.TabID) == "" || args.Ref < 1 || len(args.ObservationHash) != 64 ||
+			(args.Action == "type" && len(args.Text) > 64<<10) {
+			return ApprovalPlan{}, fmt.Errorf("browser action requires tab_id, ref, current observation_hash and bounded text")
+		}
+		argumentSum := sha256.Sum256([]byte(call.Arguments))
+		previewText := args.Text
+		if len(previewText) > 1000 {
+			previewText = previewText[:1000] + "… [preview clipped; full value bound by arguments hash]"
+		}
+		preview := fmt.Sprintf("The agent wants to %s element %d in tab %q.\nObservation: %s", args.Action, args.Ref, args.TabID, args.ObservationHash)
+		if args.Action == "type" {
+			preview += "\nText: " + strconv.Quote(previewText)
+		}
+		return ApprovalPlan{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision, Effect: definition.Effect,
+			ArgumentsHash: hex.EncodeToString(argumentSum[:]), Summary: fmt.Sprintf("%s element %d in tab %s", args.Action, args.Ref, args.TabID),
+			Preview: preview, Metadata: map[string]any{"action": args.Action, "tab_id": args.TabID, "ref": args.Ref, "observation_hash": args.ObservationHash}}, nil
+	}
 	if _, err := ParseBrowserURL(args.URL); err != nil {
 		// A URL that does not parse cannot be shown to a human honestly either:
 		// url.Parse rejects control characters, so this is precisely the case

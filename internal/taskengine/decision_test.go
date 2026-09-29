@@ -145,6 +145,29 @@ func TestDecisionUsesLatestCheckStatus(t *testing.T) {
 	}
 }
 
+func TestDecisionIgnoresFailedCheckFromEarlierStepRevision(t *testing.T) {
+	service, _ := testService(t)
+	ctx := context.Background()
+	task := createPlannedTask(t, service)
+	step := task.Plan.Steps[0]
+	if _, err := service.RecordValidation(ctx, Validation{TaskID: task.ID, StepID: step.ID,
+		CheckID: step.Checks[0], SubjectRevision: StepSubjectRevision(step), Status: ValidationFail,
+		EvidenceRefs: []string{"artifact:old-failure"}}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.StartStep(ctx, task.ID, step.Key, task.Revision, step.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.DecideNextAction(ctx, task.ID, task.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.State.FailedChecks) != 0 || result.Decision.ActionID == "run_test" {
+		t.Fatalf("stale check failure influenced current decision: %+v", result)
+	}
+}
+
 func TestBoundedDecisionTextPreservesUTF8(t *testing.T) {
 	value := boundedDecisionText(strings.Repeat("ท", maxCompactGoal+1), maxCompactGoal)
 	if !utf8.ValidString(value) || len([]rune(value)) != maxCompactGoal+1 {

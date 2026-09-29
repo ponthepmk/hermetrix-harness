@@ -1,7 +1,9 @@
 package blob
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"testing"
 )
 
@@ -30,6 +32,32 @@ func TestPutIsContentAddressedAndIntegrityChecked(t *testing.T) {
 	}
 	if _, err := store.Get("../escape"); !errors.Is(err, ErrInvalidRef) {
 		t.Fatalf("unsafe ref error = %v", err)
+	}
+}
+
+func TestStreamingBlobLimitAndSeekableIntegrity(t *testing.T) {
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.PutReader(bytes.NewReader([]byte("too long")), 3); err == nil {
+		t.Fatal("oversized stream was accepted")
+	}
+	ref, n, err := store.PutReader(bytes.NewReader([]byte("seekable")), 20)
+	if err != nil || n != 8 {
+		t.Fatalf("stream ref=%s n=%d err=%v", ref, n, err)
+	}
+	file, err := store.OpenVerified(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if _, err := file.Seek(4, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	chunk, err := io.ReadAll(file)
+	if err != nil || string(chunk) != "able" {
+		t.Fatalf("seekable chunk=%s err=%v", chunk, err)
 	}
 }
 

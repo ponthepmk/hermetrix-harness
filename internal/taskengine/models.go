@@ -33,16 +33,38 @@ type Criterion struct {
 	Description string `json:"description"`
 }
 
+// GoalContract records why the active criteria apply and which human decision
+// is required after objective evidence has passed. It belongs to a requirement
+// revision, so changing it invalidates the active plan and prior acceptance.
+type GoalContract struct {
+	Outcome               string              `json:"outcome,omitempty"`
+	Scope                 string              `json:"scope,omitempty"`
+	Assumptions           []string            `json:"assumptions,omitempty"`
+	AffectedJourneys      []string            `json:"affected_journeys,omitempty"`
+	ExperiencePreview     string              `json:"experience_preview,omitempty"`
+	Clarifications        []GoalClarification `json:"clarifications,omitempty"`
+	Verification          string              `json:"verification,omitempty"`
+	ReviewerPolicy        string              `json:"reviewer_policy"`
+	RequirePlanReview     bool                `json:"require_plan_review,omitempty"`
+	RequireUserAcceptance bool                `json:"require_user_acceptance,omitempty"`
+}
+
+type GoalClarification struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
 type RequirementRevision struct {
-	ID           string      `json:"id"`
-	TaskID       string      `json:"task_id"`
-	Revision     int         `json:"revision"`
-	Constraints  []string    `json:"constraints"`
-	Unknowns     []string    `json:"unknowns"`
-	Criteria     []Criterion `json:"criteria"`
-	SupersedesID string      `json:"supersedes_id,omitempty"`
-	Actor        string      `json:"actor"`
-	CreatedAt    time.Time   `json:"created_at"`
+	ID           string       `json:"id"`
+	TaskID       string       `json:"task_id"`
+	Revision     int          `json:"revision"`
+	Constraints  []string     `json:"constraints"`
+	Unknowns     []string     `json:"unknowns"`
+	Criteria     []Criterion  `json:"criteria"`
+	Contract     GoalContract `json:"contract"`
+	SupersedesID string       `json:"supersedes_id,omitempty"`
+	Actor        string       `json:"actor"`
+	CreatedAt    time.Time    `json:"created_at"`
 }
 
 type StepSpec struct {
@@ -75,6 +97,9 @@ type PlanRevision struct {
 	Reason              string    `json:"reason"`
 	Actor               string    `json:"actor"`
 	Steps               []Step    `json:"steps"`
+	ReviewStatus        string    `json:"review_status"`
+	ReviewReason        string    `json:"review_reason,omitempty"`
+	SubjectHash         string    `json:"subject_hash"`
 	CreatedAt           time.Time `json:"created_at"`
 }
 
@@ -139,6 +164,7 @@ type CreateTaskInput struct {
 	Constraints          []string            `json:"constraints,omitempty"`
 	Unknowns             []string            `json:"unknowns,omitempty"`
 	Criteria             []Criterion         `json:"criteria"`
+	Contract             GoalContract        `json:"contract,omitempty"`
 	Actor                string              `json:"actor"`
 	EgressPolicy         string              `json:"egress_policy,omitempty"`
 	RemoteEgressApproval *TaskEgressApproval `json:"remote_egress_approval,omitempty"`
@@ -159,12 +185,13 @@ type CreatePlanInput struct {
 }
 
 type ReviseRequirementsInput struct {
-	TaskID               string      `json:"task_id"`
-	ExpectedTaskRevision int         `json:"expected_task_revision"`
-	Constraints          []string    `json:"constraints,omitempty"`
-	Unknowns             []string    `json:"unknowns,omitempty"`
-	Criteria             []Criterion `json:"criteria"`
-	Actor                string      `json:"actor"`
+	TaskID               string        `json:"task_id"`
+	ExpectedTaskRevision int           `json:"expected_task_revision"`
+	Constraints          []string      `json:"constraints,omitempty"`
+	Unknowns             []string      `json:"unknowns,omitempty"`
+	Criteria             []Criterion   `json:"criteria"`
+	Contract             *GoalContract `json:"contract,omitempty"`
+	Actor                string        `json:"actor"`
 }
 
 type CheckpointInput struct {

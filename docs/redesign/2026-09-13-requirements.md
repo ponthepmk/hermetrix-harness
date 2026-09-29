@@ -35,7 +35,7 @@
 | R25 | ออกแบบ MCP tools กลางให้ AI หลายตัวแลกเปลี่ยนข้อผิดพลาด ข้อดี และบทเรียน | Knowledge Hub ที่มี evidence/trust/scope, credentials แยก, candidate validation และ retrieval; ไม่แชร์ secrets ใน knowledge |
 | R26 | รองรับ Go/Fiber, React/Next.js, Python และ PHP และเพิ่ม workflow ได้ | language/runtime adapters + versioned workflow definitions; ลำดับ language parity ยังต้องเลือก |
 | R27 | Tester/security รองรับ local, staging และ production | environment profiles และ policy แยก; production ไม่ได้อนุญาต destructive tests ทุกแบบโดยอัตโนมัติ |
-| R28 | เผื่อความสามารถพูดและโต้ตอบแบบ realtime ในอนาคต | voice session/streaming adapters แยกจาก task engine, interruption, mic/playback lifecycle, latency/resource budgets และ privacy; ยังไม่ใช่ฟีเจอร์ที่ implement แล้ว |
+| R28 | พูดและโต้ตอบด้วยเสียงใน Hermetrix | Windows Preview มี local Whisper→text chat→Windows Speech, mic/playback lifecycle, transcript review และ interruption แบบหยุดเสียงอ่าน; ยังต้องพิสูจน์ latency, echo/reconnect, Mac และ release acceptance |
 | R29 | Hermetrix วางแผน คุมงาน ลงมือ ทดสอบ ตรวจผล และปรับแผนได้เอง | runtime task/requirement/plan revisions, bounded delegation, checkpoints, evidence-backed validation และ stop/recovery policy; Codex/Astra เป็นผู้พัฒนาและตรวจคุณภาพระบบ ไม่ใช่ dependency ของทุก production run |
 
 ### เครื่องและสภาพใช้งานที่ยืนยันแล้ว
@@ -101,7 +101,7 @@
 | Q30 | ผู้ใช้ขอออกแบบ Hub/MCP tools เพิ่มได้; Hermes identity/API ยังไม่ทราบ จึงแยก Hub กับ optional Hermes adapter | ไม่ block design บนชื่อ Hermes แต่ต้องตรวจตัวจริงก่อนเชื่อม/ติดตั้งทับ service เดิม |
 | Q31 | ยืนยัน Pi5/RAM16/M.2/LANหรือVPN; เหลือ OS/พื้นที่/backup/host access และ offline behavior | topology, reliability, deployment และ sync contract |
 | Q32 | Voice ต้องใช้ไทย/อังกฤษสลับกันระดับใด และเริ่มด้วย continuous conversation, push-to-talk หรือทั้งคู่? | ASR/TTS quality, endpointing, interruption และ keyboard/accessibility fallback; ยังไม่ล็อก |
-| Q33 | อนุญาตส่งเสียงไป cloud provider หรือให้ถอด/สร้างเสียง local เท่านั้น และอนุญาตเก็บเสียง/transcript/บทเรียนแบบใด? | audio egress และ retention แยกจากการเลือก text gateway; ยังไม่อนุมานการอนุญาต |
+| Q33 | อนุญาตส่งเสียงไป cloud provider หรือให้ถอด/สร้างเสียง local เท่านั้น และอนุญาตเก็บเสียง/transcript/บทเรียนแบบใด? | ผู้ใช้เลือกประมวลผลเสียงในเครื่องเท่านั้นเมื่อ 2026-09-26 และยอมรับความหน่วงเพิ่มขึ้น; ยังไม่อนุญาต audio egress หรือการเก็บ raw audio ถาวร และยังต้องกำหนด retention ของ transcript/บทเรียนแยกต่างหาก |
 | Q34 | ยอมรับเวลาตอบเสียงและหยุดเมื่อพูดแทรกเท่าไร ต้องคุยต่อขณะ coding/tests ทำงานหรือไม่ และการสั่งงานด้วยเสียงอนุมัติ effects ได้ระดับใด? | latency SLO, scheduling, task control และ operation-bound confirmation; ยังไม่ล็อก |
 
 ## 5. แบบฟอร์มตัวอย่างงานจริง
@@ -136,7 +136,7 @@
 
 Framework UI, native shell, จำนวน services, storage สำหรับทีม, ภาษา IDE แรก, debugger adapters, media app, MCP servers, ค่า context budget, metric thresholds, retention, auto-learning และเวลา delivery ยังเป็น decision ที่รอหลักฐาน/คำตอบ
 
-Realtime voice ยืนยันเป็นความสามารถอนาคตที่ต้องเผื่อโครงสร้างแล้ว; provider/transport/languages/latency/recording policy ยังไม่ล็อก รายละเอียดอยู่ใน [voice extension design](2026-09-13-realtime-voice.md) ต้องวาง task/session/event boundaries ตั้งแต่ foundation แต่ไม่บังคับเปิดไมค์หรือส่งมอบเสียงก่อน coding slice
+Realtime voice มี Windows Preview ที่ใช้ audio processing ในเครื่องตามการเลือกของผู้ใช้แล้ว รายละเอียดสถานะจริงและเกณฑ์ที่ยังต้องพิสูจน์อยู่ใน [voice extension design](2026-09-13-realtime-voice.md) การเปิดไมค์ยังต้องเริ่มจากหน้าจอ และการส่ง transcript เข้าแชตใช้ task/session boundary เดิม
 
 เป้าหมายของ discovery คือมี product brief และ acceptance criteria ที่คุณยืนยันได้ก่อนทำ implementation backlog รายไฟล์ สถานะเอกสารจะเปลี่ยนเป็น requirements-baselined เมื่อ Q01–Q06 และคำถามที่เกี่ยวกับ workflow รุ่นแรกได้รับคำตอบ พร้อมตัดสิน Q22–Q31 เท่าที่มีผลต่อรุ่นนั้น ไม่จำเป็นต้องตอบคำถาม media ทั้งหมดก่อนเริ่มพิสูจน์ coding slice แต่ห้ามออกแบบ data/job interfaces โดยไม่เผื่อไฟล์ใหญ่และงานนาน
 

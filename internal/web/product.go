@@ -73,12 +73,42 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
 	}
-	items, err := s.product.ListProjects(r.Context())
+	var items []product.Project
+	var err error
+	if r.URL.Query().Get("archived") == "true" {
+		items, err = s.product.ListArchivedProjects(r.Context())
+	} else {
+		items, err = s.product.ListProjects(r.Context())
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.SetProjectArchived(r.Context(), r.PathValue("id"), true)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) restoreProject(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.SetProjectArchived(r.Context(), r.PathValue("id"), false)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) saveProject(w http.ResponseWriter, r *http.Request) {
@@ -334,6 +364,86 @@ func (s *Server) browserAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
+func (s *Server) prepareBrowserAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.BrowserActionInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.PrepareBrowserAction(r.Context(), r.PathValue("id"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) listTaskBrowserActions(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	items, err := s.product.ListBrowserActionReceipts(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) getBrowserActionReceipt(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, err := s.product.GetBrowserActionReceipt(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) cancelBrowserAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		SubjectHash string `json:"subject_hash"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.CancelBrowserAction(r.Context(), r.PathValue("id"), input.SubjectHash)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) reconcileBrowserAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Resolution        string `json:"resolution"`
+		VerificationTabID string `json:"verification_tab_id"`
+		ObservationHash   string `json:"observation_hash"`
+		Actor             string `json:"actor"`
+		Note              string `json:"note"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := s.product.ReconcileBrowserAction(r.Context(), r.PathValue("id"), input.VerificationTabID, input.Resolution, input.ObservationHash, input.Actor, input.Note)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
 func (s *Server) listAgentTeams(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
@@ -557,6 +667,15 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 	if !s.requireProduct(w) {
 		return
 	}
+	metadata, err := s.product.GetArtifactMetadata(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if metadata.Kind == "video" {
+		s.streamVideoArtifact(w, r)
+		return
+	}
 	item, data, err := s.product.GetArtifact(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
@@ -567,6 +686,180 @@ func (s *Server) getArtifactContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Checksum", item.Checksum)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+func (s *Server) streamVideoArtifact(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	item, file, err := s.product.OpenVideoArtifact(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", item.MIMEType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename=%q`, strings.ReplaceAll(item.Name, `"`, "")))
+	w.Header().Set("X-Content-Checksum", item.Checksum)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-store")
+	http.ServeContent(w, r, item.Name, item.CreatedAt, file)
+}
+
+func (s *Server) uploadVideo(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, (256<<20)+(1<<20))
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": "video upload exceeds the 256 MiB limit or is invalid"})
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "multipart field file is required"})
+		return
+	}
+	defer file.Close()
+	item, err := s.product.UploadVideo(r.Context(), product.VideoUploadInput{ProjectID: r.FormValue("project_id"),
+		SessionID: r.FormValue("session_id"), Name: header.Filename, Reader: file})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) listDesktopWindows(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	windows, err := s.product.ListDesktopWindows(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, windows)
+}
+
+func (s *Server) listTaskDesktopActions(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	items, err := s.product.ListDesktopActions(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) observeDesktopWindow(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Handle    int64 `json:"handle"`
+		ProcessID int   `json:"process_id"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	observation, err := s.product.ObserveDesktopWindow(r.Context(), input.Handle, input.ProcessID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, observation)
+}
+
+func (s *Server) prepareDesktopAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input product.DesktopActionInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	action, err := s.product.PrepareDesktopAction(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, action)
+}
+
+func (s *Server) getDesktopAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	action, err := s.product.GetDesktopAction(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, action)
+}
+
+func (s *Server) confirmDesktopAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		SubjectHash string `json:"subject_hash"`
+		Text        string `json:"text"`
+		Actor       string `json:"actor"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	action, err := s.product.ConfirmDesktopAction(r.Context(), r.PathValue("id"), input.SubjectHash, input.Text, effectiveActor(r.Context(), input.Actor))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, action)
+}
+
+func (s *Server) cancelDesktopAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		SubjectHash string `json:"subject_hash"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	action, err := s.product.CancelDesktopAction(r.Context(), r.PathValue("id"), input.SubjectHash)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, action)
+}
+
+func (s *Server) reconcileDesktopAction(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	var input struct {
+		Resolution      string `json:"resolution"`
+		ObservationHash string `json:"observation_hash"`
+		Actor           string `json:"actor"`
+		Note            string `json:"note"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	action, err := s.product.ReconcileDesktopAction(r.Context(), r.PathValue("id"), input.Resolution,
+		input.ObservationHash, effectiveActor(r.Context(), input.Actor), input.Note)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, action)
 }
 
 func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
@@ -624,6 +917,23 @@ func (s *Server) getMediaJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) listMediaJobs(w http.ResponseWriter, r *http.Request) {
+	if !s.requireProduct(w) {
+		return
+	}
+	artifactID := r.URL.Query().Get("source_artifact_id")
+	if artifactID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "source_artifact_id is required"})
+		return
+	}
+	items, err := s.product.ListMediaJobs(r.Context(), artifactID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) cancelMediaJob(w http.ResponseWriter, r *http.Request) {

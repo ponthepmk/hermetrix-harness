@@ -202,6 +202,188 @@ func TestRecoveryMakesDispatchedEffectUncertainAndBlocksReplay(t *testing.T) {
 	}
 }
 
+func TestInterruptedPostTestReviewResumesOnlyAfterEveryEffectHasReceipt(t *testing.T) {
+	service, dataStore := testService(t)
+	ctx := context.Background()
+	task := createPlannedTask(t, service)
+	run, err := service.BeginRun(ctx, BeginRunInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, Owner: "runner", LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ = service.Get(ctx, task.ID)
+	attempt, err := service.BeginStepAttempt(ctx, BeginAttemptInput{RunID: run.ID, LeaseToken: run.LeaseToken,
+		StepKey: "reproduce", ExpectedTaskRevision: task.Revision, ExpectedStepRevision: task.Plan.Steps[0].Revision, InputHash: "sha256:packet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifactID := range []string{"artifact-proposal", "artifact-rollback", "artifact-verification"} {
+		if _, err = dataStore.DB.ExecContext(ctx, `INSERT INTO artifacts(id,name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+			artifactID, artifactID, "test", "application/json", "blob:test", 2, "sha256:result", "{}", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal, err := service.RecordCodeProposal(ctx, RecordCodeProposalInput{ID: "proposal-review-resume", TaskID: task.ID,
+		StepID: attempt.StepID, AttemptID: attempt.ID, ProjectID: "project-test", PacketHash: "sha256:packet",
+		ProviderID: "worker", ProviderRevision: "1", ArtifactID: "artifact-proposal", ResultHash: "sha256:result"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err = service.DecideCodeProposal(ctx, proposal.ID, "owner", ProposalApproved, "reviewed", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err = service.BeginCodeProposalApply(ctx, proposal.ID, "artifact-rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err = service.TransitionCodeProposal(ctx, proposal.ID, ProposalApplying, ProposalApplied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err = service.BindCodeProposalVerification(ctx, proposal.ID, "artifact-verification")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}
+	effect, err := service.PlanEffect(ctx, authority, attempt.ID, "workspace.run", "reviewer:model", "verification:artifact-verification")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.DispatchEffect(ctx, authority, effect.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	paused, _ := service.Get(ctx, task.ID)
+	if _, err = service.ResumeObservedReview(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: paused.Revision, Actor: "owner"}); err == nil {
+		t.Fatal("uncertain review effect was resumed")
+	}
+	if _, err = service.ReconcileEffect(ctx, effect.OperationID, map[string]any{"status": "review_failed"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := service.ResumeObservedReview(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: paused.Revision, Actor: "owner"})
+	if err != nil || resumed.State != StateRunning || resumed.Plan.Steps[0].State != StepRunning {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	state, err := service.Execution(ctx, task.ID)
+	if err != nil || state.Run.State != RunRunning || state.Attempt.State != AttemptRunning || state.Attempt.StepRevision != resumed.Plan.Steps[0].Revision || state.Proposal.ID != proposal.ID {
+		t.Fatalf("execution=%+v err=%v", state, err)
+	}
+	if _, err = service.ResumeObservedReview(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: resumed.Revision, Actor: "owner"}); err == nil {
+		t.Fatal("saved review resumed twice")
+	}
+}
+
+func TestApprovedPostTestReviewCanResumeFinalizationWithoutReplay(t *testing.T) {
+	service, dataStore := testService(t)
+	ctx := context.Background()
+	task := createPlannedTask(t, service)
+	run, err := service.BeginRun(ctx, BeginRunInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, Owner: "runner", LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ = service.Get(ctx, task.ID)
+	attempt, err := service.BeginStepAttempt(ctx, BeginAttemptInput{RunID: run.ID, LeaseToken: run.LeaseToken,
+		StepKey: "reproduce", ExpectedTaskRevision: task.Revision, ExpectedStepRevision: task.Plan.Steps[0].Revision, InputHash: "sha256:packet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifactID := range []string{"artifact-proposal", "artifact-rollback", "artifact-verification"} {
+		if _, err = dataStore.DB.ExecContext(ctx, `INSERT INTO artifacts(id,name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+			artifactID, artifactID, "test", "application/json", "blob:test", 2, "sha256:result", "{}", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal, err := service.RecordCodeProposal(ctx, RecordCodeProposalInput{ID: "proposal-approved-resume", TaskID: task.ID,
+		StepID: attempt.StepID, AttemptID: attempt.ID, ProjectID: "project-test", PacketHash: "sha256:packet",
+		ProviderID: "worker", ProviderRevision: "1", ArtifactID: "artifact-proposal", ResultHash: "sha256:result"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.DecideCodeProposal(ctx, proposal.ID, "owner", ProposalApproved, "reviewed", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.BeginCodeProposalApply(ctx, proposal.ID, "artifact-rollback"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.TransitionCodeProposal(ctx, proposal.ID, ProposalApplying, ProposalApplied); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.BindCodeProposalVerification(ctx, proposal.ID, "artifact-verification"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.RecordPostCodeReview(ctx, proposal.ID, "provider:reviewer", ProposalApproved, "checks pass", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CompleteAttempt(ctx, RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}, attempt.ID, "review passed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	paused, _ := service.Get(ctx, task.ID)
+	resumed, err := service.ResumeApprovedReview(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: paused.Revision, Actor: "owner"})
+	if err != nil || resumed.State != StateRunning {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	state, err := service.Execution(ctx, task.ID)
+	if err != nil || state.Run.State != RunRunning || state.Attempt.State != AttemptCompleted || state.Proposal.State != ProposalAwaitingReview {
+		t.Fatalf("execution=%+v err=%v", state, err)
+	}
+	if _, err = service.ResumeApprovedReview(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: resumed.Revision, Actor: "owner"}); err == nil {
+		t.Fatal("approved review resumed twice")
+	}
+}
+
+func TestObservedFailedProposalStartsFreshAttempt(t *testing.T) {
+	service, dataStore := testService(t)
+	ctx := context.Background()
+	task := createPlannedTask(t, service)
+	if _, err := dataStore.DB.ExecContext(ctx, `UPDATE task_steps SET effect_scope_json='["provider.propose"]' WHERE id=?`, task.Plan.Steps[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.BeginRun(ctx, BeginRunInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, Owner: "runner", LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _ = service.Get(ctx, task.ID)
+	attempt, err := service.BeginStepAttempt(ctx, BeginAttemptInput{RunID: run.ID, LeaseToken: run.LeaseToken,
+		StepKey: "reproduce", ExpectedTaskRevision: task.Revision, ExpectedStepRevision: task.Plan.Steps[0].Revision, InputHash: "sha256:packet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := RunAuthority{RunID: run.ID, LeaseToken: run.LeaseToken}
+	effect, err := service.PlanEffect(ctx, authority, attempt.ID, "provider.propose", "provider:test", "task-packet:sha256:packet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.DispatchEffect(ctx, authority, effect.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "failed", "error": "provider request failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = service.Get(ctx, task.ID)
+	closed, err := service.RetryFailedProposalAttempt(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, Actor: "owner"})
+	if err != nil || closed.State != StatePaused || closed.Plan.Steps[0].State != StepFailed {
+		t.Fatalf("closed=%+v err=%v", closed, err)
+	}
+	state, err := service.Execution(ctx, task.ID)
+	if err != nil || state.Run.State != RunFailed || state.Attempt.State != AttemptFailed {
+		t.Fatalf("execution=%+v err=%v", state, err)
+	}
+	if _, err = service.RetryFailedProposalAttempt(ctx, RecoverExpiredRunInput{TaskID: task.ID, ExpectedTaskRevision: closed.Revision, Actor: "owner"}); err == nil {
+		t.Fatal("failed operation retried twice")
+	}
+	if _, err = service.BeginRun(ctx, BeginRunInput{TaskID: task.ID, ExpectedTaskRevision: closed.Revision, Owner: "new runner", LeaseDuration: time.Minute}); err != nil {
+		t.Fatalf("new attempt could not start: %v", err)
+	}
+}
+
 func TestExpiredLeaseCannotStartAttemptOrRenew(t *testing.T) {
 	service, dataStore := testService(t)
 	ctx := context.Background()

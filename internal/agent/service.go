@@ -139,7 +139,7 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 	// measured at a high reasoning share leaves too little of a small profile's
 	// output reserve for an answer, and the failure mode is silence, not an
 	// error -- observed live, seven turns of empty replies in a row.
-	if budget := answerBudget(profile.OutputReserve, provider.ReasoningRatio); budget < minimumAnswerBudget {
+	if budget := answerBudget(profile.OutputReserve, provider.ReasoningRatio); provider.ReasoningSample >= minimumReasoningSamples && budget < minimumAnswerBudget {
 		return Session{}, fmt.Errorf(
 			"%s spends about %.0f%% of its output on reasoning, which leaves %d tokens for an answer in %s; "+
 				"choose a context profile with a larger output reserve, or a model that reasons less",
@@ -175,6 +175,22 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 		return Session{}, fmt.Errorf("create agent session: %w", err)
 	}
 	return item, nil
+}
+
+// TeamProviderRoute checks the same registry used by direct sessions before a
+// team run is queued. The child session still revalidates its frozen contract.
+func (s *Service) TeamProviderRoute(ctx context.Context, providerID string) (bool, error) {
+	profile, err := s.providers.Get(ctx, providerID)
+	if err != nil {
+		return false, fmt.Errorf("load provider: %w", err)
+	}
+	if !profile.Enabled {
+		return false, fmt.Errorf("provider profile is disabled")
+	}
+	if !profile.CredentialReady {
+		return false, fmt.Errorf("provider credentials are not ready")
+	}
+	return !providers.IsLocalProfile(profile), nil
 }
 
 func (s *Service) resolveQualification(ctx context.Context, provider providers.Profile, profile ctxcompiler.Profile,
@@ -234,7 +250,9 @@ func (s *Service) buildSessionContract(ctx context.Context, provider providers.P
 			ContextMax: preset.ContextMax, ReasoningMode: preset.ReasoningMode, ReasoningTokenCap: preset.ReasoningTokenCap,
 			AnswerReserve: preset.AnswerReserve, GenerationCap: preset.GenerationCap, Temperature: preset.Temperature})
 	}
-	if s.tools != nil {
+	// A personal conversation has no workspace scope. Do not bind effectful
+	// tools to it, even when the registry is available globally.
+	if s.tools != nil && projectID != "" {
 		contract.CapabilityRevision = s.tools.Revision()
 		contract.ToolBindings = s.tools.Definitions()
 	}
@@ -269,7 +287,8 @@ func (s *Service) ListSessions(ctx context.Context) ([]Session, error) {
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT s.id,s.title,s.provider_id,p.name,p.model,COALESCE(s.project_id,''),s.context_profile,s.state,
 		COALESCE(s.active_turn_id,''),s.contract_json,s.contract_revision,s.cache_epoch,s.qualification_run_id,s.created_at,s.updated_at,
-		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision,s.egress_policy
+		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision,s.egress_policy,
+		EXISTS(SELECT 1 FROM agent_team_tasks tt WHERE tt.session_id=s.id)
 	FROM agent_sessions s JOIN provider_profiles p ON p.id=s.provider_id WHERE s.owner_principal_id=? ORDER BY s.updated_at DESC`, ownerID)
 	if err != nil {
 		return nil, err
@@ -293,7 +312,8 @@ func (s *Service) GetSession(ctx context.Context, id string) (Session, error) {
 	}
 	row := s.store.DB.QueryRowContext(ctx, `SELECT s.id,s.title,s.provider_id,p.name,p.model,COALESCE(s.project_id,''),s.context_profile,s.state,
 		COALESCE(s.active_turn_id,''),s.contract_json,s.contract_revision,s.cache_epoch,s.qualification_run_id,s.created_at,s.updated_at,
-		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision,s.egress_policy
+		s.owner_principal_id,s.visibility,s.export_policy,s.sharing_revision,s.egress_policy,
+		EXISTS(SELECT 1 FROM agent_team_tasks tt WHERE tt.session_id=s.id)
 	FROM agent_sessions s JOIN provider_profiles p ON p.id=s.provider_id WHERE s.id=? AND s.owner_principal_id=?`, id, ownerID)
 	return scanSession(row)
 }
@@ -311,7 +331,26 @@ func (s *Service) GetSessionDetail(ctx context.Context, id string) (SessionDetai
 	if err != nil {
 		return SessionDetail{}, err
 	}
-	return SessionDetail{Session: session, Events: events, Approvals: approvals}, nil
+	var snapshot *ContextSnapshotSummary
+	var snapshotError string
+	var snapshotID, reportJSON, createdAt string
+	err = s.store.DB.QueryRowContext(ctx, `SELECT id,report_json,created_at FROM context_snapshots
+		WHERE session_id=? ORDER BY rowid DESC LIMIT 1`, id).Scan(&snapshotID, &reportJSON, &createdAt)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return SessionDetail{}, err
+	}
+	if err == nil {
+		var report ctxcompiler.Report
+		if err := json.Unmarshal([]byte(reportJSON), &report); err != nil {
+			snapshotError = "รายงานบริบทล่าสุดอ่านไม่ได้ แต่ยังเปิดบทสนทนาได้"
+		} else if when, parseErr := time.Parse(time.RFC3339Nano, createdAt); parseErr != nil {
+			snapshotError = "รายงานบริบทล่าสุดอ่านไม่ได้ แต่ยังเปิดบทสนทนาได้"
+		} else {
+			snapshot = &ContextSnapshotSummary{ID: snapshotID, CreatedAt: when, Report: report}
+		}
+	}
+	return SessionDetail{Session: session, Events: events, Approvals: approvals,
+		LatestContextSnapshot: snapshot, ContextSnapshotError: snapshotError}, nil
 }
 
 func (s *Service) ListEvents(ctx context.Context, sessionID string) ([]Event, error) {
@@ -416,6 +455,12 @@ func (s *Service) ListEventsPage(ctx context.Context, sessionID string, after, b
 
 func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput, emit func(StreamEvent) error) (TurnResult, error) {
 	content := strings.TrimSpace(input.Content)
+	if len(input.IdempotencyKey) > 128 {
+		return TurnResult{}, fmt.Errorf("idempotency key exceeds 128 bytes")
+	}
+	if input.IdempotencyKey != "" && len(input.Parts) > 0 {
+		return TurnResult{}, fmt.Errorf("idempotency keys currently support text turns only")
+	}
 	if (content == "") == (len(input.Parts) == 0) {
 		return TurnResult{}, fmt.Errorf("provide exactly one of message content or multipart parts")
 	}
@@ -425,6 +470,33 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 	session, err := s.GetSession(ctx, sessionID)
 	if err != nil {
 		return TurnResult{}, err
+	}
+	duplicate := func() (TurnResult, bool, error) {
+		if input.IdempotencyKey == "" {
+			return TurnResult{}, false, nil
+		}
+		var existing, payloadHash string
+		err := s.store.DB.QueryRowContext(ctx, `SELECT turn_id,payload_hash FROM agent_turn_idempotency WHERE session_id=? AND idempotency_key=?`,
+			sessionID, input.IdempotencyKey).Scan(&existing, &payloadHash)
+		if errors.Is(err, sql.ErrNoRows) {
+			return TurnResult{}, false, nil
+		}
+		if err != nil {
+			return TurnResult{}, false, err
+		}
+		sum := sha256.Sum256([]byte(content))
+		if payloadHash != hex.EncodeToString(sum[:]) {
+			return TurnResult{}, false, fmt.Errorf("idempotency key was already used for different text")
+		}
+		if emit != nil {
+			if err := emit(StreamEvent{Type: "duplicate", TurnID: existing}); err != nil {
+				return TurnResult{}, false, err
+			}
+		}
+		return TurnResult{TurnID: existing, FinishReason: "duplicate"}, true, nil
+	}
+	if result, found, err := duplicate(); err != nil || found {
+		return result, err
 	}
 	provider, err := s.providers.Get(ctx, session.ProviderID)
 	if err != nil {
@@ -458,8 +530,11 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 		}
 	}
 	turnID := identity.New("turn")
-	userEvent, err := s.acquireTurn(ctx, session, provider, turnID, content, parts)
+	userEvent, err := s.acquireTurn(ctx, session, provider, turnID, content, parts, input.IdempotencyKey)
 	if err != nil {
+		if result, found, lookupErr := duplicate(); lookupErr == nil && found {
+			return result, nil
+		}
 		return TurnResult{}, err
 	}
 	session.State, session.ActiveTurnID = "running", turnID
@@ -488,7 +563,7 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 		return runErr
 	})
 	if err != nil {
-		failure, persistErr := s.failTurn(context.WithoutCancel(ctx), session, provider, turnID, err)
+		failure, persistErr := s.failTurn(context.WithoutCancel(ctx), session, provider, turnID, err, result.Usage)
 		if persistErr == nil && emit != nil {
 			_ = emit(StreamEvent{Type: "failed", TurnID: turnID, Event: &failure,
 				Code: providerErrorCode(err), Error: safeError(err)})
@@ -514,6 +589,12 @@ func (s *Service) RunTurn(ctx context.Context, sessionID string, input TurnInput
 // durable turn lease are committed.
 func (s *Service) ValidateTurnInput(ctx context.Context, sessionID string, input TurnInput) error {
 	content := strings.TrimSpace(input.Content)
+	if len(input.IdempotencyKey) > 128 {
+		return fmt.Errorf("idempotency key exceeds 128 bytes")
+	}
+	if input.IdempotencyKey != "" && len(input.Parts) > 0 {
+		return fmt.Errorf("idempotency keys currently support text turns only")
+	}
 	if (content == "") == (len(input.Parts) == 0) {
 		return fmt.Errorf("provide exactly one of message content or multipart parts")
 	}
@@ -547,7 +628,7 @@ func (s *Service) ValidateTurnInput(ctx context.Context, sessionID string, input
 	return nil
 }
 
-func (s *Service) acquireTurn(ctx context.Context, session Session, provider providers.Profile, turnID, content string, parts []EventPart) (Event, error) {
+func (s *Service) acquireTurn(ctx context.Context, session Session, provider providers.Profile, turnID, content string, parts []EventPart, idempotencyKeys ...string) (Event, error) {
 	now := time.Now().UTC()
 	event := Event{ID: identity.New("event"), SessionID: session.ID, TurnID: turnID, EventKind: "message", Role: "user",
 		Content: content, Parts: parts, ProviderID: provider.ID, Model: provider.Model, CreatedAt: now,
@@ -559,6 +640,20 @@ func (s *Service) acquireTurn(ctx context.Context, session Session, provider pro
 		return Event{}, err
 	}
 	defer tx.Rollback()
+	key := ""
+	if len(idempotencyKeys) > 0 {
+		key = idempotencyKeys[0]
+	}
+	if key != "" {
+		var existing string
+		err := tx.QueryRowContext(ctx, `SELECT turn_id FROM agent_turn_idempotency WHERE session_id=? AND idempotency_key=?`, session.ID, key).Scan(&existing)
+		if err == nil {
+			return Event{}, fmt.Errorf("voice turn already committed as %s", existing)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return Event{}, err
+		}
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE agent_sessions SET state='running',active_turn_id=?,lease_acquired_at=?,updated_at=?
 		WHERE id=? AND state='active' AND active_turn_id=''`, turnID, formatTime(now), formatTime(now), session.ID)
 	if err != nil {
@@ -580,6 +675,13 @@ func (s *Service) acquireTurn(ctx context.Context, session Session, provider pro
 		metadata_json,provider_id,model,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, event.ID, event.SessionID, event.TurnID,
 		event.Sequence, event.EventKind, event.Role, event.Content, string(metadata), provider.ID, provider.Model, formatTime(now)); err != nil {
 		return Event{}, err
+	}
+	if key != "" {
+		sum := sha256.Sum256([]byte(content))
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_turn_idempotency(session_id,idempotency_key,turn_id,payload_hash,created_at) VALUES(?,?,?,?,?)`,
+			session.ID, key, turnID, hex.EncodeToString(sum[:]), formatTime(now)); err != nil {
+			return Event{}, err
+		}
 	}
 	for _, part := range parts {
 		partMetadata, _ := json.Marshal(part.Metadata)
@@ -661,18 +763,26 @@ func rankSkillBindings(goal string, catalog []SessionSkillBinding,
 	var candidates []scored
 	for _, binding := range catalog {
 		score := 0
+		reasons := []string{}
 		if binding.Pinned {
 			score += 100
+			reasons = append(reasons, "pinned in this session")
 		}
 		name := strings.ToLower(strings.ReplaceAll(binding.CanonicalName, "-", " "))
 		if query != "" && (strings.Contains(query, name) || strings.Contains(name, query)) {
 			score += 40
+			reasons = append(reasons, "name matches the goal")
 		}
 		candidateWords, candidateGrams := textmatch.Terms(name + " " + strings.ToLower(binding.Summary))
+		wordMatched := false
 		for term := range candidateWords {
 			if queryWords[term] {
 				score += 4
+				wordMatched = true
 			}
+		}
+		if wordMatched {
+			reasons = append(reasons, "terms overlap with the goal")
 		}
 		// Thai and other unspaced scripts reach the scorer only through this
 		// branch. Without it a Thai query matched nothing short of the summary
@@ -685,9 +795,15 @@ func rankSkillBindings(goal string, catalog []SessionSkillBinding,
 				smaller = len(candidateGrams)
 			}
 			score += int(math.Round(gramWeight * float64(shared) / float64(smaller)))
+			reasons = append(reasons, "text resembles the goal")
 		}
-		score += semantic[bindingKey(binding)]
+		semanticScore := semantic[bindingKey(binding)]
+		score += semanticScore
+		if semanticScore > 0 {
+			reasons = append(reasons, "meaning resembles the goal")
+		}
 		if score > 0 {
+			binding.SelectionReason = strings.Join(reasons, "; ")
 			candidates = append(candidates, scored{binding: binding, score: score})
 		}
 	}
@@ -761,8 +877,16 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 		if err != nil {
 			return TurnResult{}, err
 		}
+		stepKnowledge := brainFragments
+		if stepNumber == budget.MaxModelSteps && len(session.Contract.ToolBindings) > 0 {
+			stepKnowledge = append(append([]ctxcompiler.Fragment(nil), brainFragments...), ctxcompiler.Fragment{
+				ID: "policy:final-model-step", Kind: ctxcompiler.KindPolicy, Scope: "runtime",
+				Provenance: "hermetrix", Trust: "system", Version: policyRevision, Priority: 100,
+				Content: "This is the final model step for this turn. Tools are unavailable now. Answer the user from completed tool receipts only. State which findings are verified, what remains unchecked, and how to continue. Do not emit tool-call syntax or XML such as <tool_call>. Never claim a complete review if it is incomplete.",
+			})
+		}
 		compiled, selected, err := s.compileTurnWithKnowledge(ctx, profile, events, turnID, session.Contract,
-			scale, transport, brainFragments)
+			scale, transport, stepKnowledge)
 		if err != nil {
 			return TurnResult{}, err
 		}
@@ -806,7 +930,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			}
 		}
 		request := providers.ChatRequest{Messages: messages, Temperature: &temperature, MaxTokens: maxTokens}
-		if len(session.Contract.ToolBindings) > 0 {
+		if session.ProjectID != "" && len(session.Contract.ToolBindings) > 0 && stepNumber < budget.MaxModelSteps {
 			request.Tools = providerDefinitionsFor(session.Contract.ToolBindings)
 		}
 		currentProvider, err := s.providers.Get(ctx, session.ProviderID)
@@ -896,8 +1020,12 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 			// its own copy, so observing here cannot shift the budget underneath
 			// the conversation that produced the measurement.
 			if completion.Usage.CompletionTokens > 0 {
+				// Estimate both sides with the same ruler. Mixing an estimated
+				// reasoning count with provider-reported total tokens can turn a
+				// short, nonempty answer into a false 100% reasoning sample.
+				visible := scale.Count(completion.Content)
 				_ = s.providers.ObserveReasoning(context.WithoutCancel(ctx), provider.ID,
-					reasoning, completion.Usage.CompletionTokens)
+					reasoning, reasoning+visible)
 			}
 		}
 		if completion.FinishReason == "length" {
@@ -908,7 +1036,7 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 				return TurnResult{}, fmt.Errorf("model requested tools but no capability registry is configured")
 			}
 			if stepNumber == budget.MaxModelSteps {
-				return TurnResult{}, fmt.Errorf("agent exhausted its %d model-step budget", budget.MaxModelSteps)
+				return TurnResult{TurnID: turnID, Usage: totalUsage}, fmt.Errorf("agent exhausted its %d model-step budget", budget.MaxModelSteps)
 			}
 			toolCalls += len(completion.ToolCalls)
 			if toolCalls > budget.MaxToolCalls {
@@ -961,6 +1089,13 @@ func (s *Service) runAgentLoop(ctx context.Context, session Session, provider pr
 				"the model spent its whole %d-token output budget on reasoning and returned no answer; "+
 					"about %d tokens went to reasoning. Use a context profile with a larger output reserve, "+
 					"or a model that reasons less for this task", maxTokens, reasoningTokens)
+		}
+		// Some local chat templates emit an XML tool call as plain assistant text
+		// after tool definitions are removed on the final step. It is not a
+		// user-facing answer and must not be persisted as a completed turn.
+		if stepNumber == budget.MaxModelSteps && strings.HasPrefix(strings.TrimSpace(completion.Content), "<tool_call>") {
+			return TurnResult{TurnID: turnID, Usage: totalUsage}, fmt.Errorf(
+				"agent reached its %d model-step budget without a user-facing answer; the model emitted tool-call syntax after tools were disabled", budget.MaxModelSteps)
 		}
 		metadata := map[string]any{"finish_reason": completion.FinishReason, "usage": totalUsage,
 			"step_binding_id": binding.ID, "context_snapshot_id": binding.ContextSnapshotID, "steps": stepNumber,
@@ -1131,6 +1266,9 @@ func (s *Service) executeToolCalls(ctx context.Context, session Session, provide
 				planner = scoped
 			}
 			plan, err := planner.PlanApproval(ctx, call)
+			if err == nil && call.Name == "browser" {
+				plan, err = s.enrichBrowserApproval(ctx, session, call, plan)
+			}
 			if err != nil {
 				receipt := toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision,
 					Effect: definition.Effect, Status: "failed", Error: err.Error()}
@@ -1213,6 +1351,9 @@ func toolCallBudget(name string) time.Duration {
 // the unscoped registry: they reach a server, not a directory, so a session
 // with no code folder can still use them.
 func (s *Service) executeRegistryTool(ctx context.Context, session Session, call providers.ToolCall) toolruntime.Receipt {
+	if session.ProjectID == "" {
+		return toolruntime.Receipt{ToolCallID: call.ID, Name: call.Name, Status: "failed", Error: "personal chat cannot run workspace tools; move this request to a workspace"}
+	}
 	if !strings.HasPrefix(call.Name, "workspace.") {
 		return s.tools.Execute(ctx, call)
 	}
@@ -2040,8 +2181,8 @@ func contextSpecsFor(bindings []toolruntime.Definition) []ctxcompiler.ToolSpec {
 	for _, definition := range bindings {
 		serialized, _ := json.Marshal(providers.ToolDefinition{Type: "function", Function: providers.ToolFunction{
 			Name: definition.Name, Description: definition.Description, Parameters: definition.Parameters}})
-		items = append(items, ctxcompiler.ToolSpec{Name: definition.Name, Schema: string(serialized), Revision: definition.Revision,
-			Source: "core", Effects: []string{definition.Effect}})
+		items = append(items, ctxcompiler.ToolSpec{Name: definition.Name, Schema: string(serialized), Serialized: string(serialized),
+			Revision: definition.Revision, Source: "core", Effects: []string{definition.Effect}})
 	}
 	return items
 }
@@ -2084,6 +2225,9 @@ func (s *Service) freezeStep(ctx context.Context, session Session, provider prov
 		SessionContractRevision: session.ContractRevision, CacheEpoch: session.CacheEpoch,
 		PresetID: "legacy-chat", PresetRevision: 0, RuntimeFingerprintID: session.Contract.RuntimeFingerprintID,
 		ToolBindings: append([]toolruntime.Definition(nil), session.Contract.ToolBindings...), CreatedAt: now}
+	if session.ProjectID == "" {
+		binding.ToolBindings = nil
+	}
 	toolBindingsJSON, err := json.Marshal(binding.ToolBindings)
 	if err != nil {
 		return StepBinding{}, err
@@ -2188,12 +2332,15 @@ func (s *Service) completeTurn(ctx context.Context, session Session, provider pr
 	return event, nil
 }
 
-func (s *Service) failTurn(ctx context.Context, session Session, provider providers.Profile, turnID string, failure error) (Event, error) {
+func (s *Service) failTurn(ctx context.Context, session Session, provider providers.Profile, turnID string, failure error, usage ...providers.Usage) (Event, error) {
 	now := time.Now().UTC()
 	event := Event{ID: identity.New("event"), SessionID: session.ID, TurnID: turnID, EventKind: "turn_failed",
 		Role: "assistant", Content: safeError(failure), ProviderID: provider.ID, Model: provider.Model, CreatedAt: now,
 		Metadata: map[string]any{"session_contract_revision": session.ContractRevision, "cache_epoch": session.CacheEpoch,
 			"failure": true}}
+	if len(usage) > 0 && usage[0].TotalTokens > 0 {
+		event.Metadata["usage"] = usage[0]
+	}
 	trigger, err := s.learningTriggerForTurn(ctx, session.ID, turnID, "failure")
 	if err != nil {
 		return Event{}, err
@@ -2539,7 +2686,8 @@ func scanSession(row scanner) (Session, error) {
 	if err := row.Scan(&item.ID, &item.Title, &item.ProviderID, &item.ProviderName, &item.Model,
 		&item.ProjectID, &item.ContextProfile, &item.State, &item.ActiveTurnID, &contractJSON,
 		&item.ContractRevision, &item.CacheEpoch, &item.QualificationRunID, &created, &updated,
-		&item.OwnerPrincipalID, &item.Visibility, &item.ExportPolicy, &item.SharingRevision, &item.EgressPolicy); err != nil {
+		&item.OwnerPrincipalID, &item.Visibility, &item.ExportPolicy, &item.SharingRevision, &item.EgressPolicy,
+		&item.TeamChild); err != nil {
 		return Session{}, err
 	}
 	_ = json.Unmarshal([]byte(contractJSON), &item.Contract)
@@ -3006,6 +3154,10 @@ func replayableArguments(arguments string) string {
 // this a reasoning model is spending the whole reserve thinking and the user
 // receives a sentence or nothing.
 const minimumAnswerBudget = 512
+
+// A handful of short replies does not establish a model's reasoning share.
+// Per-turn empty/truncated answer detection protects those early sessions.
+const minimumReasoningSamples = 10
 
 // answerBudget is what is left of the output reserve after the reasoning this
 // model is expected to do. A ratio of zero -- an unmeasured or non-reasoning

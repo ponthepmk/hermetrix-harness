@@ -30,6 +30,85 @@ import (
 
 type agentDeferredExecutor struct{ calls int }
 
+func TestSessionToolSpecsBillExactlyWhatProviderReceives(t *testing.T) {
+	bindings := []toolruntime.Definition{{Name: "workspace.read_file", Description: "Read a file", Revision: "v1", Effect: "read",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}}}}
+	serialized, err := json.Marshal(providerDefinitionsFor(bindings)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	specs := contextSpecsFor(bindings)
+	if len(specs) != 1 {
+		t.Fatalf("session tool specs = %d, want 1", len(specs))
+	}
+	if specs[0].BillableText() != string(serialized) {
+		t.Fatalf("session tool billing differs from provider payload: %q", specs[0].BillableText())
+	}
+}
+
+func TestCalibratedWorkspaceSessionCompilesInCompact16K(t *testing.T) {
+	registry, err := toolruntime.NewRegistry(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := ctxcompiler.NewCompiler(ctxcompiler.ScriptEstimator{Scale: 1.2}, nil, nil)
+	compiled, err := compiler.Compile(context.Background(), ctxcompiler.Request{
+		Profile: ctxcompiler.Compact16K(), DirectTools: contextSpecsFor(registry.Definitions()), WorstCaseToolBurst: 2048,
+	})
+	if err != nil {
+		t.Fatalf("frozen workspace tools cannot compile after provider calibration: %v", err)
+	}
+	if got, want := len(compiled.DirectTools), len(registry.Definitions()); got != want {
+		t.Fatalf("compiled tools = %d, want %d", got, want)
+	}
+}
+
+func TestPersonalChatHasNoToolAuthority(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	session, err := service.CreateSession(context.Background(), CreateSessionInput{
+		ProviderID: provider.ID, ContextProfile: "compact-32k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.ProjectID != "" || len(session.Contract.ToolBindings) != 0 {
+		t.Fatalf("personal chat inherited a workspace scope or tools: %+v", session.Contract)
+	}
+	receipt := service.executeRegistryTool(context.Background(), session, providers.ToolCall{
+		ID: "call-personal", Name: "workspace.list_files"})
+	if receipt.Status != "failed" || !strings.Contains(receipt.Error, "personal chat") {
+		t.Fatalf("personal chat executed a tool: %+v", receipt)
+	}
+}
+
+func TestVoiceTextTurnIsCommittedOnceAcrossRetries(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	service, provider, cleanup := testAgentService(t, server)
+	defer cleanup()
+	ctx := context.Background()
+	session, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID, ContextProfile: "compact-32k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := TurnInput{Content: "สวัสดี", IdempotencyKey: "voice-session-1:utterance-1"}
+	first, err := service.RunTurn(ctx, session.ID, input, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.RunTurn(ctx, session.ID, input, nil)
+	if err != nil || second.FinishReason != "duplicate" || second.TurnID != first.TurnID || requests.Load() != 1 {
+		t.Fatalf("retry dispatched again: first=%+v second=%+v requests=%d err=%v", first, second, requests.Load(), err)
+	}
+	if _, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "ข้อความอื่น", IdempotencyKey: input.IdempotencyKey}, nil); err == nil {
+		t.Fatal("the same key was accepted for different text")
+	}
+}
+
 func (e *agentDeferredExecutor) ExecuteCapability(_ context.Context, _ capabilities.Entry, _ json.RawMessage) (capabilities.CallResult, error) {
 	e.calls++
 	return capabilities.CallResult{Output: `{"remote":"done"}`, Metadata: map[string]any{"automatic_retry": false}}, nil
@@ -955,8 +1034,9 @@ func TestEffectfulDeferredCapabilityUsesPersistedAgentApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.tools.SetCatalog(catalog)
+	projectID := createTestProject(t, service, t.TempDir())
 	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
-		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		ProjectID: projectID, ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1130,8 +1210,9 @@ func budgetTestSession(t *testing.T, handler http.HandlerFunc, budget TaskBudget
 	t.Helper()
 	server := httptest.NewServer(handler)
 	service, provider, cleanup := testAgentService(t, server)
+	projectID := createTestProject(t, service, t.TempDir())
 	session, err := service.CreateSession(context.Background(), CreateSessionInput{ProviderID: provider.ID,
-		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		ProjectID: projectID, ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		cleanup()
 		t.Fatal(err)
@@ -1158,7 +1239,9 @@ func TestModelStepBudgetStopsTheTurn(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		// A distinct nonce per step keeps the loop detector out of the way so
 		// the step budget is the only thing that can stop this turn.
-		fmt.Fprint(w, toolCallStream(fmt.Sprintf("call-%d", step), fmt.Sprintf("dir-%d", step)))
+		stream := toolCallStream(fmt.Sprintf("call-%d", step), fmt.Sprintf("dir-%d", step))
+		usage := fmt.Sprintf("data: {\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":2,\"total_tokens\":%d}}\n\ndata: [DONE]", 20+step, 22+step)
+		fmt.Fprint(w, strings.Replace(stream, "data: [DONE]", usage, 1))
 	}, TaskBudget{MaxModelSteps: 2, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
 	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "loop forever"}, nil)
@@ -1166,6 +1249,86 @@ func TestModelStepBudgetStopsTheTurn(t *testing.T) {
 		t.Fatalf("model-step budget did not stop the turn: %v", err)
 	}
 	assertLeaseReleased(t, service, sessionID)
+	detail, err := service.GetSessionDetail(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range detail.Events {
+		if event.EventKind == "turn_failed" {
+			var usage providers.Usage
+			encoded, _ := json.Marshal(event.Metadata["usage"])
+			if err := json.Unmarshal(encoded, &usage); err != nil || usage.TotalTokens != 47 {
+				t.Fatalf("failed turn lost two steps of usage: %+v %v", usage, err)
+			}
+			return
+		}
+	}
+	t.Fatal("turn_failed event was not persisted")
+}
+
+func TestFinalModelStepSummarizesWithoutMoreTools(t *testing.T) {
+	steps := 0
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, r *http.Request) {
+		steps++
+		var request struct {
+			Tools    []json.RawMessage `json:"tools"`
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode provider request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if steps == 1 {
+			if len(request.Tools) == 0 {
+				t.Error("first step lost its tools")
+			}
+			fmt.Fprint(w, toolCallStream("first-call", "."))
+			return
+		}
+		if len(request.Tools) != 0 {
+			t.Errorf("final step still exposed %d tools", len(request.Tools))
+		}
+		foundFinalInstruction := false
+		for _, message := range request.Messages {
+			foundFinalInstruction = foundFinalInstruction || strings.Contains(message.Content, "Tools are unavailable now")
+		}
+		if !foundFinalInstruction {
+			t.Error("final step did not ask for a bounded evidence summary")
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Checked the project root; more files remain to review.\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":60,\"completion_tokens\":12,\"total_tokens\":72}}\n\ndata: [DONE]\n\n")
+	}, TaskBudget{MaxModelSteps: 2, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "review project"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps != 2 || !strings.Contains(result.AssistantEvent.Content, "more files remain") {
+		t.Fatalf("final step did not produce an honest answer: steps=%d result=%+v", steps, result)
+	}
+}
+
+func TestFinalModelStepRejectsPlainTextToolCall(t *testing.T) {
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"<tool_call>\\n<function=workspace.run>\\n</function>\\n</tool_call>\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12,\"total_tokens\":32}}\n\ndata: [DONE]\n\n")
+	}, TaskBudget{MaxModelSteps: 1, MaxToolCalls: 5, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "review project"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "without a user-facing answer") {
+		t.Fatalf("plain text tool call was accepted as an answer: %v", err)
+	}
+	assertLeaseReleased(t, service, sessionID)
+	detail, err := service.GetSessionDetail(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range detail.Events {
+		if event.EventKind == "message" && event.Role == "assistant" {
+			t.Fatalf("tool-call markup was persisted as a completed answer: %q", event.Content)
+		}
+	}
 }
 
 func TestToolCallBudgetStopsTheTurn(t *testing.T) {
@@ -2360,6 +2523,19 @@ func TestSessionFreezesTheReasoningRatioItOpenedWith(t *testing.T) {
 // A model measured as spending nearly all of its output thinking cannot answer
 // inside a small profile. Say so at the door rather than let the user find out
 // one silent turn at a time.
+func TestSessionCanOpenAfterOneNoisyReasoningObservation(t *testing.T) {
+	service, provider, cleanup := testAgentService(t, successProviderServer(t))
+	defer cleanup()
+	ctx := context.Background()
+	if err := service.providers.ObserveReasoning(ctx, provider.ID, 100, 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateSession(ctx, CreateSessionInput{ProviderID: provider.ID,
+		ContextProfile: "compact-16k", QualificationOverride: testQualificationOverride()}); err != nil {
+		t.Fatalf("one short reasoning-heavy reply must not disable new chats: %v", err)
+	}
+}
+
 func TestSessionIsRefusedWhenNoAnswerWouldFit(t *testing.T) {
 	service, provider, cleanup := testAgentService(t, successProviderServer(t))
 	defer cleanup()
@@ -2610,8 +2786,9 @@ func TestEachModelStepRecordsItsOwnPredictionAndUsage(t *testing.T) {
 	service, profile, cleanup := testAgentService(t, server)
 	defer cleanup()
 	ctx := context.Background()
+	projectID := createTestProject(t, service, t.TempDir())
 	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "steps", ProviderID: profile.ID,
-		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		ProjectID: projectID, ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2701,10 +2878,11 @@ func TestACalibratedProviderCompilesADifferentBudget(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	goal := strings.Repeat("บันทึกงานบัญชีภาษีที่ต้องใช้บริบทยาวพอสมควร ", 20)
+	projectID := createTestProject(t, service, t.TempDir())
 
 	runOnce := func(title string) int {
 		session, err := service.CreateSession(ctx, CreateSessionInput{Title: title, ProviderID: profile.ID,
-			ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+			ProjectID: projectID, ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2758,7 +2936,7 @@ func TestCalibrationLearnsFromThePromptNotTheBudget(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "calibration source", ProviderID: profile.ID,
-		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		ProjectID: createTestProject(t, service, t.TempDir()), ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2821,7 +2999,7 @@ func TestTheAppliedScaleIsTheOneThatProducedThePrediction(t *testing.T) {
 		t.Fatalf("precondition: the ruler should be well below 1, got %v", before.TokenMultiplier)
 	}
 	session, err := service.CreateSession(ctx, CreateSessionInput{Title: "applied scale", ProviderID: profile.ID,
-		ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+		ProjectID: createTestProject(t, service, t.TempDir()), ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2873,10 +3051,11 @@ func TestALearnedScriptRateReachesTheCompileAndTheLedger(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	goal := strings.Repeat("รายการบัญชีภาษีที่ต้องกระทบยอด ", 40)
+	projectID := createTestProject(t, service, t.TempDir())
 
 	run := func(title string) (predicted, ascii, nonASCII int) {
 		session, err := service.CreateSession(ctx, CreateSessionInput{Title: title, ProviderID: profile.ID,
-			ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
+			ProjectID: projectID, ContextProfile: "certified-64k", QualificationOverride: testQualificationOverride()})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -44,6 +44,13 @@ func providerError(ctx context.Context, err error) error {
 	case errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled):
 		return workerError(ErrorProviderCancelled, PhaseRequestingProvider, false, "provider request cancelled", context.Canceled)
 	default:
+		var incomplete *providers.IncompleteCompletionError
+		if errors.As(err, &incomplete) {
+			if incomplete.Partial.FinishReason == "length" {
+				return workerError(ErrorResponseTruncated, PhaseRequestingProvider, true, "provider response reached its output limit before the proposal was complete", nil)
+			}
+			return workerError(ErrorProviderFailed, PhaseRequestingProvider, true, "provider returned an incomplete tool response", nil)
+		}
 		var httpErr *providers.HTTPError
 		if errors.As(err, &httpErr) && httpErr.StatusCode != 408 && httpErr.StatusCode != 429 && httpErr.StatusCode < 500 {
 			return workerError(ErrorProviderRejected, PhaseRequestingProvider, false, "provider rejected the request", nil)

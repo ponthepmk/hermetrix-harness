@@ -14,6 +14,8 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -113,21 +115,50 @@ func (s *Service) StartMediaJob(ctx context.Context, input MediaJobInput) (Media
 	if len(input.IdempotencyKey) > 128 || len(input.OperationID) > 128 {
 		return MediaJob{}, fmt.Errorf("operation and idempotency keys must be at most 128 bytes")
 	}
-	if input.ProcessorKind != "image_inspect" {
+	if input.ProcessorKind != "image_inspect" && input.ProcessorKind != "video_extract" && input.ProcessorKind != "audio_transcribe" {
 		return MediaJob{}, fmt.Errorf("%w: %s is disabled until a contained FFmpeg/Whisper runtime is qualified", ErrMediaProcessorUnsupported, input.ProcessorKind)
 	}
-	artifact, data, err := s.GetArtifact(ctx, input.SourceArtifactID)
-	if err != nil {
-		return MediaJob{}, err
-	}
-	if artifact.Kind != "image" || len(data) > maxMediaImageBytes {
-		return MediaJob{}, fmt.Errorf("image_inspect requires a validated image artifact")
-	}
-	if _, _, detected, imageErr := inspectImage(data); imageErr != nil || detected != artifact.MIMEType {
-		return MediaJob{}, fmt.Errorf("source image failed decoded MIME validation")
-	}
-	if input.ProcessorRevision == "" {
-		input.ProcessorRevision = "builtin-image-inspect-v1"
+	var artifact Artifact
+	if input.ProcessorKind == "video_extract" || input.ProcessorKind == "audio_transcribe" {
+		if len(input.Options) > 0 {
+			return MediaJob{}, fmt.Errorf("video media jobs use fixed bounded settings; custom settings are unavailable")
+		}
+		var file *os.File
+		var err error
+		artifact, file, err = s.OpenVideoArtifact(ctx, input.SourceArtifactID)
+		if err != nil {
+			return MediaJob{}, err
+		}
+		file.Close()
+		if _, err := exec.LookPath("ffmpeg"); err != nil {
+			return MediaJob{}, fmt.Errorf("video frame inspection is unavailable: ffmpeg is not installed")
+		}
+		if input.ProcessorKind == "video_extract" {
+			input.ProcessorRevision = "builtin-video-frames-v1"
+		} else {
+			runtime, runtimeErr := discoverWhisperRuntime()
+			if runtimeErr != nil {
+				return MediaJob{}, runtimeErr
+			}
+			input.ProcessorRevision = "builtin-whisper-cpp-v1"
+			input.ModelRevision = runtime.modelDigest
+		}
+	} else {
+		var data []byte
+		var err error
+		artifact, data, err = s.GetArtifact(ctx, input.SourceArtifactID)
+		if err != nil {
+			return MediaJob{}, err
+		}
+		if artifact.Kind != "image" || len(data) > maxMediaImageBytes {
+			return MediaJob{}, fmt.Errorf("image_inspect requires a validated image artifact")
+		}
+		if _, _, detected, imageErr := inspectImage(data); imageErr != nil || detected != artifact.MIMEType {
+			return MediaJob{}, fmt.Errorf("source image failed decoded MIME validation")
+		}
+		if input.ProcessorRevision == "" {
+			input.ProcessorRevision = "builtin-image-inspect-v1"
+		}
 	}
 	settings, _ := json.Marshal(input.Options)
 	settingsSum := sha256.Sum256(settings)
@@ -159,12 +190,22 @@ func (s *Service) StartMediaJob(ctx context.Context, input MediaJobInput) (Media
 	if err != nil {
 		return MediaJob{}, err
 	}
-	jobCtx, cancel := context.WithTimeout(s.teamCtx, 120*time.Second)
+	deadline := 120 * time.Second
+	if job.ProcessorKind == "audio_transcribe" {
+		deadline = 1800 * time.Second
+	}
+	jobCtx, cancel := context.WithTimeout(s.teamCtx, deadline)
 	s.mu.Lock()
 	s.cancels[job.ID] = cancel
 	s.mu.Unlock()
 	s.teamWG.Add(1)
-	go func() { defer s.teamWG.Done(); s.runImageInspect(jobCtx, job.ID) }()
+	if job.ProcessorKind == "video_extract" {
+		go func() { defer s.teamWG.Done(); s.runVideoExtract(jobCtx, job.ID) }()
+	} else if job.ProcessorKind == "audio_transcribe" {
+		go func() { defer s.teamWG.Done(); s.runVideoTranscribe(jobCtx, job.ID) }()
+	} else {
+		go func() { defer s.teamWG.Done(); s.runImageInspect(jobCtx, job.ID) }()
+	}
 	return job, nil
 }
 
@@ -303,6 +344,43 @@ func (s *Service) GetMediaJob(ctx context.Context, id string) (MediaJob, error) 
 		return MediaJob{}, err
 	}
 	return s.getMediaJob(ctx, id, ownerID)
+}
+
+func (s *Service) ListMediaJobs(ctx context.Context, sourceArtifactID string) ([]MediaJob, error) {
+	if _, err := s.GetArtifactMetadata(ctx, sourceArtifactID); err != nil {
+		return nil, err
+	}
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT id FROM media_jobs WHERE owner_principal_id=? AND source_artifact_id=? ORDER BY created_at DESC LIMIT 20`, ownerID, sourceArtifactID)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]MediaJob, 0, len(ids))
+	for _, id := range ids {
+		item, err := s.getMediaJob(ctx, id, ownerID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
 }
 
 func (s *Service) mediaJobByKey(ctx context.Context, ownerID, operationID, key string) (MediaJob, error) {

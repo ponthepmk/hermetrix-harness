@@ -131,6 +131,288 @@ type RecoverExpiredRunInput struct {
 	Actor                string `json:"actor"`
 }
 
+// ResumeObservedReview renews authority for a saved post-test review after a
+// process restart. Every earlier effect must have a terminal receipt. It
+// reopens only the interrupted attempt bound to an applied, verified proposal;
+// no provider or workspace action is replayed by this transition.
+func (s *Service) ResumeObservedReview(ctx context.Context, input RecoverExpiredRunInput) (Task, error) {
+	input.Actor = strings.TrimSpace(input.Actor)
+	if input.TaskID == "" || input.ExpectedTaskRevision < 1 || input.Actor == "" {
+		return Task{}, fmt.Errorf("task, expected revision and actor are required")
+	}
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	var revision, planRevision int
+	var taskState string
+	if err = tx.QueryRowContext(ctx, `SELECT revision,active_plan_revision,state FROM durable_tasks WHERE id=?`, input.TaskID).Scan(&revision, &planRevision, &taskState); err != nil {
+		return Task{}, err
+	}
+	if revision != input.ExpectedTaskRevision {
+		return Task{}, ErrStaleRevision
+	}
+	if taskState != StatePaused {
+		return Task{}, fmt.Errorf("task is not paused")
+	}
+	var runID, attemptID, stepID string
+	var stepRevision int
+	if err = tx.QueryRowContext(ctx, `SELECT r.id,a.id,s.id,s.revision FROM task_runs r
+		JOIN task_step_attempts a ON a.run_id=r.id
+		JOIN task_steps s ON s.id=a.step_id
+		JOIN task_code_proposals p ON p.attempt_id=a.id
+		WHERE r.task_id=? AND r.plan_revision=? AND r.state='paused'
+		AND a.state='interrupted' AND s.state='blocked' AND p.state='awaiting_post_review'
+		AND p.verification_artifact_id<>'' AND p.rollback_artifact_id<>''
+		ORDER BY r.created_at DESC LIMIT 1`, input.TaskID, planRevision).Scan(&runID, &attemptID, &stepID, &stepRevision); err != nil {
+		return Task{}, fmt.Errorf("no interrupted post-test review to resume: %w", err)
+	}
+	var openEffects, interruptedAttempts int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE run_id=? AND state IN ('planned','dispatched','uncertain')`, runID).Scan(&openEffects); err != nil {
+		return Task{}, err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_step_attempts WHERE run_id=? AND state='interrupted'`, runID).Scan(&interruptedAttempts); err != nil {
+		return Task{}, err
+	}
+	if openEffects != 0 || interruptedAttempts != 1 {
+		return Task{}, fmt.Errorf("saved review has unresolved effects or multiple interrupted attempts")
+	}
+	now := formatTime(time.Now().UTC())
+	lease := identity.New("lease")
+	expires := formatTime(time.Now().UTC().Add(15 * time.Minute))
+	for _, update := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE task_runs SET state='running',lease_token=?,lease_generation=lease_generation+1,lease_expires_at=?,stop_reason='',completed_at=NULL,updated_at=? WHERE id=? AND state='paused'`, []any{lease, expires, now, runID}},
+		{`UPDATE task_steps SET state='running',revision=revision+1,last_error='',updated_at=? WHERE id=? AND state='blocked' AND revision=?`, []any{now, stepID, stepRevision}},
+		{`UPDATE task_step_attempts SET state='running',step_revision=?,error='',completed_at=NULL WHERE id=? AND state='interrupted'`, []any{stepRevision + 1, attemptID}},
+	} {
+		result, updateErr := tx.ExecContext(ctx, update.query, update.args...)
+		if updateErr != nil {
+			return Task{}, updateErr
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return Task{}, fmt.Errorf("saved review changed before recovery")
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET state='running',pause_reason='',revision=revision+1,updated_at=? WHERE id=? AND revision=? AND state='paused'`, now, input.TaskID, revision)
+	if err != nil {
+		return Task{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return Task{}, ErrStaleRevision
+	}
+	if err = tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	return s.Get(ctx, input.TaskID)
+}
+
+// ResumeApprovedReview restores run authority when a reviewer verdict and
+// attempt completion were saved, but final step bookkeeping was interrupted.
+// No model or workspace effect is replayed by this transition.
+func (s *Service) ResumeApprovedReview(ctx context.Context, input RecoverExpiredRunInput) (Task, error) {
+	input.Actor = strings.TrimSpace(input.Actor)
+	if input.TaskID == "" || input.ExpectedTaskRevision < 1 || input.Actor == "" {
+		return Task{}, fmt.Errorf("task, expected revision and actor are required")
+	}
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	var revision, planRevision int
+	var state string
+	if err = tx.QueryRowContext(ctx, `SELECT revision,active_plan_revision,state FROM durable_tasks WHERE id=?`, input.TaskID).
+		Scan(&revision, &planRevision, &state); err != nil {
+		return Task{}, err
+	}
+	if revision != input.ExpectedTaskRevision {
+		return Task{}, ErrStaleRevision
+	}
+	if state != StatePaused {
+		return Task{}, fmt.Errorf("task is not paused")
+	}
+	var runID string
+	if err = tx.QueryRowContext(ctx, `SELECT r.id FROM task_runs r
+		JOIN task_step_attempts a ON a.run_id=r.id
+		JOIN task_steps s ON s.id=a.step_id
+		JOIN task_code_proposals p ON p.attempt_id=a.id
+		WHERE r.task_id=? AND r.plan_revision=? AND r.state='paused'
+		AND a.state='completed' AND s.state='running' AND p.state='awaiting_post_review'
+		AND p.verification_artifact_id<>'' AND p.rollback_artifact_id<>''
+		AND EXISTS (SELECT 1 FROM task_code_reviews cr WHERE cr.proposal_id=p.id AND cr.verdict='approved' AND cr.reviewer LIKE 'provider:%')
+		ORDER BY r.created_at DESC LIMIT 1`, input.TaskID, planRevision).Scan(&runID); err != nil {
+		return Task{}, fmt.Errorf("no approved post-test review to finalize: %w", err)
+	}
+	var openEffects int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE run_id=? AND state IN ('planned','dispatched','uncertain')`, runID).Scan(&openEffects); err != nil {
+		return Task{}, err
+	}
+	if openEffects != 0 {
+		return Task{}, fmt.Errorf("saved review has unresolved effects")
+	}
+	now := formatTime(time.Now().UTC())
+	lease := identity.New("lease")
+	expires := formatTime(time.Now().UTC().Add(15 * time.Minute))
+	result, err := tx.ExecContext(ctx, `UPDATE task_runs SET state='running',lease_token=?,lease_generation=lease_generation+1,lease_expires_at=?,stop_reason='',completed_at=NULL,updated_at=? WHERE id=? AND state='paused'`, lease, expires, now, runID)
+	if err != nil {
+		return Task{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return Task{}, fmt.Errorf("saved review changed before recovery")
+	}
+	result, err = tx.ExecContext(ctx, `UPDATE durable_tasks SET state='running',pause_reason='',revision=revision+1,updated_at=? WHERE id=? AND revision=? AND state='paused'`, now, input.TaskID, revision)
+	if err != nil {
+		return Task{}, err
+	}
+	if changed, _ := result.RowsAffected(); changed != 1 {
+		return Task{}, ErrStaleRevision
+	}
+	if err = tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	return s.Get(ctx, input.TaskID)
+}
+
+// RetryFailedProposalAttempt closes a model request with an observed failure
+// receipt. A new attempt can then use a different provider without replaying
+// the failed operation or weakening the approved plan.
+func (s *Service) RetryFailedProposalAttempt(ctx context.Context, input RecoverExpiredRunInput) (Task, error) {
+	input.Actor = strings.TrimSpace(input.Actor)
+	if input.TaskID == "" || input.ExpectedTaskRevision < 1 || input.Actor == "" {
+		return Task{}, fmt.Errorf("task, expected revision and actor are required")
+	}
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	var revision int
+	var state string
+	if err = tx.QueryRowContext(ctx, `SELECT revision,state FROM durable_tasks WHERE id=?`, input.TaskID).Scan(&revision, &state); err != nil {
+		return Task{}, err
+	}
+	if revision != input.ExpectedTaskRevision {
+		return Task{}, ErrStaleRevision
+	}
+	if state != StateRunning && state != StatePaused {
+		return Task{}, fmt.Errorf("task has no failed proposal attempt to retry")
+	}
+	var runID, attemptID, stepID, receiptJSON string
+	if err = tx.QueryRowContext(ctx, `SELECT r.id,a.id,a.step_id,e.receipt_json FROM task_runs r
+		JOIN task_step_attempts a ON a.run_id=r.id
+		JOIN task_effect_intents e ON e.attempt_id=a.id
+		WHERE r.task_id=? AND r.state IN ('running','paused') AND a.state IN ('running','interrupted')
+		AND e.action='provider.propose' AND e.state='observed'
+		AND NOT EXISTS (SELECT 1 FROM task_code_proposals p WHERE p.attempt_id=a.id)
+		ORDER BY e.created_at DESC LIMIT 1`, input.TaskID).Scan(&runID, &attemptID, &stepID, &receiptJSON); err != nil {
+		return Task{}, fmt.Errorf("no observed failed proposal to retry: %w", err)
+	}
+	var receipt map[string]any
+	if err = json.Unmarshal([]byte(receiptJSON), &receipt); err != nil || receipt["status"] != "failed" {
+		return Task{}, fmt.Errorf("proposal failure receipt is not confirmed")
+	}
+	var openEffects int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE attempt_id=? AND state IN ('planned','dispatched','uncertain')`, attemptID).Scan(&openEffects); err != nil {
+		return Task{}, err
+	}
+	if openEffects != 0 {
+		return Task{}, fmt.Errorf("failed proposal still has unresolved effects")
+	}
+	reason := "provider proposal failed with observed receipt; retry in a new attempt"
+	now := formatTime(time.Now().UTC())
+	for _, update := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE task_step_attempts SET state='failed',error=?,completed_at=? WHERE id=? AND state IN ('running','interrupted')`, []any{reason, now, attemptID}},
+		{`UPDATE task_runs SET state='failed',stop_reason=?,updated_at=?,completed_at=? WHERE id=? AND state IN ('running','paused')`, []any{reason, now, now, runID}},
+		{`UPDATE task_steps SET state='failed',revision=revision+1,last_error=?,updated_at=? WHERE id=? AND state IN ('running','blocked')`, []any{reason, now, stepID}},
+		{`UPDATE durable_tasks SET state='paused',pause_reason=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND state IN ('running','paused')`, []any{reason, now, input.TaskID, revision}},
+	} {
+		result, updateErr := tx.ExecContext(ctx, update.query, update.args...)
+		if updateErr != nil {
+			return Task{}, updateErr
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return Task{}, fmt.Errorf("failed proposal changed before retry")
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	return s.Get(ctx, input.TaskID)
+}
+
+// RetryRejectedProposalAttempt closes a reviewed and rejected proposal without
+// applying it. The saved review stays attached to the failed attempt so the
+// next attempt can use its feedback under the same approved plan.
+func (s *Service) RetryRejectedProposalAttempt(ctx context.Context, input RecoverExpiredRunInput) (Task, error) {
+	input.Actor = strings.TrimSpace(input.Actor)
+	if input.TaskID == "" || input.ExpectedTaskRevision < 1 || input.Actor == "" {
+		return Task{}, fmt.Errorf("task, expected revision and actor are required")
+	}
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+	var revision int
+	var state string
+	if err = tx.QueryRowContext(ctx, `SELECT revision,state FROM durable_tasks WHERE id=?`, input.TaskID).Scan(&revision, &state); err != nil {
+		return Task{}, err
+	}
+	if revision != input.ExpectedTaskRevision {
+		return Task{}, ErrStaleRevision
+	}
+	if state != StateRunning && state != StatePaused {
+		return Task{}, fmt.Errorf("task has no rejected proposal attempt to retry")
+	}
+	var runID, attemptID, stepID string
+	if err = tx.QueryRowContext(ctx, `SELECT r.id,a.id,a.step_id FROM task_runs r
+		JOIN task_step_attempts a ON a.run_id=r.id
+		JOIN task_code_proposals p ON p.attempt_id=a.id
+		WHERE r.task_id=? AND r.state IN ('running','paused') AND a.state IN ('running','interrupted')
+		AND p.state='rejected'
+		ORDER BY p.updated_at DESC LIMIT 1`, input.TaskID).Scan(&runID, &attemptID, &stepID); err != nil {
+		return Task{}, fmt.Errorf("no reviewed rejected proposal to retry: %w", err)
+	}
+	var unsafeEffects int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE attempt_id=?
+		AND (state IN ('planned','dispatched','uncertain') OR action IN ('workspace.apply','workspace.run'))`, attemptID).Scan(&unsafeEffects); err != nil {
+		return Task{}, err
+	}
+	if unsafeEffects != 0 {
+		return Task{}, fmt.Errorf("rejected proposal has unresolved or workspace effects")
+	}
+	reason := "user rejected proposal; revise using saved review feedback in a new attempt"
+	now := formatTime(time.Now().UTC())
+	for _, update := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE task_step_attempts SET state='failed',error=?,completed_at=? WHERE id=? AND state IN ('running','interrupted')`, []any{reason, now, attemptID}},
+		{`UPDATE task_runs SET state='failed',stop_reason=?,updated_at=?,completed_at=? WHERE id=? AND state IN ('running','paused')`, []any{reason, now, now, runID}},
+		{`UPDATE task_steps SET state='failed',revision=revision+1,last_error=?,updated_at=? WHERE id=? AND state IN ('running','blocked')`, []any{reason, now, stepID}},
+		{`UPDATE durable_tasks SET state='paused',pause_reason=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND state IN ('running','paused')`, []any{reason, now, input.TaskID, revision}},
+	} {
+		result, updateErr := tx.ExecContext(ctx, update.query, update.args...)
+		if updateErr != nil {
+			return Task{}, updateErr
+		}
+		if changed, _ := result.RowsAffected(); changed != 1 {
+			return Task{}, fmt.Errorf("rejected proposal changed before retry")
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	return s.Get(ctx, input.TaskID)
+}
+
 type BeginAttemptInput struct {
 	RunID                string      `json:"run_id"`
 	LeaseToken           string      `json:"lease_token"`
@@ -171,6 +453,9 @@ func (s *Service) BeginRun(ctx context.Context, input BeginRunInput) (Run, error
 	}
 	if planRevision == 0 {
 		return Run{}, fmt.Errorf("task has no active plan")
+	}
+	if err = requireApprovedPlan(ctx, tx, input.TaskID, planRevision); err != nil {
+		return Run{}, err
 	}
 	var uncertain int
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_effect_intents WHERE task_id=? AND state='uncertain'`, input.TaskID).Scan(&uncertain); err != nil {

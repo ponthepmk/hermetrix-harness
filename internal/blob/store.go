@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -78,6 +79,84 @@ func (s *Store) Put(data []byte) (string, error) {
 		return "", fmt.Errorf("commit blob: %w", err)
 	}
 	return ref, nil
+}
+
+// PutReader stores a bounded stream without keeping the full payload in memory.
+func (s *Store) PutReader(reader io.Reader, maxBytes int64) (string, int64, error) {
+	if maxBytes < 1 {
+		return "", 0, fmt.Errorf("blob byte limit is required")
+	}
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return "", 0, err
+	}
+	tmp, err := os.CreateTemp(s.root, ".hermetrix-upload-*")
+	if err != nil {
+		return "", 0, err
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if err := tmp.Chmod(0o600); err != nil {
+		return "", 0, err
+	}
+	hash := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(reader, maxBytes+1))
+	if err != nil {
+		return "", 0, err
+	}
+	if n == 0 || n > maxBytes {
+		return "", 0, fmt.Errorf("blob exceeds byte limit or is empty")
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", 0, err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", 0, err
+	}
+	ref := hex.EncodeToString(hash.Sum(nil))
+	path, err := s.path(ref)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", 0, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return ref, n, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", 0, err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		if _, statErr := os.Stat(path); statErr == nil {
+			return ref, n, nil
+		}
+		return "", 0, err
+	}
+	return ref, n, nil
+}
+
+// OpenVerified returns a seekable blob after checking its digest with bounded memory.
+func (s *Store) OpenVerified(ref string) (*os.File, error) {
+	path, err := s.path(ref)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	hash := sha256.New()
+	if _, err = io.Copy(hash, file); err != nil || hex.EncodeToString(hash.Sum(nil)) != ref {
+		file.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("blob %s failed integrity check", ref)
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 func (s *Store) Get(ref string) ([]byte, error) {

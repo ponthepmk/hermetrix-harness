@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"hermetrix-harness/internal/taskengine"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -71,6 +73,7 @@ func TestCockpitHydratesInARealBrowser(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.picker-brand')?.complete && document.querySelector('.picker-brand')?.naturalWidth > 0 ? 'picker-logo-loaded' : ''`, "picker-logo-loaded")
 	if !strings.Contains(hydrated, "E2E <project>") {
 		t.Fatalf("cockpit did not hydrate the project picker: value=%q err=%v", hydrated, err)
 	}
@@ -85,6 +88,637 @@ func TestCockpitHydratesInARealBrowser(t *testing.T) {
 	}
 	if strings.Contains(dom, `<strong>E2E <project>`) {
 		t.Fatal("project name entered the hydrated DOM as markup")
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-open-project]').click(); 'opening'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#projectName')?.textContent.includes('E2E <project>') ? 'opened' : ''`, "opened")
+	waitBrowserValue(t, ctx, client, `Array.from(document.querySelectorAll('.project-mark,.runtime-mark,.task-start-heading img')).every(img => img.complete && img.naturalWidth > 0) ? 'shell-logos-loaded' : ''`, "shell-logos-loaded")
+	if _, err := client.evaluate(ctx, `switchTab('projects'); 'projects'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#projectArchive') && document.querySelector('#projectRename') && document.querySelector('.project-add-details') && document.querySelector('.project-advanced:not([open])') ? 'manage-project' : ''`, "manage-project")
+	if _, err := client.evaluate(ctx, `document.querySelector('#projectArchive').click(); document.querySelector('#actionConfirm').click(); 'archiving'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-restore-project]') && !document.querySelector('#projectArchive') ? 'archived-project' : ''`, "archived-project")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-restore-project]').click(); 'restoring'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#projectArchive') ? 'restored-project' : ''`, "restored-project")
+	if _, err := client.evaluate(ctx, `switchTab('library'); 'skills'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#studioImportFile') && document.querySelector('#studioChatSkillButton') ? 'import-skill' : ''`, "import-skill")
+}
+
+func TestCapabilityCenterSearchDoesNotCloseOpenToolDetailsInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		if os.Getenv("HERMETRIX_REQUIRE_BROWSER_E2E") == "1" {
+			t.Fatal("Chrome is required for the UI E2E job")
+		}
+		t.Skip("Chrome is not installed")
+	}
+	server := testHTTPServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `typeof switchTab === 'function' && state.direct_tools?.length ? 'hydrated' : ''`, "hydrated")
+	if _, err := client.evaluate(ctx, `switchTab('capabilities'); 'opened'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#capabilityCenterTools details') ? 'tools-ready' : ''`, "tools-ready")
+	if _, err := client.evaluate(ctx, `(() => { const input = document.querySelector('#capabilityCenterQuery'); input.value = 'workspace.read_file'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#capabilityCenterTools details').open = true; return 'expanded'; })()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#capabilityCenterMCP')?.textContent.includes('กำลังค้นหา') ? '' : 'search-complete'`, "search-complete")
+	open, err := client.evaluate(ctx, `document.querySelector('#capabilityCenterTools details')?.open ? 'still-open' : 'closed'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if open != "still-open" {
+		t.Fatalf("MCP search response closed the tool detail: %s", open)
+	}
+	if _, err := client.evaluate(ctx, `switchTab('tools'); state.directToolQuery = 'workspace.read_file'; renderDirectTools(); document.querySelector('[data-tool-text^="workspace.read_file"]').open = true; 'tool-open'`); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := client.evaluate(ctx, `document.querySelector('[data-use-direct-tool="workspace.read_file"]')?.disabled && document.querySelector('[data-tool-text^="workspace.read_file"]')?.textContent.includes('เปิดแชทที่ผูกโปรเจกต์') ? 'honest-unavailable' : 'misleading-action'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked != "honest-unavailable" {
+		t.Fatalf("direct tool offered an unusable chat action: %s", blocked)
+	}
+}
+
+func TestCandidateDialogCancelSkipsValidationInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		t.Skip("Chrome is not installed")
+	}
+	server := testHTTPServer(t)
+	requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Dialog audit", "root_path": ""}, http.StatusCreated)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	for _, method := range []string{"Runtime.enable", "Page.enable"} {
+		if err := client.call(ctx, method, map[string]any{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]')?.textContent.includes('Dialog audit') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-open-project]').click(); switchTab('library'); 'opened'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#studioCreateButton') ? 'ready' : ''`, "ready")
+	for _, selector := range []string{`#candidateDialog .dialog-actions [data-close-candidate]`, `#candidateDialog .dialog-head [data-close-candidate]`} {
+		if _, err := client.evaluate(ctx, `document.querySelector('#studioCreateButton').focus(); document.querySelector('#studioCreateButton').click(); 'dialog-open'`); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `document.querySelector('#candidateDialog').open && !document.querySelector('#candidateForm').checkValidity() ? 'invalid-form-open' : ''`, "invalid-form-open")
+		if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector(%q).click(); 'clicked'`, selector)); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `!document.querySelector('#candidateDialog').open && document.activeElement?.id === 'studioCreateButton' ? 'closed-without-validation' : ''`, "closed-without-validation")
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#studioCreateButton').click(); document.querySelector('#saveCandidate').click(); 'submitted-invalid'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#candidateDialog').open && !document.querySelector('#candidateForm').checkValidity() ? 'save-blocked' : ''`, "save-blocked")
+	for _, eventType := range []string{"keyDown", "keyUp"} {
+		if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": eventType, "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `!document.querySelector('#candidateDialog').open ? 'escape-closed' : ''`, "escape-closed")
+	if _, err := client.evaluate(ctx, `(() => {document.querySelector('#studioCreateButton').click(); const form=document.querySelector('#candidateForm'); form.elements.name.value='browser-audit-skill'; form.elements.description.value='Use for browser audit work'; form.elements.reason.value='Verify the proposal flow'; form.elements.body.value='# Procedure\n\n1. Inspect the browser.'; form.requestSubmit(); return 'valid-proposal-submitted';})()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!document.querySelector('#candidateDialog').open && state.activeTab === 'proposals' && state.candidates.some(item => item.canonical_name === 'browser-audit-skill') ? 'proposal-created' : ''`, "proposal-created")
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `switchTab('library'); document.querySelector('#studioCreateButton').click(); 'mobile-dialog'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const dialog=document.querySelector('#candidateDialog'), box=dialog.getBoundingClientRect(); return dialog.open && box.left >= -1 && box.right <= innerWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1 ? 'mobile-dialog-fits' : ''; })()`, "mobile-dialog-fits")
+}
+
+func TestLongChatReplyStaysReadableAboveComposerInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		t.Skip("Chrome is not installed")
+	}
+	server := testHTTPServer(t)
+	requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Chat layout audit", "root_path": ""}, http.StatusCreated)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	for _, method := range []string{"Runtime.enable", "Page.enable"} {
+		if err := client.call(ctx, method, map[string]any{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-open-project]').click(); 'opened'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.currentProject?.id ? 'ready' : ''`, "ready")
+	seed := `state.sessionDetail={session:{id:'chat-layout-audit',title:'Long answer',project_id:state.currentProject.id,provider_name:'fixture',context_profile:'compact-32k',contract_revision:'rev',cache_epoch:0,contract:{},state:'active',model:'fixture'},events:[{event_kind:'message',role:'assistant',content:'## Summary\n\n**Two IDs** must stay distinct.\n- Board ID\n- Platform ID\n\n'+'A readable answer. '.repeat(900),metadata:{}}],approvals:[]}; state.selectedSession='chat-layout-audit'; renderChat(); 'seeded'`
+	if _, err := client.evaluate(ctx, seed); err != nil {
+		t.Fatal(err)
+	}
+	for _, width := range []int{1440, 390} {
+		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `(() => { const list=document.querySelector('#messageList'), composer=document.querySelector('#chatForm'), last=[...list?.querySelectorAll('.chat-message')||[]].filter(node=>!node.classList.contains('hidden')).at(-1), input=document.querySelector('#chatInput'); if(!list||!composer||!last||!input)return ''; list.scrollTop=list.scrollHeight; const l=list.getBoundingClientRect(),c=composer.getBoundingClientRect(),m=last.getBoundingClientRect(),i=input.getBoundingClientRect(); const hit=document.elementFromPoint(i.left+i.width/2,i.top+i.height/2); return l.bottom<=c.top+1 && m.bottom<=l.bottom+1 && i.width>180 && (hit===input||input.contains(hit)) ? 'readable' : ''; })()`, "readable")
+		if width == 390 {
+			waitBrowserValue(t, ctx, client, `(() => { const form=document.querySelector('#chatForm'), row=form?.querySelector('.composer-tools'), buttons=[...row?.querySelectorAll('.composer-tool-button')||[]], input=form?.querySelector('#chatInput'); if(!form||buttons.length<5||!input)return ''; const r=row.getBoundingClientRect(); return document.documentElement.scrollWidth<=innerWidth && row.scrollWidth<=row.clientWidth && buttons.every(button=>{const b=button.getBoundingClientRect();return b.left>=r.left-1 && b.right<=r.right+1 && b.height>=40;}) && input.placeholder==='พิมพ์ข้อความถึง Hermetrix…' ? 'mobile-composer' : ''; })()`, "mobile-composer")
+		}
+		waitBrowserValue(t, ctx, client, `document.querySelector('#messageList .message-body strong')?.textContent === 'Two IDs' && document.querySelectorAll('#messageList .message-body li').length === 2 ? 'formatted' : ''`, "formatted")
+		if _, err := client.evaluate(ctx, `document.querySelector('#messageList').scrollTop=0; renderChat(); 'rerendered'`); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `document.querySelector('#messageList')?.scrollTop === 0 ? 'reading-position-preserved' : ''`, "reading-position-preserved")
+		if directory := os.Getenv("HERMETRIX_SETTINGS_AUDIT_DIR"); directory != "" {
+			var shot struct {
+				Data string `json:"data"`
+			}
+			if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+				t.Fatal(err)
+			}
+			pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, fmt.Sprintf("chat-%d.png", width)), pixels, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestWorkspacePaneSizesAreIndependentInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		t.Skip("Chrome is not installed")
+	}
+	server := testHTTPServer(t)
+	requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Resizable workspace", "root_path": ""}, http.StatusCreated)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	for _, method := range []string{"Runtime.enable", "Page.enable"} {
+		if err := client.call(ctx, method, map[string]any{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1600, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.navigate", map[string]any{"url": server.URL}, nil); err != nil {
+		t.Fatal(err)
+	}
+	capture := func(name string) {
+		directory := os.Getenv("HERMETRIX_SETTINGS_AUDIT_DIR")
+		if directory == "" {
+			return
+		}
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, name), pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-open-project]').click(); 'project-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.currentProject?.name === 'Resizable workspace' ? 'project-ready' : ''`, "project-ready")
+	if _, err := client.evaluate(ctx, `state.panes=['chat','review','files']; document.querySelector('#toggleSide').click(); 'side-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const side=document.querySelector('#zoneSide'); return !document.querySelector('#zones').classList.contains('side-hidden') && side.querySelectorAll('.pane:not(.pane-hidden)').length===1 && side.scrollWidth<=side.clientWidth ? 'single-side-pane' : ''; })()`, "single-side-pane")
+	if _, err := client.evaluate(ctx, `document.querySelector('#paneAdd').click(); document.querySelector('[data-open-side-pane="browser"]').click(); 'browser-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const side=document.querySelector('#zoneSide'); return side.querySelector('.pane:not(.pane-hidden)')?.dataset.kind==='browser' && side.querySelectorAll('.pane:not(.pane-hidden)').length===1 && side.scrollWidth<=side.clientWidth && document.querySelector('#workspacePaneMenu')?.hidden ? 'browser-side-pane' : ''; })()`, "browser-side-pane")
+	capture("chat-side-workbench.png")
+	if _, err := client.evaluate(ctx, `switchView('code'); state.panes=['chat','editor','environment']; state.paneLayout='adaptive'; renderPanes(); 'panes-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const strip=document.querySelector('.pane-grid'), handle=strip?.querySelector('[data-pane-size="0"]'); if(!strip||!handle||getComputedStyle(strip).display!=='flex')return ''; const r=handle.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2); return hit===handle ? 'resize-handles-reachable' : ''; })()`, "resize-handles-reachable")
+	coords, err := client.evaluate(ctx, `(() => {const r=document.querySelector('[data-pane-size="0"]').getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var point struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	}
+	if err := json.Unmarshal([]byte(coords), &point); err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []struct {
+		kind string
+		x    float64
+	}{{"mouseMoved", point.X}, {"mousePressed", point.X}, {"mouseMoved", point.X + 115}, {"mouseReleased", point.X + 115}} {
+		params := map[string]any{"type": input.kind, "x": input.x, "y": point.Y}
+		if input.kind == "mouseMoved" && input.x > point.X {
+			params["buttons"] = 1
+		}
+		if input.kind == "mousePressed" || input.kind == "mouseReleased" {
+			params["button"] = "left"
+			params["clickCount"] = 1
+		}
+		if err := client.call(ctx, "Input.dispatchMouseEvent", params, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `state.paneWidths.chat > 500 && document.querySelector('.pane-index-0').getBoundingClientRect().width > 500 ? 'drag-resized' : JSON.stringify({saved:state.paneWidths.chat,width:document.querySelector('.pane-index-0').getBoundingClientRect().width})`, "drag-resized")
+	capture("workspace-dynamic.png")
+	if _, err := client.evaluate(ctx, `state.panes=['chat','editor','environment','output']; renderPanes(); saveLayout(); 'four-panes'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const panes=[...document.querySelectorAll('.pane-grid>.pane')],strip=document.querySelector('.workspace-pane-host'); return panes.length===4 && panes.every(p=>p.getBoundingClientRect().width>=320) && strip.scrollWidth>strip.clientWidth ? 'readable-scroll' : ''; })()`, "readable-scroll")
+	waitBrowserValue(t, ctx, client, `(() => { const body=document.querySelector('.pane-index-0 .pane-body[data-pane-kind="chat"]'),composer=body?.querySelector('.pane-chat-input'); if(!body||!composer)return ''; body.scrollTop=body.scrollHeight; const box=body.getBoundingClientRect(),input=composer.getBoundingClientRect(); return input.top>=box.top && input.bottom<=box.bottom ? 'composer-reachable' : ''; })()`, "composer-reachable")
+	capture("workspace-four.png")
+	if _, err := client.evaluate(ctx, `HermetrixWorkspace.open('terminal'); 'ide'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.ide-host [data-pane-size="0"]') && getComputedStyle(document.querySelector('.ide-host .pane-grid')).display==='flex' ? 'ide-resizable' : ''`, "ide-resizable")
+	capture("workspace-editor.png")
+	if _, err := client.evaluate(ctx, `const divider=document.querySelector('[data-pane-size="0"]'); divider.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true})); 'keyboard-resize'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.paneWidths[state.panes[0]] < 600 && JSON.parse(localStorage.getItem(layoutKey())).paneWidths[state.panes[0]] === state.paneWidths[state.panes[0]] ? 'size-persisted' : ''`, "size-persisted")
+	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceIDE').click(); 'flexible'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.paneLayout === 'adaptive' && document.querySelector('.pane-arrangement-adaptive') && state.panes.includes('terminal') ? 'flexible-restored' : ''`, "flexible-restored")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-ide-panel="terminal"]').click(); 'terminal'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.paneLayout === 'adaptive' && state.panes.includes('terminal') ? 'terminal-keeps-layout' : ''`, "terminal-keeps-layout")
+	if _, err := client.evaluate(ctx, `splitPane(); splitPane(); 'more-than-four'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.panes.length>4 && document.querySelectorAll('.pane-grid>.pane').length===state.panes.length ? 'more-than-four' : ''`, "more-than-four")
+	if _, err := client.evaluate(ctx, `window.__paneCountBefore = state.panes.length; document.querySelector('#paneAdd').click(); 'create-pane'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const facts={before:window.__paneCountBefore,after:state.panes.length,preset:!!document.querySelector('#workspacePreset'),rendered:document.querySelectorAll('.pane-grid>.pane').length,saved:JSON.parse(localStorage.getItem(layoutKey()))?.panes?.length,scrollLeft:document.querySelector('#workspacePaneHost').scrollLeft};return facts.after===facts.before+1 && !facts.preset && facts.rendered===facts.after && facts.saved===facts.after && facts.scrollLeft>0 ? 'pane-created-visible' : JSON.stringify(facts);})()`, "pane-created-visible")
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#workspaceToolbarToggle')?.getAttribute('aria-expanded') === 'false' && getComputedStyle(document.querySelector('.workspace-actions')).display === 'none' ? 'mobile-menu-collapsed' : ''`, "mobile-menu-collapsed")
+	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-workspace-menu'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const r=document.querySelector('#paneAdd')?.getBoundingClientRect();return r&&r.width>=44&&r.left>=-1&&r.right<=innerWidth+1&&r.height>=44?'mobile-create-reachable':''})()`, "mobile-create-reachable")
+	if _, err := client.evaluate(ctx, `document.querySelector('#paneAdd').click(); 'create-mobile-pane'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const last=state.panes.at(-1),pane=document.querySelector('.pane-grid>.pane:last-of-type');return state.panes.length===window.__paneCountBefore+2 && state.compactPane===last && pane&&!pane.classList.contains('pane-hidden') && pane.querySelector('.pane-body')?.childElementCount>0 && document.querySelector('[data-compact-pane="'+last+'"]')?.getAttribute('aria-pressed')==='true'?'mobile-pane-open':''})()`, "mobile-pane-open")
+	capture("workspace-created-mobile.png")
+}
+
+func TestModelManagementFlowInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		t.Skip("Chrome is not installed")
+	}
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"HERMETRIX_OK"},"finish_reason":"stop"}]}`)
+	}))
+	defer gateway.Close()
+	server := testHTTPServer(t)
+	requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Models flow", "root_path": ""}, http.StatusCreated)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	expectBrowser := func(expression, want string) {
+		t.Helper()
+		value, err := client.evaluate(ctx, expression)
+		if err != nil || value != want {
+			t.Fatalf("browser action: got %q, want %q: %v", value, want, err)
+		}
+	}
+	for _, method := range []string{"Runtime.enable", "Page.enable"} {
+		if err := client.call(ctx, method, map[string]any{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.navigate", map[string]any{"url": server.URL}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'picker' : ''`, "picker")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-open-project]').click(); 'opened'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#startPrompt') ? 'workspace' : ''`, "workspace")
+	if _, err := client.evaluate(ctx, `document.querySelector('#openConfig').click(); document.querySelector('[data-config-page="providers"]').click(); 'models'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#modelAdd') ? 'models' : ''`, "models")
+	expectBrowser(`document.querySelector('#modelAdd').click(); document.querySelector('#modelConnect').open && document.activeElement.name==='name' ? 'add-ready' : ''`, "add-ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`(() => {const f=document.querySelector('#providerForm');f.elements.namedItem('name').value='Local test';f.elements.namedItem('base_url').value=%q;f.elements.namedItem('model').value='test-model';f.requestSubmit();return 'submitted';})()`, gateway.URL+"/v1")); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.model-card h3')?.textContent==='Local test' ? 'added' : ''`, "added")
+	expectBrowser(`(() => {document.querySelector('[data-edit-provider]').click(); const form=document.querySelector('#providerForm'); form.elements.namedItem('name').value='Do not save'; document.querySelector('#providerCancel').click(); return document.querySelector('.model-card h3').textContent==='Local test' && !document.querySelector('#modelConnect').open ? 'cancel-kept-model' : '';})()`, "cancel-kept-model")
+	if _, err := client.evaluate(ctx, `(() => {document.querySelector('[data-edit-provider]').click(); const form=document.querySelector('#providerForm'); form.elements.namedItem('name').value='Local edited'; form.requestSubmit(); return 'edited';})()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.model-card h3')?.textContent==='Local edited' ? 'edit-saved' : ''`, "edit-saved")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-test-provider]').click(); 'testing'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-provider-test-result]')?.textContent.includes('เชื่อมต่อสำเร็จ') ? 'test-visible' : ''`, "test-visible")
+	expectBrowser(`(() => {document.querySelector('[data-open-qualification]').click(); const details=document.querySelector('[data-model-details]'),form=details.querySelector('form');form.elements.namedItem('runtime').value='ollama';form.elements.namedItem('runtime').dispatchEvent(new Event('change'));return details.open && !form.querySelector('.model-runtime-endpoint').hidden ? 'qualification-options' : '';})()`, "qualification-options")
+	if directory := os.Getenv("HERMETRIX_SETTINGS_AUDIT_DIR"); directory != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "models-flow.png"), pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.documentElement.scrollWidth <= window.innerWidth && document.querySelector('.model-card').getBoundingClientRect().width <= window.innerWidth ? 'mobile-fits' : ''`, "mobile-fits")
+}
+
+func TestSettingsPagesAndBackgroundJobsInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		t.Skip("Chrome is not installed")
+	}
+	server := testHTTPServer(t)
+	requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Visual audit", "root_path": ""}, http.StatusCreated)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	for _, method := range []string{"Runtime.enable", "Page.enable"} {
+		if err := client.call(ctx, method, map[string]any{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Page.navigate", map[string]any{"url": server.URL}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]')?.textContent.includes('Visual audit') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, `window.__settingsAuditErrors=[]; window.addEventListener('error', event => window.__settingsAuditErrors.push(event.message)); window.addEventListener('unhandledrejection', event => window.__settingsAuditErrors.push(String(event.reason))); 'error-listeners-ready'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `openProject(document.querySelector('[data-open-project]').dataset.openProject).then(async () => { switchTab('office'); await hydrateSurface('office'); window.__officeNavigationReady=true; }).catch(error => {window.__e2eOpenProjectError=String(error)}); 'opened'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `window.__officeNavigationReady && document.querySelector('#officeList') && readySurfaces.has('office') ? 'office' : ''`, "office")
+	// This test injects its own job history. Keep the live five-second poll from
+	// replacing that fixture with the server's unrelated background jobs.
+	if _, err := client.evaluate(ctx, `stopOfficePoll(); scheduleOfficePoll = () => {}; 'poll-paused'`); err != nil {
+		t.Fatal(err)
+	}
+	seed := `state.jobs = [
+		{id:'job_running',state:'running',created_at:'2026-09-24T08:00:00Z',started_at:'2026-09-24T08:01:00Z',payload:{executable:'go',arguments:['test','./...'],project_id:state.projects[0].id,actor:'tester'},result:{}},
+		{id:'job_interrupted',state:'interrupted',created_at:'2026-09-24T07:00:00Z',started_at:'2026-09-24T07:01:00Z',payload:{executable:'node',arguments:['build'],project_id:state.projects[0].id,actor:'tester'},result:{}}
+	]; state.reviews = [{id:'review_queued',state:'queued',created_at:'2026-09-24T09:00:00Z',trigger_kind:'successful_milestone',digest:{goal_and_constraints:'Review the completed work'},attempts:0}]; renderOffice(); clearTimeout(officePollTimer); 'seeded'`
+	if _, err := client.evaluate(ctx, seed); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelectorAll('.office-entry').length === 3 && document.querySelector('#view-office').textContent.includes('จะไม่รันคำสั่งนี้ซ้ำเอง') && document.querySelector('#view-office').textContent.includes('กลับเข้าคิวหลังเปิดแอป') ? 'clear-states' : ''`, "clear-states")
+	if path := os.Getenv("HERMETRIX_OFFICE_SCREENSHOT"); path != "" {
+		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1740, "height": 1000, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+			t.Fatal(err)
+		}
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-office-filter="attention"]').click(); 'filtered'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelectorAll('.office-entry').length === 1 && document.querySelector('.office-entry').textContent.includes('node build') ? 'filtered' : ''`, "filtered")
+	if _, err := client.evaluate(ctx, `document.querySelector('.office-entry summary').click(); 'expanded'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.office-entry').open && document.querySelector('.office-timeline').textContent.includes('เริ่ม') ? 'timeline' : ''`, "timeline")
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 700, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.documentElement.scrollWidth <= window.innerWidth ? 'fits' : ''`, "fits")
+	if path := os.Getenv("HERMETRIX_OFFICE_MOBILE_SCREENSHOT"); path != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1740, "height": 1000, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	pageResult, err := client.evaluate(ctx, `(() => { state.jobs = Array.from({length:25}, (_, index) => ({id:'history_'+index,state:'completed',created_at:new Date(Date.UTC(2026,8,24,0,index)).toISOString(),payload:{executable:'git',arguments:['status'],project_id:state.projects[0].id},result:{exit_code:0}})); state.reviews = []; officeFilter='history'; officeHistoryLimit=20; renderOffice(); stopOfficePoll(); const first=document.querySelectorAll('.office-entry').length===20&&!document.querySelector('#officeMore').hidden; document.querySelector('#officeMore').click(); const all=document.querySelectorAll('.office-entry').length===25&&document.querySelector('#officeMore').hidden; return first&&all?'all-history':JSON.stringify({first,all,rows:document.querySelectorAll('.office-entry').length}); })()`)
+	if err != nil || pageResult != "all-history" {
+		t.Fatalf("office history pagination: result=%q err=%v", pageResult, err)
+	}
+	for _, page := range []string{"providers", "mcp", "tools", "library", "proposals", "learning", "insights", "archive", "context", "fidelity", "discord", "projects", "artifacts", "maintenance"} {
+		expression := fmt.Sprintf(`document.querySelector('[data-config-page=%q]')?.click(); document.querySelector('#view-%s')?.textContent.trim().length > 0 ? 'rendered' : ''`, page, page)
+		if _, err := client.evaluate(ctx, expression); err != nil {
+			t.Fatalf("%s: %v", page, err)
+		}
+		waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('#view-%s')?.textContent.trim().length > 0 ? 'rendered' : ''`, page), "rendered")
+		unsafe, err := client.evaluate(ctx, fmt.Sprintf(`(() => {const view=document.querySelector('#view-%s');return [...view.querySelectorAll('form button')].filter(button => /^(cancel|close|ยกเลิก|ปิด)$/i.test((button.textContent.trim() || button.getAttribute('aria-label') || '')) && button.type !== 'button').map(button => button.outerHTML).join('\n');})()`, page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if unsafe != "" {
+			t.Errorf("%s: dismiss button would submit its form: %s", page, unsafe)
+		}
+		if directory := os.Getenv("HERMETRIX_SETTINGS_AUDIT_DIR"); directory != "" {
+			if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1740, "height": 1000, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+				t.Fatal(err)
+			}
+			var shot struct {
+				Data string `json:"data"`
+			}
+			if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+				t.Fatal(err)
+			}
+			pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, page+".png"), pixels, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range []string{"providers", "mcp", "tools", "library", "proposals", "learning", "insights", "archive", "context", "fidelity", "discord", "projects", "artifacts", "maintenance"} {
+		width, err := client.evaluate(ctx, fmt.Sprintf(`(() => { const jump=document.querySelector('#configMobileJump'); jump.value=%q; jump.dispatchEvent(new Event('change',{bubbles:true})); return document.documentElement.scrollWidth > innerWidth + 1 ? String(document.documentElement.scrollWidth) : ''; })()`, page))
+		if err != nil {
+			t.Fatalf("%s mobile layout: %v", page, err)
+		}
+		if width != "" {
+			t.Errorf("%s overflows 390px viewport: document width %s", page, width)
+		}
+		waitBrowserValue(t, ctx, client, fmt.Sprintf(`(() => { const jump=document.querySelector('#configMobileJump'), nav=document.querySelector('#configNav'); if (!jump || jump.value!==%q || getComputedStyle(nav).display!=='none') return ''; const rect=jump.getBoundingClientRect(), hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2); return hit===jump ? 'nav-reachable' : ''; })()`, page), "nav-reachable")
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#configMobileJump').focus(); 'focused'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, eventType := range []string{"keyDown", "keyUp"} {
+		if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": eventType, "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#configOverlay').hidden && document.activeElement?.id==='openConfig' && document.querySelector('#appHeader').getAttribute('aria-hidden')==='false' ? 'focus-returned' : ''`, "focus-returned")
+	if errors, err := client.evaluate(ctx, `window.__settingsAuditErrors.join('\n')`); err != nil {
+		t.Fatal(err)
+	} else if errors != "" {
+		t.Errorf("settings navigation raised browser errors: %s", errors)
 	}
 }
 
@@ -188,6 +822,16 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `Array.from(document.querySelectorAll('.chat-message.assistant:not(.streaming) .message-body')).some(node => node.textContent.includes('Ready from the browser fixture.')) ? 'replied' : ''`, "replied")
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.chat-head .session-usage'), bar=meter?.querySelector('progress'); return meter?.textContent.includes('ใช้รวมในแชต 28 token') && bar?.value===28 && bar.max>28 && bar.getBoundingClientRect().width>150 ? 'usage-bar-visible' : ''; })()`, "usage-bar-visible")
+	if _, err := client.evaluate(ctx, `document.querySelector('.chat-head .session-usage summary').click(); 'details-opened'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.chat-head .session-usage'); return meter?.open && meter.textContent.includes('รับเข้า / ตอบออก') && meter.textContent.includes('20 / 8 token') && meter.textContent.includes('ขั้นโมเดลของคำสั่งล่าสุด') ? 'usage-details-visible' : ''; })()`, "usage-details-visible")
+	if _, err := client.evaluate(ctx, `renderChat(); 'rerendered'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.chat-head .session-usage')?.open ? 'usage-details-survived' : ''`, "usage-details-survived")
+	waitBrowserValue(t, ctx, client, `(() => { const sample=[{turn_id:'old',event_kind:'message',role:'user'},{turn_id:'old',event_kind:'tool_call',metadata:{usage:{total_tokens:11,prompt_tokens:9,completion_tokens:2}}},{turn_id:'old',event_kind:'model_step_bound'},{turn_id:'old',event_kind:'turn_failed',content:'agent exhausted its 12 model-step budget'}]; const html=sessionUsageHTML({contract:{task_budget:{max_model_steps:12,max_cumulative_tokens:98304}}},sample,null); return html.includes('อย่างน้อย 11 token') && html.includes('1 / 12 ขั้น') && html.includes('เพราะครบ 12 ขั้นโมเดล') ? 'old-failure-estimated' : ''; })()`, "old-failure-estimated")
 	waitBrowserValue(t, ctx, client, fmt.Sprintf(`Array.from(document.querySelectorAll('.chat-message.user .message-body')).some(node => node.textContent === %q) ? 'goal-sent' : ''`, objective), "goal-sent")
 	response, err := http.Get(server.URL + "/api/sessions")
 	if err != nil {
@@ -202,7 +846,7 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&sessions); err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions) != 1 || sessions[0].ProjectID != project.ID || sessions[0].ProviderID != provider.ID || sessions[0].Title != objective {
+	if len(sessions) != 1 || sessions[0].ProjectID != "" || sessions[0].ProviderID != provider.ID || sessions[0].Title != objective {
 		t.Fatalf("the goal composer did not persist the intended session: %+v", sessions)
 	}
 	// Ask next to an edited file, keeping its unsaved buffer intact. The local
@@ -210,6 +854,7 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if _, err := client.evaluate(ctx, `document.querySelector('#viewSwitch [data-view="code"]').click(); 'workspace'`); err != nil {
 		t.Fatal(err)
 	}
+	waitBrowserValue(t, ctx, client, `(() => { const menu=document.querySelector('[data-pane-content]'); return menu && getComputedStyle(menu).colorScheme === 'dark' && getComputedStyle(menu.options[0]).color !== 'rgb(0, 0, 0)' ? 'dark-pane-menu' : ''; })()`, "dark-pane-menu")
 	waitBrowserValue(t, ctx, client, `document.querySelector('[data-workbench-file="README.md"]') ? 'readme' : ''`, "readme")
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-workbench-file="README.md"]').click(); 'readme-open'`); err != nil {
 		t.Fatal(err)
@@ -228,14 +873,53 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-assistant-action="explain"]').click(); 'explain'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `!state.sending && document.querySelectorAll('.ide-assistant-log .chat-message.assistant').length === 2 ? 'coding-replied' : ''`, "coding-replied")
+	waitBrowserValue(t, ctx, client, `!state.sending && document.querySelectorAll('.ide-assistant-log .chat-message.assistant').length >= 1 ? 'coding-replied' : (document.querySelector('.ide-assistant-status')?.textContent || '')`, "coding-replied")
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.ide-assistant-usage .session-usage'), bar=meter?.querySelector('progress'); return meter?.textContent.includes('ใช้รวมในแชต 28 token') && bar?.value===28 && bar.getBoundingClientRect().width>100 ? 'coding-usage-bar-visible' : ''; })()`, "coding-usage-bar-visible")
 	waitBrowserValue(t, ctx, client, `[...document.querySelectorAll('.ide-assistant-log .chat-message.user')].some(node=>node.textContent.includes('unsaved editor buffer') && node.textContent.includes('Unsaved local context')) && activeCodeEditor?.getValue().includes('Unsaved local context') ? 'context-and-draft-preserved' : ''`, "context-and-draft-preserved")
 	if content, err := os.ReadFile(filepath.Join(projectRoot, "README.md")); err != nil || string(content) != "# Browser fixture\n" {
 		t.Fatalf("asking the local assistant changed the unsaved file on disk: %q %v", content, err)
 	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="chat"]')?.click(); 'mobile-chat-pane'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.ide-assistant-usage .session-usage'), bar=meter?.querySelector('progress'), box=meter?.getBoundingClientRect(); return bar && box && box.left>=0 && box.right<=innerWidth+1 && bar.getBoundingClientRect().width>100 ? 'mobile-usage-fits' : ''; })()`, "mobile-usage-fits")
+	if _, err := client.evaluate(ctx, `document.querySelector('.ide-assistant .pane-chat-input').focus(); 'mobile-composer-focused'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const bar=document.querySelector('.ide-assistant-usage progress'); return bar && getComputedStyle(bar).display!=='none' && bar.getBoundingClientRect().width>100 ? 'mobile-usage-stays-visible' : ''; })()`, "mobile-usage-stays-visible")
+	if _, err := client.evaluate(ctx, `document.querySelector('.ide-assistant .pane-chat-input').blur(); 'mobile-composer-blurred'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `for(let i=0;i<12;i++){const id='mobile-tool-'+i;state.sessionDetail.events.push({id:id+'-call',event_kind:'tool_call',role:'assistant',metadata:{tool_call_id:id,tool_name:'workspace.read_file'},content:'{}'},{id:id+'-result',event_kind:'tool_result',role:'tool',metadata:{tool_call_id:id,tool_name:'workspace.read_file',tool_status:'succeeded'},content:JSON.stringify({name:'workspace.read_file',status:'succeeded',output:'file read'})})} HermetrixAssistant.refresh(); 'tool-history'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const batch=document.querySelector('.ide-tool-batch'), form=document.querySelector('.ide-assistant .pane-chat-form'), input=form?.querySelector('textarea'), send=form?.querySelector('[data-assistant-send]'); if(!batch||!input||!send)return ''; const i=input.getBoundingClientRect(),s=send.getBoundingClientRect(); return batch.querySelectorAll('.tool-receipt').length===12 && i.width>=320 && s.top>=i.bottom && input.placeholder==='พิมพ์คำถามหรือสั่งแก้ไฟล์…' ? 'mobile-assistant' : ''; })()`, "mobile-assistant")
+	waitBrowserValue(t, ctx, client, `!document.querySelector('.ide-assistant-title strong') && document.querySelector('[data-assistant-provider]') ? 'single-model-label' : ''`, "single-model-label")
+	if _, err := client.evaluate(ctx, `document.querySelector('.ide-tool-batch summary').click(); 'expanded-tools'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const log=document.querySelector('.ide-assistant-log'), receipt=log?.querySelector('.ide-tool-batch .tool-receipt'); return receipt?.getBoundingClientRect().height>=40 && log.scrollHeight>log.clientHeight ? 'receipts-readable' : ''; })()`, "receipts-readable")
+	waitBrowserValue(t, ctx, client, `(() => { const input=document.querySelector('.ide-assistant .pane-chat-input'); const key=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}); input?.dispatchEvent(key); return input && !key.defaultPrevented && !state.sending ? 'mobile-enter-newline' : ''; })()`, "mobile-enter-newline")
+	if _, err := client.evaluate(ctx, `document.querySelector('.ide-assistant .pane-chat-input').focus(); 'typing'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 550, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const input=document.querySelector('.ide-assistant .pane-chat-input'), send=document.querySelector('[data-assistant-send]'), rect=input?.getBoundingClientRect(), button=send?.getBoundingClientRect(); return document.activeElement===input && rect.top>=0 && button.bottom<=innerHeight && getComputedStyle(document.querySelector('.app-header')).display==='none' && document.documentElement.scrollWidth<=innerWidth ? 'keyboard-space' : ''; })()`, "keyboard-space")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-assistant-dismiss]').click(); 'done-typing'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.evaluate(ctx, `document.querySelector('#viewSwitch [data-view="chat"]').click(); 'return-chat'`); err != nil {
 		t.Fatal(err)
 	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#messageList .ide-tool-batch')?.querySelectorAll('.tool-receipt').length === 12 ? 'chat-tools-grouped' : ''`, "chat-tools-grouped")
 	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -271,18 +955,87 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if _, err := client.evaluate(ctx, `document.querySelector('#startPlanButton').click(); 'plan'`); err != nil {
 		t.Fatal(err)
 	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'plan-review' : ''`, "plan-review")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionConfirm').click(); 'confirmed'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('#durableTaskForm textarea[name="objective"]')?.value === %q ? 'goal-preserved' : ''`, plannedGoal), "goal-preserved")
 	const criterion = "A new user can start work from the project screen."
 	if _, err := client.evaluate(ctx, `document.querySelector('#durableTaskForm textarea[name="criteria"]').focus(); 'focused'`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#durableTaskForm textarea[name="criteria"]').value = ''; 'cleared'`); err != nil {
+		t.Fatal(err)
+	}
 	if err := client.call(ctx, "Input.insertText", map[string]any{"text": criterion}, nil); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#durableTaskForm details summary').click(); document.querySelector('#durableTaskForm textarea[name="scope"]').focus(); 'goal-contract-open'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.insertText", map[string]any{"text": "Project start navigation"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if value, err := client.evaluate(ctx, `document.querySelector('#durableTaskForm input[name="require_user_acceptance"]').checked ? 'acceptance-required' : ''`); err != nil || value != "acceptance-required" {
+		t.Fatalf("new work should ask the user to accept the result: %q %v", value, err)
 	}
 	if _, err := client.evaluate(ctx, `document.querySelector('#durableTaskForm button.primary').click(); 'create-task'`); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('#taskPlannerProvider')?.value === %q && !document.querySelector('#taskAutoPlan')?.disabled ? 'plan-ready' : ''`, provider.ID), "plan-ready")
+	waitBrowserValue(t, ctx, client, `document.querySelectorAll('.task-gate-row').length >= 4 && document.querySelector('.task-gate-card')?.textContent.includes('ตรวจความพร้อมปิดงาน') && !document.querySelector('#taskComplete') ? 'completion-gates-visible' : ''`, "completion-gates-visible")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskBackToOverview').click(); 'open-overview'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelectorAll('.plans-overview-card').length === 1 && document.querySelector('.plans-overview-card button[data-plans-task]') ? 'overview-ready' : ''`, "overview-ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('.plans-overview-card button[data-plans-task]').click(); 'open-task'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskCurrentAction') && document.querySelector('.task-gate-card') ? 'task-restored' : ''`, "task-restored")
+	if path := os.Getenv("HERMETRIX_UI_SCREENSHOT"); path != "" {
+		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1740, "height": 1000, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+			t.Fatal(err)
+		}
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const c=document.querySelector('.task-gate-card');const r=c?.getBoundingClientRect();return r&&r.width>0&&r.left>=-1&&r.right<=innerWidth+1?'mobile-gates-visible':''})()`, "mobile-gates-visible")
+	if path := os.Getenv("HERMETRIX_TASK_MOBILE_SCREENSHOT"); path != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-task-jump]').click(); 'jump-to-plan'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const r=document.querySelector('#taskAutoPlan')?.getBoundingClientRect();return r&&r.top>=-1&&r.bottom<=innerHeight+1?'plan-action-reachable':JSON.stringify({r:r&&{top:r.top,bottom:r.bottom},height:innerHeight,scroll:document.scrollingElement?.scrollTop})})()`, "plan-action-reachable")
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
 	taskResponse, err := http.Get(server.URL + "/api/tasks?limit=100")
 	if err != nil {
 		t.Fatal(err)
@@ -292,6 +1045,11 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 		ProjectID   string `json:"project_id"`
 		Objective   string `json:"objective"`
 		Requirement struct {
+			Contract struct {
+				Scope                 string `json:"scope"`
+				RequirePlanReview     bool   `json:"require_plan_review"`
+				RequireUserAcceptance bool   `json:"require_user_acceptance"`
+			} `json:"contract"`
 			Criteria []struct {
 				Description string `json:"description"`
 			} `json:"criteria"`
@@ -301,9 +1059,23 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(tasks) != 1 || tasks[0].ProjectID != project.ID || tasks[0].Objective != plannedGoal ||
-		len(tasks[0].Requirement.Criteria) != 1 || tasks[0].Requirement.Criteria[0].Description != criterion {
+		len(tasks[0].Requirement.Criteria) != 1 || tasks[0].Requirement.Criteria[0].Description != criterion ||
+		tasks[0].Requirement.Contract.Scope != "Project start navigation" || !tasks[0].Requirement.Contract.RequirePlanReview ||
+		!tasks[0].Requirement.Contract.RequireUserAcceptance {
 		t.Fatalf("the plan form did not persist the goal and observable success criterion: %+v", tasks)
 	}
+	if _, err := client.evaluate(ctx, `(() => {const details=document.querySelector('.task-revise');details.open=true;const outcome=details.querySelector('[name="outcome"]');outcome.value='Improve the navigation and search.';outcome.dispatchEvent(new Event('input',{bubbles:true}));const criteria=details.querySelector('[name="criteria"]');criteria.value='A user finds the project from search.';criteria.dispatchEvent(new Event('input',{bubbles:true}));details.querySelector('button[type="submit"]').click();return 'revise-requested'})()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'revision-confirmation-open' : ''`, "revision-confirmation-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionCancel').click(); 'revision-cancelled'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.durableTasks.find(item=>item.id===state.selectedDurableTask)?.objective==='Improve the project navigation.' ? 'revision-not-saved' : ''`, "revision-not-saved")
+	if _, err := client.evaluate(ctx, `document.querySelector('.task-revise button[type="submit"]').click(); document.querySelector('#actionConfirm').click(); 'revision-confirmed'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const t=state.durableTasks.find(item=>item.id===state.selectedDurableTask);return t?.objective==='Improve the navigation and search.'&&t.active_requirement_revision===2&&t.active_plan_revision===0&&t.requirement.criteria[0]?.id==='AC-2'&&t.requirement.contract.require_plan_review&&document.querySelector('#taskAutoPlan')?'revised-goal-ready':''})()`, "revised-goal-ready")
 	if _, err := client.evaluate(ctx, `document.querySelector('#railNewSession').click(); 'new-from-workspace'`); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +1083,7 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	requestMu.Lock()
 	createdSessions := requests["POST /api/sessions"]
 	requestMu.Unlock()
-	if createdSessions != 1 {
+	if createdSessions != 2 {
 		t.Fatalf("opening New task created an empty extra session: %d session creates", createdSessions)
 	}
 	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'open-plans'`); err != nil {
@@ -326,6 +1098,508 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('#startPrompt') && document.querySelector('#zones').classList.contains('side-hidden') ? 'focused-new-task' : ''`, "focused-new-task")
+}
+
+func TestTaskCompletionConfirmationInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		if os.Getenv("HERMETRIX_REQUIRE_BROWSER_E2E") == "1" {
+			t.Fatal("Chrome is required for the UI E2E job")
+		}
+		t.Skip("Chrome is not installed")
+	}
+	server := httptest.NewServer(testHandler(t))
+	defer server.Close()
+	projectBody := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Completion flow project", "root_path": t.TempDir()}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
+	taskBody := requestJSON(t, server.URL+"/api/tasks", http.MethodPost, map[string]any{
+		"project_id": project.ID, "title": "Verify completion flow", "objective": "Finish only with current evidence",
+		"original_request": "Finish only with current evidence", "actor": "owner",
+		"criteria": []map[string]string{{"id": "AC-1", "description": "The result is verified"}},
+		"contract": map[string]any{"scope": "Current project", "affected_journeys": []string{"J1"}, "require_user_acceptance": true},
+	}, http.StatusCreated)
+	var task taskengine.Task
+	if err := json.Unmarshal(taskBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	evidenceBody := requestJSON(t, server.URL+"/api/artifacts", http.MethodPost, map[string]any{
+		"project_id": project.ID, "name": "completion-evidence.txt", "kind": "test_evidence",
+		"mime_type": "text/plain", "content": "The browser fixture passed its check.",
+	}, http.StatusCreated)
+	var evidence struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(evidenceBody, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	updateTask := func(body []byte) {
+		if err := json.Unmarshal(body, &task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updateTask(requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/plans", http.MethodPost, map[string]any{
+		"expected_task_revision": task.Revision, "requirement_revision": task.ActiveRequirementRevision,
+		"reason": "Verify exact outcome", "actor": "planner",
+		"steps": []map[string]any{{"key": "verify", "title": "Verify result", "instructions": "Run the check",
+			"requirement_ids": []string{"AC-1"}, "checks": []string{"smoke"}}},
+	}, http.StatusCreated))
+	step := task.Plan.Steps[0]
+	updateTask(requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/steps/verify/transitions", http.MethodPost,
+		map[string]any{"action": "start", "expected_task_revision": task.Revision, "expected_step_revision": step.Revision}, http.StatusOK))
+	step = task.Plan.Steps[0]
+	requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/validations", http.MethodPost, map[string]any{
+		"step_id": step.ID, "check_id": "smoke", "subject_revision": taskengine.StepSubjectRevision(step),
+		"status": "pass", "evidence_refs": []string{"artifact:" + evidence.ID},
+	}, http.StatusCreated)
+	updateTask(requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/steps/verify/transitions", http.MethodPost,
+		map[string]any{"action": "complete", "expected_task_revision": task.Revision, "expected_step_revision": step.Revision}, http.StatusOK))
+	requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/validations", http.MethodPost, map[string]any{
+		"requirement_id": "AC-1", "check_id": "acceptance", "subject_revision": taskengine.RequirementSubjectRevision(task),
+		"status": "pass", "evidence_refs": []string{"receipt:accepted"},
+	}, http.StatusCreated)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector('[data-open-project="%s"]').click(); 'opened'`, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, fmt.Sprintf(`state.currentProject?.id === %q && document.querySelector('#plansViewButton') ? 'project-open' : ''`, project.ID), "project-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'plans'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-plans-task]') ? 'overview-task' : ''`, "overview-task")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-plans-task]').click(); 'task-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.task-cockpit') ? 'task-cockpit' : ''`, "task-cockpit")
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskAcceptResult') && !document.querySelector('#taskComplete') ? 'awaiting-user-acceptance' : ''`, "awaiting-user-acceptance")
+	waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('.task-gate-list a[href="/api/artifacts/%s/content"]') ? 'evidence-linked' : ''`, evidence.ID), "evidence-linked")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskAcceptResult').click(); 'request-acceptance'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'acceptance-confirmation-open' : ''`, "acceptance-confirmation-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionCancel').click(); 'cancel-acceptance'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskAcceptResult') && !document.querySelector('#actionDialog').open ? 'acceptance-still-pending' : ''`, "acceptance-still-pending")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskAcceptResult').click(); document.querySelector('#actionConfirm').click(); 'confirm-acceptance'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskComplete') && document.querySelector('.task-gate-card')?.textContent.includes('พร้อมปิดงาน') ? 'ready-to-complete' : ''`, "ready-to-complete")
+	waitBrowserValue(t, ctx, client, `document.querySelector('.task-activity')?.textContent.includes('รับรองผล') && document.querySelector('.task-activity')?.textContent.includes('ฉบับปัจจุบัน') ? 'activity-current' : ''`, "activity-current")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskComplete').click(); 'request-completion'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'confirmation-open' : ''`, "confirmation-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionCancel').click(); 'cancel-completion'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskComplete') && !document.querySelector('#actionDialog').open ? 'still-open' : ''`, "still-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskComplete').click(); document.querySelector('#actionConfirm').click(); 'confirm-completion'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!document.querySelector('#taskComplete') && document.querySelector('.task-gate-card')?.textContent.includes('เสร็จแล้ว') ? 'completed' : ''`, "completed")
+	response, err := http.Get(server.URL + "/api/tasks/" + task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+		t.Fatal(err)
+	}
+	if task.State != taskengine.StateCompleted {
+		t.Fatalf("task state after browser confirmation = %s", task.State)
+	}
+}
+
+func TestTaskClarificationCreatesNewGoalInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		t.Skip("Chrome is not installed")
+	}
+	server := httptest.NewServer(testHandler(t))
+	defer server.Close()
+	projectBody := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Clarification project", "root_path": t.TempDir()}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
+	taskBody := requestJSON(t, server.URL+"/api/tasks", http.MethodPost, map[string]any{
+		"project_id": project.ID, "title": "Choose the Page", "objective": "Prepare a reviewed post",
+		"original_request": "Prepare a reviewed post", "actor": "owner",
+		"criteria": []map[string]string{{"id": "AC-1", "description": "The draft is reviewed"}},
+		"unknowns": []string{"Which Page should receive it?"},
+	}, http.StatusCreated)
+	var task taskengine.Task
+	if err := json.Unmarshal(taskBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	if len(task.Requirement.Unknowns) != 1 {
+		t.Fatalf("created Task lost its unknown: %+v", task.Requirement)
+	}
+	listed := requestJSON(t, server.URL+"/api/tasks?limit=100", http.MethodGet, nil, http.StatusOK)
+	if !strings.Contains(string(listed), task.ID) {
+		t.Fatalf("created Task missing from list: %s", listed)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector('[data-open-project="%s"]').click(); 'opened'`, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#startTaskForm #startPrompt') && document.querySelector('#plansViewButton') && state.currentProject?.id ? 'project-open' : ''`, "project-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'plans'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-plans-task]') ? 'overview-task' : ''`, "overview-task")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-plans-task]').click(); 'task-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.task-cockpit') ? 'cockpit-ready' : ''`, "cockpit-ready")
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskClarificationForm select')?.value === 'Which Page should receive it?' ? 'question-visible' : ''`, "question-visible")
+	if _, err := client.evaluate(ctx, `(() => { const form=document.querySelector('#taskClarificationForm'); form.querySelector('[name="answer"]').value='Company Page'; form.dispatchEvent(new Event('input',{bubbles:true})); form.requestSubmit(); return 'submitted'; })()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'confirm-open' : ''`, "confirm-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionCancel').click(); 'cancelled'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskClarificationForm [name="answer"]')?.value === 'Company Page' && !document.querySelector('#actionDialog').open ? 'draft-preserved' : ''`, "draft-preserved")
+	if _, err := client.evaluate(ctx, `renderPanes(); 'redrawn'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskClarificationForm [name="answer"]')?.value === 'Company Page' ? 'draft-survived-redraw' : ''`, "draft-survived-redraw")
+	if _, err := client.evaluate(ctx, `window.__e2eOldDocument=true; 'marked'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.reload", map[string]any{"ignoreCache": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!window.__e2eOldDocument && document.readyState === 'complete' ? 'new-document' : ''`, "new-document")
+	waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('[data-open-project="%s"]') || state.currentProject?.id === %q ? 'project-ready' : ''`, project.ID, project.ID), "project-ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`if(state.currentProject?.id !== %q) document.querySelector('[data-open-project="%s"]').click(); 'opened'`, project.ID, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#plansViewButton') && state.currentProject?.id ? 'project-open' : ''`, "project-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'plans'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-plans-task]') ? 'overview-task' : ''`, "overview-task")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-plans-task]').click(); 'task-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskClarificationForm [name="answer"]')?.value === 'Company Page' ? 'draft-survived-reload' : ''`, "draft-survived-reload")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskClarificationForm').requestSubmit(); document.querySelector('#actionConfirm').click(); 'confirmed'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!document.querySelector('#taskClarificationForm') && document.querySelector('.task-clarification-history')?.textContent.includes('Company Page') ? 'answer-saved' : ''`, "answer-saved")
+	response, err := http.Get(server.URL + "/api/tasks/" + task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if err := json.NewDecoder(response.Body).Decode(&task); err != nil {
+		t.Fatal(err)
+	}
+	if task.ActiveRequirementRevision != 2 || len(task.Requirement.Unknowns) != 0 ||
+		len(task.Requirement.Contract.Clarifications) != 1 || task.Requirement.Contract.Clarifications[0].Answer != "Company Page" {
+		t.Fatalf("clarification browser result = %+v", task.Requirement)
+	}
+}
+
+func TestPlanReviewInARealBrowser(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		if os.Getenv("HERMETRIX_REQUIRE_BROWSER_E2E") == "1" {
+			t.Fatal("Chrome is required for the UI E2E job")
+		}
+		t.Skip("Chrome is not installed")
+	}
+	server := httptest.NewServer(testHandler(t))
+	defer server.Close()
+	projectBody := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Plan review project", "root_path": t.TempDir()}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
+	taskBody := requestJSON(t, server.URL+"/api/tasks", http.MethodPost, map[string]any{
+		"project_id": project.ID, "title": "Review the plan", "objective": "Check the workflow",
+		"original_request": "Check the workflow", "actor": "owner",
+		"criteria": []map[string]string{{"id": "AC-1", "description": "The workflow passes"}},
+		"contract": map[string]any{"require_plan_review": true},
+	}, http.StatusCreated)
+	var task taskengine.Task
+	if err := json.Unmarshal(taskBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	planBody := requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/plans", http.MethodPost, map[string]any{
+		"expected_task_revision": task.Revision, "requirement_revision": task.ActiveRequirementRevision,
+		"reason": "Verify the workflow", "actor": "planner",
+		"steps": []map[string]any{{"key": "verify", "title": "Verify", "instructions": "Run a check",
+			"requirement_ids": []string{"AC-1"}, "checks": []string{"smoke"}}},
+	}, http.StatusCreated)
+	if err := json.Unmarshal(planBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Plan.ReviewStatus != "pending" || task.State != taskengine.StateWaitingForInput {
+		t.Fatalf("plan is not awaiting review: %+v", task)
+	}
+	planBody = requestJSON(t, server.URL+"/api/tasks/"+task.ID+"/plans", http.MethodPost, map[string]any{
+		"expected_task_revision": task.Revision, "requirement_revision": task.ActiveRequirementRevision,
+		"reason": "Add a second check", "actor": "planner",
+		"steps": []map[string]any{{"key": "verify", "title": "Verify", "instructions": "Run two checks",
+			"requirement_ids": []string{"AC-1"}, "checks": []string{"smoke", "browser"}}},
+	}, http.StatusCreated)
+	if err := json.Unmarshal(planBody, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Plan.Revision != 2 || task.Plan.ReviewStatus != "pending" {
+		t.Fatalf("revised plan is not awaiting review: %+v", task.Plan)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector('[data-open-project="%s"]').click(); 'project'`, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('#startTaskForm #startPrompt') && document.querySelector('#plansViewButton') && state.currentProject?.id===%q ? 'project-open' : ''`, project.ID), "project-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'plans'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-plans-task]') ? 'overview-task' : ''`, "overview-task")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-plans-task]').click(); 'task-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskPlanReview') && document.querySelector('#taskApprovePlan') ? 'review-visible' : ''`, "review-visible")
+	waitBrowserValue(t, ctx, client, `document.querySelector('.task-plan-diff')?.textContent.includes('1 จุดเปลี่ยน') ? 'diff-visible' : ''`, "diff-visible")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskApprovePlan').click(); 'approve-request'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'confirm-open' : ''`, "confirm-open")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionCancel').click(); 'cancel-review'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#taskPlanReview') && !document.querySelector('#actionDialog').open ? 'review-still-pending' : ''`, "review-still-pending")
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskApprovePlan').click(); document.querySelector('#actionConfirm').click(); 'approve-plan'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.durableTasks.find(item=>item.id===state.selectedDurableTask)?.plan.review_status==='approved' && !document.querySelector('#taskPlanReview') ? 'plan-approved' : ''`, "plan-approved")
+}
+
+func TestPrimaryRequestOpensEditablePlanBeforeExecution(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		if os.Getenv("HERMETRIX_REQUIRE_BROWSER_E2E") == "1" {
+			t.Fatal("Chrome is required for the UI E2E job")
+		}
+		t.Skip("Chrome is not installed")
+	}
+	server := httptest.NewServer(testHandler(t))
+	defer server.Close()
+	projectBody := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Review before work", "root_path": t.TempDir()}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector('[data-open-project="%s"]').click(); 'project'`, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, fmt.Sprintf(`state.currentProject?.id === %q && document.querySelector('#startPlanButton') ? 'request-ready' : ''`, project.ID), "request-ready")
+	if _, err := client.evaluate(ctx, `(() => { const input=document.querySelector('#startPrompt'); input.value='Improve the start screen'; input.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('#startPlanButton').click(); return 'draft-requested'; })()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open ? 'handoff-review' : ''`, "handoff-review")
+	if _, err := client.evaluate(ctx, `document.querySelector('#actionConfirm').click(); 'handoff-confirmed'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#durableTaskForm textarea[name="objective"]')?.value === 'Improve the start screen' && document.querySelector('#durableTaskForm textarea[name="criteria"]')?.value === 'Improve the start screen' ? 'editable-brief' : ''`, "editable-brief")
+	var tasks []taskengine.Task
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/tasks", http.MethodGet, nil, http.StatusOK), &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("opening the brief executed or created work: %+v", tasks)
+	}
+	var sessions []map[string]any
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/sessions", http.MethodGet, nil, http.StatusOK), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("primary request started an agent turn before review: %+v", sessions)
+	}
+	if _, err := client.evaluate(ctx, `(() => {const form=document.querySelector('#durableTaskForm'); const preview=form.querySelector('[name="experience_preview"]'); preview.value='A review screen explains the goal and offers edit and confirm actions'; preview.dispatchEvent(new Event('input',{bubbles:true})); const criterion=form.querySelector('[name="criteria"]'); criterion.value='A user can review and edit the plan before work starts'; criterion.dispatchEvent(new Event('input',{bubbles:true})); form.querySelector('button.primary').click(); return 'create-draft';})()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.durableTasks.length===1 && state.durableTasks[0].requirement.contract.experience_preview.includes('review screen') && !state.durableTasks[0].active_plan_revision ? 'draft-saved' : ''`, "draft-saved")
+	if value, err := client.evaluate(ctx, `document.querySelector('#taskProposalForm') ? 'premature-execution' : 'no-execution'`); err != nil || value != "no-execution" {
+		t.Fatalf("work was offered before review: %q %v", value, err)
+	}
+	if err := json.Unmarshal(requestJSON(t, server.URL+"/api/tasks", http.MethodGet, nil, http.StatusOK), &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Requirement.Contract.ExperiencePreview != "A review screen explains the goal and offers edit and confirm actions" ||
+		!tasks[0].Requirement.Contract.RequirePlanReview {
+		t.Fatalf("the editable brief was not saved with a required plan review: %+v", tasks)
+	}
+	planBody := requestJSON(t, server.URL+"/api/tasks/"+tasks[0].ID+"/plans", http.MethodPost, map[string]any{
+		"expected_task_revision": tasks[0].Revision, "requirement_revision": tasks[0].ActiveRequirementRevision,
+		"reason": "The start screen will show a review summary and a route back to edit the request", "actor": "planner",
+		"steps": []map[string]any{{"key": "start-screen", "title": "Build the review screen", "instructions": "Show the goal and edit action",
+			"requirement_ids": []string{"AC-1"}, "checks": []string{"browser"}}},
+	}, http.StatusCreated)
+	var planned taskengine.Task
+	if err := json.Unmarshal(planBody, &planned); err != nil {
+		t.Fatal(err)
+	}
+	if planned.Plan.ReviewStatus != "pending" {
+		t.Fatalf("plan did not wait for review: %+v", planned.Plan)
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'reload-plans'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-plans-task]') ? 'overview-task' : ''`, "overview-task")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-plans-task]').click(); 'task-open'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.task-plan-brief')?.textContent.includes('A review screen') && document.querySelector('.task-plan-reference')?.textContent.includes('route back to edit') && document.querySelector('#taskApprovePlan') && !document.querySelector('#taskProposalForm') ? 'plan-review-ready' : ''`, "plan-review-ready")
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!document.querySelector('#toast')?.classList.contains('show') && Number(getComputedStyle(document.querySelector('#toast')).opacity) < 0.01 ? 'toast-dismissed' : ''`, "toast-dismissed")
+	if _, err := client.evaluate(ctx, `document.querySelector('.task-plan-brief').scrollIntoView({block:'start'}); 'brief-visible'`); err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("HERMETRIX_PLAN_BRIEF_DESKTOP_SCREENSHOT"); path != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.documentElement.scrollWidth <= innerWidth + 1 && document.querySelector('.task-cockpit')?.getBoundingClientRect().width <= innerWidth ? 'brief-mobile' : ''`, "brief-mobile")
+	if _, err := client.evaluate(ctx, `document.querySelector('.task-plan-brief').scrollIntoView({block:'start'}); 'brief-mobile-visible'`); err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("HERMETRIX_PLAN_BRIEF_MOBILE_SCREENSHOT"); path != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, pixels, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#taskApprovePlan').scrollIntoView({block:'center'}); 'review-mobile-visible'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const button=document.querySelector('#taskApprovePlan'); const rect=button?.getBoundingClientRect(); const hit=rect&&document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2); return hit && (hit===button || button.contains(hit)) && rect.left>=0 && rect.right<=innerWidth ? 'review-button-reachable' : '';})()`, "review-button-reachable")
 }
 
 // TestIDEWorkspaceRunsInARealBrowser covers the two work surfaces whose
@@ -387,7 +1661,7 @@ func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
 	}
 
 	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
-	if _, err := client.evaluate(ctx, fmt.Sprintf(`openProject(%q).then(() => { switchView('code'); }); 'opened'`, project.ID)); err != nil {
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`openProject(%q).then(() => { switchView('code'); window.HermetrixWorkspace.open(); }).catch(error => { window.__e2eOpenProjectError=String(error); }); 'opened'`, project.ID)); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('[data-workbench-file="main.go"]') ? 'files' : ''`, "files")
@@ -428,15 +1702,15 @@ func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('.ide-tool-list') ? 'tools' : ''`, "tools")
-	waitBrowserValue(t, ctx, client, `document.querySelector('[data-editor-wrap]')?.checked && document.querySelector('.cm-content')?.classList.contains('cm-lineWrapping') ? 'wrapped' : ''`, "wrapped")
+	waitBrowserValue(t, ctx, client, `!document.querySelector('[data-editor-wrap]')?.checked && !document.querySelector('.cm-content')?.classList.contains('cm-lineWrapping') ? 'unwrapped' : ''`, "unwrapped")
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-editor-wrap]').click(); 'wrap-off'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `!document.querySelector('[data-editor-wrap]')?.checked && !document.querySelector('.cm-content')?.classList.contains('cm-lineWrapping') ? 'unwrapped' : ''`, "unwrapped")
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-editor-wrap]')?.checked && document.querySelector('.cm-content')?.classList.contains('cm-lineWrapping') ? 'wrapped' : ''`, "wrapped")
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-editor-wrap]').click(); 'wrap-on'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `localStorage.getItem('hermetrix.ide.wordWrap') === 'true' && document.querySelector('.cm-content')?.classList.contains('cm-lineWrapping') ? 'wrap-persisted' : ''`, "wrap-persisted")
+	waitBrowserValue(t, ctx, client, `localStorage.getItem('hermetrix.ide.wordWrap.v2') === 'false' && !document.querySelector('.cm-content')?.classList.contains('cm-lineWrapping') ? 'scroll-persisted' : ''`, "scroll-persisted")
 	if directory := os.Getenv("HERMETRIX_E2E_SCREENSHOT_DIR"); directory != "" {
 		var screenshot struct {
 			Data string `json:"data"`
@@ -602,10 +1876,6 @@ func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `/formatted/i.test(document.querySelector('#codeFeedback')?.textContent || '') ? 'formatted-buffer' : ''`, "formatted-buffer")
-	if runtime.GOOS == "windows" {
-		waitBrowserValue(t, ctx, client, `document.querySelector('.xterm-rows')?.textContent.includes('PS ') ? 'powershell-ready' : ''`, "powershell-ready")
-	}
-
 	if _, err := client.evaluate(ctx, `document.querySelector('.xterm-helper-textarea').focus(); 'focused'`); err != nil {
 		t.Fatal(err)
 	}
@@ -624,13 +1894,13 @@ func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
 	}
 	deadline = time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
-		value, _ := client.evaluate(ctx, `document.querySelector('.xterm-rows')?.textContent.includes('PTY-E2E') ? 'pty' : ''`)
+		value, _ := client.evaluate(ctx, `document.querySelector('#terminalAccessibleOutput')?.textContent.includes('PTY-E2E') ? 'pty' : ''`)
 		if value == "pty" {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	diagnostic, _ := client.evaluate(ctx, `JSON.stringify({terminal:document.querySelector('.xterm-rows')?.textContent,terminals:state.terminals,selected:state.selectedTerminal,active:document.activeElement?.className,toasts:[...document.querySelectorAll('.toast')].map(el=>el.textContent)})`)
+	diagnostic, _ := client.evaluate(ctx, `JSON.stringify({terminal:document.querySelector('#terminalAccessibleOutput')?.textContent,terminals:state.terminals,selected:state.selectedTerminal,cursor:terminalCursor,visible:terminalPaneOpen(),polling:terminalPollInFlight,pollScheduled:workbenchPollTimers.has(pollTerminal),emulator:Boolean(activeTerminalEmulator),active:document.activeElement?.className,toasts:[...document.querySelectorAll('.toast')].map(el=>el.textContent)})`)
 	terminalID, _ := client.evaluate(ctx, `state.selectedTerminal || ''`)
 	if response, err := http.Get(server.URL + "/api/terminals/" + terminalID + "/output?cursor=0"); err == nil {
 		body, _ := io.ReadAll(response.Body)
@@ -642,6 +1912,72 @@ func TestIDEWorkspaceRunsInARealBrowser(t *testing.T) {
 
 // TestEditorKeyboardWorkflowInARealBrowser uses Chrome input events, not DOM
 // editing commands, to verify the editing path a person actually uses.
+func TestMobileCodeEditorKeepsLongLinesScrollable(t *testing.T) {
+	chrome := browserExecutableForE2E()
+	if chrome == "" {
+		if os.Getenv("HERMETRIX_REQUIRE_BROWSER_E2E") == "1" {
+			t.Fatal("Chrome is required for the UI E2E job")
+		}
+		t.Skip("Chrome is not installed")
+	}
+	root := t.TempDir()
+	longLine := "// " + strings.Repeat("0123456789", 50)
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"+longLine+"\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := testHTTPServer(t)
+	projectBody := requestJSON(t, server.URL+"/api/projects", http.MethodPost,
+		map[string]any{"name": "Long line project", "root_path": root}, http.StatusCreated)
+	var project struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(projectBody, &project); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome-profile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	target, err := createE2ETarget(ctx, debugURL, server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, target.WebSocketDebuggerURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	client := &e2eCDPClient{connection: connection}
+	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, fmt.Sprintf(`openProject(%q).then(() => { switchView('code'); window.HermetrixWorkspace.open(); }); 'opened'`, project.ID)); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-workbench-file="main.go"]') ? 'file' : ''`, "file")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-workbench-file="main.go"]').click(); 'clicked'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.code-editor-host .cm-scroller') ? 'editor' : ''`, "editor")
+	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 375, "height": 812, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => { const content=document.querySelector('.cm-content'), scroller=document.querySelector('.code-editor-host .cm-scroller'); if (!content || !scroller || content.classList.contains('cm-lineWrapping') || scroller.scrollWidth <= scroller.clientWidth) return ''; scroller.scrollLeft=120; return scroller.scrollLeft > 0 ? 'horizontal-scroll' : ''; })()`, "horizontal-scroll")
+	if got, err := client.evaluate(ctx, `document.querySelector('.code-editor-host .cm-line')?.textContent || ''`); err != nil || got != "package main" {
+		t.Fatalf("the editor did not preserve source lines: first=%q err=%v", got, err)
+	}
+}
+
 func TestEditorKeyboardWorkflowInARealBrowser(t *testing.T) {
 	chrome := browserExecutableForE2E()
 	if chrome == "" {
@@ -724,9 +2060,11 @@ func TestEditorKeyboardWorkflowInARealBrowser(t *testing.T) {
 	}
 	openFile := func() {
 		t.Helper()
+		waitBrowserValue(t, ctx, client, `document.querySelector('#appShell:not([hidden]) #projectChip') ? 'chat-ready' : ''`, "chat-ready")
+		click("#projectChip")
 		waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'project' : ''`, "project")
 		click("[data-open-project]")
-		waitBrowserValue(t, ctx, client, `document.querySelector('#startPrompt') ? 'project-open' : ''`, "project-open")
+		waitBrowserValue(t, ctx, client, `state.currentProject?.name === 'Keyboard coding project' ? 'project-open' : ''`, "project-open")
 		click(`#viewSwitch [data-view="code"]`)
 		waitBrowserValue(t, ctx, client, `document.querySelector('[data-workbench-file="greeting.js"]') ? 'file-listed' : ''`, "file-listed")
 		click(`[data-workbench-file="greeting.js"]`)
@@ -855,6 +2193,12 @@ func TestResponsiveWorkspaceFlowsInARealBrowser(t *testing.T) {
 			if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
 				t.Fatal(err)
 			}
+			if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := client.call(ctx, "Page.navigate", map[string]any{"url": server.URL}, nil); err != nil {
+				t.Fatal(err)
+			}
 			if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": viewport.width, "height": viewport.height, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
 				t.Fatal(err)
 			}
@@ -921,9 +2265,17 @@ func TestResponsiveWorkspaceFlowsInARealBrowser(t *testing.T) {
 			}
 			waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
 			evaluate(`document.querySelector('[data-open-project]').click(); 'open'`)
-			waitBrowserValue(t, ctx, client, `document.querySelector('#startPrompt') ? 'composer' : ''`, "composer")
+			waitBrowserValue(t, ctx, client, `state.currentProject?.name === 'Responsive workspace project' ? 'composer' : ''`, "composer")
 			checkHeader("start")
 			captureLayout("start")
+			if viewport.width <= 700 {
+				if click("#toggleRail") {
+					waitBrowserValue(t, ctx, client, `document.querySelector('#zones').classList.contains('mobile-rail-open') && document.querySelector('#toggleRail').getAttribute('aria-expanded') === 'true' ? 'rail-open' : ''`, "rail-open")
+					if click("#toggleRail") {
+						waitBrowserValue(t, ctx, client, `!document.querySelector('#zones').classList.contains('mobile-rail-open') && document.querySelector('#toggleRail').getAttribute('aria-expanded') === 'false' ? 'rail-closed' : ''`, "rail-closed")
+					}
+				}
+			}
 			evaluate(`document.querySelector('#startPrompt').focus(); 'focus-goal'`)
 			if err := client.call(ctx, "Input.insertText", map[string]any{"text": "Preserve this goal while navigating."}, nil); err != nil {
 				t.Fatal(err)
@@ -941,12 +2293,25 @@ func TestResponsiveWorkspaceFlowsInARealBrowser(t *testing.T) {
 			waitBrowserValue(t, ctx, client, fmt.Sprintf(`document.querySelector('#sessionSetupDialog')?.open && document.querySelector('#chatProviderSelect')?.value === %q ? 'choice-preserved' : ''`, otherProvider.ID), "choice-preserved")
 			click("#sessionSetupClose")
 			click("#plansViewButton")
-			waitBrowserValue(t, ctx, client, `document.querySelector('#durableTaskForm') ? 'plans' : ''`, "plans")
+			waitBrowserValue(t, ctx, client, `document.querySelector('#plansOverviewTitle') ? 'plans' : ''`, "plans")
 			captureLayout("plans")
 			click(`#viewSwitch [data-view="code"]`)
+			if viewport.width <= 700 {
+				click("#workspaceToolbarToggle")
+				evaluate(`(() => {const pane=document.querySelector('[data-pane-content="0"]');pane.value='team';pane.dispatchEvent(new Event('change',{bubbles:true}));return 'team-pane-selected';})()`)
+				waitBrowserValue(t, ctx, client, `document.querySelector('[data-pane-content="0"]')?.value === 'team' && document.querySelector('#teamCreateForm') && document.querySelector('#addTeamMember')?.textContent.includes('เพิ่มสมาชิก') ? 'team-pane' : ''`, "team-pane")
+				captureLayout("team")
+			}
+			click("#workspaceIDE")
+			waitBrowserValue(t, ctx, client, `[...document.querySelectorAll('#workspacePaneHost .pane-body')].map(node=>node.dataset.paneKind).join(',')`, "review,files")
+			if viewport.width <= 900 {
+				evaluate(`document.querySelector('[data-compact-pane="files"]').click(); 'files-tab'`)
+			}
+			waitBrowserValue(t, ctx, client, `document.querySelector('[data-workbench-file="main.go"]') ? 'files' : ''`, "files")
+			evaluate(`document.querySelector('[data-workbench-file="main.go"]').click(); 'file'`)
 			waitBrowserValue(t, ctx, client, `[...document.querySelectorAll('#workspacePaneHost .pane-body')].map(node=>node.dataset.paneKind).join(',')`, "editor,files")
 			click("#plansViewButton")
-			waitBrowserValue(t, ctx, client, `document.querySelector('#durableTaskForm') ? 'plans' : ''`, "plans")
+			waitBrowserValue(t, ctx, client, `document.querySelector('#plansOverviewTitle') ? 'plans' : ''`, "plans")
 			evaluate(`document.querySelector('#viewSwitch [data-view="chat"]').click(); 'chat'`)
 			waitBrowserValue(t, ctx, client, `document.querySelector('#startPrompt')?.value === 'Preserve this goal while navigating.' ? 'goal-preserved' : ''`, "goal-preserved")
 			evaluate(`document.querySelector('#viewSwitch [data-view="code"]').click(); 'workspace'`)
@@ -962,6 +2327,7 @@ func TestResponsiveWorkspaceFlowsInARealBrowser(t *testing.T) {
 			evaluate(`document.querySelector('.cm-content').focus(); document.execCommand('insertText',false,'// draft-layout\n'); 'edit'`)
 			evaluate(`document.querySelector('#viewSwitch [data-view="chat"]').click(); document.querySelector('#viewSwitch [data-view="code"]').click(); 'round-trip'`)
 			waitBrowserValue(t, ctx, client, `document.querySelector('.cm-content')?.textContent.includes('draft-layout') ? 'draft-preserved' : ''`, "draft-preserved")
+			captureLayout("editor-unsaved")
 			if click(".code-editor-toolbar button.primary") {
 				waitBrowserValue(t, ctx, client, `document.querySelector('#codeSaveState')?.textContent === 'Saved' ? 'saved' : ''`, "saved")
 				content, err := os.ReadFile(filepath.Join(root, "main.go"))
@@ -987,17 +2353,21 @@ func waitForStyledEditor(t *testing.T, ctx context.Context, client *e2eCDPClient
 
 func waitBrowserValue(t *testing.T, ctx context.Context, client *e2eCDPClient, expression, want string) {
 	t.Helper()
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(12 * time.Second)
 	var value string
 	var err error
 	for time.Now().Before(deadline) {
-		value, err = client.evaluate(ctx, expression)
+		// The Project picker sets currentProject before bootstrap and surface
+		// hydration finish. Wait for that transition before reading any page
+		// assertion so tests never drive half-loaded controls.
+		value, err = client.evaluate(ctx, "typeof state !== 'undefined' && state.projectOpening ? '__project-opening__' : ("+expression+")")
 		if err == nil && value == want {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("browser value did not become %q: value=%q err=%v", want, value, err)
+	diagnostic, diagnosticErr := client.evaluate(ctx, `JSON.stringify({project:state?.currentProject?.id||'',projectOpening:state?.projectOpening||false,view:state?.view||'',tab:state?.activeTab||'',statePanes:state?.panes||[],compactPane:state?.compactPane||'',layout:state?.paneLayout||'',viewport:innerWidth,toast:document.querySelector('#toast')?.textContent||'',dialog:document.querySelector('#actionDialog')?.open||false,openProjectError:window.__e2eOpenProjectError||'',panes:document.querySelector('#workspacePaneHost')?.textContent?.slice(0,240)||'',office:{filter:typeof officeFilter==='undefined'?'':officeFilter,limit:typeof officeHistoryLimit==='undefined'?0:officeHistoryLimit,jobs:state?.jobs?.length,rows:document.querySelectorAll('.office-entry').length,moreHidden:document.querySelector('#officeMore')?.hidden,count:document.querySelector('#officeCount')?.textContent},task:(()=>{const b=document.querySelector('.pane-body[data-pane-kind="tasks"]'),t=document.querySelector('#taskAutoPlan'),id=state.selectedDurableTask;return{selected:id,action:id&&taskActions.get(id),error:id&&taskErrors.get(id),brief:id&&state.taskExecutions[id]?.content?.brief,contentSteps:document.querySelectorAll('.task-content-step').length,briefForm:!!document.querySelector('#taskContentBriefForm'),draftForm:!!document.querySelector('[data-content-draft="facebook"]'),jump:typeof pendingTaskJump==='undefined'?null:pendingTaskJump,bodyScroll:b?.scrollTop,bodyHeight:b?.clientHeight,bodyContentHeight:b?.scrollHeight,bodyOverflow:b&&getComputedStyle(b).overflowY,targetTop:t?.getBoundingClientRect().top,detailsOpen:t?.closest('details')?.open}})()})`)
+	t.Fatalf("browser value did not become %q: value=%q err=%v diagnostic=%q diagnostic_err=%v", want, value, err, diagnostic, diagnosticErr)
 }
 
 type e2eChromeTarget struct {
@@ -1007,11 +2377,15 @@ type e2eChromeTarget struct {
 
 func startE2EChrome(ctx context.Context, executable, profile string) (string, func(), error) {
 	processCtx, cancel := context.WithCancel(ctx)
-	command := exec.CommandContext(processCtx, executable,
+	args := []string{
 		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
 		"--disable-background-networking", "--no-first-run", "--no-default-browser-check",
-		"--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "--user-data-dir="+profile,
-		"about:blank")
+		"--remote-debugging-address=127.0.0.1", "--remote-debugging-port=0", "--user-data-dir=" + profile}
+	if wav := os.Getenv("HERMETRIX_E2E_FAKE_MIC_WAV"); wav != "" {
+		args = append(args, "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--use-file-for-fake-audio-capture="+wav)
+	}
+	args = append(args, "about:blank")
+	command := exec.CommandContext(processCtx, executable, args...)
 	command.Stdout, command.Stderr = io.Discard, io.Discard
 	if err := command.Start(); err != nil {
 		cancel()

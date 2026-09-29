@@ -119,7 +119,7 @@ func TestBuildNextStepPacketRefusesToSilentlyTruncateAuthority(t *testing.T) {
 	task, err = service.CreatePlan(ctx, CreatePlanInput{
 		TaskID: task.ID, ExpectedTaskRevision: task.Revision, RequirementRevision: task.ActiveRequirementRevision,
 		Reason: "bounded execution", Actor: "planner",
-		Steps: []StepSpec{{Key: "work", Title: "Work", Instructions: "do not truncate"}},
+		Steps: []StepSpec{{Key: "work", Title: "Work", Instructions: "do not truncate", RequirementIDs: []string{"AC-1"}, Checks: []string{"bounded-evidence"}}},
 	})
 	if err != nil {
 		t.Fatal(err)

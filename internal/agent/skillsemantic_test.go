@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,9 @@ func TestASemanticGoalReachesACatalogInAnotherLanguage(t *testing.T) {
 	if selected[0].SkillID != "s1" {
 		t.Fatalf("ranked %s first, want the rounding Skill", selected[0].SkillID)
 	}
+	if !strings.Contains(selected[0].SelectionReason, "meaning resembles the goal") {
+		t.Fatalf("semantic selection has no inspectable reason: %+v", selected[0])
+	}
 }
 
 // A goal about something the catalog does not cover must still retrieve
@@ -87,6 +91,9 @@ func TestSemanticDoesNotDisplaceANamedSkill(t *testing.T) {
 	selected := rankSkillBindings(goal, catalog, semantic)
 	if len(selected) == 0 || selected[0].SkillID != "s2" {
 		t.Fatalf("ranked %+v; the named Skill lost to a semantic neighbour", selected)
+	}
+	if !strings.Contains(selected[0].SelectionReason, "name matches the goal") {
+		t.Fatalf("named Skill has no inspectable reason: %+v", selected[0])
 	}
 }
 

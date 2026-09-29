@@ -49,6 +49,14 @@ type BrowserDriver interface {
 	ActOnPage(ctx context.Context, tabID string, request BrowserActRequest) (BrowserPage, error)
 }
 
+// BrowserActionPreparer is implemented by drivers that can turn a granted
+// click/type call into a durable one-use receipt. Read-only drivers need not
+// implement it and cannot execute mutations.
+type BrowserActionPreparer interface {
+	PreparePageAction(ctx context.Context, tabID string, request BrowserActRequest) (agentruntime.BrowserActionPreparation, error)
+	CancelPageAction(ctx context.Context, receiptID, subjectHash string) error
+}
+
 // WithRuntime attaches the product runtime. Both may be nil, which is a
 // supported configuration: the tools then refuse with a clear reason rather
 // than panicking, the same way a nil embedder turns off semantic retrieval.

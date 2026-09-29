@@ -6,20 +6,22 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#101214">
   <title>Hermetrix — Intelligent Tool Harness</title>
-  <link rel="icon" type="image/svg+xml" href="/assets/brand/hermetrix-mark-flat.svg">
-  <link rel="apple-touch-icon" href="/assets/brand/hermetrix-mark-flat.svg">
-  <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="/codex-theme.css">
+  <link rel="icon" type="image/png" href="/assets/brand/hermetrix-logo.png">
+  <link rel="apple-touch-icon" href="/assets/brand/hermetrix-logo.png">
+  <link rel="stylesheet" href="/style.css?v=folder-picker-v2">
+  <link rel="stylesheet" href="/codex-theme.css?v=code-nowrap">
+  <link rel="stylesheet" href="/hardware-monitor.css">
 </head>
 <body>
-  <!-- A project is the root of everything -- work, notes, chat and code all
-       hang off one -- so the picker is what the app opens on. The shell below
-       starts hidden and only appears once showShell() has something to show. -->
+  <!-- Workspaces scope file and task work. Personal Chat opens without one. -->
   <div class="picker" id="projectPicker">
     <div class="picker-inner">
-      <h2>เลือกโปรเจค</h2>
-      <p>ทุกอย่างเกาะกับโปรเจค — งาน โน้ต แชท โค้ด · โปรเจคไม่จำเป็นต้องมีโฟลเดอร์โค้ด</p>
+      <img class="picker-brand" src="/assets/brand/hermetrix-logo.png" alt="Hermetrix">
+      <h2>เลือก Workspace</h2>
+      <p>เลือกพื้นที่งานเมื่อจะสร้างแผน แก้ไฟล์ หรือใช้เครื่องมือ</p>
+      <button class="ghost" type="button" id="pickerBackToChat">กลับไปแชทส่วนตัว</button>
       <label class="picker-search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="pickerSearch" type="search" autocomplete="off" placeholder="ค้นหาโปรเจค หรือพิมพ์ชื่อใหม่เพื่อสร้าง…"></label>
+      <button class="picker-browse" type="button" id="pickerBrowseExisting"><span class="picker-browse-icon" aria-hidden="true">＋</span><span><strong>เพิ่ม Workspace จากโฟลเดอร์</strong><small>Browse path ที่มีอยู่บนเครื่องที่รัน Hermetrix</small></span><span class="picker-browse-arrow" aria-hidden="true">›</span></button>
       <div class="picker-project-groups">
         <div id="pickerPinned"></div>
         <div id="pickerRecent"></div>
@@ -33,41 +35,45 @@
        question that is not about the work in front of you. -->
   <div class="app-shell" id="appShell" hidden>
     <header class="app-header" id="appHeader">
-      <button class="project-chip" id="projectChip"><span class="project-dot"></span><strong id="projectName">—</strong><span>▾</span></button>
-      <nav class="view-switch" id="viewSwitch" aria-label="Views">
-        <button data-view="chat" class="on">Chat</button>
-        <button id="plansViewButton">Plans</button>
-        <button data-view="code">Workspace</button>
+      <button class="project-chip" id="projectChip"><img class="project-mark" src="/assets/brand/hermetrix-logo.png" alt=""><strong id="projectName">—</strong><span>▾</span></button>
+      <nav class="view-switch" id="viewSwitch" aria-label="หน้าหลัก">
+        <button data-view="chat" class="on">แชท</button>
+        <button id="plansViewButton">แผน</button>
+        <button data-view="code">พื้นที่ทำงาน</button>
       </nav>
       <div class="header-right">
         <button class="command-trigger" id="commandButton" aria-label="Open command palette"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><span>Search or run</span><kbd>⌘K</kbd></button>
-        <button class="ghost compact" id="toggleRail" aria-pressed="false" aria-label="Toggle the session list" title="Session list"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#sidebar"></use></svg></button>
+        <button class="ghost compact" id="toggleRail" aria-pressed="false" aria-label="แสดงหรือซ่อนรายการแชต" title="รายการแชต"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#sidebar"></use></svg></button>
         <button class="ghost compact" id="toggleSide" aria-pressed="false" aria-label="Toggle the workbench" title="Workbench"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#workbench"></use></svg></button>
         <button class="ghost compact" id="densityToggle" aria-pressed="false" aria-label="Toggle interface density">Aa</button>
         <button class="ghost compact" id="refreshButton" aria-label="Refresh" title="Refresh"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#refresh"></use></svg></button>
-        <button class="ghost compact" id="openConfig" aria-label="Open settings" title="Settings"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#settings"></use></svg><b id="proposalBadge" hidden>0</b></button>
+        <button class="ghost compact" id="openConfig" aria-label="เปิดการตั้งค่า" title="การตั้งค่า"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#settings"></use></svg><b id="proposalBadge" hidden>0</b></button>
       </div>
     </header>
+    <details class="hardware-monitor" id="hardwareMonitor" data-status="loading" aria-label="สถานะทรัพยากรเครื่อง">
+      <summary class="hardware-summary"><span class="hardware-live"><span aria-hidden="true"></span>สถานะเครื่อง</span><strong id="hardwareHeadline">กำลังอ่านค่า…</strong><span class="hardware-updated" id="hardwareUpdated">กำลังอ่านค่า…</span></summary>
+      <div class="hardware-metrics" id="hardwareMetrics"></div>
+    </details>
     <div class="zones" id="zones">
       <div class="zone rail" id="zoneRail">
-        <button class="new-chat" id="railNewSession"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#plus"></use></svg><span>New session</span></button>
-        <div class="session-dock" id="sessionDock" aria-label="Agent sessions"></div>
+        <button class="new-chat" id="railNewSession"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#plus"></use></svg><span>เริ่มแชทใหม่</span></button>
+        <div class="session-dock" id="sessionDock" aria-label="รายการแชต"></div>
         <div class="rail-footer">
           <div class="runtime-card">
-            <img class="runtime-mark" src="/assets/brand/hermetrix-mark-flat.svg" alt="">
-            <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> Local-first · authority gated</small></div>
+            <img class="runtime-mark" src="/assets/brand/hermetrix-logo.png" alt="">
+            <div><strong>Hermetrix Engine</strong><small><span class="status-dot"></span> ทำงานในเครื่อง · ควบคุมสิทธิ์</small></div>
           </div>
         </div>
       </div>
-      <div class="zone-handle" data-handle="rail" role="separator" aria-orientation="vertical" aria-label="Resize the list pane" tabindex="0"></div>
-      <div class="zone main" id="zoneMain" tabindex="-1" aria-label="Agent Workspace">
+      <div class="zone-handle" data-handle="rail" role="separator" aria-orientation="vertical" aria-label="ปรับความกว้างรายการแชต" tabindex="0"></div>
+      <div class="zone main" id="zoneMain" tabindex="-1" aria-label="พื้นที่ทำงาน">
         <section class="view active" id="view-chat"></section>
       </div>
       <div class="zone-handle" data-handle="side" role="separator" aria-orientation="vertical" aria-label="Resize the evidence pane" tabindex="0"></div>
       <div class="zone side" id="zoneSide">
         <header class="workspace-toolbar"><div><strong>Workspace</strong><small>เลือกเนื้อหาแยกแต่ละช่อง</small></div>
-          <div class="workspace-actions"><span id="paneCountLabel">1/4 panes</span><button class="ghost compact" id="paneAdd"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#plus"></use></svg><span>Split</span></button></div></header>
-        <div class="workspace-pane-host" id="workspacePaneHost" aria-label="Resizable workspace panes"></div>
+          <div class="workspace-actions"><span id="paneCountLabel">1 ช่อง</span><button class="ghost compact" id="paneAdd"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#plus"></use></svg><span>เพิ่มช่อง</span></button></div></header>
+        <div class="workspace-pane-host" id="workspacePaneHost" aria-label="ช่องทำงานที่ปรับขนาดได้"></div>
       </div>
     </div>
   </div>
@@ -76,12 +82,13 @@
        so configuring Hermetrix never competes with the session for the screen. -->
   <div class="config" id="configOverlay" hidden>
     <header class="config-head">
-      <div class="config-identity"><img class="config-mark" src="/assets/brand/hermetrix-mark-flat.svg" alt=""><div><p class="eyebrow">Hermetrix settings</p><h1 id="configTitle">Models</h1></div></div>
-      <label class="config-search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="configSearch" type="search" autocomplete="off" placeholder="Search settings…"></label>
-      <button class="icon-button" id="closeConfig" aria-label="Close settings"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#close"></use></svg></button>
+      <div class="config-identity"><img class="config-mark" src="/assets/brand/hermetrix-logo.png" alt=""><div><p class="eyebrow">การตั้งค่า Hermetrix</p><h1 id="configTitle">โมเดล</h1></div></div>
+      <label class="config-search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="configSearch" type="search" autocomplete="off" placeholder="ค้นหาการตั้งค่า…" aria-label="ค้นหาการตั้งค่า"></label>
+      <button class="icon-button" id="closeConfig" aria-label="ปิดการตั้งค่า"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#close"></use></svg></button>
     </header>
     <div class="config-body">
-      <nav class="config-nav" id="configNav" aria-label="Settings sections"></nav>
+      <label class="config-mobile-jump">ไปยังการตั้งค่า<select id="configMobileJump" aria-label="เลือกหน้าการตั้งค่า"></select></label>
+      <nav class="config-nav" id="configNav" aria-label="หมวดการตั้งค่า"></nav>
       <div class="config-pane" id="configPane">
         <section class="stats" id="stats" hidden></section>
         <section id="libraryIntro" hidden></section>
@@ -102,8 +109,10 @@
         <section class="view" id="view-archive"></section>
         <section class="view" id="view-context"></section>
         <section class="view" id="view-providers"></section>
+        <section class="view" id="view-capabilities"></section>
         <section class="view" id="view-mcp"></section>
         <section class="view" id="view-tools"></section>
+        <section class="view" id="view-appearance"></section>
         <section class="view" id="view-projects"></section>
         <section class="view" id="view-office"></section>
         <section class="view" id="view-artifacts"></section>
@@ -114,9 +123,9 @@
     </div>
   </div>
 
-  <dialog id="candidateDialog">
-    <form method="dialog" id="candidateForm">
-      <div class="dialog-head"><div><p class="eyebrow">Candidate workspace</p><h2>Propose a skill</h2></div><button value="cancel" class="icon-button" aria-label="Close"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#close"></use></svg></button></div>
+  <dialog id="candidateDialog" aria-label="Propose a skill">
+    <form id="candidateForm">
+      <div class="dialog-head"><div><p class="eyebrow">Candidate workspace</p><h2>Propose a skill</h2></div><button type="button" class="icon-button" data-close-candidate aria-label="Close"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#close"></use></svg></button></div>
       <div class="form-grid">
         <label>Name <input name="name" required pattern="[a-z0-9][a-z0-9-]{1,62}" placeholder="review-pull-request"></label>
         <label>Scope <select name="scope"><option value="user">User</option><option value="workspace">Workspace</option><option value="agent">Agent profile</option></select></label>
@@ -125,7 +134,7 @@
       <label>Reason and evidence <textarea name="reason" rows="2" required placeholder="Why this proposal exists"></textarea></label>
       <label>Skill instructions <textarea name="body" rows="13" required placeholder="# Procedure&#10;&#10;1. Inspect…"></textarea></label>
       <p class="form-note">Saving creates a proposal only. It cannot enter model context until checks pass and you explicitly promote it.</p>
-      <div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button value="default" class="primary" id="saveCandidate">Create proposal</button></div>
+      <div class="dialog-actions"><button type="button" class="ghost" data-close-candidate>Cancel</button><button type="submit" class="primary" id="saveCandidate">Create proposal</button></div>
     </form>
   </dialog>
 
@@ -172,15 +181,41 @@
     <footer class="capability-picker-footer"><button type="button" class="ghost" id="openToolCenter">Open Tool Center</button><button type="button" class="ghost" id="openSkillStudio">Open Skill Studio</button></footer>
   </dialog>
 
-  <dialog id="folderDialog" class="folder-dialog">
-    <div class="dialog-head"><div><p class="eyebrow">Choose a folder</p><h2 id="folderPath">…</h2></div><button type="button" class="icon-button" id="folderClose" aria-label="Close"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#close"></use></svg></button></div>
-    <div class="folder-body" id="folderBody"></div>
-    <div class="dialog-actions"><button type="button" class="ghost" id="folderHome">Home</button><button type="button" class="primary" id="folderChoose">Use this folder</button></div>
+  <dialog id="folderDialog" class="folder-dialog" aria-labelledby="folderTitle">
+    <div class="dialog-head"><div><p class="eyebrow">WORKSPACE</p><h2 id="folderTitle">เพิ่ม Workspace จากโฟลเดอร์</h2><p class="folder-intro">เลือกโฟลเดอร์ที่มีอยู่บนเครื่องที่รัน Hermetrix</p></div><button type="button" class="icon-button" id="folderClose" aria-label="ปิด"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#close"></use></svg></button></div>
+    <form class="folder-address" id="folderAddressForm"><label for="folderAddress">ไปยัง path โดยตรง</label><div class="path-field"><input id="folderAddress" type="text" autocomplete="off" spellcheck="false" placeholder="D:\Projects\..."><button type="submit" class="ghost">ไป</button></div></form>
+    <div class="folder-roots" id="folderRoots" aria-label="ไดรฟ์ที่เลือกได้"></div>
+    <div class="folder-list-tools"><label for="folderFilter">โฟลเดอร์ในตำแหน่งนี้ <span id="folderListCount"></span></label><input id="folderFilter" type="search" autocomplete="off" placeholder="ค้นหาโฟลเดอร์…"></div>
+    <div class="folder-body" id="folderBody" tabindex="-1"></div>
+    <div class="folder-selection"><div class="folder-selected-path"><span>โฟลเดอร์ที่เลือก</span><strong id="folderPath">…</strong></div><label class="folder-project-name" id="folderProjectNameLabel" for="folderProjectName" hidden>ชื่อ Workspace<input id="folderProjectName" type="text" maxlength="100" autocomplete="off" placeholder="ชื่อ Workspace"></label></div>
+    <p class="folder-error" id="folderError" role="alert" hidden></p>
+    <div class="dialog-actions"><button type="button" class="ghost" id="folderHome">โฟลเดอร์หลัก</button><button type="button" class="primary" id="folderChoose" disabled>เลือกโฟลเดอร์นี้</button></div>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <aside class="voice-panel" id="voicePanel" aria-labelledby="voiceTitle" hidden>
+    <div class="voice-panel-head"><div><p class="eyebrow">LOCAL VOICE</p><h2 id="voiceTitle">คุยด้วยเสียง</h2></div><button type="button" class="icon-button" id="voiceEnd" aria-label="จบการคุยด้วยเสียง">×</button></div>
+      <p class="voice-local-note">พูดไทยสลับ English ได้ · ข้อความที่ถอดได้จะส่งเข้าห้องแชตนี้ · เสียงยังอยู่บนเครื่อง</p>
+      <p class="voice-model-label" id="voiceModelLabel">กำลังตรวจรุ่นเสียงในเครื่อง…</p>
+      <button type="button" class="voice-orb" id="voiceOrb" aria-label="เปิดไมโครโฟน" aria-pressed="false" disabled>
+        <span class="voice-orb-ring voice-orb-ring-one" aria-hidden="true"></span>
+        <span class="voice-orb-ring voice-orb-ring-two" aria-hidden="true"></span>
+        <span class="voice-orb-core" aria-hidden="true"><img src="/assets/brand/hermetrix-logo.png" alt=""></span>
+      </button>
+      <p class="voice-status" id="voiceStatus" role="status" aria-live="polite">กำลังตรวจเครื่องมือเสียง…</p>
+      <progress class="voice-level" id="voiceLevel" max="100" value="0" aria-label="ระดับเสียงไมโครโฟน"></progress>
+      <div class="voice-native-row" id="voiceNativeRow" hidden><label for="voiceDevice">ไมค์จาก Windows</label><select id="voiceDevice"></select><button type="button" class="ghost" id="voiceNativeMic">ใช้ไมค์ Windows</button></div>
+      <label class="voice-transcript-label" for="voiceTranscript">ข้อความที่ได้ยิน</label>
+    <textarea id="voiceTranscript" rows="3" placeholder="คำพูดที่ถอดได้จะปรากฏที่นี่ และแก้ก่อนส่งได้"></textarea>
+    <label class="voice-auto-send"><input id="voiceAutoSend" type="checkbox"> ส่งข้อความเข้าห้องแชตทันทีเมื่อพูดจบ</label>
+    <label class="voice-auto-send"><input id="voiceReply" type="checkbox" checked> พูดคำตอบกลับ</label>
+    <div class="voice-actions"><button type="button" class="primary" id="voiceMic">เปิดไมค์</button><button type="button" class="ghost" id="voiceSend" disabled>ส่งข้อความ</button><button type="button" class="ghost" id="voiceTestSound">ทดสอบลำโพง</button><button type="button" class="ghost" id="voiceStopOutput">หยุดเสียงตอบ</button></div>
+    <p class="voice-footnote">เป้าหมายงานยังต้องตรวจแผนก่อนเริ่ม และเครื่องมือที่ต้องอนุมัติยังรอการยืนยันบนหน้าจอ · ปิดไมค์ไม่หยุดงานที่เริ่มแล้ว</p>
+  </aside>
   <script src="/runtime.js" defer></script>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=code-nowrap" defer></script>
+  <script src="/hardware-monitor.js" defer></script>
+  <script src="/voice.js" defer></script>
   <script src="/ide-workspace.js" defer></script>
   <script src="/ide-assistant.js" defer></script>
   <script src="/discord-settings.js" defer></script>

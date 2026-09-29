@@ -2,13 +2,36 @@ package mcp
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// isLocalComfyMCP accepts only the installed first-party MCP beside comfy-cli
+// in one Comfy virtual environment. The user still has to save this exact
+// connection; arbitrary local executables remain outside the MCP allowlist.
+func isLocalComfyMCP(executable string) bool {
+	if !filepath.IsAbs(executable) || !strings.EqualFold(filepath.Base(executable), "comfy-mcp.exe") {
+		return false
+	}
+	dir := filepath.Dir(filepath.Clean(executable))
+	if !strings.EqualFold(filepath.Base(dir), "Scripts") || !strings.EqualFold(filepath.Base(filepath.Dir(dir)), ".venv") {
+		return false
+	}
+	for _, path := range []string{executable, filepath.Join(dir, "comfy.exe"), filepath.Join(dir, "python.exe")} {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			return false
+		}
+	}
+	return true
+}
 
 func configureStdioTermination(command *exec.Cmd) {
 	if command.SysProcAttr == nil {

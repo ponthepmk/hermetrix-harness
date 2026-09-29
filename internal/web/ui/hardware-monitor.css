@@ -1,0 +1,66 @@
+.app-shell { grid-template-rows: 52px auto minmax(0, 1fr); }
+.hardware-monitor {
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(95deg, #191e20 0%, #181b1d 44%, #1a1a1d 100%);
+}
+.hardware-summary { min-height: 44px; display: flex; align-items: center; gap: 1rem; padding: 0 .9rem; cursor: pointer; list-style: none; }
+.hardware-summary::-webkit-details-marker { display: none; }
+.hardware-summary::after { content: "⌄"; margin-left: .15rem; color: var(--muted); font-size: 1rem; transition: transform .18s ease; }
+.hardware-monitor[open] .hardware-summary::after { transform: rotate(180deg); }
+.hardware-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hardware-summary > strong { color: var(--text); font-size: .78rem; font-weight: 550; font-variant-numeric: tabular-nums; }
+.hardware-live { display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .72rem; line-height: 1.35; white-space: nowrap; }
+.hardware-live > span { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--faint); }
+.hardware-monitor[data-status="ready"] .hardware-live > span { background: var(--accent); box-shadow: 0 0 9px rgba(117, 213, 208, .7); animation: hardware-pulse 2.8s ease-in-out infinite; }
+.hardware-metrics { min-width: 0; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding: .25rem .9rem .65rem; }
+.hardware-tile {
+  --metric-color: #75d5d0;
+  flex: 1 0 116px;
+  min-width: 116px;
+  max-width: 168px;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+}
+.hardware-tile[data-kind="ram"] { --metric-color: #83b8ea; }
+.hardware-tile[data-kind="gpu"] { --metric-color: #b7a1ee; }
+.hardware-tile[data-kind="vram"] { --metric-color: #e2bf86; }
+.hardware-tile[data-ready="false"] { opacity: .55; }
+.hardware-ring-wrap { position: relative; width: 42px; height: 42px; display: grid; place-items: center; }
+.hardware-ring { width: 42px; height: 42px; transform: rotate(-90deg); overflow: visible; }
+.hardware-ring circle { fill: none; stroke-width: 3.5; }
+.hardware-ring .track { stroke: #3b4447; }
+.hardware-ring .value { stroke: var(--metric-color); stroke-linecap: round; stroke-dasharray: 100; filter: drop-shadow(0 0 3px var(--metric-color)); transition: stroke-dashoffset .7s cubic-bezier(.2, .7, .2, 1); }
+.hardware-ring-wrap::after { content: ""; position: absolute; inset: 2px; border: 1px solid var(--metric-color); border-radius: 50%; opacity: .12; animation: hardware-orbit 3.6s ease-in-out infinite; pointer-events: none; }
+.hardware-copy { min-width: 0; display: grid; gap: 1px; }
+.hardware-copy strong { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .04em; }
+.hardware-copy b { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.hardware-copy small { overflow: hidden; color: var(--faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.hardware-updated { color: var(--faint); font-size: .68rem; white-space: nowrap; margin-left: auto; }
+@keyframes hardware-pulse { 50% { opacity: .45; box-shadow: 0 0 3px rgba(117, 213, 208, .25); } }
+@keyframes hardware-orbit { 50% { transform: scale(1.16); opacity: .03; } }
+@media (max-width: 700px) {
+  .app-shell { grid-template-rows: 96px auto minmax(0, 1fr); }
+  .hardware-summary { min-height: 44px; gap: .6rem; padding-inline: .75rem; }
+  .hardware-live { font-size: .68rem; }
+  .hardware-live > span { width: 6px; height: 6px; }
+  .hardware-updated { display: none; }
+  .hardware-summary > strong { font-size: .7rem; margin-left: auto; }
+  .hardware-metrics { gap: 2px; }
+  .hardware-tile { flex: 1 0 80px; min-width: 80px; max-width: none; min-height: 48px; grid-template-columns: 34px minmax(0, 1fr); gap: 4px; padding: 3px; border-radius: 8px; }
+  .hardware-ring-wrap, .hardware-ring { width: 34px; height: 34px; }
+  .hardware-copy strong { font-size: 9px; }
+  .hardware-copy b { font-size: 12px; }
+  .hardware-copy small { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hardware-monitor[data-status="ready"] .hardware-live > span, .hardware-ring-wrap::after { animation: none; }
+  .hardware-ring .value { transition: none; }
+}

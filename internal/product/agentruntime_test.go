@@ -27,6 +27,32 @@ func newProductTestServiceWithProject(t *testing.T) (*Service, Project, func()) 
 	return service, project, func() {}
 }
 
+func TestAgentBrowserActionsStayInTheirSessionProject(t *testing.T) {
+	service, project, cleanup := newProductTestServiceWithProject(t)
+	defer cleanup()
+	ctx := context.Background()
+	other, err := service.SaveProject(ctx, ProjectInput{Name: "Other project", RootPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := service.store.DB.ExecContext(ctx, `INSERT INTO browser_tabs(id,project_id,url,state,created_at,updated_at)
+		VALUES('agent-project-tab',?,'https://example.test','ready',?,?)`, project.ID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.checkAgentBrowserProject(ctx, "agent-project-tab", project.ID); err != nil {
+		t.Fatal(err)
+	}
+	request := agentruntime.BrowserActRequest{ProjectID: other.ID, Action: "click", Ref: 1,
+		ObservationHash: strings.Repeat("a", 64), Actor: "agent:test"}
+	if _, err := service.PreparePageAction(ctx, "agent-project-tab", request); err == nil || !strings.Contains(err.Error(), "project") {
+		t.Fatalf("cross-project prepare was accepted: %v", err)
+	}
+	if _, err := service.ActOnPage(ctx, "agent-project-tab", request); err == nil || !strings.Contains(err.Error(), "project") {
+		t.Fatalf("cross-project action was accepted: %v", err)
+	}
+}
+
 func TestStartRunAndLookupRunReportTheCommandOutcome(t *testing.T) {
 	service, project, cleanup := newProductTestServiceWithProject(t)
 	defer cleanup()

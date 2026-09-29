@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,29 +30,32 @@ const maxArtifactBytes = 16 << 20
 var settingKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,80}$`)
 
 type Service struct {
-	store          *store.Store
-	skills         *skills.Service
-	mu             sync.Mutex
-	cancels        map[string]context.CancelFunc
-	commandOutputs map[string]*boundedBuffer
-	commandWG      sync.WaitGroup
-	closing        bool
-	terminals      map[string]*terminalRuntime
-	terminalWG     sync.WaitGroup
-	browser        *browserRuntime
-	browserTabs    map[string]*browserTabRuntime
-	agent          teamAgentRunner
-	teamCtx        context.Context
-	teamCancel     context.CancelFunc
-	teamRuns       map[string]teamRunHandle
-	teamWG         sync.WaitGroup
-	pathLocks      *pathLockManager
-	mediaSem       chan struct{}
-	debuggers      map[string]*debugRuntime
-	debugWG        sync.WaitGroup
+	store            *store.Store
+	skills           *skills.Service
+	mu               sync.Mutex
+	cancels          map[string]context.CancelFunc
+	commandOutputs   map[string]*boundedBuffer
+	commandWG        sync.WaitGroup
+	closing          bool
+	terminals        map[string]*terminalRuntime
+	terminalWG       sync.WaitGroup
+	browser          *browserRuntime
+	browserTabs      map[string]*browserTabRuntime
+	agent            teamAgentRunner
+	teamCtx          context.Context
+	teamCancel       context.CancelFunc
+	teamRuns         map[string]teamRunHandle
+	teamWG           sync.WaitGroup
+	pathLocks        *pathLockManager
+	mediaSem         chan struct{}
+	debuggers        map[string]*debugRuntime
+	debugWG          sync.WaitGroup
+	researchClient   *http.Client
+	researchEndpoint string
 }
 
 type teamAgentRunner interface {
+	TeamProviderRoute(context.Context, string) (bool, error)
 	CreateSession(context.Context, agent.CreateSessionInput) (agent.Session, error)
 	RunTurn(context.Context, string, agent.TurnInput, func(agent.StreamEvent) error) (agent.TurnResult, error)
 	DecideApproval(context.Context, string, agent.ApprovalDecisionInput, func(agent.StreamEvent) error) (agent.TurnResult, error)
@@ -101,6 +105,28 @@ func (s *Service) RecoverInterruptedJobs(ctx context.Context) (int64, error) {
 		return mutations + jobs, mediaErr
 	}
 	jobs += mediaCount
+	desktopActions, desktopErr := s.store.DB.ExecContext(ctx, `UPDATE desktop_actions SET state='uncertain',
+		error='process interrupted after native action dispatch; inspect the window before any new action',completed_at=? WHERE state='dispatched'`,
+		formatTime(time.Now().UTC()))
+	if desktopErr != nil {
+		return mutations + jobs, desktopErr
+	}
+	desktopCount, desktopErr := desktopActions.RowsAffected()
+	if desktopErr != nil {
+		return mutations + jobs, desktopErr
+	}
+	jobs += desktopCount
+	browserActions, browserErr := s.store.DB.ExecContext(ctx, `UPDATE browser_action_receipts SET state='uncertain',
+		error='process interrupted after browser action dispatch; inspect the result before any new action',completed_at=? WHERE state='dispatched'`,
+		formatTime(time.Now().UTC()))
+	if browserErr != nil {
+		return mutations + jobs, browserErr
+	}
+	browserActionCount, browserErr := browserActions.RowsAffected()
+	if browserErr != nil {
+		return mutations + jobs, browserErr
+	}
+	jobs += browserActionCount
 	terminals, err := s.store.DB.ExecContext(ctx, `UPDATE terminal_sessions SET state='interrupted',
 		error='terminal process ended when Hermetrix stopped',updated_at=?,completed_at=? WHERE state='running'`,
 		formatTime(time.Now().UTC()), formatTime(time.Now().UTC()))
@@ -225,6 +251,14 @@ const projectColumns = `p.id,p.name,p.root_path,p.state,p.pinned,p.last_opened_a
 	(SELECT COUNT(*) FROM agent_sessions s WHERE s.project_id=p.id),p.owner_principal_id,p.visibility,p.export_policy,p.sharing_revision`
 
 func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
+	return s.listProjectsByState(ctx, "active")
+}
+
+func (s *Service) ListArchivedProjects(ctx context.Context) ([]Project, error) {
+	return s.listProjectsByState(ctx, "archived")
+}
+
+func (s *Service) listProjectsByState(ctx context.Context, state string) ([]Project, error) {
 	ownerID, err := s.store.OwnerPrincipalID(ctx)
 	if err != nil {
 		return nil, err
@@ -234,7 +268,7 @@ func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
 	// opened falls back to when it was created, so it still lands somewhere
 	// sensible instead of sorting as if it were infinitely old.
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT `+projectColumns+`
-	FROM projects p WHERE p.owner_principal_id=? ORDER BY p.pinned DESC, COALESCE(p.last_opened_at,p.created_at) DESC`, ownerID)
+	FROM projects p WHERE p.owner_principal_id=? AND p.state=? ORDER BY p.pinned DESC, COALESCE(p.last_opened_at,p.created_at) DESC`, ownerID, state)
 	if err != nil {
 		return nil, err
 	}
@@ -248,6 +282,26 @@ func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Service) SetProjectArchived(ctx context.Context, id string, archived bool) (Project, error) {
+	ownerID, err := s.store.OwnerPrincipalID(ctx)
+	if err != nil {
+		return Project{}, err
+	}
+	state := "active"
+	if archived {
+		state = "archived"
+	}
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET state=?,pinned=CASE WHEN ?='archived' THEN 0 ELSE pinned END,updated_at=? WHERE id=? AND owner_principal_id=?`,
+		state, state, formatTime(time.Now().UTC()), id, ownerID)
+	if err != nil {
+		return Project{}, err
+	}
+	if count, _ := result.RowsAffected(); count != 1 {
+		return Project{}, sql.ErrNoRows
+	}
+	return s.GetProject(ctx, id)
 }
 
 func (s *Service) GetProject(ctx context.Context, id string) (Project, error) {
@@ -266,7 +320,7 @@ func (s *Service) PinProject(ctx context.Context, id string, pinned bool) (Proje
 	if err != nil {
 		return Project{}, err
 	}
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET pinned=?,updated_at=? WHERE id=? AND owner_principal_id=?`,
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET pinned=?,updated_at=? WHERE id=? AND owner_principal_id=? AND state='active'`,
 		boolInt(pinned), formatTime(time.Now().UTC()), id, ownerID)
 	if err != nil {
 		return Project{}, err
@@ -285,7 +339,7 @@ func (s *Service) MarkProjectOpened(ctx context.Context, id string) (Project, er
 	if err != nil {
 		return Project{}, err
 	}
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET last_opened_at=? WHERE id=? AND owner_principal_id=?`,
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE projects SET last_opened_at=? WHERE id=? AND owner_principal_id=? AND state='active'`,
 		formatTime(time.Now().UTC()), id, ownerID)
 	if err != nil {
 		return Project{}, err
@@ -404,18 +458,23 @@ func (s *Service) ListArtifacts(ctx context.Context, projectID string) ([]Artifa
 }
 
 func (s *Service) GetArtifact(ctx context.Context, id string) (Artifact, []byte, error) {
-	ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
-	if ownerErr != nil {
-		return Artifact{}, nil, ownerErr
-	}
-	item, err := scanArtifact(s.store.DB.QueryRowContext(ctx, `SELECT id,COALESCE(project_id,''),COALESCE(session_id,''),
-	name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at,owner_principal_id,visibility,export_policy,sharing_revision,source_lineage_json
-	FROM artifacts WHERE id=? AND owner_principal_id=?`, id, ownerID))
+	item, err := s.GetArtifactMetadata(ctx, id)
 	if err != nil {
 		return Artifact{}, nil, err
 	}
 	data, err := s.store.Blobs.Get(item.BlobRef)
 	return item, data, err
+}
+
+func (s *Service) GetArtifactMetadata(ctx context.Context, id string) (Artifact, error) {
+	ownerID, ownerErr := s.store.OwnerPrincipalID(ctx)
+	if ownerErr != nil {
+		return Artifact{}, ownerErr
+	}
+	item, err := scanArtifact(s.store.DB.QueryRowContext(ctx, `SELECT id,COALESCE(project_id,''),COALESCE(session_id,''),
+	name,kind,mime_type,blob_ref,byte_size,checksum,metadata_json,created_at,owner_principal_id,visibility,export_policy,sharing_revision,source_lineage_json
+	FROM artifacts WHERE id=? AND owner_principal_id=?`, id, ownerID))
+	return item, err
 }
 
 // FindArtifactByOperationID resolves evidence written for one durable effect.

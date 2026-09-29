@@ -152,7 +152,7 @@ func (s *Service) latestCheckpoint(ctx context.Context, taskID string) (Checkpoi
 
 func (s *Service) validationEvidence(ctx context.Context, taskID string) ([]Validation, error) {
 	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,task_id,step_id,requirement_id,check_id,subject_revision,status,
-		expected,actual,evidence_refs_json,severity,confidence,created_at FROM task_validations WHERE task_id=? ORDER BY created_at`, taskID)
+		expected,actual,evidence_refs_json,severity,confidence,created_at FROM task_validations WHERE task_id=? ORDER BY rowid`, taskID)
 	if err != nil {
 		return nil, err
 	}

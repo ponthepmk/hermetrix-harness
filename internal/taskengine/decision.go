@@ -21,21 +21,24 @@ const (
 // It is derived from authoritative task records and is never a second source
 // of truth for requirements, plans, validations, or effects.
 type CompactState struct {
-	TaskID              string            `json:"task_id"`
-	TaskRevision        int               `json:"task_revision"`
-	RequirementRevision int               `json:"requirement_revision"`
-	PlanRevision        int               `json:"plan_revision"`
-	Goal                string            `json:"goal"`
-	TaskState           string            `json:"task_state"`
-	CurrentStep         *CompactStep      `json:"current_step,omitempty"`
-	CompletedSteps      []string          `json:"completed_steps"`
-	FailedChecks        []string          `json:"failed_checks"`
-	EvidenceRefs        []string          `json:"evidence_refs"`
-	UnresolvedEffects   []string          `json:"unresolved_effects"`
-	Criteria            map[string]string `json:"criteria"`
-	LatestCheckpoint    *Checkpoint       `json:"latest_checkpoint,omitempty"`
-	ConsecutiveFailures int               `json:"consecutive_failures"`
-	CompletionEligible  bool              `json:"completion_eligible"`
+	TaskID                 string            `json:"task_id"`
+	TaskRevision           int               `json:"task_revision"`
+	RequirementRevision    int               `json:"requirement_revision"`
+	PlanRevision           int               `json:"plan_revision"`
+	Goal                   string            `json:"goal"`
+	TaskState              string            `json:"task_state"`
+	CurrentStep            *CompactStep      `json:"current_step,omitempty"`
+	CompletedSteps         []string          `json:"completed_steps"`
+	FailedChecks           []string          `json:"failed_checks"`
+	EvidenceRefs           []string          `json:"evidence_refs"`
+	UnresolvedEffects      []string          `json:"unresolved_effects"`
+	Criteria               map[string]string `json:"criteria"`
+	LatestCheckpoint       *Checkpoint       `json:"latest_checkpoint,omitempty"`
+	ConsecutiveFailures    int               `json:"consecutive_failures"`
+	CompletionEligible     bool              `json:"completion_eligible"`
+	AwaitingUserAcceptance bool              `json:"awaiting_user_acceptance"`
+	AwaitingPlanReview     bool              `json:"awaiting_plan_review"`
+	PlanReviewStatus       string            `json:"plan_review_status,omitempty"`
 }
 
 type CompactStep struct {
@@ -146,9 +149,19 @@ func (s *Service) BuildCompactState(ctx context.Context, taskID string, expected
 		return CompactState{}, err
 	}
 	latestCheckStatus := map[string]Validation{}
+	currentStepRevisions := map[string]string{}
+	for _, step := range task.Plan.Steps {
+		checkedStep := step
+		if checkedStep.State == StepCompleted && checkedStep.Revision > 0 {
+			checkedStep.Revision--
+		}
+		currentStepRevisions[step.ID] = StepSubjectRevision(checkedStep)
+	}
 	for _, item := range validations {
 		state.EvidenceRefs = append(state.EvidenceRefs, item.EvidenceRefs...)
-		latestCheckStatus[item.StepID+"\x00"+item.CheckID+"\x00"+item.SubjectRevision] = item
+		if item.StepID != "" && currentStepRevisions[item.StepID] == item.SubjectRevision {
+			latestCheckStatus[item.StepID+"\x00"+item.CheckID] = item
+		}
 		if _, active := state.Criteria[item.RequirementID]; active && item.SubjectRevision == RequirementSubjectRevision(task) {
 			state.Criteria[item.RequirementID] = item.Status
 		}
@@ -186,7 +199,14 @@ func (s *Service) BuildCompactState(ctx context.Context, taskID string, expected
 	state.FailedChecks = boundedDecisionStrings(uniqueSorted(state.FailedChecks), maxCompactItems)
 	state.EvidenceRefs = boundedDecisionStrings(uniqueSorted(state.EvidenceRefs), maxCompactItems)
 	state.UnresolvedEffects = boundedDecisionStrings(uniqueSorted(state.UnresolvedEffects), maxCompactItems)
-	state.CompletionEligible = completionEligible(task, state)
+	completion, err := completionReport(ctx, s.store.DB, task)
+	if err != nil {
+		return CompactState{}, err
+	}
+	state.CompletionEligible = completion.CanComplete
+	state.AwaitingUserAcceptance = completion.AwaitingUserAcceptance
+	state.AwaitingPlanReview = task.Requirement.Contract.RequirePlanReview && task.Plan.ReviewStatus == "pending"
+	state.PlanReviewStatus = task.Plan.ReviewStatus
 	return state, nil
 }
 
@@ -233,24 +253,11 @@ func (s *Service) consecutiveFailureCount(ctx context.Context, task Task) (int, 
 	return count, rows.Err()
 }
 
-func completionEligible(task Task, state CompactState) bool {
-	if task.State != StateVerifying || len(state.UnresolvedEffects) > 0 || len(task.Plan.Steps) == 0 {
-		return false
-	}
-	for _, step := range task.Plan.Steps {
-		if step.State != StepCompleted && step.State != StepSkipped {
-			return false
-		}
-	}
-	for _, status := range state.Criteria {
-		if status != ValidationPass {
-			return false
-		}
-	}
-	return true
-}
-
 func candidateActions(state CompactState) []CandidateAction {
+	if state.TaskState == StateCompleted || state.TaskState == StateCancelled || state.TaskState == StateFailed {
+		return []CandidateAction{{ID: "view_evidence", Type: "view_evidence", Target: state.TaskID,
+			Risk: "read", Cost: "low", Reason: "this task has reached a terminal outcome; inspect its recorded evidence"}}
+	}
 	if len(state.UnresolvedEffects) > 0 {
 		return []CandidateAction{{ID: "reconcile_effects", Type: "reconcile_effects", Risk: "write",
 			Cost: "medium", RequiresPolicy: true, Reason: "an existing effect has no final receipt"}}
@@ -258,6 +265,18 @@ func candidateActions(state CompactState) []CandidateAction {
 	if state.CompletionEligible {
 		return []CandidateAction{{ID: "finish", Type: "finish", Risk: "transition",
 			Cost: "low", RequiresPolicy: true, Reason: "all active criteria and steps have passing evidence"}}
+	}
+	if state.AwaitingUserAcceptance {
+		return []CandidateAction{{ID: "request_user_acceptance", Type: "request_user_acceptance", Target: state.TaskID,
+			Risk: "transition", Cost: "low", RequiresPolicy: true, Reason: "current checks passed; the goal contract requires user acceptance"}}
+	}
+	if state.AwaitingPlanReview {
+		return []CandidateAction{{ID: "review_plan", Type: "review_plan", Target: state.TaskID,
+			Risk: "transition", Cost: "low", RequiresPolicy: true, Reason: "the current plan requires a user review before execution"}}
+	}
+	if state.PlanReviewStatus == "rejected" {
+		return []CandidateAction{{ID: "ask_planner", Type: "ask_planner", Target: state.TaskID,
+			Risk: "model", Cost: "medium", RequiresPolicy: true, Reason: "the plan was rejected; revise the goal or create a new plan"}}
 	}
 	if state.PlanRevision == 0 || state.ConsecutiveFailures >= 2 || state.TaskState == StatePaused && state.CurrentStep == nil {
 		return []CandidateAction{{ID: "retrieve_memory", Type: "retrieve_memory", Target: state.TaskID, Risk: "read", Cost: "low", Reason: "look for reviewed prior knowledge before replanning"},
@@ -287,6 +306,12 @@ func ruleDecision(state CompactState, candidates []CandidateAction) (DecisionRes
 		preferred, reason = "reconcile_effects", "unresolved effects block every new action"
 	case state.CompletionEligible:
 		preferred, reason = "finish", "the deterministic completion gate is satisfied"
+	case state.AwaitingUserAcceptance:
+		preferred, reason = "request_user_acceptance", "current evidence is ready for user acceptance"
+	case state.AwaitingPlanReview:
+		preferred, reason = "review_plan", "the current plan is awaiting review"
+	case state.PlanReviewStatus == "rejected":
+		preferred, reason = "ask_planner", "the plan was rejected"
 	case state.ConsecutiveFailures >= 2:
 		preferred, reason = "retrieve_memory", "the same failure repeated; retrieve reviewed knowledge before replanning"
 	case state.PlanRevision == 0 || state.CurrentStep == nil:

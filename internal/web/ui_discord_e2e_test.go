@@ -85,7 +85,13 @@ func TestDiscordSetupInARealBrowser(t *testing.T) {
 	if err := client.call(ctx, "Runtime.enable", map[string]any{}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.call(ctx, "Page.enable", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Page.navigate", map[string]any{"url": server.URL}, nil); err != nil {
 		t.Fatal(err)
 	}
 	evaluate := func(expression string) string {
@@ -115,9 +121,11 @@ func TestDiscordSetupInARealBrowser(t *testing.T) {
 			}
 		}
 	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#appShell:not([hidden]) #projectChip') ? 'chat-ready' : ''`, "chat-ready")
+	click("#projectChip")
 	waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'project' : ''`, "project")
 	click("[data-open-project]")
-	waitBrowserValue(t, ctx, client, `document.querySelector('#startPrompt') ? 'opened' : ''`, "opened")
+	waitBrowserValue(t, ctx, client, fmt.Sprintf(`state.currentProject?.id === %q ? 'opened' : ''`, project.ID), "opened")
 	click("#openConfig")
 	click(`[data-config-page="discord"]`)
 	waitBrowserValue(t, ctx, client, `document.querySelector('[data-discord-status]')?.textContent.includes('ยังไม่เปิดใช้งาน') ? 'disabled' : ''`, "disabled")
