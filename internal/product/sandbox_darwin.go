@@ -11,14 +11,14 @@ import (
 	"strings"
 )
 
-func prepareSandboxCommand(ctx context.Context, executable string, arguments []string, workingDir, projectRoot string) (*exec.Cmd, commandSandbox, func(), error) {
+func prepareSandboxCommand(ctx context.Context, executable string, arguments []string, workingDir, projectRoot string, runtimeWriteRoots ...string) (*exec.Cmd, commandSandbox, func(), error) {
 	status := commandSandbox{Kind: "macos-seatbelt", Enforced: true, NetworkIsolated: true, WriteScope: "project-and-runtime-caches"}
 	profile, err := os.CreateTemp("", "hermetrix-command-*.sb")
 	if err != nil {
 		return nil, status, func() {}, err
 	}
 	cleanup := func() { _ = os.Remove(profile.Name()) }
-	writeRoots := []string{projectRoot, os.TempDir()}
+	writeRoots := append([]string{projectRoot, os.TempDir()}, runtimeWriteRoots...)
 	for _, key := range []string{"TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			writeRoots = append(writeRoots, value)

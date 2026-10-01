@@ -40,6 +40,7 @@ type Request struct {
 	PromptTokens             int
 	OutputTokens             int
 	OwnerTokenLimit          int
+	TurnTokenLimit           int
 	PresetID                 string
 	PresetRevision           int
 	RuntimeFingerprintID     string
@@ -232,6 +233,21 @@ func (s *Scheduler) reserve(ctx context.Context, request Request) error {
 			return err
 		}
 		if used+request.PromptTokens+request.OutputTokens > request.OwnerTokenLimit {
+			return ErrBudgetExceeded
+		}
+	}
+	if request.TurnTokenLimit > 0 {
+		if request.SessionID == "" || request.TurnID == "" {
+			return fmt.Errorf("turn token budget requires session and turn identity")
+		}
+		var used int
+		err = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN state='reconciled' THEN charged_prompt_tokens+charged_output_tokens
+			ELSE reserved_prompt_tokens+reserved_output_tokens END),0) FROM inference_usage_ledger
+			WHERE session_id=? AND turn_id=? AND state IN ('reserved','dispatched','uncertain','reconciled')`, request.SessionID, request.TurnID).Scan(&used)
+		if err != nil {
+			return err
+		}
+		if used+request.PromptTokens+request.OutputTokens > request.TurnTokenLimit {
 			return ErrBudgetExceeded
 		}
 	}

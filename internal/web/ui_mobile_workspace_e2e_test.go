@@ -22,6 +22,11 @@ func TestMobileWorkspacePickerAndCodeTabClose(t *testing.T) {
 		t.Skip("Chrome unavailable")
 	}
 	root := t.TempDir()
+	// The directory picker returns canonical paths (macOS /var links to /private/var).
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("original\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -91,19 +96,29 @@ func TestMobileWorkspacePickerAndCodeTabClose(t *testing.T) {
 	}
 	waitBrowserValue(t, ctx, client, fmt.Sprintf(`state.currentProject?.id === %q && state.view === 'code' && document.querySelector('#projectPicker').hidden ? 'workspace' : ''`, project.ID), "workspace")
 	waitBrowserValue(t, ctx, client, `state.panes.join(',') === 'chat,review,files' && !document.querySelector('.pane[data-kind="editor"]') ? 'usage-first' : ''`, "usage-first")
-	if _, err := client.evaluate(ctx, `localStorage.setItem(layoutKey(),JSON.stringify({panes:['chat','editor','files'],paneLayout:'adaptive'})); applyLayout(); renderPanes(); localStorage.removeItem(layoutKey()); 'legacy-layout'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `localStorage.setItem(layoutKey(),JSON.stringify({panes:['chat','editor','files'],paneLayout:'adaptive'})); applyLayout(); renderPanes(); localStorage.removeItem(layoutKey()); 'legacy-layout'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `state.panes.join(',') === 'chat,review,files' && !document.querySelector('.pane[data-kind="editor"]') ? 'migrated-layout' : ''`, "migrated-layout")
 	waitBrowserValue(t, ctx, client, `document.querySelector('#workspaceToolbarToggle')?.getAttribute('aria-expanded') === 'false' && getComputedStyle(document.querySelector('#workspacePaneTabs')).display === 'none' ? 'menu-folded' : ''`, "menu-folded")
 	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-menu'`); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('#workspaceToolbarToggle')?.getAttribute('aria-expanded') === 'true' && document.querySelector('#workspacePaneTabs').getBoundingClientRect().height > 0 ? 'menu-open' : ''`, "menu-open")
-	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="review"]').click(); 'select-review'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="review"]').click(); 'select-review'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('.review-usage-panel h3')?.textContent === 'Token และ Context' ? 'usage-panel' : ''`, "usage-panel")
-	if _, err := client.evaluate(ctx, `state.sessionDetail={session:{id:'usage-sample',title:'Usage sample',context_profile:'compact-16k',model:'sample-model',contract:{task_budget:{max_cumulative_tokens:3072}}},events:[{turn_id:'sample-turn',event_kind:'message',role:'assistant',metadata:{usage:{prompt_tokens:200,completion_tokens:50,total_tokens:250}}}]}; renderWorkbenchReview(); 'sample-usage'`); err != nil { t.Fatal(err) }
-	waitBrowserValue(t, ctx, client, `document.querySelector('.review-usage-panel .token-meter progress')?.value === 250 && document.querySelector('.review-usage-panel .token-meter')?.textContent.includes('250 / 3,072 token') ? 'measured-usage' : ''`, "measured-usage")
-	if _, err := client.evaluate(ctx, `state.sessionDetail=null; renderWorkbenchReview(); 'reset-usage'`); err != nil { t.Fatal(err) }
-	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-menu'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `state.sessionDetail={session:{id:'usage-sample',title:'Usage sample',context_profile:'compact-16k',model:'sample-model',contract:{task_budget:{max_cumulative_tokens:3072}}},latest_context_snapshot:{report:{predicted_prompt:200}},events:[{turn_id:'sample-turn',event_kind:'message',role:'assistant',metadata:{usage:{prompt_tokens:200,completion_tokens:50,total_tokens:250}}}]}; renderWorkbenchReview(); 'sample-usage'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.review-usage-panel .token-meter progress')?.value === 200 && document.querySelector('.review-usage-panel .token-meter')?.textContent.includes('250 / 3,072 token') ? 'measured-usage' : ''`, "measured-usage")
+	if _, err := client.evaluate(ctx, `state.sessionDetail=null; renderWorkbenchReview(); 'reset-usage'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-menu'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="files"]').click(); 'select-files'`); err != nil {
 		t.Fatal(err)
 	}

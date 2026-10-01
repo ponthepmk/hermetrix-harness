@@ -586,6 +586,6 @@
     if (document.hidden && voice.nativeActive) { voice.nativeAbort?.abort(); voice.nativeActive = false; }
   });
   window.addEventListener("beforeunload", end);
-  window.HermetrixVoice = { onRender, beforeRender, end };
+  window.HermetrixVoice = { onRender, beforeRender, end, open };
   onRender();
 })();

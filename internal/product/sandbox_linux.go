@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func prepareSandboxCommand(ctx context.Context, executable string, arguments []string, workingDir, projectRoot string) (*exec.Cmd, commandSandbox, func(), error) {
+func prepareSandboxCommand(ctx context.Context, executable string, arguments []string, workingDir, projectRoot string, runtimeWriteRoots ...string) (*exec.Cmd, commandSandbox, func(), error) {
 	bwrap, err := exec.LookPath("bwrap")
 	if err != nil {
 		status := commandSandbox{Kind: "unavailable", WriteScope: "process-hardening-only"}
@@ -26,7 +26,7 @@ func prepareSandboxCommand(ctx context.Context, executable string, arguments []s
 	args := []string{"--die-with-parent", "--unshare-net", "--new-session", "--ro-bind", "/", "/",
 		"--dev-bind", "/dev", "/dev", "--proc", "/proc", "--bind", projectRoot, projectRoot}
 	seen := map[string]bool{filepath.Clean(projectRoot): true}
-	writeRoots := []string{os.TempDir()}
+	writeRoots := append([]string{os.TempDir()}, runtimeWriteRoots...)
 	for _, key := range []string{"TMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH"} {
 		root := strings.TrimSpace(os.Getenv(key))
 		if root != "" {

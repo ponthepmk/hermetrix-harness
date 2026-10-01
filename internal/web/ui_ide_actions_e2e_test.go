@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -89,10 +90,14 @@ func TestIDEFormatRunTestAndDebugInBrowser(t *testing.T) {
 		t.Fatalf("format wrote disk: %q %v", before, err)
 	}
 	act(`activeCodeEditor.focus();'focused'`)
-	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": "z", "code": "KeyZ", "modifiers": 2}, nil); err != nil {
+	modifier := 2
+	if runtime.GOOS == "darwin" {
+		modifier = 4
+	}
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": "z", "code": "KeyZ", "modifiers": modifier}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": "z", "code": "KeyZ", "modifiers": 2}, nil); err != nil {
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": "z", "code": "KeyZ", "modifiers": modifier}, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `activeCodeEditor.getValue().startsWith('const total=2+3;')?'undo':''`, "undo")

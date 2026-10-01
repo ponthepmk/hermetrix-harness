@@ -59,3 +59,13 @@ test("unexpected collection payloads fail closed to an empty list", () => {
   assert.deepEqual(runtime.asList({ length:1 }), []);
   assert.deepEqual(runtime.asList(["ok"]), ["ok"]);
 });
+
+test('review tables render readable columns and escape cell contents', () => {
+  const html = runtime.renderChatMarkdown('| Finding | Evidence |\n| --- | --- |\n| **Pending** | `<script>` |\n\nNext step');
+  assert.match(html, /<table>/);
+  assert.match(html, /<th>Finding<\/th>/);
+  assert.match(html, /<td><strong>Pending<\/strong><\/td>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /<p>Next step<\/p>/);
+});

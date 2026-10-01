@@ -1622,3 +1622,63 @@ func testFileURL(path string) string {
 	}
 	return (&url.URL{Scheme: "file", Path: slash}).String()
 }
+
+func TestGoCommandUsesAbsoluteTempDirectoryWithRelativeDataRoot(t *testing.T) {
+	ctx := context.Background()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot, err := os.MkdirTemp(cwd, "hermetrix-runtime-regression-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(runtimeRoot)
+	relative, err := filepath.Rel(cwd, filepath.Join(runtimeRoot, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Open(ctx, relative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	if !filepath.IsAbs(data.Root) {
+		t.Fatalf("relative store root %s", data.Root)
+	}
+	service := NewService(data, skills.NewService(data))
+	defer service.Close()
+	root := t.TempDir()
+	backend := filepath.Join(root, "backend")
+	if err = os.MkdirAll(backend, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"go.mod": "module fixture\n\ngo 1.22\n", "main.go": "package main\nfunc main() {}\n"} {
+		if err = os.WriteFile(filepath.Join(backend, name), []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project, err := service.SaveProject(ctx, ProjectInput{Name: "Relative root fixture", RootPath: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.StartCommand(ctx, CommandInput{ProjectID: project.ID, Actor: "test", Executable: "go", Arguments: []string{"build", "./..."}, WorkingDir: "backend", TimeoutSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		result, err := service.GetJob(ctx, job.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.State == "completed" {
+			return
+		}
+		if result.State == "failed" {
+			t.Fatalf("go build failed: %+v", result.Result)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("go build did not complete")
+}

@@ -1244,26 +1244,14 @@ func TestModelStepBudgetStopsTheTurn(t *testing.T) {
 		fmt.Fprint(w, strings.Replace(stream, "data: [DONE]", usage, 1))
 	}, TaskBudget{MaxModelSteps: 2, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
-	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "loop forever"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "2 model-step budget") {
-		t.Fatalf("model-step budget did not stop the turn: %v", err)
-	}
-	assertLeaseReleased(t, service, sessionID)
-	detail, err := service.GetSessionDetail(context.Background(), sessionID)
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "loop forever"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range detail.Events {
-		if event.EventKind == "turn_failed" {
-			var usage providers.Usage
-			encoded, _ := json.Marshal(event.Metadata["usage"])
-			if err := json.Unmarshal(encoded, &usage); err != nil || usage.TotalTokens != 47 {
-				t.Fatalf("failed turn lost two steps of usage: %+v %v", usage, err)
-			}
-			return
-		}
+	if result.AssistantEvent.Metadata["continuation_needed"] != true || result.AssistantEvent.Content == "" || result.Usage.TotalTokens != 47 {
+		t.Fatalf("bounded partial outcome lost progress/usage: %+v", result)
 	}
-	t.Fatal("turn_failed event was not persisted")
+	assertLeaseReleased(t, service, sessionID)
 }
 
 func TestFinalModelStepSummarizesWithoutMoreTools(t *testing.T) {
@@ -1315,20 +1303,14 @@ func TestFinalModelStepRejectsPlainTextToolCall(t *testing.T) {
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"<tool_call>\\n<function=workspace.run>\\n</function>\\n</tool_call>\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12,\"total_tokens\":32}}\n\ndata: [DONE]\n\n")
 	}, TaskBudget{MaxModelSteps: 1, MaxToolCalls: 5, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
-	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "review project"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "without a user-facing answer") {
-		t.Fatalf("plain text tool call was accepted as an answer: %v", err)
-	}
-	assertLeaseReleased(t, service, sessionID)
-	detail, err := service.GetSessionDetail(context.Background(), sessionID)
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "review project"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range detail.Events {
-		if event.EventKind == "message" && event.Role == "assistant" {
-			t.Fatalf("tool-call markup was persisted as a completed answer: %q", event.Content)
-		}
+	if strings.Contains(result.AssistantEvent.Content, "<tool_call>") || result.AssistantEvent.Metadata["summary_fallback"] != true {
+		t.Fatalf("tool markup was accepted as an answer: %+v", result)
 	}
+	assertLeaseReleased(t, service, sessionID)
 }
 
 func TestToolCallBudgetStopsTheTurn(t *testing.T) {
@@ -1340,9 +1322,16 @@ func TestToolCallBudgetStopsTheTurn(t *testing.T) {
 			"]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 1, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
-	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "call two tools at once"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "1 tool-call budget") {
-		t.Fatalf("tool-call budget did not stop the turn: %v", err)
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "call two tools at once"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AssistantEvent.Metadata["continuation_needed"] != true || result.AssistantEvent.Content == "" {
+		t.Fatalf("no partial answer: %+v", result)
+	}
+	count, _, err := service.turnToolCallStats(context.Background(), result.TurnID)
+	if err != nil || count != 0 {
+		t.Fatalf("over-budget batch executed: %d, %v", count, err)
 	}
 	assertLeaseReleased(t, service, sessionID)
 }
@@ -1354,9 +1343,9 @@ func TestCumulativeTokenBudgetStopsTheTurn(t *testing.T) {
 			"\"usage\":{\"prompt_tokens\":90,\"completion_tokens\":10,\"total_tokens\":100}}\n\ndata: [DONE]\n\n")
 	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 40})
 	defer cleanup()
-	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "spend tokens"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "40 cumulative-token budget") {
-		t.Fatalf("cumulative-token budget did not stop the turn: %v", err)
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "spend tokens"}, nil)
+	if err != nil || result.AssistantEvent.Metadata["continuation_needed"] != true || result.AssistantEvent.Content == "" {
+		t.Fatalf("cumulative budget did not produce bounded partial progress: %+v %v", result, err)
 	}
 	assertLeaseReleased(t, service, sessionID)
 }
@@ -1392,12 +1381,13 @@ func TestLoopDetectorStopsTheThirdIdenticalCall(t *testing.T) {
 		fmt.Fprint(w, toolCallStream(fmt.Sprintf("call-%d", requests), "same"))
 	}, TaskBudget{MaxModelSteps: 20, MaxToolCalls: 50, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
-	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "repeat yourself"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "third identical call") {
-		t.Fatalf("loop detector did not stop the repeat: %v", err)
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "repeat yourself"}, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if requests > 3 {
-		t.Fatalf("loop detector allowed %d model steps before stopping", requests)
+	count, _, err := service.turnToolCallStats(context.Background(), result.TurnID)
+	if requests != 4 || count != 2 || err != nil || result.AssistantEvent.Metadata["continuation_needed"] != true {
+		t.Fatalf("repeat escaped detection or no final answer: requests=%d calls=%d result=%+v err=%v", requests, count, result, err)
 	}
 	assertLeaseReleased(t, service, sessionID)
 }
@@ -2412,13 +2402,14 @@ func TestATurnThatReturnsNoAnswerFailsInsteadOfCommittingSilence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.RunTurn(ctx, session.ID, TurnInput{Content: "explain something"}, nil)
-	if err == nil {
-		t.Fatal("a turn that produced no answer was reported as complete")
+	result, err := service.RunTurn(ctx, session.ID, TurnInput{Content: "explain something"}, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "no answer") || !strings.Contains(err.Error(), "reasoning") {
-		t.Fatalf("the failure does not tell the user why: %v", err)
+	if result.AssistantEvent.Metadata["summary_fallback"] != true || result.AssistantEvent.Metadata["continuation_needed"] != true {
+		t.Fatalf("silent result: %+v", result)
 	}
+
 	// No empty assistant message may be left behind claiming to be an answer.
 	detail, err := service.GetSessionDetail(ctx, session.ID)
 	if err != nil {
@@ -3562,4 +3553,63 @@ func TestThaiGoalsAgainstAnEnglishCatalogAreReportedAsBlindNotAbsent(t *testing.
 	if working.Verdict != "pull_working" {
 		t.Fatalf("verdict = %q, want pull_working", working.Verdict)
 	}
+}
+
+func TestEmptyStopRetriesOnceAndReturnsVisibleAnswer(t *testing.T) {
+	requests := 0
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Tools []json.RawMessage `json:"tools"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "text/event-stream")
+		content := ""
+		if requests == 2 {
+			content = "Verified progress; the remaining review is pending."
+			if len(request.Tools) != 0 {
+				t.Error("empty retry still offers tools")
+			}
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", content)
+	}, TaskBudget{MaxModelSteps: 12, MaxToolCalls: 24, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	for i := 0; i < 2; i++ {
+		requests = 0
+		result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "review project"}, nil)
+		if err != nil || requests != 2 || result.AssistantEvent.Content == "" {
+			t.Fatalf("empty stop recovery: requests=%d result=%+v err=%v", requests, result, err)
+		}
+		assertLeaseReleased(t, service, sessionID)
+	}
+}
+
+func TestToolBudgetReservesAnAnswerBeforeStepLimit(t *testing.T) {
+	requests := 0
+	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Tools []json.RawMessage `json:"tools"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requests < 5 {
+			fmt.Fprint(w, toolCallStream(fmt.Sprintf("call-%d", requests), fmt.Sprintf("dir-%d", requests)))
+			return
+		}
+		if len(request.Tools) != 0 {
+			t.Error("no answer reservation before tool limit")
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Four checks completed; the rest remains unchecked.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}, TaskBudget{MaxModelSteps: 30, MaxToolCalls: 6, MaxWallTimeSeconds: 60, MaxCumulativeTokens: 1 << 20})
+	defer cleanup()
+	result, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "review project"}, nil)
+	if err != nil || requests != 5 || result.AssistantEvent.Metadata["continuation_needed"] != true {
+		t.Fatalf("budget finalization: requests=%d result=%+v err=%v", requests, result, err)
+	}
+	count, _, err := service.turnToolCallStats(context.Background(), result.TurnID)
+	if err != nil || count != 4 {
+		t.Fatalf("call cap: %d %v", count, err)
+	}
+	assertLeaseReleased(t, service, sessionID)
 }

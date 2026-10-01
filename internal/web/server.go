@@ -264,6 +264,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions", s.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.listSessionEvents)
+	mux.HandleFunc("GET /api/sessions/{id}/notebook", s.getSessionNotebook)
+	mux.HandleFunc("POST /api/sessions/{id}/auto-retry/pause", s.pauseSessionAutoRetry)
+	mux.HandleFunc("POST /api/sessions/{id}/approval-mode", s.setSessionApprovalMode)
 	mux.HandleFunc("POST /api/sessions/{id}/turns", s.runTurn)
 	mux.HandleFunc("GET /api/voice/capabilities", s.voiceCapabilities)
 	mux.HandleFunc("GET /api/voice/devices", s.voiceDevices)
@@ -1530,6 +1533,57 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *Server) setSessionApprovalMode(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service unavailable"})
+		return
+	}
+	var input struct {
+		Mode string `json:"mode"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	actor, err := s.store.LocalPrincipalID(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err = s.agent.SetApprovalMode(r.Context(), r.PathValue("id"), input.Mode, effectiveActor(r.Context(), actor)); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mode": input.Mode})
+}
+
+func (s *Server) pauseSessionAutoRetry(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service unavailable"})
+		return
+	}
+	if err := s.agent.PauseAutoRetry(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"state": "paused"})
+}
+
+func (s *Server) getSessionNotebook(w http.ResponseWriter, r *http.Request) {
+	if s.agent == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "agent service is unavailable"})
+		return
+	}
+	body, err := s.agent.Notebook(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="working-notebook.md"`)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(body))
 }
 
 func (s *Server) listSessionEvents(w http.ResponseWriter, r *http.Request) {

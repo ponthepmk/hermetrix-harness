@@ -12,6 +12,7 @@ type Owner struct {
 	Source                   string
 	Priority                 Priority
 	TokenLimit               int
+	TurnTokenLimit           int
 	PresetID                 string
 	PresetRevision           int
 	PresetRole               string

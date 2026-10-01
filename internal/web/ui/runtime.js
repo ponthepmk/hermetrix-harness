@@ -24,7 +24,8 @@
     let fenced = false;
     const flushList = () => { if (list) { out.push(`</${list}>`); list = ""; } };
     const flushParagraph = () => { if (paragraph.length) { out.push(`<p>${paragraph.map(inline).join("<br>")}</p>`); paragraph = []; } };
-    for (const line of lines) {
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
       if (/^\s*```/.test(line)) {
         flushParagraph(); flushList();
         if (fenced) { out.push(`<pre><code>${escapeHTML(code.join("\n"))}</code></pre>`); code = []; }
@@ -32,6 +33,21 @@
         continue;
       }
       if (fenced) { code.push(line); continue; }
+      const cells = row => row.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+      if (line.includes("|") && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] || "")) {
+        flushParagraph(); flushList();
+        const headers = cells(line);
+        out.push(`<div class="chat-table-wrap"><table><thead><tr>${headers.map(cell => `<th>${inline(cell)}</th>`).join("")}</tr></thead><tbody>`);
+        index += 2;
+        while (index < lines.length && lines[index].trim().includes("|")) {
+          const row = cells(lines[index]);
+          out.push(`<tr>${headers.map((_, column) => `<td>${inline(row[column] || "")}</td>`).join("")}</tr>`);
+          index++;
+        }
+        index--;
+        out.push("</tbody></table></div>");
+        continue;
+      }
       if (!line.trim()) { flushParagraph(); flushList(); continue; }
       const heading = line.match(/^\s{0,3}(#{1,3})\s+(.+)$/);
       const bullet = line.match(/^\s{0,3}([-*]|\d+\.)\s+(.+)$/);

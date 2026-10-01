@@ -180,3 +180,36 @@ func TestCancelledActiveLocalRequestQuarantinesResource(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTurnBudgetSurvivesRestartWithoutChargingPreviousTurns(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	scheduler := New(dataStore)
+	run := func(turn string, limit int) (bool, error) {
+		dispatched := false
+		_, err := scheduler.Do(ctx, Request{OwnerKind: "session", OwnerID: "chat", SessionID: "chat", TurnID: turn, ResourceKey: "remote:p1", PromptTokens: 20, OutputTokens: 10, TurnTokenLimit: limit}, func(context.Context) (Usage, error) {
+			dispatched = true
+			return Usage{PromptTokens: 20, OutputTokens: 10}, nil
+		})
+		return dispatched, err
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := run("old-turn", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if dispatched, err := run("new-turn", 50); err != nil || !dispatched {
+		t.Fatalf("prior turns poisoned new turn: dispatched=%v err=%v", dispatched, err)
+	}
+	scheduler = New(dataStore)
+	if dispatched, err := run("new-turn", 50); !errors.Is(err, ErrBudgetExceeded) || dispatched {
+		t.Fatalf("same-turn budget reset after restart: dispatched=%v err=%v", dispatched, err)
+	}
+	if dispatched, err := run("following-turn", 50); err != nil || !dispatched {
+		t.Fatalf("continuation in a new turn failed: dispatched=%v err=%v", dispatched, err)
+	}
+}

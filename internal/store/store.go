@@ -31,6 +31,11 @@ func Open(ctx context.Context, root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("create data root: %w", err)
 	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve data root: %w", err)
+	}
+	root = absoluteRoot
 	rootLock, err := acquireDataRootLock(filepath.Join(root, ".hermetrix.lock"))
 	if err != nil {
 		return nil, fmt.Errorf("lock data root: %w", err)
@@ -485,6 +490,11 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 			return fmt.Errorf("apply schema v73: %w", err)
 		}
 	}
+	if version < 74 {
+		if err := migrateV74(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v74: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -497,7 +507,7 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 73
+const CurrentSchemaVersion = 74
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (

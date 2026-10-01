@@ -178,7 +178,7 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		return
 	}
 	defer os.RemoveAll(jobRuntimeRoot)
-	command, sandbox, sandboxCleanup, sandboxErr := prepareSandboxCommand(ctx, executable, input.Arguments, workingDir, project.RootPath)
+	command, sandbox, sandboxCleanup, sandboxErr := prepareSandboxCommand(ctx, executable, input.Arguments, workingDir, project.RootPath, jobTempDir)
 	if sandboxErr != nil {
 		errorMessage := "prepare OS sandbox: " + sandboxErr.Error()
 		resultJSON, _ := json.Marshal(map[string]any{"sandbox": sandbox})

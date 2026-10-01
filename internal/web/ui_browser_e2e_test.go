@@ -279,19 +279,38 @@ func TestLongChatReplyStaysReadableAboveComposerInARealBrowser(t *testing.T) {
 	if _, err := client.evaluate(ctx, seed); err != nil {
 		t.Fatal(err)
 	}
-	for _, width := range []int{1440, 390} {
-		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+	for _, width := range []int{1440, 390, 1024} {
+		height := 844
+		if width == 1024 {
+			height = 556
+			if _, err := client.evaluate(ctx, `document.querySelector("#hardwareMonitor").open=true; "monitor-expanded"`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
 			t.Fatal(err)
 		}
-		waitBrowserValue(t, ctx, client, `(() => { const list=document.querySelector('#messageList'), composer=document.querySelector('#chatForm'), last=[...list?.querySelectorAll('.chat-message')||[]].filter(node=>!node.classList.contains('hidden')).at(-1), input=document.querySelector('#chatInput'); if(!list||!composer||!last||!input)return ''; list.scrollTop=list.scrollHeight; const l=list.getBoundingClientRect(),c=composer.getBoundingClientRect(),m=last.getBoundingClientRect(),i=input.getBoundingClientRect(); const hit=document.elementFromPoint(i.left+i.width/2,i.top+i.height/2); return l.bottom<=c.top+1 && m.bottom<=l.bottom+1 && i.width>180 && (hit===input||input.contains(hit)) ? 'readable' : ''; })()`, "readable")
+		waitBrowserValue(t, ctx, client, `(() => { const list=document.querySelector('#messageList'), composer=document.querySelector('#chatForm'), last=[...list?.querySelectorAll('.chat-message')||[]].filter(node=>!node.classList.contains('hidden')).at(-1), input=document.querySelector('#chatInput'); if(!list||!composer||!last||!input)return ''; list.scrollTop=list.scrollHeight; const l=list.getBoundingClientRect(),c=composer.getBoundingClientRect(),m=last.getBoundingClientRect(),i=input.getBoundingClientRect(); const hit=document.elementFromPoint(i.left+i.width/2,i.top+i.height/2); return l.height>40 && l.bottom<=c.top+1 && m.bottom<=l.bottom+1 && i.top>=0 && i.bottom<=innerHeight && i.width>180 && (hit===input||input.contains(hit)) ? 'readable' : ''; })()`, "readable")
 		if width == 390 {
-			waitBrowserValue(t, ctx, client, `(() => { const form=document.querySelector('#chatForm'), row=form?.querySelector('.composer-tools'), buttons=[...row?.querySelectorAll('.composer-tool-button')||[]], input=form?.querySelector('#chatInput'); if(!form||buttons.length<5||!input)return ''; const r=row.getBoundingClientRect(); return document.documentElement.scrollWidth<=innerWidth && row.scrollWidth<=row.clientWidth && buttons.every(button=>{const b=button.getBoundingClientRect();return b.left>=r.left-1 && b.right<=r.right+1 && b.height>=40;}) && input.placeholder==='พิมพ์ข้อความถึง Hermetrix…' ? 'mobile-composer' : ''; })()`, "mobile-composer")
+			waitBrowserValue(t, ctx, client, `(() => { const form=document.querySelector('#chatForm'), row=form?.querySelector('.composer-tools'), buttons=[...row?.querySelectorAll('.composer-tool-button')||[]], input=form?.querySelector('#chatInput'); if(!form||buttons.length<5||!input)return ''; const r=row.getBoundingClientRect(); return document.documentElement.scrollWidth<=innerWidth && row.scrollWidth<=row.clientWidth && buttons.every(button=>{const b=button.getBoundingClientRect();return b.left>=r.left-1 && b.right<=r.right+1 && b.height>=40;}) && input.getAttribute('aria-label')==='พิมพ์ข้อความถึง Hermetrix' ? 'mobile-composer' : ''; })()`, "mobile-composer")
 		}
+		if _, err := client.evaluate(ctx, `(() => {const box=document.querySelector('#chatInput');box.value='/';box.dispatchEvent(new Event('input',{bubbles:true}));return 'commands';})()`); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `(() => {const menu=document.querySelector('.slash-menu'), input=document.querySelector('#chatInput'), bubble=document.querySelector('.character-bubble');const m=menu?.getBoundingClientRect(),i=input?.getBoundingClientRect(),b=bubble?.getBoundingClientRect();return m && i && !menu.hidden && m.top>=0 && m.bottom<=innerHeight && i.bottom<=innerHeight ? 'command-popup-visible' : '';})()`, "command-popup-visible")
+		if _, err := client.evaluate(ctx, `document.querySelector('#chatInput').value='';document.querySelector('#chatInput').dispatchEvent(new Event('input',{bubbles:true}));'commands-closed'`); err != nil {
+			t.Fatal(err)
+		}
+
 		waitBrowserValue(t, ctx, client, `document.querySelector('#messageList .message-body strong')?.textContent === 'Two IDs' && document.querySelectorAll('#messageList .message-body li').length === 2 ? 'formatted' : ''`, "formatted")
 		if _, err := client.evaluate(ctx, `document.querySelector('#messageList').scrollTop=0; renderChat(); 'rerendered'`); err != nil {
 			t.Fatal(err)
 		}
 		waitBrowserValue(t, ctx, client, `document.querySelector('#messageList')?.scrollTop === 0 ? 'reading-position-preserved' : ''`, "reading-position-preserved")
+		if _, err := client.evaluate(ctx, `state.followSubmittedTurn=true; renderChat(); state.followSubmittedTurn=false; 'submitted-follow'`); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `(() => {const log=document.querySelector('#messageList');return log.scrollHeight-log.scrollTop-log.clientHeight<2?'latest-visible':''})()`, "latest-visible")
 		if directory := os.Getenv("HERMETRIX_SETTINGS_AUDIT_DIR"); directory != "" {
 			var shot struct {
 				Data string `json:"data"`
@@ -439,10 +458,10 @@ func TestWorkspacePaneSizesAreIndependentInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `state.panes.length>4 && document.querySelectorAll('.pane-grid>.pane').length===state.panes.length ? 'more-than-four' : ''`, "more-than-four")
-	if _, err := client.evaluate(ctx, `window.__paneCountBefore = state.panes.length; document.querySelector('#paneAdd').click(); 'create-pane'`); err != nil {
+	if _, err := client.evaluate(ctx, `window.__paneAuditErrors=[];window.addEventListener("error",e=>window.__paneAuditErrors.push(e.error?.stack||e.message)); window.__paneCountBefore = state.panes.length; document.querySelector('#paneAdd').click(); 'create-pane'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `(() => {const facts={before:window.__paneCountBefore,after:state.panes.length,preset:!!document.querySelector('#workspacePreset'),rendered:document.querySelectorAll('.pane-grid>.pane').length,saved:JSON.parse(localStorage.getItem(layoutKey()))?.panes?.length,scrollLeft:document.querySelector('#workspacePaneHost').scrollLeft};return facts.after===facts.before+1 && !facts.preset && facts.rendered===facts.after && facts.saved===facts.after && facts.scrollLeft>0 ? 'pane-created-visible' : JSON.stringify(facts);})()`, "pane-created-visible")
+	waitBrowserValue(t, ctx, client, `(() => {const facts={errors:window.__paneAuditErrors,before:window.__paneCountBefore,after:state.panes.length,preset:!!document.querySelector('#workspacePreset'),rendered:document.querySelectorAll('.pane-grid>.pane').length,saved:JSON.parse(localStorage.getItem(layoutKey()))?.panes?.length,scrollLeft:document.querySelector('#workspacePaneHost').scrollLeft};return facts.after===facts.before+1 && !facts.preset && facts.rendered===facts.after && facts.saved===facts.after && facts.scrollLeft>0 ? 'pane-created-visible' : JSON.stringify(facts);})()`, "pane-created-visible")
 	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -818,19 +837,19 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if err := client.call(ctx, "Input.insertText", map[string]any{"text": objective}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.evaluate(ctx, `document.querySelector('#startChatButton').click(); 'sent'`); err != nil {
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13}, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `Array.from(document.querySelectorAll('.chat-message.assistant:not(.streaming) .message-body')).some(node => node.textContent.includes('Ready from the browser fixture.')) ? 'replied' : ''`, "replied")
-	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.chat-head .session-usage'), bar=meter?.querySelector('progress'); return meter?.textContent.includes('ใช้รวมในแชต 28 token') && bar?.value===28 && bar.max>28 && bar.getBoundingClientRect().width>150 ? 'usage-bar-visible' : ''; })()`, "usage-bar-visible")
-	if _, err := client.evaluate(ctx, `document.querySelector('.chat-head .session-usage summary').click(); 'details-opened'`); err != nil {
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.composer .session-usage'), bar=meter?.querySelector('progress'); return meter?.textContent.includes('ใช้รวมในแชต 28 token') && meter?.textContent.includes('Context · ย่อเมื่อเกิน 75%') && bar?.value>0 && bar.value<bar.max && bar.getBoundingClientRect().width>150 ? 'usage-bar-visible' : ''; })()`, "usage-bar-visible")
+	if _, err := client.evaluate(ctx, `document.querySelector('.composer .session-usage summary').click(); 'details-opened'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.chat-head .session-usage'); return meter?.open && meter.textContent.includes('รับเข้า / ตอบออก') && meter.textContent.includes('20 / 8 token') && meter.textContent.includes('ขั้นโมเดลของคำสั่งล่าสุด') ? 'usage-details-visible' : ''; })()`, "usage-details-visible")
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.composer .session-usage'); return meter?.open && meter.textContent.includes('รับเข้า / ตอบออก') && meter.textContent.includes('20 / 8 token') && meter.textContent.includes('ขั้นโมเดลของคำสั่งล่าสุด') ? 'usage-details-visible' : ''; })()`, "usage-details-visible")
 	if _, err := client.evaluate(ctx, `renderChat(); 'rerendered'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `document.querySelector('.chat-head .session-usage')?.open ? 'usage-details-survived' : ''`, "usage-details-survived")
+	waitBrowserValue(t, ctx, client, `document.querySelector('.composer .session-usage')?.open ? 'usage-details-survived' : ''`, "usage-details-survived")
 	waitBrowserValue(t, ctx, client, `(() => { const sample=[{turn_id:'old',event_kind:'message',role:'user'},{turn_id:'old',event_kind:'tool_call',metadata:{usage:{total_tokens:11,prompt_tokens:9,completion_tokens:2}}},{turn_id:'old',event_kind:'model_step_bound'},{turn_id:'old',event_kind:'turn_failed',content:'agent exhausted its 12 model-step budget'}]; const html=sessionUsageHTML({contract:{task_budget:{max_model_steps:12,max_cumulative_tokens:98304}}},sample,null); return html.includes('อย่างน้อย 11 token') && html.includes('1 / 12 ขั้น') && html.includes('เพราะครบ 12 ขั้นโมเดล') ? 'old-failure-estimated' : ''; })()`, "old-failure-estimated")
 	waitBrowserValue(t, ctx, client, fmt.Sprintf(`Array.from(document.querySelectorAll('.chat-message.user .message-body')).some(node => node.textContent === %q) ? 'goal-sent' : ''`, objective), "goal-sent")
 	response, err := http.Get(server.URL + "/api/sessions")
@@ -846,9 +865,40 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&sessions); err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions) != 1 || sessions[0].ProjectID != "" || sessions[0].ProviderID != provider.ID || sessions[0].Title != objective {
+	if len(sessions) != 1 || sessions[0].ProjectID != project.ID || sessions[0].ProviderID != provider.ID || sessions[0].Title != objective {
 		t.Fatalf("the goal composer did not persist the intended session: %+v", sessions)
 	}
+	// A selected text attachment reaches the turn as text, retains focus, and
+	// does not require a vision model. Exercise the browser file-input API.
+	attachmentPath := filepath.Join(projectRoot, "attached.txt")
+	if err := os.WriteFile(attachmentPath, []byte("ATTACHMENT-E2E-927"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var dom struct {
+		Root struct {
+			NodeID int `json:"nodeId"`
+		} `json:"root"`
+	}
+	if err := client.call(ctx, "DOM.getDocument", map[string]any{}, &dom); err != nil {
+		t.Fatal(err)
+	}
+	var fileNode struct {
+		NodeID int `json:"nodeId"`
+	}
+	if err := client.call(ctx, "DOM.querySelector", map[string]any{"nodeId": dom.Root.NodeID, "selector": "#composerFileInput"}, &fileNode); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "DOM.setFileInputFiles", map[string]any{"nodeId": fileNode.NodeID, "files": []string{attachmentPath}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#composerAttachments')?.textContent.includes('attached.txt') && document.activeElement?.id === 'chatInput' ? 'attachment-focused' : ''`, "attachment-focused")
+	if err := client.call(ctx, "Input.insertText", map[string]any{"text": "Read the attached file."}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.call(ctx, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!state.sending && state.sessionDetail.events.some(event=>event.role==='user' && JSON.stringify(event).includes('ATTACHMENT-E2E-927')) && !document.querySelector('#composerAttachments')?.textContent.trim() && document.activeElement?.id==='chatInput' ? 'attachment-sent-focused' : ''`, "attachment-sent-focused")
 	// Ask next to an edited file, keeping its unsaved buffer intact. The local
 	// pane must render the complete persisted reply, not just a toast or tail.
 	if _, err := client.evaluate(ctx, `document.querySelector('#viewSwitch [data-view="code"]').click(); 'workspace'`); err != nil {
@@ -873,8 +923,8 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-assistant-action="explain"]').click(); 'explain'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `!state.sending && document.querySelectorAll('.ide-assistant-log .chat-message.assistant').length >= 1 ? 'coding-replied' : (document.querySelector('.ide-assistant-status')?.textContent || '')`, "coding-replied")
-	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.ide-assistant-usage .session-usage'), bar=meter?.querySelector('progress'); return meter?.textContent.includes('ใช้รวมในแชต 28 token') && bar?.value===28 && bar.getBoundingClientRect().width>100 ? 'coding-usage-bar-visible' : ''; })()`, "coding-usage-bar-visible")
+	waitBrowserValue(t, ctx, client, `!state.sending && document.querySelectorAll('.ide-assistant-log .chat-message.assistant').length >= 3 ? 'coding-replied' : (document.querySelector('.ide-assistant-status')?.textContent || '')`, "coding-replied")
+	waitBrowserValue(t, ctx, client, `(() => { const meter=document.querySelector('.ide-assistant-usage .session-usage'), bar=meter?.querySelector('progress'); return meter?.textContent.includes('รวมทั้งแชต') && meter?.textContent.includes('Context · ย่อเมื่อเกิน 75%') && bar?.value>0 && bar.value<bar.max && bar.getBoundingClientRect().width>100 ? 'coding-usage-bar-visible' : ''; })()`, "coding-usage-bar-visible")
 	waitBrowserValue(t, ctx, client, `[...document.querySelectorAll('.ide-assistant-log .chat-message.user')].some(node=>node.textContent.includes('unsaved editor buffer') && node.textContent.includes('Unsaved local context')) && activeCodeEditor?.getValue().includes('Unsaved local context') ? 'context-and-draft-preserved' : ''`, "context-and-draft-preserved")
 	if content, err := os.ReadFile(filepath.Join(projectRoot, "README.md")); err != nil || string(content) != "# Browser fixture\n" {
 		t.Fatalf("asking the local assistant changed the unsaved file on disk: %q %v", content, err)
@@ -902,7 +952,7 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `(() => { const log=document.querySelector('.ide-assistant-log'), receipt=log?.querySelector('.ide-tool-batch .tool-receipt'); return receipt?.getBoundingClientRect().height>=40 && log.scrollHeight>log.clientHeight ? 'receipts-readable' : ''; })()`, "receipts-readable")
-	waitBrowserValue(t, ctx, client, `(() => { const input=document.querySelector('.ide-assistant .pane-chat-input'); const key=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}); input?.dispatchEvent(key); return input && !key.defaultPrevented && !state.sending ? 'mobile-enter-newline' : ''; })()`, "mobile-enter-newline")
+	waitBrowserValue(t, ctx, client, `(() => { const input=document.querySelector('.ide-assistant .pane-chat-input'); const key=new KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true,cancelable:true}); input?.dispatchEvent(key); return input && !key.defaultPrevented && !state.sending ? 'mobile-shift-enter-newline' : ''; })()`, "mobile-shift-enter-newline")
 	if _, err := client.evaluate(ctx, `document.querySelector('.ide-assistant .pane-chat-input').focus(); 'typing'`); err != nil {
 		t.Fatal(err)
 	}
@@ -938,6 +988,16 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('#chatInput')?.value === 'Keep this chat draft after browsing files.' ? 'chat-draft-preserved' : ''`, "chat-draft-preserved")
+	// Fail before the request reaches the server, then exercise the visible
+	// retry action. The original draft must survive and commit exactly once.
+	if _, err := client.evaluate(ctx, `window.__retryFetch=window.fetch; window.fetch=async (...args)=>{if(String(args[0]).endsWith('/turns')){window.fetch=window.__retryFetch;return new Response(JSON.stringify({error:'temporary gateway failure'}),{status:503,headers:{'Content-Type':'application/json'}})}return window.__retryFetch(...args)}; document.querySelector('#chatForm').requestSubmit(); 'failed-send'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#retryChatTurn') && document.querySelector('#chatInput')?.value==='Keep this chat draft after browsing files.' && !state.sending ? 'retry-ready':''`, "retry-ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('#retryChatTurn').click(); 'retry-clicked'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!state.sending && !state.chatTurnError && state.sessionDetail.events.filter(e=>e.role==='user'&&e.content==='Keep this chat draft after browsing files.').length===1 && document.querySelector('#chatInput')?.value==='' ? 'retried-once':''`, "retried-once")
 	if err := client.call(ctx, "Emulation.clearDeviceMetricsOverride", map[string]any{}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1083,7 +1143,7 @@ func TestGoalComposerStartsAConversationInARealBrowser(t *testing.T) {
 	requestMu.Lock()
 	createdSessions := requests["POST /api/sessions"]
 	requestMu.Unlock()
-	if createdSessions != 2 {
+	if createdSessions != 1 {
 		t.Fatalf("opening New task created an empty extra session: %d session creates", createdSessions)
 	}
 	if _, err := client.evaluate(ctx, `document.querySelector('#plansViewButton').click(); 'open-plans'`); err != nil {

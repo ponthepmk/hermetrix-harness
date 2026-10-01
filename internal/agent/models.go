@@ -179,9 +179,10 @@ type StepBinding struct {
 }
 
 type TurnInput struct {
-	Content        string      `json:"content"`
-	Parts          []EventPart `json:"parts,omitempty"`
-	IdempotencyKey string      `json:"idempotency_key,omitempty"`
+	ExpectedOutcomeID string      `json:"-"`
+	Content           string      `json:"content"`
+	Parts             []EventPart `json:"parts,omitempty"`
+	IdempotencyKey    string      `json:"idempotency_key,omitempty"`
 }
 
 type TurnResult struct {
@@ -218,9 +219,10 @@ type ToolApproval struct {
 }
 
 type ApprovalDecisionInput struct {
-	Actor    string `json:"actor"`
-	Decision string `json:"decision"`
-	Reason   string `json:"reason"`
+	Automatic bool   `json:"-"`
+	Actor     string `json:"actor"`
+	Decision  string `json:"decision"`
+	Reason    string `json:"reason"`
 }
 
 type StreamEvent struct {
@@ -237,6 +239,8 @@ type StreamEvent struct {
 }
 
 type SessionDetail struct {
+	ApprovalMode          string                  `json:"approval_mode,omitempty"`
+	AutoRetry             *RetryStatus            `json:"auto_retry,omitempty"`
 	Session               Session                 `json:"session"`
 	Events                []Event                 `json:"events"`
 	Approvals             []ToolApproval          `json:"approvals"`

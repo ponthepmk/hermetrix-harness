@@ -106,7 +106,7 @@ func TestLongCurrentGoalBorrowsIdleSlicesWithoutLosingReserve(t *testing.T) {
 		goal += strings.Repeat("ordinary context record. ", 1000)
 	}
 	result, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile,
-		Fragments: []Fragment{{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: goal}},
+		Fragments:          []Fragment{{ID: "goal", Kind: KindUserGoal, Pinned: true, Priority: 100, Content: goal}},
 		WorstCaseToolBurst: 1024})
 	if err != nil {
 		t.Fatal(err)
@@ -1029,5 +1029,69 @@ func TestAScoreWithoutAPositionIsNotEnough(t *testing.T) {
 	})
 	if !strings.Contains(aimed, marker) {
 		t.Fatal("the extract still missed a passage it was pointed at")
+	}
+}
+
+// A saturated checkpoint must include its preamble in the exact token target,
+// preserve causal pairs, and compile in the smallest supported envelope.
+func TestCheckpointStaysWithinTargetIncludingAllPreamble(t *testing.T) {
+	var fragments []Fragment
+	for i := 0; i < 100; i++ {
+		pair := fmt.Sprint(i)
+		fragments = append(fragments, Fragment{ID: "call" + pair, Kind: KindToolCall, PairID: pair, Content: "read source"}, Fragment{ID: "result" + pair, Kind: KindToolResult, PairID: pair, Content: strings.Repeat("หลักฐาน architecture ", 80)})
+	}
+	for _, scale := range []float64{1, 1.8, 2.5} {
+		estimator := ScriptEstimator{Scale: scale, NonASCIIRate: .55}
+		for _, target := range []int{32, 128, 256, 512, 2048} {
+			result, err := NewVerifiedCompactor(StructuredCompactor{}).Compact(t.Context(), CompactRequest{Fragments: fragments, TargetTokens: target, Estimator: estimator, Focus: "architecture"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := estimator.Count(result.Content); got > target {
+				t.Fatalf("checkpoint %d > target %d at scale %v", got, target, scale)
+			}
+			if err := verifyCheckpointEvidence(result, fragments); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+type thresholdEstimator struct{}
+
+func (thresholdEstimator) Count(text string) int { return len(text) }
+
+type thresholdCompactor struct{ calls int }
+
+func (c *thresholdCompactor) Compact(ctx stdcontext.Context, request CompactRequest) (Fragment, error) {
+	c.calls++
+	return StructuredCompactor{}.Compact(ctx, request)
+}
+
+func TestCompactionStartsOnlyAbove75PercentOfUsableModelWindow(t *testing.T) {
+	for _, profile := range []Profile{Compact16K(), Extended128K()} {
+		threshold := (profile.Total - profile.OutputReserve - profile.UncertaintyReserve) * 3 / 4
+		for _, delta := range []int{-1, 0, 1} {
+			t.Run(fmt.Sprintf("%s/%d", profile.Name, delta), func(t *testing.T) {
+				compactor := &thresholdCompactor{}
+				compiler := NewCompiler(thresholdEstimator{}, nil, compactor)
+				fragments := []Fragment{{ID: "goal", Kind: KindUserGoal, Content: "g"},
+					{ID: "history", Kind: KindConversation, Content: strings.Repeat("h", threshold-1+delta)}}
+				compiled, err := compiler.Compile(stdcontext.Background(), Request{Profile: profile, Fragments: fragments})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if delta <= 0 {
+					if compactor.calls != 0 || len(compiled.Report.DroppedIDs) != 0 {
+						t.Fatalf("compacted at or below 75%%: %+v", compiled.Report)
+					}
+				} else if compactor.calls != 1 || len(compiled.Report.DroppedIDs) == 0 {
+					t.Fatalf("did not compact above 75%%: %+v", compiled.Report)
+				}
+				if compiled.Report.PredictedPrompt > threshold || compiled.Report.UnaccountedTokens != 0 {
+					t.Fatalf("threshold/ledger violated: %+v", compiled.Report)
+				}
+			})
+		}
 	}
 }

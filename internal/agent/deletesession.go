@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 )
 
 // Deleting a session removes the conversation, not the record that it happened.
@@ -61,5 +62,9 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 			return fmt.Errorf("delete %s: %w", statement.label, err)
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// The notebook is a derived copy of the transcript, not a user artifact.
+	return os.RemoveAll(s.notebookDir(id))
 }

@@ -287,7 +287,7 @@ func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatR
 	var completion Completion
 	_, err = s.scheduler.Do(ctx, inference.Request{OwnerKind: owner.Kind, OwnerID: owner.ID,
 		SessionID: owner.SessionID, TurnID: owner.TurnID, UsageSource: owner.Source, Priority: owner.Priority,
-		OwnerTokenLimit: owner.TokenLimit, ResourceKey: resourceKey, Local: local, PromptTokens: promptEstimate,
+		OwnerTokenLimit: owner.TokenLimit, TurnTokenLimit: owner.TurnTokenLimit, ResourceKey: resourceKey, Local: local, PromptTokens: promptEstimate,
 		OutputTokens: output, PresetID: owner.PresetID, PresetRevision: owner.PresetRevision,
 		RuntimeFingerprintID: owner.RuntimeFingerprintID, EffectiveParameterDigest: owner.EffectiveParameterDigest}, func(dispatchCtx context.Context) (inference.Usage, error) {
 		var dispatchErr error

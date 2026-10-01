@@ -36,8 +36,9 @@ function harness(overrides = {}) {
   const context = vm.createContext({
     state, asList, Map, Set, CONFIG_PAGE_IDS:[], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id", console,
     $:selector=>selector === "#chatInput" ? input : selector === "#startPrompt" ? start : selector === "#zones" ? {classList:{contains:()=>true}} : null,
-    document:{activeElement:null}, $$:()=>[],
+    document:{activeElement:null, querySelectorAll:()=>[]}, $$:()=>[],
     api:async (...args)=>{calls.push(args[0]); return overrides.api ? overrides.api(args[0], defaultAPI) : defaultAPI(...args);},
+    scheduleAutomaticApprovals:()=>{}, window:{},
     fetch:overrides.fetch || (async()=>({ok:true})), consumeAgentStream:async()=>{},
     toast:message=>messages.push(message), captureCodeDraft:()=>{}, showShell:()=>{}, applyLayoutForView:()=>{},
     renderPanes:()=>{}, renderConfigPage:()=>{}, refreshPaneChat:()=>{}, pollElicitations:()=>{}, setTimeout:()=>{},
@@ -283,4 +284,71 @@ test("background transcript refresh does not cancel the user's pending Plans nav
   pending.resolve(true);
   await opening;
   assert.deepEqual(views, ["code"]);
+});
+
+
+test("a next message typed during a successful turn survives the final refresh", async () => {
+  const pending = deferred();
+  const {context, state, input} = harness({fetch:()=>pending.promise});
+  const sending = context.sendTurn({preventDefault(){}});
+  context.setComposerDraft("next message");
+  pending.resolve({ok:true});
+  await sending;
+  assert.equal(state.draftMessage, "next message");
+  assert.equal(input().value, "next message");
+});
+
+test("choosing a project in the chat composer binds the new session without inheriting the startup workspace", async () => {
+  let body;
+  const {context, state} = harness({api:(path, fallback, options)=>fallback(path)});
+  configureCreation(state);
+  state.chatProjectID = "a";
+  const original = context.api;
+  context.api = async (path, options) => {
+    if (path === "/api/sessions" && options?.method === "POST") body = JSON.parse(options.body);
+    return original(path, options);
+  };
+  await context.createAgentSession("Inspect the project");
+  assert.equal(body.project_id, "a");
+});
+
+test("an explicit personal scope overrides a previous project chat choice", async () => {
+  let body;
+  const {context, state} = harness();
+  configureCreation(state);
+  state.chatProjectID = "a";
+  const original = context.api;
+  context.api = async (path, options) => {
+    if (path === "/api/sessions" && options?.method === "POST") body = JSON.parse(options.body);
+    return original(path, options);
+  };
+  await context.createAgentSession("Personal", {projectID:""});
+  assert.equal(body.project_id, "");
+});
+
+test("switching chat scope creates a new contract and preserves the draft across project navigation", async () => {
+  let body;
+  const {context, state, input, messages} = harness({api:(path, fallback)=>path === "/api/sessions" ? {id:"b1"} : path === "/api/bootstrap" ? {providers:[{id:"local",enabled:true,credential_ready:true}],profiles:[{name:"compact"}]} : fallback(path)});
+  configureCreation(state);
+  context.selectDraftProvider = id => { state.draftProviderID=id; state.draftProfileName="compact"; };
+  const original = context.api;
+  context.api = async (path, options) => {
+    if (path === "/api/sessions" && options?.method === "POST") body = JSON.parse(options.body);
+    return original(path, options);
+  };
+  await context.changeChatScope({target:{value:"b"}});
+  assert.ok(body, JSON.stringify(messages));
+  assert.equal(body.project_id, "b");
+  assert.equal(state.sessionDetail.session.id, "b1");
+  assert.equal(input().value, "draft a1");
+});
+
+
+test("new chat inherits the current workspace and resets capacity for the selected model", () => {
+  const {context,state}=harness();
+  state.draftProfileName="compact-16k";
+  assert.equal(context.beginNewTaskDraft(),true);
+  assert.equal(state.chatProjectID,state.currentProject.id);
+  assert.equal(state.draftProfileName,"");
+  assert.equal(state.sessionDetail,null);
 });

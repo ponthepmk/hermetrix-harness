@@ -164,50 +164,38 @@ func (StructuredCompactor) Compact(_ stdcontext.Context, request CompactRequest)
 		}
 		return units[i].created.After(units[j].created)
 	})
+	// Measure the complete serialized checkpoint, including provenance and the
+	// retrieval notice. Omitting this preamble from the budget made a 512-token
+	// checkpoint overflow precisely when a long session needed it most.
 	var selected []unit
-	used := estimator.Count("# Compacted evidence\n")
-	for _, item := range units {
-		cost := estimator.Count(item.text + "\n")
-		if used+cost > targetTokens {
-			continue
+	render := func(items []unit) string {
+		ordered := append([]unit(nil), items...)
+		sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].created.Before(ordered[j].created) })
+		var body strings.Builder
+		body.WriteString("# Compacted evidence\nExtractive checkpoint; source IDs remain authoritative.\n")
+		if omitted := len(units) - len(items); omitted > 0 {
+			fmt.Fprintf(&body, "> %d earlier exchange(s) are not shown here at all.\n", omitted)
 		}
-		used += cost
-		selected = append(selected, item)
+		body.WriteString("> Lines below are extracts; shortening omits the middle or other material, marked …; call context_search with a keyword or source ID to retrieve saved evidence before answering.\n")
+		for _, item := range ordered {
+			body.WriteString(item.text)
+			body.WriteByte('\n')
+		}
+		return strings.TrimSpace(body.String())
 	}
-	sort.SliceStable(selected, func(i, j int) bool { return selected[i].created.Before(selected[j].created) })
+	for _, item := range units {
+		candidate := append(append([]unit(nil), selected...), item)
+		if estimator.Count(render(candidate)) <= targetTokens {
+			selected = candidate
+		}
+	}
 	if len(selected) == 0 {
 		return Fragment{}, nil
 	}
-	var body strings.Builder
-	body.WriteString("# Compacted evidence\n")
-	body.WriteString("Extractive checkpoint; source IDs remain authoritative.\n")
-	// Say that this is lossy, and say what to do about it.
-	//
-	// Every line below is an extract: headTail keeps 360 runes from each end of
-	// a fragment and drops the middle, and a fact at a uniformly random position
-	// in a real conversation fragment lands in that gap 34.5% of the time. Units
-	// that did not fit the checkpoint budget are not here at all.
-	//
-	// A model that does not know something is missing does not go looking. That
-	// is R-14 in miniature: skill_search was called 165 times in the driven
-	// corpus and never once on a turn where a relevant Skill existed, because
-	// nothing told the model there was one. So the checkpoint names the tool,
-	// which couples this text to a tool name by string -- deliberately, because
-	// the alternative is a retrieval path nobody uses.
-	if omitted := len(units) - len(selected); omitted > 0 {
-		fmt.Fprintf(&body, "%s%d earlier exchange(s) are not shown here at all.\n",
-			checkpointNoticePrefix, omitted)
-	}
-	fmt.Fprintf(&body, "%sLines below are extracts: each shows the start and end of what was said and "+
-		"omits the middle, marked \u2026. Call context_search with a keyword, an identifier or a source "+
-		"ID to read any of this in full before answering from it.\n", checkpointNoticePrefix)
-	for _, item := range selected {
-		body.WriteString(item.text)
-		body.WriteByte('\n')
-	}
+	content := render(selected)
 	return Fragment{ID: "checkpoint:extractive", Kind: KindCheckpoint, Scope: "session",
 		Provenance: "hermetrix:structured-compactor-v1", Trust: "derived", Version: "v1",
-		Priority: 85, CacheClass: "rolling", Content: strings.TrimSpace(body.String()), CreatedAt: checkpointTime}, nil
+		Priority: 85, CacheClass: "rolling", Content: content, CreatedAt: checkpointTime}, nil
 }
 
 // checkpointNoticePrefix marks a line the checkpoint says about itself rather

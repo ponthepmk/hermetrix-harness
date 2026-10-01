@@ -240,8 +240,9 @@ test("context meter distinguishes unknown usage from provider reported input and
   const snapshot = {report:{predicted_prompt:11800,selected_ids:["goal:<unsafe>","project-brain:current"],
     dropped_ids:["old-tool","project-brain:omitted"],spilled:[]}};
   const measured = meter({id:"session-1"}, profile, [{metadata:{usage:{prompt_tokens:12000}}}], snapshot);
-  assert.match(measured, /ใช้จริงล่าสุด 12,000/);
+  assert.match(measured, /ใช้จริงรวมในรอบล่าสุด 12,000 token/);
   assert.match(measured, /ประมาณก่อนส่งครั้งล่าสุด 11,800/);
+  assert.match(measured, /value="11800"/);
   assert.match(measured, /งบ input 26,624/);
   assert.match(measured, /สำรองคำตอบ 4,096/);
   assert.match(measured, /goal:&lt;unsafe&gt;/);

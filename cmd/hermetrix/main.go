@@ -307,6 +307,13 @@ func runServe(args []string) {
 	} else if recovered > 0 {
 		logger.Warn("closed interrupted turns without retrying model requests", "count", recovered)
 	}
+	if err := agentService.RecoverAutoRetries(ctx); err != nil {
+		logger.Error("recover automatic continuations", "error", err)
+		os.Exit(1)
+	}
+	go agentService.StartAutoRetries(ctx, func(err error) {
+		logger.Warn("automatic continuation failed; scheduled again in five minutes", "error", err)
+	})
 	if recovered, recoverErr := learningService.RecoverInterrupted(ctx); recoverErr != nil {
 		logger.Error("recover interrupted learning reviews", "error", recoverErr)
 		os.Exit(1)

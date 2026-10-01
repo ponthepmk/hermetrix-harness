@@ -89,32 +89,39 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 	}
 	selectedSystem, droppedSystem, systemUsed := c.selectWithin(groups["system"], profile.SystemBudget)
 	selectedSkills, droppedSkills, skillsUsed := c.selectWithin(groups["skills_project"], profile.SkillProjectBudget)
-	// The pinned slice is a normal reservation, not a hard limit on the current
-	// user message. A long input may use otherwise idle slices, while keeping
-	// the output, uncertainty, tool burst and checkpoint reserves intact.
-	pinnedBudget := profile.PinnedBudget
-	activeSliceBudget := profile.ActiveBudget
-	if pinnedNeeded := tokens(c.estimator, groups["pinned"]); pinnedNeeded > pinnedBudget {
-		available := profile.Total - profile.OutputReserve - profile.UncertaintyReserve -
-			systemUsed - skillsUsed - toolTokens - request.WorstCaseToolBurst - profile.SummaryTarget
-		if pinnedNeeded > available {
-			return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrPinnedOverflow, pinnedNeeded, available)
-		}
-		pinnedBudget = pinnedNeeded
-		activeSliceBudget = profile.Total - profile.OutputReserve - profile.UncertaintyReserve -
-			systemUsed - skillsUsed - toolTokens - pinnedBudget
-		report.Slices["system"] = SliceUsage{Budget: systemUsed}
-		report.Slices["tools"] = SliceUsage{Budget: toolTokens, Used: toolTokens}
-		report.Slices["skills_project"] = SliceUsage{Budget: skillsUsed}
+	// Idle reservations belong to the conversation. Keep output, uncertainty,
+	// transport and the next tool burst protected, but do not compact just
+	// because history filled its original slice.
+	pinnedBudget := max(profile.PinnedBudget, tokens(c.estimator, groups["pinned"]))
+	inputBudget := profile.Total - profile.OutputReserve - profile.UncertaintyReserve
+	available := inputBudget - systemUsed - skillsUsed - toolTokens - request.WorstCaseToolBurst - profile.SummaryTarget
+	if pinnedBudget > available {
+		return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrPinnedOverflow, pinnedBudget, available)
 	}
 	selectedPinned, droppedPinned, pinnedUsed := c.selectWithin(groups["pinned"], pinnedBudget)
 	if len(droppedPinned) > 0 {
 		return Compiled{}, fmt.Errorf("%w: used=%d budget=%d", ErrPinnedOverflow,
 			pinnedUsed+tokens(c.estimator, droppedPinned), pinnedBudget)
 	}
-	activeBudget := activeSliceBudget - request.WorstCaseToolBurst
+	// Reconcile reservations separately from actual use. Transport remains in
+	// the report's own ledger, and is also reserved before selecting history.
+	activeSliceBudget := inputBudget - systemUsed - skillsUsed - toolTokens - pinnedBudget
+	report.Slices["system"] = SliceUsage{Budget: systemUsed, Used: systemUsed}
+	report.Slices["tools"] = SliceUsage{Budget: toolTokens, Used: toolTokens}
+	report.Slices["skills_project"] = SliceUsage{Budget: skillsUsed, Used: skillsUsed}
+	candidate := append(append(append(append([]Fragment{}, selectedSystem...), selectedSkills...), selectedPinned...), groups["active"]...)
+	transportReserve := transportCost(request, candidate)
+	basePrompt := systemUsed + skillsUsed + pinnedUsed + toolTokens + transportReserve
+	activeBudget := inputBudget - basePrompt - request.WorstCaseToolBurst
 	if activeBudget < 0 {
-		return Compiled{}, fmt.Errorf("%w: worst-case tool burst exceeds active budget", ErrContextOverflow)
+		return Compiled{}, fmt.Errorf("%w: fixed context and tool burst exceed input budget", ErrContextOverflow)
+	}
+	// Match the input meter: compaction starts only above 75% of the usable
+	// model window, after answer and uncertainty reserves. A hard overflow can
+	// still require earlier selection when the next tool burst needs room.
+	threshold := inputBudget * 3 / 4
+	if basePrompt+tokens(c.estimator, groups["active"]) > threshold {
+		activeBudget = min(activeBudget, max(0, threshold-basePrompt))
 	}
 	selectedActive, droppedActive, activeUsed := c.selectActive(groups["active"], activeBudget, profile.SummaryTarget)
 	var checkpoint Fragment
@@ -124,7 +131,7 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 		// keep the part of an exchange that bears on the work rather than the
 		// part that happens to sit at its ends.
 		checkpoint, err = c.compactor.Compact(ctx, CompactRequest{Fragments: droppedActive,
-			TargetTokens: profile.SummaryTarget, Estimator: c.estimator,
+			TargetTokens: min(profile.SummaryTarget, activeBudget-activeUsed), Estimator: c.estimator,
 			Focus: focusOf(request.Fragments), SemanticRelevance: request.SemanticRelevance})
 		if err != nil {
 			return Compiled{}, fmt.Errorf("compact context: %w", err)
@@ -137,10 +144,6 @@ func (c *Compiler) Compile(ctx stdcontext.Context, request Request) (Compiled, e
 			activeUsed += checkpointTokens
 			report.CompactedTokens = checkpointTokens
 		}
-	}
-	if pinnedBudget == profile.PinnedBudget {
-		report.Slices["system"] = SliceUsage{Budget: profile.SystemBudget, Used: systemUsed}
-		report.Slices["skills_project"] = SliceUsage{Budget: profile.SkillProjectBudget, Used: skillsUsed}
 	}
 	report.Slices["pinned"] = SliceUsage{Budget: pinnedBudget, Used: pinnedUsed}
 	report.Slices["active"] = SliceUsage{Budget: activeSliceBudget, Used: activeUsed + request.WorstCaseToolBurst}

@@ -23,8 +23,11 @@ func NewVerifiedCompactor(primary Compactor) VerifiedCompactor {
 }
 
 func (c VerifiedCompactor) Compact(ctx stdcontext.Context, request CompactRequest) (Fragment, error) {
+	if request.Estimator == nil {
+		request.Estimator = NewAdaptiveEstimator()
+	}
 	checkpoint, err := c.primary.Compact(ctx, request)
-	if err == nil && verifyCheckpointEvidence(checkpoint, request.Fragments) == nil {
+	if err == nil && request.Estimator.Count(checkpoint.Content) <= request.TargetTokens && verifyCheckpointEvidence(checkpoint, request.Fragments) == nil {
 		checkpoint.Provenance += ":verified"
 		return checkpoint, nil
 	}

@@ -95,6 +95,8 @@
     select.value = chosen?.id || "";
     select.title = chosen?.model || "";
     select.disabled = blocked() || !chosen;
+    body.querySelector(".ide-auto-retry").innerHTML = autoRetryNoticeHTML(state.sessionDetail);
+    bindAutoRetryPause(body);
     const usagePanel = body.querySelector('.ide-assistant-usage');
     usagePanel.innerHTML = sessionUsageHTML(localSession(), state.sessionDetail?.events, state.sessionDetail?.latest_context_snapshot);
     usagePanel.querySelector('.session-usage')?.addEventListener('toggle', event => { tokenUsageDetailsOpen = event.currentTarget.open; });
@@ -107,26 +109,34 @@
       ? `เลือก ${chosen.name} · ส่งครั้งถัดไปจะเริ่มแชทใหม่`
       : activeSession && newDefault && newDefault.id !== activeSession.provider_id
         ? `แชทนี้ใช้ ${chosen.name} · งานใหม่ใช้ ${newDefault.name}` : "";
-    status.textContent = error || (busy ? "กำลังเตรียมแชท…" : state.sending ? stream.status || "โมเดลกำลังทำงาน…" : chosen ? `${selectionNotice || (taskProviderIsLocal(chosen) ? "โมเดลในเครื่อง" : activeSession?.provider_id === chosen.id ? "โมเดลภายนอก · อนุญาตแล้วในแชทนี้" : "โมเดลภายนอก · ขออนุญาตก่อนเริ่มแชท")} · การเขียนไฟล์ต้องผ่านการอนุมัติ` : "เพิ่มหรือเชื่อมต่อโมเดลใน Models เพื่อเริ่มใช้งาน");
+    status.textContent = error || (busy ? "กำลังเตรียมแชท…" : state.sending ? stream.status || "โมเดลกำลังทำงาน…" : chosen ? `${selectionNotice || (taskProviderIsLocal(chosen) ? "โมเดลในเครื่อง" : activeSession?.provider_id === chosen.id ? "โมเดลภายนอก · อนุญาตแล้วในแชทนี้" : "โมเดลภายนอก · ขออนุญาตก่อนเริ่มแชท")} · อนุมัติตามโหมดที่เลือก` : "เพิ่มหรือเชื่อมต่อโมเดลใน Models เพื่อเริ่มใช้งาน");
     status.classList.toggle("error", Boolean(error));
+    status.hidden = !error && !busy && !state.sending && !selectionNotice;
+    const latest = [...(state.sessionDetail?.events || [])].reverse().find(item => item.event_kind === "turn_failed" || item.event_kind === "message" && item.role === "assistant");
+    const retry = body.querySelector('[data-assistant-retry]');
+    retry.hidden = !error && latest?.event_kind !== "turn_failed" && !latest?.metadata?.continuation_needed;
+    retry.disabled = blocked();
+    retry.textContent = latest?.event_kind === "turn_failed" || latest?.metadata?.continuation_needed ? "ทำต่อจากงานที่บันทึกไว้" : "ลองส่งอีกครั้ง";
     const recovery = body.querySelector('[data-assistant-recover]');
     recovery.hidden = !sessionNeedsRecovery();
     recovery.disabled = blocked() || !chosen;
     const input = body.querySelector('.pane-chat-input');
-    input.disabled = Boolean(blocked());
+    input.disabled = false;
     if (document.activeElement !== input && input.value !== (state.paneChatDraft || "")) input.value = state.paneChatDraft || "";
     body.querySelector('[data-assistant-send]').disabled = Boolean(blocked() || !chosen || !state.currentProject?.id);
     for (const button of body.querySelectorAll('[data-assistant-action]')) button.disabled = Boolean(blocked() || !state.currentProject?.id);
+    updateConversationCharacter(body.querySelector('.ide-assistant'), localSession()?.id || null);
     const log = body.querySelector('.ide-assistant-log');
     const html = logHTML();
     if (renderedLogs.get(log) !== html) {
+      const previousTop = log.scrollTop;
       const bottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
       const expanded = new Set([...log.querySelectorAll('.ide-tool-batch[open]')].map(item => item.dataset.batchKey));
       log.innerHTML = html;
       for (const item of log.querySelectorAll('.ide-tool-batch')) item.open = expanded.has(item.dataset.batchKey);
       renderedLogs.set(log, html);
       for (const form of log.querySelectorAll('[data-elicit-accept]')) form.addEventListener("submit", async event => { await answerElicitation(event); refresh(); });
-      if (bottom) log.scrollTop = log.scrollHeight;
+      log.scrollTop = bottom ? log.scrollHeight : previousTop;
     }
     for (const button of log.querySelectorAll('[data-approve-tool],[data-deny-tool]')) button.disabled = Boolean(blocked());
   }
@@ -165,18 +175,19 @@
       if (value && value.projectID !== projectID) throw new Error("บริบทไฟล์มาจากคนละโปรเจกต์ กรุณาเลือกไฟล์ใหม่");
       setDraft("");
       stream = {sessionID:session.id,text:"",status:"โมเดลกำลังทำงาน…"};
-      const ok = await submitChatText(content.trim() + contextText(value));
+      for (const log of document.querySelectorAll(".ide-assistant-log")) log.scrollTop = log.scrollHeight;
+      const ok = await submitChatText(content.trim() + contextText(value), [], {draftText:content});
       if (!ok) throw new Error(state.chatTurnError ? turnFailureGuidance(state.chatTurnError) : "ส่งข้อความไม่สำเร็จ ข้อความยังอยู่ด้านล่าง ตรวจสอบโมเดลแล้วลองอีกครั้ง");
       pendingContext = null;
       return true;
     } catch (failure) {
       error = failure.message;
-      setDraft(content);
+      if (!state.paneChatDraft) setDraft(content);
       return false;
-    } finally { busy = false; refresh(); }
+    } finally { busy = false; refresh(); document.querySelector('.pane-body[data-pane-kind="chat"] .pane-chat-input')?.focus(); }
   }
   function render(body) {
-     body.innerHTML = `<section class="ide-assistant"><header class="ide-assistant-head"><div class="ide-assistant-title"><div><button type="button" class="ghost compact ide-assistant-more" data-assistant-more aria-expanded="false" aria-controls="assistantQuickActions">ตัวช่วย</button><button type="button" class="ghost compact" data-assistant-models>โมเดล</button></div></div><div class="ide-assistant-actions action-row" id="assistantQuickActions">${[["explain","อธิบาย"],["edit","แก้ไข"],["review","ตรวจ"],["plan","วางแผน"]].map(([mode,label])=>`<button type="button" class="ghost compact" data-assistant-action="${mode}">${label}</button>`).join("")}</div></header><small class="ide-assistant-context"></small><div class="ide-assistant-log pane-chat-log" role="log" aria-label="แชตเรื่องโค้ด"></div><div class="ide-assistant-bottom"><div class="ide-assistant-usage"></div><label>โมเดล<select data-assistant-provider aria-label="โมเดล"></select></label><p class="ide-assistant-status" role="status"></p><button type="button" class="ghost ide-assistant-recovery" data-assistant-recover hidden>เริ่มแชตใหม่และส่งข้อความเดิม</button><form class="pane-chat-form"><textarea class="pane-chat-input" rows="3" maxlength="1048576" aria-label="พิมพ์ถึงโมเดล" placeholder="พิมพ์คำถามหรือสั่งแก้ไฟล์…">${escapeHTML(state.paneChatDraft || "")}</textarea><small class="ide-assistant-compose-hint">แตะส่งเมื่อพร้อม</small><button type="button" class="ghost ide-assistant-dismiss" data-assistant-dismiss>เสร็จ</button><button class="primary" data-assistant-send>ส่ง</button></form></div></section>`;
+     body.innerHTML = `<section class="ide-assistant"><header class="ide-assistant-head"><div class="ide-assistant-title"><div><button type="button" class="ghost compact ide-assistant-more" data-assistant-more aria-expanded="false" aria-controls="assistantQuickActions">ตัวช่วย</button><button type="button" class="ghost compact" data-assistant-models>โมเดล</button></div></div><div class="ide-assistant-actions action-row" id="assistantQuickActions">${[["explain","อธิบาย"],["edit","แก้ไข"],["review","ตรวจ"],["plan","วางแผน"]].map(([mode,label])=>`<button type="button" class="ghost compact" data-assistant-action="${mode}">${label}</button>`).join("")}</div></header><small class="ide-assistant-context"></small><div class="ide-assistant-log pane-chat-log" role="log" aria-label="แชตเรื่องโค้ด"></div><div class="ide-assistant-bottom"><div class="ide-auto-retry"></div><div class="ide-assistant-usage"></div><details class="ide-model-settings"><summary>เปลี่ยนโมเดล</summary><label>โมเดล<select data-assistant-provider aria-label="โมเดล"></select></label></details><p class="ide-assistant-status" role="status"></p><button type="button" class="ghost ide-assistant-recovery" data-assistant-recover hidden>เริ่มแชตใหม่และส่งข้อความเดิม</button><button type="button" class="ghost compact" data-assistant-retry hidden>ลองส่งอีกครั้ง</button><form class="pane-chat-form"><textarea class="pane-chat-input" rows="2" maxlength="1048576" aria-label="พิมพ์ถึงโมเดล" placeholder="พิมพ์คำถามหรือสั่งแก้ไฟล์…">${escapeHTML(state.paneChatDraft || "")}</textarea><small class="ide-assistant-compose-hint">Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่</small><button type="button" class="ghost ide-assistant-dismiss" data-assistant-dismiss>เสร็จ</button><button class="primary" data-assistant-send>ส่ง</button></form></div></section>`;
     body.querySelector('[data-assistant-provider]').addEventListener("change", event => { selectDraftProvider(event.target.value); explicitlySelectedModel = true; error = ""; refresh(); });
     body.querySelector('[data-assistant-models]').addEventListener("click", () => openConfig("providers"));
     body.querySelector('[data-assistant-more]').addEventListener("click", event => {
@@ -186,16 +197,28 @@
     });
     for (const button of body.querySelectorAll('[data-assistant-action]')) button.addEventListener("click", () => void action(button.dataset.assistantAction));
     const input = body.querySelector('.pane-chat-input'), form = body.querySelector('.pane-chat-form');
+    bindConversationControls(input, form, value => { state.paneChatDraft = value; });
     body.querySelector('[data-assistant-dismiss]').addEventListener('click', () => input.blur());
     input.addEventListener("input", () => { state.paneChatDraft = input.value; });
     input.addEventListener("keydown", event => {
       if (event.key === 'Escape') { input.blur(); return; }
-      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && !window.matchMedia('(max-width: 700px)').matches) { event.preventDefault(); form.requestSubmit(); }
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); form.requestSubmit(); }
     });
     form.addEventListener("submit", event => {
       event.preventDefault();
       const current = context();
       void send(input.value,pendingContext?.projectID === current?.projectID && pendingContext?.path === current?.path ? pendingContext : current);
+    });
+    body.querySelector('[data-assistant-retry]').addEventListener('click', async () => {
+      const session = localSession();
+      if (!session || blocked()) return;
+      await selectSession(session.id, {refresh:true});
+      if (state.sessionDetail?.session?.active_turn_id) { error = "คำขอเดิมยังทำงานอยู่ กรุณารอผล"; refresh(); return; }
+      const last = [...(state.sessionDetail?.events || [])].reverse().find(item => item.event_kind === "message" || item.event_kind === "turn_failed");
+      if (last?.id !== state.failedRequest?.beforeEventID && last?.role === "assistant" && !last.metadata?.continuation_needed) { error = "มีคำตอบล่าสุดแล้ว ตรวจในแชทก่อนส่งซ้ำ"; refresh(); return; }
+      if (last?.id !== state.failedRequest?.beforeEventID && (last?.role === "user" || last?.event_kind === "turn_failed" || last?.metadata?.continuation_needed)) {
+        await send("ทำต่อจากคำขอและหลักฐานที่บันทึกไว้ ใช้ context_search เฉพาะส่วนที่จำเป็น ตรวจผลคำสั่งเดิมก่อน ห้ามทำคำสั่งเปลี่ยนไฟล์ซ้ำโดยไม่ตรวจผล สรุปสิ่งที่สำเร็จและงานค้าง", null);
+      } else { await send(state.paneChatDraft || "", pendingContext); }
     });
     body.querySelector('[data-assistant-recover]').addEventListener('click', () => {
       const current = context();
@@ -257,5 +280,5 @@
     await send(mode === "review" ? "ตรวจโค้ดนี้ หาบั๊กที่มีหลักฐาน ระบุผลกระทบ ตำแหน่ง และแนวทางแก้ไข ยังไม่แก้ไฟล์" : "อธิบายโค้ดนี้ โครงสร้าง การทำงาน และจุดที่ควรระวัง โดยยังไม่แก้ไฟล์",captured);
     if (draft) { setDraft(draft); refresh(); }
   }
-  window.HermetrixAssistant = {render,refresh,onStream,action};
+  window.HermetrixAssistant = {render,refresh,onStream,action,reconcileFiles};
 })();
