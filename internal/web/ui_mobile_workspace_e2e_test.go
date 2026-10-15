@@ -33,7 +33,7 @@ func TestMobileWorkspacePickerAndCodeTabClose(t *testing.T) {
 		map[string]any{"name": "Mobile workspace", "root_path": root}, http.StatusCreated), &project); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 65*time.Second)
 	defer cancel()
 	debugURL, stop, err := startE2EChrome(ctx, chrome, filepath.Join(t.TempDir(), "chrome"))
 	if err != nil {
@@ -91,19 +91,76 @@ func TestMobileWorkspacePickerAndCodeTabClose(t *testing.T) {
 	}
 	waitBrowserValue(t, ctx, client, fmt.Sprintf(`state.currentProject?.id === %q && state.view === 'code' && document.querySelector('#projectPicker').hidden ? 'workspace' : ''`, project.ID), "workspace")
 	waitBrowserValue(t, ctx, client, `state.panes.join(',') === 'chat,review,files' && !document.querySelector('.pane[data-kind="editor"]') ? 'usage-first' : ''`, "usage-first")
-	if _, err := client.evaluate(ctx, `localStorage.setItem(layoutKey(),JSON.stringify({panes:['chat','editor','files'],paneLayout:'adaptive'})); applyLayout(); renderPanes(); localStorage.removeItem(layoutKey()); 'legacy-layout'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `localStorage.setItem(layoutKey(),JSON.stringify({panes:['chat','editor','files'],paneLayout:'adaptive'})); applyLayout(); renderPanes(); localStorage.removeItem(layoutKey()); 'legacy-layout'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `state.panes.join(',') === 'chat,review,files' && !document.querySelector('.pane[data-kind="editor"]') ? 'migrated-layout' : ''`, "migrated-layout")
-	waitBrowserValue(t, ctx, client, `document.querySelector('#workspaceToolbarToggle')?.getAttribute('aria-expanded') === 'false' && getComputedStyle(document.querySelector('#workspacePaneTabs')).display === 'none' ? 'menu-folded' : ''`, "menu-folded")
+	waitBrowserValue(t, ctx, client, `document.querySelector('#workspaceToolbarToggle')?.getAttribute('aria-expanded') === 'false' && document.querySelector('#workspacePaneTabs').getBoundingClientRect().height >= 44 && !document.querySelector('[data-pane-content]') ? 'tabs-visible' : ''`, "tabs-visible")
+	// Switching destinations must preserve unsent conversation text. Tabs remain
+	// outside the advanced menu, and new tools are created only when selected.
+	if _, err := client.evaluate(ctx, `(() => {const input=document.querySelector('.pane-chat-input'); input.value='unsent tab draft'; input.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('[data-compact-pane="files"]').click(); document.querySelector('[data-compact-pane="chat"]').click(); return 'draft-switch'})()`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.pane-chat-input')?.value === 'unsent tab draft' ? 'draft-kept' : ''`, "draft-kept")
+	for _, kind := range []string{"git", "environment", "browser"} {
+		if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector('#paneAdd').click(); document.querySelector('[data-open-side-pane=%q]').click(); 'new-tab'`, kind)); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, fmt.Sprintf(`state.compactPane===%q && state.panes.filter(id=>id===%q).length===1 && document.querySelector('[data-compact-pane=%q]').getAttribute('aria-pressed')==='true' ? 'tab-open' : ''`, kind, kind, kind), "tab-open")
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#paneAdd').click(); document.querySelector('[data-open-side-pane="notes"]').click(); window.__firstNoteTab=state.compactPane; const note=document.querySelector('.pane:not(.pane-hidden) .pane-notes textarea'); note.value='first note'; note.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('#paneAdd').click(); document.querySelector('[data-open-side-pane="notes"]').click(); 'second-note'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.panes.filter(id=>id.startsWith('notes:')).length===2 && document.querySelector('.pane:not(.pane-hidden) .pane-notes textarea').value==='' ? 'independent-notes' : ''`, "independent-notes")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="'+window.__firstNoteTab+'"]').click(); 'first-note'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('.pane:not(.pane-hidden) .pane-notes textarea').value==='first note' ? 'note-kept' : ''`, "note-kept")
+	for _, key := range []string{"Home", "ArrowRight", "End"} {
+		if _, err := client.evaluate(ctx, fmt.Sprintf(`document.querySelector('[data-compact-pane][aria-pressed="true"]').dispatchEvent(new KeyboardEvent('keydown',{key:%q,bubbles:true})); 'keyboard'`, key)); err != nil {
+			t.Fatal(err)
+		}
+		if key == "Home" {
+			waitBrowserValue(t, ctx, client, `state.compactPane==='chat' ? 'home' : ''`, "home")
+		}
+		if key == "ArrowRight" {
+			waitBrowserValue(t, ctx, client, `state.compactPane==='review' ? 'next' : ''`, "next")
+		}
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const strip=document.querySelector('#workspacePaneTabs'),tab=document.querySelector('[data-compact-pane][aria-pressed="true"]'),r=tab.getBoundingClientRect(),s=strip.getBoundingClientRect(); return document.activeElement===tab && strip.scrollWidth>strip.clientWidth && strip.scrollLeft>0 && r.left>=s.left-1 && r.right<=s.right+1 && document.documentElement.scrollWidth<=innerWidth+1?'tab-overflow-only':''})()`, "tab-overflow-only")
+	captureFolder("workspace-scroll-tabs-mobile.png")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-active-pane-close]').click(); document.querySelector('#paneAdd').click(); document.querySelector('[data-open-side-pane="git"]').click(); 'close-reuse'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.panes.filter(id=>id.startsWith('notes:')).length===1 && state.compactPane==='git' && state.panes.filter(id=>id==='git').length===1 ? 'close-and-reuse' : ''`, "close-and-reuse")
+	if err := client.call(ctx, "Page.reload", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `state.view==='code' && state.compactPane==='git' && document.querySelector('[data-compact-pane="git"]')?.getAttribute('aria-pressed')==='true' ? 'active-tab-restored' : ''`, "active-tab-restored")
+	for _, width := range []int{375, 414, 768, 1024, 1440, 390} {
+		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": width, "height": 844, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
+			t.Fatal(err)
+		}
+		waitBrowserValue(t, ctx, client, `(() => {const strip=document.querySelector('#workspacePaneTabs'),add=document.querySelector('#paneAdd'),s=strip.getBoundingClientRect(),a=add.getBoundingClientRect();return document.documentElement.scrollWidth<=innerWidth+1 && s.width>60 && s.right<=a.left+1 && a.right<=innerWidth+1 && a.height>=36 && [...strip.querySelectorAll('button')].every(b=>b.getBoundingClientRect().height>=36)?'responsive-tabs':''})()`, "responsive-tabs")
+	}
 	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-menu'`); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('#workspaceToolbarToggle')?.getAttribute('aria-expanded') === 'true' && document.querySelector('#workspacePaneTabs').getBoundingClientRect().height > 0 ? 'menu-open' : ''`, "menu-open")
-	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="review"]').click(); 'select-review'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="review"]').click(); 'select-review'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('.review-usage-panel h3')?.textContent === 'Token และ Context' ? 'usage-panel' : ''`, "usage-panel")
-	if _, err := client.evaluate(ctx, `state.sessionDetail={session:{id:'usage-sample',title:'Usage sample',context_profile:'compact-16k',model:'sample-model',contract:{task_budget:{max_cumulative_tokens:3072}}},events:[{turn_id:'sample-turn',event_kind:'message',role:'assistant',metadata:{usage:{prompt_tokens:200,completion_tokens:50,total_tokens:250}}}]}; renderWorkbenchReview(); 'sample-usage'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `state.sessionDetail={session:{id:'usage-sample',title:'Usage sample',context_profile:'compact-16k',model:'sample-model',contract:{task_budget:{max_cumulative_tokens:3072}}},events:[{turn_id:'sample-turn',event_kind:'message',role:'assistant',metadata:{usage:{prompt_tokens:200,completion_tokens:50,total_tokens:250}}}]}; renderWorkbenchReview(); 'sample-usage'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('.review-usage-panel .token-meter progress')?.value === 250 && document.querySelector('.review-usage-panel .token-meter')?.textContent.includes('250 / 3,072 token') ? 'measured-usage' : ''`, "measured-usage")
-	if _, err := client.evaluate(ctx, `state.sessionDetail=null; renderWorkbenchReview(); 'reset-usage'`); err != nil { t.Fatal(err) }
-	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-menu'`); err != nil { t.Fatal(err) }
+	if _, err := client.evaluate(ctx, `state.sessionDetail=null; renderWorkbenchReview(); 'reset-usage'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.evaluate(ctx, `document.querySelector('#workspaceToolbarToggle').click(); 'open-menu'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.evaluate(ctx, `document.querySelector('[data-compact-pane="files"]').click(); 'select-files'`); err != nil {
 		t.Fatal(err)
 	}

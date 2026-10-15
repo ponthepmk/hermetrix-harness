@@ -1,0 +1,19 @@
+=== RUN   TestChatStopQueueSteerInRealBrowser
+=== RUN   TestChatStopQueueSteerInRealBrowser/Chat
+    ui_chat_controls_e2e_test.go:184: Stop→Queue→Steer acceptance session=session_1ac9de27c61ff126729ad33617d1231b mode=fixture
+=== RUN   TestChatStopQueueSteerInRealBrowser/Workspace
+    ui_chat_controls_e2e_test.go:184: Stop→Queue→Steer acceptance session=session_1473b70f97768eff9e807ddbed93cb5b mode=fixture
+--- PASS: TestChatStopQueueSteerInRealBrowser (4.86s)
+    --- PASS: TestChatStopQueueSteerInRealBrowser/Chat (2.35s)
+    --- PASS: TestChatStopQueueSteerInRealBrowser/Workspace (2.51s)
+=== RUN   TestCompactChatReadingAndDisclosuresInRealBrowser
+    ui_compact_chat_e2e_test.go:105: 390x640 {"form":114,"log":426,"formTop":518,"logBottom":518,"sendBottom":573,"header":52,"width":390,"height":640,"overflow":0,"grid":"0px 48px 44px","railVisible":false}
+    ui_compact_chat_e2e_test.go:105: 768x700 {"form":114,"log":486,"formTop":578,"logBottom":578,"sendBottom":633,"header":52,"width":768,"height":700,"overflow":0,"grid":"0px 48px 44px","railVisible":false}
+    ui_compact_chat_e2e_test.go:105: 1024x700 {"form":114,"log":486,"formTop":578,"logBottom":578,"sendBottom":633,"header":52,"width":1024,"height":700,"overflow":0,"grid":"0px 48px 44px","railVisible":false}
+    ui_compact_chat_e2e_test.go:105: 1440x900 {"form":122,"log":597,"formTop":760,"logBottom":760,"sendBottom":819,"header":60,"width":1440,"height":900,"overflow":0,"grid":"0px 48px 44px","railVisible":true}
+    ui_compact_chat_e2e_test.go:105: 390x420 {"form":114,"log":206,"formTop":298,"logBottom":298,"sendBottom":353,"header":52,"width":390,"height":420,"overflow":0,"grid":"0px 48px 44px","railVisible":false}
+--- PASS: TestCompactChatReadingAndDisclosuresInRealBrowser (2.25s)
+=== RUN   TestWorkspaceSendByPointerAndTouch
+--- PASS: TestWorkspaceSendByPointerAndTouch (6.07s)
+PASS
+ok  	hermetrix-harness/internal/web	16.471s

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,9 +20,12 @@ func (s *Service) PrepareDesktopAction(ctx context.Context, input DesktopActionI
 	if input.Action != "invoke" && input.Action != "set_value" {
 		return DesktopAction{}, fmt.Errorf("desktop action must be invoke or set_value")
 	}
-	if input.ElementRef < 1 || input.Handle == 0 || input.ProcessID < 1 || input.ObservationHash == "" ||
+	if (input.ElementRef < 1 && input.Point == nil) || input.Handle == 0 || input.ProcessID < 1 || input.ObservationHash == "" ||
 		(input.Action == "set_value" && (len(input.Text) > 4096 || strings.ContainsAny(input.Text, "\r\n"))) {
 		return DesktopAction{}, fmt.Errorf("desktop action requires an exact window, element and current observation")
+	}
+	if input.Point != nil && (input.Action != "invoke" || input.ElementRef != 0 || input.Text != "") {
+		return DesktopAction{}, fmt.Errorf("pointer invocation requires only one point and no element or text")
 	}
 	observation, err := s.ObserveDesktopWindow(ctx, input.Handle, input.ProcessID)
 	if err != nil {
@@ -36,7 +40,16 @@ func (s *Service) PrepareDesktopAction(ctx context.Context, input DesktopActionI
 	if input.ElementRef > len(observation.Elements) {
 		return DesktopAction{}, fmt.Errorf("desktop element reference is stale")
 	}
-	target := observation.Elements[input.ElementRef-1]
+	var target DesktopElement
+	if input.Point != nil {
+		b := observation.Window.Bounds
+		if input.Point.X < 0 || input.Point.Y < 0 || input.Point.X >= b.Width || input.Point.Y >= b.Height {
+			return DesktopAction{}, fmt.Errorf("point is outside the window image")
+		}
+		target = DesktopElement{Name: fmt.Sprintf("Click (%d, %d)", input.Point.X, input.Point.Y), ControlType: "CoordinateClick", Enabled: true, Bounds: b, Point: input.Point}
+	} else {
+		target = observation.Elements[input.ElementRef-1]
+	}
 	if !target.Enabled {
 		return DesktopAction{}, fmt.Errorf("desktop element is disabled")
 	}
@@ -84,11 +97,11 @@ func (s *Service) PrepareDesktopAction(ctx context.Context, input DesktopActionI
 	now := time.Now().UTC()
 	action := DesktopAction{ID: identity.New("desktopaction"), TaskID: input.TaskID, Handle: input.Handle, ProcessID: input.ProcessID,
 		Action: input.Action, ElementRef: input.ElementRef, Target: target, ObservationHash: input.ObservationHash,
-		SubjectHash: hex.EncodeToString(subjectSum[:]), State: "prepared", CreatedAt: now, ExpiresAt: now.Add(2 * time.Minute)}
+		SubjectHash: hex.EncodeToString(subjectSum[:]), State: "prepared", CreatedAt: now, ExpiresAt: now.Add(2 * time.Minute), ScreenshotBeforeID: observation.ScreenshotArtifactID}
 	_, err = s.store.DB.ExecContext(ctx, `INSERT INTO desktop_actions(id,owner_principal_id,task_id,window_handle,process_id,action,element_ref,
-		target_json,text_hash,observation_hash,subject_hash,state,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'prepared',?,?)`,
+		target_json,text_hash,observation_hash,subject_hash,state,created_at,expires_at,screenshot_before_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,'prepared',?,?,?)`,
 		action.ID, ownerID, input.TaskID, input.Handle, input.ProcessID, input.Action, input.ElementRef, string(targetJSON), textHash,
-		input.ObservationHash, action.SubjectHash, formatTime(now), formatTime(action.ExpiresAt))
+		input.ObservationHash, action.SubjectHash, formatTime(now), formatTime(action.ExpiresAt), action.ScreenshotBeforeID)
 	return action, err
 }
 
@@ -98,16 +111,21 @@ func (s *Service) GetDesktopAction(ctx context.Context, id string) (DesktopActio
 		return DesktopAction{}, err
 	}
 	var item DesktopAction
-	var targetJSON, created, expires string
+	var targetJSON, created, expires, observationJSON string
 	err = s.store.DB.QueryRowContext(ctx, `SELECT id,task_id,window_handle,process_id,action,element_ref,target_json,
-		observation_hash,subject_hash,state,error,created_at,expires_at FROM desktop_actions WHERE id=? AND owner_principal_id=?`, id, ownerID).
+		observation_hash,subject_hash,state,error,created_at,expires_at,screenshot_before_id,screenshot_after_id,observation_json FROM desktop_actions WHERE id=? AND owner_principal_id=?`, id, ownerID).
 		Scan(&item.ID, &item.TaskID, &item.Handle, &item.ProcessID, &item.Action, &item.ElementRef, &targetJSON,
-			&item.ObservationHash, &item.SubjectHash, &item.State, &item.Error, &created, &expires)
+			&item.ObservationHash, &item.SubjectHash, &item.State, &item.Error, &created, &expires, &item.ScreenshotBeforeID, &item.ScreenshotAfterID, &observationJSON)
 	if err != nil {
 		return DesktopAction{}, err
 	}
 	if err := json.Unmarshal([]byte(targetJSON), &item.Target); err != nil {
 		return DesktopAction{}, err
+	}
+	if observationJSON != "" {
+		if err := json.Unmarshal([]byte(observationJSON), &item.Observation); err != nil {
+			return DesktopAction{}, err
+		}
 	}
 	item.CreatedAt, _ = parseTime(created)
 	item.ExpiresAt, _ = parseTime(expires)
@@ -243,6 +261,15 @@ func (s *Service) ConfirmDesktopAction(ctx context.Context, id, subjectHash, tex
 	if hex.EncodeToString(textSum[:]) != storedTextHash {
 		return DesktopAction{}, fmt.Errorf("desktop text changed after review")
 	}
+	// Pointer input binds the complete reviewed frame. Element input also rechecks
+	// its exact UIA target in the native probe immediately before dispatch.
+	current, err := s.ObserveDesktopWindow(ctx, item.Handle, item.ProcessID)
+	if err != nil {
+		return DesktopAction{}, err
+	}
+	if (item.Target.Point != nil && current.ObservationHash != item.ObservationHash) || current.ScreenshotArtifactID == "" {
+		return DesktopAction{}, fmt.Errorf("desktop observation changed after approval; inspect again")
+	}
 	result, err := s.store.DB.ExecContext(ctx, `UPDATE desktop_actions SET state='dispatched',actor=?,dispatched_at=? WHERE id=? AND owner_principal_id=?
 		AND subject_hash=? AND state='prepared' AND expires_at>?`, strings.TrimSpace(actor), formatTime(time.Now().UTC()), id, ownerID, subjectHash, formatTime(time.Now().UTC()))
 	if err != nil {
@@ -252,21 +279,33 @@ func (s *Service) ConfirmDesktopAction(ctx context.Context, id, subjectHash, tex
 		return DesktopAction{}, fmt.Errorf("desktop approval was used or expired")
 	}
 	var actionResult map[string]any
-	err = runDesktopProbe(ctx, map[string]any{"mode": "action", "handle": item.Handle, "process_id": item.ProcessID,
-		"action": item.Action, "element_ref": item.ElementRef, "target": item.Target, "text": textValue}, &actionResult)
+	if item.Target.Point != nil {
+		err = clickDesktopPoint(ctx, item)
+	} else {
+		err = runDesktopProbe(ctx, map[string]any{"mode": "action", "handle": item.Handle, "process_id": item.ProcessID,
+			"action": item.Action, "element_ref": item.ElementRef, "target": item.Target, "text": textValue}, &actionResult)
+	}
 	if err != nil {
-		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state='uncertain',error=?,completed_at=? WHERE id=? AND state='dispatched'`,
-			err.Error(), formatTime(time.Now().UTC()), id)
+		state := "uncertain"
+		if errors.Is(err, errDesktopNotDispatched) {
+			state = "cancelled"
+		}
+		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state=?,error=?,completed_at=? WHERE id=? AND state='dispatched'`,
+			state, err.Error(), formatTime(time.Now().UTC()), id)
 		return s.GetDesktopAction(context.Background(), id)
 	}
 	observation, observeErr := s.ObserveDesktopWindow(ctx, item.Handle, item.ProcessID)
-	if observeErr != nil {
+	if observeErr != nil || observation.ScreenshotArtifactID == "" {
+		if observeErr == nil {
+			observeErr = fmt.Errorf("follow-up screenshot unavailable: %s", observation.ScreenshotError)
+		}
 		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state='uncertain',error=?,completed_at=? WHERE id=? AND state='dispatched'`,
 			"action returned but follow-up observation failed: "+observeErr.Error(), formatTime(time.Now().UTC()), id)
 		return s.GetDesktopAction(context.Background(), id)
 	}
-	_, err = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state='completed',completed_at=? WHERE id=? AND state='dispatched'`,
-		formatTime(time.Now().UTC()), id)
+	observationBody, _ := json.Marshal(observation)
+	_, err = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state='completed',completed_at=?,screenshot_after_id=?,observation_json=? WHERE id=? AND state='dispatched'`,
+		formatTime(time.Now().UTC()), observation.ScreenshotArtifactID, string(observationBody), id)
 	if err != nil {
 		return DesktopAction{}, err
 	}

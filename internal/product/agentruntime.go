@@ -73,7 +73,7 @@ func (s *Service) ActOnPage(ctx context.Context, tabID string, request agentrunt
 		return agentruntime.BrowserPage{}, err
 	}
 	tab, err := s.BrowserAction(ctx, tabID, BrowserActionInput{Action: request.Action, URL: request.URL,
-		Ref: request.Ref, Text: request.Text, ObservationHash: request.ObservationHash, Actor: request.Actor,
+		Ref: request.Ref, Text: request.Text, DurationMS: request.DurationMS, ObservationHash: request.ObservationHash, Actor: request.Actor,
 		ReceiptID: request.ReceiptID, SubjectHash: request.SubjectHash})
 	if err != nil {
 		return agentruntime.BrowserPage{}, err
@@ -86,7 +86,7 @@ func (s *Service) PreparePageAction(ctx context.Context, tabID string, request a
 		return agentruntime.BrowserActionPreparation{}, err
 	}
 	receipt, err := s.PrepareBrowserAction(ctx, tabID, BrowserActionInput{Action: request.Action,
-		Ref: request.Ref, Text: request.Text, ObservationHash: request.ObservationHash, Actor: request.Actor})
+		Ref: request.Ref, Text: request.Text, DurationMS: request.DurationMS, ObservationHash: request.ObservationHash, Actor: request.Actor})
 	if err != nil {
 		return agentruntime.BrowserActionPreparation{}, err
 	}

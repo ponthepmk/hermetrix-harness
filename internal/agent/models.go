@@ -33,13 +33,50 @@ type Session struct {
 }
 
 type CreateSessionInput struct {
-	Title                 string                      `json:"title"`
-	ProviderID            string                      `json:"provider_id"`
-	ProjectID             string                      `json:"project_id,omitempty"`
-	ContextProfile        string                      `json:"context_profile"`
-	QualificationOverride *QualificationOverrideInput `json:"qualification_override,omitempty"`
-	EgressPolicy          string                      `json:"egress_policy,omitempty"`
-	RemoteEgressApproval  *EgressApprovalInput        `json:"remote_egress_approval,omitempty"`
+	ChatReasoning          *ChatReasoningSetting        `json:"chat_reasoning,omitempty"`
+	WorkspaceWriteApproval *WorkspaceWriteApprovalInput `json:"workspace_write_approval,omitempty"`
+	WorkMode               string                       `json:"work_mode,omitempty"`
+	Title                  string                       `json:"title"`
+	ProviderID             string                       `json:"provider_id"`
+	ProjectID              string                       `json:"project_id,omitempty"`
+	ContextProfile         string                       `json:"context_profile"`
+	QualificationOverride  *QualificationOverrideInput  `json:"qualification_override,omitempty"`
+	EgressPolicy           string                       `json:"egress_policy,omitempty"`
+	RemoteEgressApproval   *EgressApprovalInput         `json:"remote_egress_approval,omitempty"`
+}
+
+type ChatReasoningSetting struct {
+	Mode     string `json:"mode"`
+	TokenCap int    `json:"token_cap"`
+}
+
+type SessionReasoningInput struct {
+	Mode     string `json:"mode"`
+	TokenCap int    `json:"token_cap"`
+	Reason   string `json:"reason"`
+}
+
+// Explicit owner consent for file writes in one new session's frozen project.
+// Tool/model messages cannot create or extend this authorization.
+type WorkspaceWriteApprovalInput struct {
+	Reason         string                  `json:"reason"`
+	BrowserOrigins []string                `json:"browser_origins,omitempty"`
+	DesktopWindows []DesktopWindowApproval `json:"desktop_windows,omitempty"`
+}
+
+type DesktopWindowApproval struct {
+	Handle    int64 `json:"handle"`
+	ProcessID int   `json:"process_id"`
+}
+
+type WorkspaceWriteApproval struct {
+	Revision       string                  `json:"revision"`
+	ProjectID      string                  `json:"project_id"`
+	Root           string                  `json:"root"`
+	OwnerID        string                  `json:"owner_id"`
+	Reason         string                  `json:"reason"`
+	BrowserOrigins []string                `json:"browser_origins,omitempty"`
+	DesktopWindows []DesktopWindowApproval `json:"desktop_windows,omitempty"`
 }
 
 type EgressApprovalInput struct {
@@ -87,6 +124,9 @@ type InferencePresetBinding struct {
 }
 
 type SessionContract struct {
+	ChatReasoning            *ChatReasoningSetting    `json:"chat_reasoning,omitempty"`
+	WorkspaceWriteApproval   *WorkspaceWriteApproval  `json:"workspace_write_approval,omitempty"`
+	WorkMode                 string                   `json:"work_mode,omitempty"`
 	Revision                 string                   `json:"revision"`
 	ProviderRevision         string                   `json:"provider_revision"`
 	ProviderID               string                   `json:"provider_id"`
@@ -182,6 +222,7 @@ type TurnInput struct {
 	Content        string      `json:"content"`
 	Parts          []EventPart `json:"parts,omitempty"`
 	IdempotencyKey string      `json:"idempotency_key,omitempty"`
+	QueueID        string      `json:"-"`
 }
 
 type TurnResult struct {
@@ -237,6 +278,8 @@ type StreamEvent struct {
 }
 
 type SessionDetail struct {
+	TurnControl           *TurnControl            `json:"turn_control,omitempty"`
+	QueuedMessages        []QueuedMessage         `json:"queued_messages"`
 	Session               Session                 `json:"session"`
 	Events                []Event                 `json:"events"`
 	Approvals             []ToolApproval          `json:"approvals"`

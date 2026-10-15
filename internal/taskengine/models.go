@@ -39,6 +39,7 @@ type Criterion struct {
 type GoalContract struct {
 	Outcome               string              `json:"outcome,omitempty"`
 	Scope                 string              `json:"scope,omitempty"`
+	WritablePaths         []string            `json:"writable_paths,omitempty"`
 	Assumptions           []string            `json:"assumptions,omitempty"`
 	AffectedJourneys      []string            `json:"affected_journeys,omitempty"`
 	ExperiencePreview     string              `json:"experience_preview,omitempty"`

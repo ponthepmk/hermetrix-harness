@@ -172,18 +172,33 @@ func (s *Service) handleInteraction(ctx context.Context, cfg Config, owner strin
 		defer cancel()
 		defer func() { s.mu.Lock(); delete(s.jobs, slotKey); s.mu.Unlock() }()
 		reply, sessionID, err := s.executeCommand(jobCtx, cfg, owner, key, userID, command, arg)
+		if jobErr := jobCtx.Err(); jobErr != nil {
+			err = jobErr
+		}
 		content := reply.Text
 		state := "completed"
 		if err != nil {
 			content = "Hermetrix: " + err.Error()
 			state = "failed"
+			if errors.Is(err, context.Canceled) {
+				content = "Hermetrix request cancelled. An already approved file/tool effect may have completed; inspect its receipt in the local app."
+				state = "cancelled"
+			} else if errors.Is(err, context.DeadlineExceeded) {
+				content = "Hermetrix request timed out. An already approved file/tool effect may have completed; inspect the local session before trying again."
+				state = "timed_out"
+			}
 		}
 		approval := reply.Approval
 		remoteApproval := false
 		if err == nil && approval != nil {
 			content, remoteApproval = formatApproval(*approval)
 		}
-		if deliveryErr := s.editResponse(jobCtx, event, content); deliveryErr != nil {
+		// Finishing the deferred Discord reply is transport cleanup, not another
+		// agent action. It must survive cancellation of that action while the app
+		// is still running, otherwise Discord keeps displaying "thinking".
+		deliveryCtx, deliveryCancel := context.WithTimeout(s.lifetime, 10*time.Second)
+		defer deliveryCancel()
+		if deliveryErr := s.editResponse(deliveryCtx, event, content); deliveryErr != nil {
 			s.finishInteraction(event.ID, "reply_failed")
 			s.mu.Lock()
 			s.lastError = "A Discord reply could not be delivered. Effects are not retried; inspect the local session."

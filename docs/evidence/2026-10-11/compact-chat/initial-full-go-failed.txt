@@ -1,0 +1,58 @@
+?   	hermetrix-harness/assets	[no test files]
+ok  	hermetrix-harness/cmd/hermetrix	4.087s
+?   	hermetrix-harness/cmd/hermetrix-h1	[no test files]
+ok  	hermetrix-harness/cmd/hermetrix-h2	3.981s
+?   	hermetrix-harness/cmd/hermetrix-lab	[no test files]
+?   	hermetrix-harness/cmd/hermetrix-tailnet	[no test files]
+?   	hermetrix-harness/cmd/hermetrix-worker	[no test files]
+ok  	hermetrix-harness/internal/agent	143.267s
+ok  	hermetrix-harness/internal/agentplatform	28.463s
+?   	hermetrix-harness/internal/agentplatform/fixture	[no test files]
+ok  	hermetrix-harness/internal/agentplatform/piidentity	4.558s
+?   	hermetrix-harness/internal/agentruntime	[no test files]
+ok  	hermetrix-harness/internal/blob	1.764s
+ok  	hermetrix-harness/internal/capabilities	2.321s
+ok  	hermetrix-harness/internal/context	2.956s
+ok  	hermetrix-harness/internal/curator	4.818s
+ok  	hermetrix-harness/internal/discordbridge	50.895s
+ok  	hermetrix-harness/internal/durability	2.774s
+ok  	hermetrix-harness/internal/embedding	3.163s
+ok  	hermetrix-harness/internal/fidelity	13.451s
+ok  	hermetrix-harness/internal/hostile	12.712s
+?   	hermetrix-harness/internal/identity	[no test files]
+ok  	hermetrix-harness/internal/inference	3.448s
+ok  	hermetrix-harness/internal/learning	16.012s
+ok  	hermetrix-harness/internal/localmodel	3.048s
+ok  	hermetrix-harness/internal/mcp	38.217s
+ok  	hermetrix-harness/internal/product	133.696s
+ok  	hermetrix-harness/internal/projectbrain	9.174s
+ok  	hermetrix-harness/internal/providers	17.419s
+ok  	hermetrix-harness/internal/qualification	6.212s
+ok  	hermetrix-harness/internal/runtime	1.827s
+ok  	hermetrix-harness/internal/secrets	2.093s
+ok  	hermetrix-harness/internal/selfimprove	3.777s
+ok  	hermetrix-harness/internal/skills	19.000s
+ok  	hermetrix-harness/internal/store	14.054s
+ok  	hermetrix-harness/internal/taskcoord	73.670s
+ok  	hermetrix-harness/internal/taskengine	48.413s
+ok  	hermetrix-harness/internal/taskeval	4.388s
+ok  	hermetrix-harness/internal/textmatch	1.031s
+ok  	hermetrix-harness/internal/tools	11.821s
+--- FAIL: TestLongChatReplyStaysReadableAboveComposerInARealBrowser (14.28s)
+    ui_browser_e2e_test.go:288: browser value did not become "mobile-composer": value="" err=<nil> diagnostic="{\"chat\":{\"sending\":false,\"session\":\"active\",\"failures\":[],\"error\":\"\"},\"project\":\"project_740a4afa0a3e6743b91ea0f49bc7580f\",\"projectOpening\":false,\"view\":\"chat\",\"tab\":\"chat\",\"statePanes\":[\"chat\",\"review\",\"files\"],\"compactPane\":\"chat\",\"layout\":\"adaptive\",\"viewport\":390,\"toast\":\"\",\"dialog\":false,\"openProjectError\":\"\",\"panes\":\"\\n        \\n          \\n          \\n          แชท\\n          ⛶\\n          ×\\n        \\n        ตัวช่วยโมเดลแชตตรวจเว็บอธิบายแก้ไขตรวจวางแผนเปิดไฟล์เพื่อแนบบริบทของโค้ดวันนี้ให้ช่วยอะไรดี?ถามเรื่องโค้ดในโปรเจกต์นี้ หรือเลือกจุดเริ่มต้นด้านล่างตรวจคุ\",\"office\":{\"filter\":\"overview\",\"limit\":20,\"jobs\":0,\"rows\":0},\"task\":{\"selected\":null,\"action\":null,\"error\":null,\"brief\":null,\"contentSteps\":0,\"briefForm\":false,\"draftForm\":false,\"jump\":null,\"bodyOverflow\":null}}" diagnostic_err=<nil>
+--- FAIL: TestGoalComposerStartsAConversationInARealBrowser (13.96s)
+    ui_browser_e2e_test.go:829: browser value did not become "usage-bar-visible": value="" err=<nil> diagnostic="{\"chat\":{\"sending\":false,\"session\":\"active\",\"queue\":[],\"failures\":[],\"error\":\"\"},\"project\":\"project_c8ea10e73cbde41e199a1994841a76da\",\"projectOpening\":false,\"view\":\"chat\",\"tab\":\"chat\",\"statePanes\":[\"chat\",\"review\",\"files\"],\"compactPane\":\"chat\",\"layout\":\"adaptive\",\"viewport\":1440,\"toast\":\"\",\"dialog\":false,\"openProjectError\":\"\",\"panes\":\"\",\"office\":{\"filter\":\"overview\",\"limit\":20,\"jobs\":0,\"rows\":0},\"task\":{\"selected\":null,\"action\":null,\"error\":null,\"brief\":null,\"contentSteps\":0,\"briefForm\":false,\"draftForm\":false,\"jump\":null,\"bodyOverflow\":null}}" diagnostic_err=<nil>
+--- FAIL: TestResponsiveWorkspaceFlowsInARealBrowser (29.04s)
+    --- FAIL: TestResponsiveWorkspaceFlowsInARealBrowser/800x900 (13.47s)
+        ui_browser_e2e_test.go:2342: start: header controls extend outside their visible header: [{"id":"แชต","x":517,"y":61,"w":176,"h":44},{"id":"แผนงาน","x":517,"y":105,"w":176,"h":44},{"id":"พื้นที่ทำงาน","x":517,"y":149,"w":176,"h":44},{"id":"compactSearch","x":517,"y":193,"w":176,"h":44},{"id":"compactHardware","x":517,"y":237,"w":176,"h":44}]
+        ui_browser_e2e_test.go:2359: control #startModelOptions cannot be reached by pointer at 800x900: {"x":140.8671875,"y":641.84375,"reachable":false}
+        ui_browser_e2e_test.go:2360: browser value did not become "model-dialog": value="" err=<nil> diagnostic="{\"chat\":{\"sending\":false,\"error\":\"\"},\"project\":\"project_1f114ae6caf39efe6db8dbe70b106949\",\"projectOpening\":false,\"view\":\"chat\",\"tab\":\"chat\",\"statePanes\":[\"chat\",\"review\",\"files\"],\"compactPane\":\"chat\",\"layout\":\"adaptive\",\"viewport\":800,\"toast\":\"\",\"dialog\":false,\"openProjectError\":\"\",\"panes\":\"\\n        \\n          \\n          \\n          ตรวจงาน\\n          ⛶\\n          \\n        \\n        กำลังโหลด…\\n      \",\"office\":{\"filter\":\"overview\",\"limit\":20,\"jobs\":0,\"rows\":0},\"task\":{\"selected\":null,\"action\":null,\"error\":null,\"brief\":null,\"contentSteps\":0,\"briefForm\":false,\"draftForm\":false,\"jump\":null,\"bodyOverflow\":null}}" diagnostic_err=<nil>
+    --- FAIL: TestResponsiveWorkspaceFlowsInARealBrowser/390x844 (13.71s)
+        ui_browser_e2e_test.go:2342: start: header controls extend outside their visible header: [{"id":"แชต","x":107,"y":61,"w":176,"h":44},{"id":"แผนงาน","x":107,"y":105,"w":176,"h":44},{"id":"พื้นที่ทำงาน","x":107,"y":149,"w":176,"h":44},{"id":"compactSearch","x":107,"y":193,"w":176,"h":44},{"id":"compactHardware","x":107,"y":237,"w":176,"h":44}]
+        ui_browser_e2e_test.go:2368: control #plansViewButton cannot be reached by pointer at 390x844: {"x":0,"y":0,"reachable":false}
+        ui_browser_e2e_test.go:2369: browser value did not become "plans": value="" err=<nil> diagnostic="{\"chat\":{\"sending\":false,\"error\":\"\"},\"project\":\"project_b76bb93284faa517cca1d8db14cf40e5\",\"projectOpening\":false,\"view\":\"chat\",\"tab\":\"chat\",\"statePanes\":[\"chat\",\"review\",\"files\"],\"compactPane\":\"chat\",\"layout\":\"adaptive\",\"viewport\":390,\"toast\":\"\",\"dialog\":false,\"openProjectError\":\"\",\"panes\":\"\\n        \\n          \\n          \\n          ตรวจงาน\\n          ⛶\\n          \\n        \\n        กำลังโหลด…\\n      \",\"office\":{\"filter\":\"overview\",\"limit\":20,\"jobs\":0,\"rows\":0},\"task\":{\"selected\":null,\"action\":null,\"error\":null,\"brief\":null,\"contentSteps\":0,\"briefForm\":false,\"draftForm\":false,\"jump\":null,\"bodyOverflow\":null}}" diagnostic_err=<nil>
+FAIL
+FAIL	hermetrix-harness/internal/web	207.101s
+ok  	hermetrix-harness/internal/worker	12.680s
+ok  	hermetrix-harness/scripts	64.227s
+FAIL

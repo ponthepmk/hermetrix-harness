@@ -1,0 +1,8 @@
+{
+  "before_schema": 73,
+  "after_schema": 76,
+  "integrity": "ok",
+  "foreign_key_errors": 0,
+  "preserved_legacy_tables": 105,
+  "changed_legacy_tables": []
+}

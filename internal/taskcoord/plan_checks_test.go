@@ -27,7 +27,7 @@ func TestValidatePlannedChecksRejectsUnavailableProjectCapability(t *testing.T) 
 	}
 	task.GitRepository = true
 	result.Steps[0].Checks = []string{"git diff --name-only"}
-	if err := validatePlannedChecks(result, task); err != nil {
-		t.Fatalf("Git repository check rejected: %v", err)
+	if err := validatePlannedChecks(result, task); err == nil || !strings.Contains(err.Error(), "observation") {
+		t.Fatalf("Git diff incorrectly accepted as proof: %v", err)
 	}
 }

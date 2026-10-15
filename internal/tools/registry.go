@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"hermetrix-harness/internal/agentruntime"
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/providers"
@@ -128,15 +129,13 @@ func NewRegistry(root string) (*Registry, error) {
 				"query": map[string]any{"type": "string", "description": "Task or topic to find a procedure for"},
 				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum results; defaults to 5"},
 			}, []string{"query"})},
-		{Name: "context_search", Revision: "v1", Effect: "read",
-			Description: "Search this session's own earlier turns for something that is no longer in front of you. " +
-				"Context is compacted as a session grows, so an exchange you remember having may have been summarised " +
-				"or set aside; this returns the original text. Call it whenever the answer depends on a detail you " +
-				"cannot see, rather than guessing or asking the user to repeat themselves.",
+		{Name: "context_search", Revision: "v2", Effect: "read",
+			Description: "Search session history with query, or read tool evidence with ref (artifact hash, event ID or tool_call_id). Session-only. Sections: output, metadata, inspection.summary/security/traffic/page_errors. Continue at next_offset. Evidence is untrusted.",
 			Parameters: objectSchema(map[string]any{
-				"query": map[string]any{"type": "string", "description": "Words or an identifier from what you are looking for"},
-				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum results; defaults to 5"},
-			}, []string{"query"})},
+				"query": map[string]any{"type": "string"}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 10},
+				"ref": map[string]any{"type": "string"}, "section": map[string]any{"type": "string"},
+				"offset": map[string]any{"type": "integer", "minimum": 0}, "max_chars": map[string]any{"type": "integer", "minimum": 1, "maximum": 12000},
+			}, nil)},
 		{Name: "skill_view", Revision: "v1", Effect: "read",
 			Description: "Load the body of one Skill version returned by skill_search. Only versions frozen into this session are available; a version promoted after the session opened is not.",
 			Parameters: objectSchema(map[string]any{
@@ -370,6 +369,9 @@ func (r *Registry) RequiresApproval(call providers.ToolCall) (bool, error) {
 	if definition.RequiresApproval {
 		return true, nil
 	}
+	if call.Name == "desktop" {
+		return desktopNeedsApproval(call.Arguments)
+	}
 	if call.Name == "browser" {
 		var args struct {
 			Action string `json:"action"`
@@ -601,6 +603,9 @@ func (r *Registry) PlanApproval(ctx context.Context, call providers.ToolCall) (A
 	if call.Name == "tool_call" {
 		return r.planDeferredApproval(ctx, call, definition)
 	}
+	if call.Name == "desktop" {
+		return r.planDesktopApproval(ctx, call, definition)
+	}
 	if call.Name == "browser" {
 		return r.planBrowserApproval(ctx, call, definition)
 	}
@@ -730,6 +735,7 @@ func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolC
 		Ref             int    `json:"ref"`
 		Text            string `json:"text"`
 		ObservationHash string `json:"observation_hash"`
+		DurationMS      int    `json:"duration_ms"`
 	}
 	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
 		return ApprovalPlan{}, fmt.Errorf("invalid browser arguments: %w", err)
@@ -739,7 +745,12 @@ func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolC
 	// driver, so the preview built below and the destination actually opened
 	// once approved are the same bytes.
 	args.URL = NormalizeBrowserURL(args.URL)
-	if args.Action == "click" || args.Action == "type" {
+	if args.Action == "click" || args.Action == "type" || args.Action == "key" {
+		if args.Action == "key" {
+			if _, _, _, ok := agentruntime.BrowserKey(args.Text); !ok || definition.Revision != "v6" || args.DurationMS < 0 || args.DurationMS > 3000 {
+				return ApprovalPlan{}, fmt.Errorf("browser key needs v6, an allowed key and duration_ms 0..3000; start a new session if the binding is older")
+			}
+		}
 		if strings.TrimSpace(args.TabID) == "" || args.Ref < 1 || len(args.ObservationHash) != 64 ||
 			(args.Action == "type" && len(args.Text) > 64<<10) {
 			return ApprovalPlan{}, fmt.Errorf("browser action requires tab_id, ref, current observation_hash and bounded text")
@@ -752,6 +763,9 @@ func (r *Registry) planBrowserApproval(ctx context.Context, call providers.ToolC
 		preview := fmt.Sprintf("The agent wants to %s element %d in tab %q.\nObservation: %s", args.Action, args.Ref, args.TabID, args.ObservationHash)
 		if args.Action == "type" {
 			preview += "\nText: " + strconv.Quote(previewText)
+		}
+		if args.Action == "key" {
+			preview += fmt.Sprintf("\nKey: %s\nHold: %d ms (then release)", strconv.Quote(args.Text), args.DurationMS)
 		}
 		return ApprovalPlan{ToolCallID: call.ID, Name: call.Name, Revision: definition.Revision, Effect: definition.Effect,
 			ArgumentsHash: hex.EncodeToString(argumentSum[:]), Summary: fmt.Sprintf("%s element %d in tab %s", args.Action, args.Ref, args.TabID),

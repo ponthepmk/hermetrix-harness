@@ -543,7 +543,15 @@ func (s *Service) RecoverInterrupted(ctx context.Context) (int, error) {
 	if _, err := s.store.DB.ExecContext(ctx, `UPDATE task_runs SET state='paused',stop_reason='process interrupted; reconcile effects before resume',updated_at=? WHERE state='running'`, now); err != nil {
 		return 0, err
 	}
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT id FROM durable_tasks WHERE state IN ('running','verifying') ORDER BY created_at`)
+	// A task with terminal steps/effects is waiting for evidence review or human
+	// acceptance, not interrupted execution. Preserve its verifying state so the
+	// normal completion action remains available after a restart.
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT t.id FROM durable_tasks t
+		WHERE t.state='running' OR (t.state='verifying' AND (
+			EXISTS(SELECT 1 FROM task_steps s WHERE s.task_id=t.id AND s.plan_revision=t.active_plan_revision AND s.state NOT IN ('completed','skipped'))
+			OR EXISTS(SELECT 1 FROM task_effect_intents e WHERE e.task_id=t.id AND e.state IN ('planned','dispatched','uncertain'))
+			OR EXISTS(SELECT 1 FROM task_code_proposals p WHERE p.task_id=t.id AND p.state NOT IN ('verified','rejected','post_review_rejected','apply_failed','verification_failed'))
+		)) ORDER BY t.created_at`)
 	if err != nil {
 		return 0, err
 	}
@@ -771,13 +779,25 @@ func validateGoalContract(contract GoalContract) error {
 		return fmt.Errorf("unsupported goal reviewer policy %q", contract.ReviewerPolicy)
 	}
 	if len([]rune(contract.Outcome)) > 4000 || len([]rune(contract.Scope)) > 2000 || len([]rune(contract.ExperiencePreview)) > 4000 || len([]rune(contract.Verification)) > 2000 ||
-		len(contract.Assumptions) > 20 || len(contract.AffectedJourneys) > 12 || len(contract.Clarifications) > 20 {
+		len(contract.Assumptions) > 20 || len(contract.AffectedJourneys) > 12 || len(contract.Clarifications) > 20 || len(contract.WritablePaths) > 32 {
 		return fmt.Errorf("goal contract exceeds its bounded fields")
 	}
 	for _, value := range append(append([]string{}, contract.Assumptions...), contract.AffectedJourneys...) {
 		if len([]rune(value)) > 1000 {
 			return fmt.Errorf("goal contract item is too long")
 		}
+	}
+	seenPaths := map[string]bool{}
+	for _, path := range contract.WritablePaths {
+		if path == "" || path != strings.TrimSpace(path) || len(path) > 512 || strings.ContainsAny(path, "\\:*?\r\n\x00") || strings.HasPrefix(path, "/") || seenPaths[path] {
+			return fmt.Errorf("writable paths must be distinct canonical relative file paths")
+		}
+		for _, part := range strings.Split(path, "/") {
+			if part == "" || part == "." || part == ".." {
+				return fmt.Errorf("writable paths must be distinct canonical relative file paths")
+			}
+		}
+		seenPaths[path] = true
 	}
 	seenQuestions := map[string]bool{}
 	for _, clarification := range contract.Clarifications {

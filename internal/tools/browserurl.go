@@ -20,7 +20,7 @@ import (
 // the user gets asked.
 func BrowserNeedsApproval(action, rawURL string) bool {
 	action = strings.TrimSpace(action)
-	if action == "click" || action == "type" {
+	if action == "click" || action == "type" || action == "key" {
 		return true
 	}
 	if action != "open" && action != "navigate" {

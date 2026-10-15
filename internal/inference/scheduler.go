@@ -381,6 +381,12 @@ func (s *Scheduler) ReleaseQuarantine(resourceKey string) {
 	s.mu.Unlock()
 }
 
+func (s *Scheduler) IsQuarantined(resourceKey string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.quarantined[resourceKey] != ""
+}
+
 func (s *Scheduler) markDispatched(ctx context.Context, requestID string) error {
 	if s.store == nil {
 		return nil

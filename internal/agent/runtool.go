@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -215,13 +217,25 @@ func (s *Service) startRun(ctx context.Context, session Session, args runArgs, r
 	// The same refusal the file tools give: a project with no code folder has
 	// nothing to run a command in, and falling back to another directory would
 	// run it somewhere the user never opened.
-	if _, err := s.scopedTools(ctx, session); err != nil {
+	scoped, err := s.scopedTools(ctx, session)
+	if err != nil {
 		receipt.Error = err.Error()
 		return
 	}
 	if !executableAllowed(strings.TrimSpace(args.Executable)) {
 		receipt.Error = "executable must be one of: " + strings.Join(allowedExecutables, ", ")
 		return
+	}
+	if args.Executable == "node" && len(args.Arguments) > 1 && args.Arguments[0] == "node" && (args.WorkingDir == "" || args.WorkingDir == ".") {
+		// Diagnose the observed executable/argv confusion before creating a
+		// failed process. A real project script named "node" remains valid.
+		// Do not rewrite or dispatch a different command on the caller's behalf.
+		if _, statErr := os.Lstat(filepath.Join(scoped.Root(), "node")); os.IsNotExist(statErr) {
+			corrected, _ := json.Marshal(args.Arguments[1:])
+			receipt.Error = "arguments must exclude executable: executable is already node. No command was started. Submit a corrected start with arguments=" + string(corrected) + "; do not repeat the failed command or reinstall dependencies."
+			receipt.Metadata = map[string]any{"diagnostic_code": "executable_repeated_as_argument", "suggested_arguments": args.Arguments[1:]}
+			return
+		}
 	}
 	// A job that finished without ever being polled to completion -- the turn
 	// ended, the model moved on, compaction dropped the receipt -- must not

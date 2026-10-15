@@ -9,9 +9,10 @@
     return String(value).replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
   }
 
-  // Chat content is untrusted. Format a small Markdown subset while escaping
-  // every text fragment; no authored HTML or clickable URLs enter the DOM.
+  // The bundled rich renderer disables authored HTML and validates URLs.
+  // Keep a small escaped fallback for independently embedded runtime clients.
   function renderChatMarkdown(value = "") {
+    if (globalThis.HermetrixRichText) return globalThis.HermetrixRichText.render(value);
     const inline = value => String(value).split(/(`[^`\n]+`)/g).map(part => {
       if (part.startsWith("`") && part.endsWith("`")) return `<code>${escapeHTML(part.slice(1, -1))}</code>`;
       return escapeHTML(part).replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");

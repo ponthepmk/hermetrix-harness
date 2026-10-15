@@ -194,6 +194,7 @@ type OpenBrowserTabInput struct {
 }
 
 type BrowserActionInput struct {
+	DurationMS      int    `json:"duration_ms,omitempty"`
 	Action          string `json:"action"`
 	URL             string `json:"url,omitempty"`
 	Ref             int    `json:"ref,omitempty"`

@@ -51,4 +51,19 @@ func TestRejectedProposalFeedbackKeepsRecentCorrectionsForSameStep(t *testing.T)
 	if strings.Index(got, "Use the real API") < 0 || strings.Index(got, "Keep the create button") <= strings.Index(got, "Use the real API") {
 		t.Fatalf("prior feedback was lost or reordered: %q", got)
 	}
+	if _, err := dataStore.DB.ExecContext(ctx, `INSERT INTO task_effect_intents
+		(id,attempt_id,task_id,run_id,lease_generation,operation_id,action,target,authority,state,receipt_json,created_at,updated_at)
+		VALUES('failed-proposal-feedback',?,?,?,1,'feedback-operation','provider.propose','local-model','packet','observed',?, ?,?)`,
+		attempt.ID, task.ID, run.ID, `{"status":"failed","error":"text edit 1 preimage matched 0 times"}`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := service.LatestFailedProposalFeedback(ctx, task.ID, attempt.StepID)
+	if err != nil || failed != "text edit 1 preimage matched 0 times" {
+		t.Fatalf("failed proposal diagnostic lost: %q err=%v", failed, err)
+	}
+	for _, ids := range [][2]string{{"another-task", attempt.StepID}, {task.ID, "another-step"}} {
+		if leaked, err := service.LatestFailedProposalFeedback(ctx, ids[0], ids[1]); err != nil || leaked != "" {
+			t.Fatalf("failure crossed task/step scope: %q err=%v", leaked, err)
+		}
+	}
 }

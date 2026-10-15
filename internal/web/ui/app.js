@@ -8,7 +8,7 @@ const SESSION_DRAFT_PREFIX = "hermetrix.session-draft.v1:";
 const PROJECT_DRAFT_PREFIX = "hermetrix.project-draft.v1:";
 const DEFAULT_PROVIDER_SETTING = "ui.default_provider_id";
 function rememberSurface(view) {
-  try { sessionStorage.setItem(LAST_SURFACE_KEY, JSON.stringify({view, projectID:state.currentProject?.id || "", taskID:state.selectedDurableTask || ""})); } catch {}
+  try { sessionStorage.setItem(LAST_SURFACE_KEY, JSON.stringify({view, projectID:state.currentProject?.id || "", taskID:view === "plans" && state.plansOverview ? "" : state.selectedDurableTask || ""})); } catch {}
 }
 function rememberedSurface() {
   try { return JSON.parse(sessionStorage.getItem(LAST_SURFACE_KEY) || "null"); } catch { return null; }
@@ -65,16 +65,26 @@ async function authenticateControlAPI() {
 }
 
 async function api(path, options = {}, authenticatedRetry = false) {
-  const headers = options.body instanceof FormData ? {...(options.headers || {})} : { "Content-Type": "application/json", ...(options.headers || {}) };
-  const response = await fetch(path, { ...options, headers });
-	state.authPrincipal = response.headers.get("X-Hermetrix-Principal") || state.authPrincipal;
-  if (response.status === 401 && path !== "/api/auth/session" && !authenticatedRetry) {
-    await authenticateControlAPI();
-    return api(path, options, true);
-  }
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : body.error?.message || body.message || `Request failed (${response.status})`);
-  return body;
+  const finishActivity = globalThis.HermetrixInteraction?.beginRequest(path, options);
+  const controller = !options.uiSilent && !options.signal && (!options.method || options.method === "GET") ? new AbortController() : null;
+  let timedOut = false;
+  const timeout = controller ? setTimeout(() => { timedOut = true; controller.abort(); }, 30000) : null;
+  let activityError;
+  try {
+    const headers = options.body instanceof FormData ? {...(options.headers || {})} : { "Content-Type": "application/json", ...(options.headers || {}) };
+    const response = await fetch(path, { ...options, headers, ...(controller ? {signal:controller.signal} : {}) });
+    state.authPrincipal = response.headers.get("X-Hermetrix-Principal") || state.authPrincipal;
+    if (response.status === 401 && path !== "/api/auth/session" && !authenticatedRetry) {
+      await authenticateControlAPI();
+      return await api(path, options, true);
+    }
+    const body = await response.json().catch(error => { if (timedOut) throw error; return {}; });
+    if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : body.error?.message || body.message || `Request failed (${response.status})`);
+    return body;
+  } catch (error) {
+    activityError = timedOut ? new Error("โหลดข้อมูลนานเกินไป ลองเปิดรายการอีกครั้ง") : error;
+    throw activityError;
+  } finally { if (timeout) clearTimeout(timeout); finishActivity?.(activityError); }
 }
 
 function currentActor() { return state.authPrincipal || "local-user"; }
@@ -105,7 +115,7 @@ function toast(message, error = false) {
   node.classList.toggle("error", error);
   node.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
+  toastTimer = setTimeout(() => node.classList.remove("show"), error ? 7000 : 3000);
 }
 
 function activateWorkbenchChrome(name) {
@@ -128,8 +138,11 @@ function ensureReviewSurface() {
 // turns it into a switcher back to the picker.
 function renderProjectChip() {
   const project = state.currentProject;
-  $("#projectName").textContent = project ? project.name : "เลือก Workspace";
-  $("#projectChip").title = project ? (project.root_path || "เลือก Workspace อื่น") : "เลือก Workspace สำหรับงาน";
+  const session = state.view === "chat" ? state.sessionDetail?.session : null;
+  const title = session?.title || project?.name || "Hermetrix";
+  $("#projectName").textContent = title;
+  $("#projectChip").title = `${title}\n${project?.name || "แชตส่วนตัว"} · เลือกโปรเจกต์`;
+  $("#projectChip").setAttribute("aria-label", `${title} · เลือกโปรเจกต์`);
 }
 
 // Keep Workspace choices current even while the user is in personal Chat.
@@ -175,6 +188,7 @@ async function openProject(id, options = {}) {
   if (state.sessionCreationPending && !options.createdSession) { toast("กำลังสร้างแชท กรุณารอสักครู่", true); return; }
   ++navigationGeneration;
   const generation = ++projectOpenGeneration;
+  ++codeOpenGeneration;
   state.projectOpening = true;
   const shell = $("#appShell");
   shell?.setAttribute("aria-busy", "true");
@@ -297,6 +311,7 @@ function showPicker(targetView = state.view) {
 // Personal Chat opens immediately. Workspace choices remain ready in the
 // picker for a deliberate transition into work with project effects.
 async function initPicker() {
+  const initialNavigation = navigationGeneration;
   let savedSessionID = "";
   try { savedSessionID = sessionStorage.getItem(LAST_SESSION_KEY) || ""; } catch {}
   try {
@@ -305,6 +320,9 @@ async function initPicker() {
   renderPicker();
   showShell();
   await load();
+  // A user may already have chosen a workspace while bootstrap was loading.
+  // Restoring a remembered surface must never override that newer choice.
+  if (navigationGeneration !== initialNavigation || state.projectOpening || state.currentProject?.id) return;
   const savedSurface = rememberedSurface();
   let savedProjectID = "";
   try { savedProjectID = localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch { /* Continue in personal Chat. */ }
@@ -322,7 +340,12 @@ async function initPicker() {
             renderPanes();
           }
           rememberSurface("plans");
-        } else if (savedSurface.view === "code") switchView("code");
+        } else if (savedSurface.view === "code") {
+          switchView("code");
+          let path = "";
+          try { path = sessionStorage.getItem("hermetrix.ide.active.v1:" + restored.id) || ""; } catch {}
+          if (path) await openWorkbenchFile(path);
+        }
       }
       return;
     }
@@ -416,7 +439,10 @@ async function hydrateSurface(surface, force = false) {
     try {
       const entries = await Promise.all(Object.entries(endpoints).map(async ([key, path]) => [key, await api(path)]));
       if (surfaceScope(surface) !== scope || surfaceLoads.get(surface) !== request) return false;
-      for (const [key, value] of entries) state[key] = ["usage", "skillAuthority"].includes(key) ? value : asList(value);
+      for (const [key, value] of entries) {
+        if (key === "durableTasks" && typeof reconcileTaskCache === "function") reconcileTaskCache(asList(value), force);
+        state[key] = ["usage", "skillAuthority"].includes(key) ? value : asList(value);
+      }
       if (["files", "projects"].includes(surface)) {
         if (!project?.root_path) state.projectFiles = [];
         if (project?.id === state.currentProject?.id) state.workspaceFiles = state.projectFiles;
@@ -447,6 +473,9 @@ async function load() {
     if (bootstrap.status === "rejected") throw bootstrap.reason;
     const data = bootstrap.value;
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Workspace data could not be loaded. Refresh to try again.");
+    // Validation/effect receipts can change without incrementing task revision.
+    // Explicit reload must fetch those details again and fence in-flight reads.
+    if (typeof reconcileTaskCache === "function") reconcileTaskCache(Object.keys(state.taskExecutions || {}).map(id => ({id})), true);
     Object.assign(state, data);
     for (const key of ["skills", "candidates", "archives", "relations", "reviews", "curator_runs", "profiles", "providers", "mcp_servers", "sessions", "direct_tools"]) {
       state[key] = asList(data[key]);
@@ -609,9 +638,8 @@ function sessionUsageHTML(session, events, snapshot) {
   const progress = budget ? `<progress max="${budget}" value="${Math.min(budget, latest.tokens)}" aria-label="การใช้ token ของคำสั่งล่าสุด ${lastLabel}"></progress>` : "";
   const tone = budget && latest.tokens >= budget ? "is-full" : budget && latest.tokens >= budget * .8 ? "is-near" : "";
   return `<details class="session-usage token-meter ${tone}" ${tokenUsageDetailsOpen ? "open" : ""}>
-    <summary><span class="token-meter-top"><strong>Token · คำสั่งล่าสุด</strong><b>${lastLabel}</b></span>${progress}
-      <span class="token-meter-foot"><span>${chatStatus}</span><span class="token-meter-expand">รายละเอียด <i aria-hidden="true">⌄</i></span></span></summary>
-    <div class="token-meter-detail"><dl>
+    <summary title="Token · คำสั่งล่าสุด" aria-label="ดูการใช้ Token ของคำสั่งล่าสุด"><span class="token-meter-top"><strong>Token</strong><b>${latest.tokens.toLocaleString()}</b></span><span class="token-meter-expand" aria-hidden="true">⌄</span></summary>
+    <div class="token-meter-detail">${progress}<p class="token-meter-foot">${chatStatus}</p><dl>
       <div><dt>คำสั่งล่าสุด</dt><dd>${lastLabel} · ${latestStatus}</dd></div>
       <div><dt>รับเข้า / ตอบออก</dt><dd>${latest.prompt.toLocaleString()} / ${latest.completion.toLocaleString()} token${latest.exact ? "" : " · ยอดขั้นต่ำ"}</dd></div>
       <div><dt>รวมทั้งแชต</dt><dd>${totalTokens.toLocaleString()} token${exact ? "" : " · อย่างน้อย"}</dd></div>
@@ -1045,6 +1073,15 @@ function bestProfileFor(provider, profiles) {
     || ordered[0] || null;
 }
 
+// Audit setup reserves a useful answer before work starts; qualification and
+// egress are still reviewed by the existing session creation flow.
+function bestAuditProfileFor(provider, profiles) {
+  const target = Math.min(16384, Number(provider?.max_output_tokens || 0));
+  if (target < 8192) return null;
+  const candidates = [...profiles].filter(profile => profile.output_reserve >= target && !profileAdmission(provider, profile).blocking).sort((a,b) => a.total-b.total);
+  return candidates.find(profile => profileAdmission(provider, profile).admitted) || candidates[0] || null;
+}
+
 // suggestedOverrideReason writes the reason from the evidence already on screen
 // so an override that is the only available path does not also demand that the
 // operator invent prose for it. It stays editable: the audit record keeps
@@ -1071,17 +1108,19 @@ function renderTimelineItem(item) {
   const status = receipt.status || item.result.metadata?.tool_status || "receipt";
   const succeeded = status === "succeeded";
   const name = receipt.name || item.call.metadata?.tool_name || "tool";
-  return `<details class="tool-receipt step"><summary>${pill(status, succeeded ? "green" : "red")}<strong>${escapeHTML(name)}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></summary><div class="tool-detail"><p class="tool-step-label">Arguments</p><code>${escapeHTML(toolArgumentsPreview(item.call))}</code><p class="tool-step-label">Result</p><pre>${escapeHTML(toolOutputPreview(receipt))}</pre><small>call ${escapeHTML(shortHash(item.result.metadata?.tool_call_id))} · bound ${escapeHTML(shortHash(item.call.metadata?.step_binding_id))}</small></div></details>`;
+  return `<details class="tool-receipt step"><summary>${pill(status === "deferred" ? "ยังไม่ได้ทำ" : status, succeeded ? "green" : status === "deferred" ? "amber" : "red")}<strong>${escapeHTML(name)}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></summary><div class="tool-detail"><p class="tool-step-label">Arguments</p><code>${escapeHTML(toolArgumentsPreview(item.call))}</code><p class="tool-step-label">Result</p><pre>${escapeHTML(toolOutputPreview(receipt))}</pre>${receipt.name==="desktop"?desktopEvidenceHTML(receipt.metadata?.screenshot_before_artifact_id,receipt.metadata?.screenshot_artifact_id):""}<small>call ${escapeHTML(shortHash(item.result.metadata?.tool_call_id))} · bound ${escapeHTML(shortHash(item.call.metadata?.step_binding_id))}</small></div></details>`;
 }
 
 function turnFailureGuidance(detail) {
   const message = String(detail || "").toLowerCase();
+  if (message.includes("approval-required tools"))
+    return "โมเดลส่งหลายคำสั่งพร้อมคำสั่งที่ต้องอนุมัติ ระบบยังไม่ได้ทำคำสั่งชุดนั้น ส่งข้อความให้ทำต่อทีละคำสั่งได้";
   if (message.includes("provider/model revision changed after session creation"))
     return "แชตนี้ผูกกับโมเดลรุ่นก่อนการตั้งค่าล่าสุด เริ่มแชตใหม่ในโปรเจกต์เดิมเพื่อส่งข้อความต่อ";
   if (/connectex|connection refused|actively refused/.test(message))
     return "เซิร์ฟเวอร์โมเดลในเครื่องยังไม่เปิดหรือเชื่อมต่อไม่ได้ เปิด Models เพื่อตรวจการเชื่อมต่อ แล้วส่งข้อความเดิมอีกครั้ง";
   if (message.includes("inference resource is quarantined") || message.includes("cancelled_runtime_idle_unconfirmed"))
-    return "โมเดลในเครื่องถูกพักหลังคำตอบถูกขัดจังหวะ รอให้โมเดลหยุด แล้วเปิด Hermetrix ใหม่ก่อนลองส่งอีกครั้ง";
+    return "โมเดลในเครื่องถูกพักหลังคำตอบถูกขัดจังหวะ เปิด Models แล้วกดตรวจยืนยันว่าโมเดลว่าง ก่อนลองส่งอีกครั้ง";
   if (message.includes("context canceled") || message.includes("context cancelled"))
     return "คำตอบถูกขัดจังหวะก่อนจบ ตรวจข้อความที่ส่งแล้วค่อยลองใหม่";
   if (message.includes("model steps") || message.includes("step budget"))
@@ -1122,7 +1161,8 @@ function renderTimelineEvent(event) {
   }
   if (event.event_kind === "tool_result") {
     const receipt = toolReceiptOf(event);
-    return `<details class="tool-receipt result"><summary>${pill(receipt.status || event.metadata?.tool_status || "receipt", receipt.status === "succeeded" ? "green" : "red")}<strong>${escapeHTML(receipt.name || event.metadata?.tool_name || "tool")}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></summary><div class="tool-detail"><p class="tool-step-label">Result</p><pre>${escapeHTML(toolOutputPreview(receipt))}</pre><small>call ${escapeHTML(shortHash(event.metadata?.tool_call_id))}</small></div></details>`;
+    const status = receipt.status || event.metadata?.tool_status || "receipt";
+    return `<details class="tool-receipt result"><summary>${pill(status === "deferred" ? "ยังไม่ได้ทำ" : status, status === "succeeded" ? "green" : status === "deferred" ? "amber" : "red")}<strong>${escapeHTML(receipt.name || event.metadata?.tool_name || "tool")}</strong><span>${Number(receipt.duration_ms || 0)}ms</span></summary><div class="tool-detail"><p class="tool-step-label">Result</p><pre>${escapeHTML(toolOutputPreview(receipt))}</pre>${receipt.name==="desktop"?desktopEvidenceHTML(receipt.metadata?.screenshot_before_artifact_id,receipt.metadata?.screenshot_artifact_id):""}<small>call ${escapeHTML(shortHash(event.metadata?.tool_call_id))}</small></div></details>`;
   }
   if (event.event_kind === "approval_required") {
     const approval = (state.sessionDetail?.approvals || []).find(item => item.id === event.metadata?.approval_id);
@@ -1130,17 +1170,20 @@ function renderTimelineEvent(event) {
     const tone = approval.state === "pending" ? "amber" : approval.state === "executed" ? "green" : "red";
     const status = {pending:"รออนุมัติ", executed:"ทำแล้ว", denied:"ปฏิเสธแล้ว", cancelled:"ยกเลิกแล้ว"}[approval.state] || approval.state;
     const effect = approval.effect === "unknown" ? "ยังไม่ทราบ" : approval.effect;
-    return `<article class="approval-card"><div class="approval-head"><div>${pill("คำสั่งที่ต้องอนุมัติ", tone)}<strong>${escapeHTML(approval.tool_name)}</strong></div>${pill(status, tone)}</div><p>${escapeHTML(approval.summary)}</p><pre>${escapeHTML(approval.preview || "ไม่มีตัวอย่างข้อมูล")}</pre>${approval.metadata?.screenshot_artifact_id ? `<a href="/api/artifacts/${encodeURIComponent(approval.metadata.screenshot_artifact_id)}/content" target="_blank" rel="noopener noreferrer">ดูภาพหน้าจอก่อนยืนยัน</a>` : ""}<small>ผลกระทบ ${escapeHTML(effect)} · คำสั่ง ${escapeHTML(shortHash(approval.arguments_hash))}</small>${approval.state === "pending" ? `<div class="action-row"><button class="primary" data-approve-tool="${escapeHTML(approval.id)}">อนุมัติครั้งเดียว</button><button class="danger" data-deny-tool="${escapeHTML(approval.id)}">ปฏิเสธ</button></div>` : ""}</article>`;
+    const automatic = ["project-file-writes-v1","project-workflow-v1"].includes(approval.metadata?.authorization);
+    const card = `<article class="approval-card"><div class="approval-head"><div>${pill("คำสั่งที่ต้องอนุมัติ", tone)}<strong>${escapeHTML(approval.tool_name)}</strong></div>${pill(status, tone)}</div><p>${escapeHTML(approval.summary)}</p><pre>${escapeHTML(approval.preview || "ไม่มีตัวอย่างข้อมูล")}</pre>${approval.metadata?.screenshot_artifact_id ? desktopEvidenceHTML(approval.metadata.screenshot_artifact_id,"") : ""}<small>ผลกระทบ ${escapeHTML(effect)} · คำสั่ง ${escapeHTML(shortHash(approval.arguments_hash))}</small>${approval.state === "pending" ? `<div class="action-row"><button class="primary" data-approve-tool="${escapeHTML(approval.id)}">อนุมัติครั้งเดียว</button><button class="danger" data-deny-tool="${escapeHTML(approval.id)}">ปฏิเสธ</button></div>` : ""}</article>`;
+    return approval.state === "pending" ? card : `<details class="approval-history"><summary>${pill(status,tone)}<span>${escapeHTML(approval.tool_name)} · ${automatic ? "ทำตามสิทธิ์ของแชตนี้" : "ดูคำสั่งและการอนุมัติ"}</span></summary>${card}</details>`;
   }
   if (event.event_kind === "approval_decision") {
     const approved = event.metadata?.decision === "approve";
-    return `<article class="approval-decision">${pill(approved ? "อนุมัติครั้งเดียว" : "ปฏิเสธแล้ว", approved ? "green" : "red")}<span>${escapeHTML(event.metadata?.reason || "ไม่ได้ระบุเหตุผล")}</span><small>${escapeHTML(event.metadata?.actor || "ผู้ใช้")}</small></article>`;
+    const automatic = ["project-file-writes-v1","project-workflow-v1"].includes((state.sessionDetail?.approvals || []).find(item => item.id === event.metadata?.approval_id)?.metadata?.authorization);
+    return `<details class="approval-decision"><summary>${pill(approved ? automatic ? "ใช้สิทธิ์ของแชตนี้" : "อนุมัติครั้งเดียว" : "ปฏิเสธแล้ว", approved ? "green" : "red")}<span>ดูเหตุผล</span></summary><span>${escapeHTML(event.metadata?.reason || "ไม่ได้ระบุเหตุผล")}</span><small>${escapeHTML(event.metadata?.actor || "ผู้ใช้")}</small></details>`;
   }
   // A failed turn used to render as nothing at all: the user saw an empty
   // conversation and assumed the model replied nonsense. Say what happened
   // and what to do next instead.
   if (event.event_kind === "turn_failed") {
-    return `<article class="chat-message assistant"><div class="message-role">Hermetrix</div><div class="message-body">${pill("turn failed", "red")} ${escapeHTML(event.content || "Turn failed")}<br><small>${escapeHTML(turnFailureGuidance(event.content))}</small></div></article>`;
+    return `<article class="chat-message assistant"><div class="message-role">Hermetrix</div><div class="message-body">${pill("งานยังไม่สำเร็จ", "red")}<p>${escapeHTML(turnFailureGuidance(event.content))}</p><details class="failure-detail"><summary>รายละเอียดข้อผิดพลาด</summary><p>${escapeHTML(event.content || "Turn failed")}</p></details></div></article>`;
   }
   return "";
 }
@@ -1212,7 +1255,7 @@ async function sendElicitationAnswer(id, body) {
 async function pollElicitations() {
   if (!state.sending || !state.selectedSession) return;
   try {
-    const items = await api(`/api/elicitations?session_id=${encodeURIComponent(state.selectedSession)}`);
+    const items = await api(`/api/elicitations?session_id=${encodeURIComponent(state.selectedSession)}`, {uiSilent:true});
     const changed = JSON.stringify(items) !== JSON.stringify(state.elicitations);
     state.elicitations = Array.isArray(items) ? items : [];
     if (changed) renderChat();
@@ -1262,6 +1305,7 @@ function renderRailNavigation(selectedID) {
 function bindChatNavigation(dock) {
   $("#chatProviderSelect")?.addEventListener("change", event => { selectDraftProvider(event.target.value); state.sessionError=""; renderChat(); $("#chatProviderSelect")?.focus(); });
   $("#chatProfileSelect")?.addEventListener("change", event => { state.draftProfileName = event.target.value; state.draftQualificationReason=""; state.sessionError=""; renderChat(); $("#chatProfileSelect")?.focus(); });
+  $("#chatWorkModeSelect")?.addEventListener("change", event => { state.draftWorkMode=event.target.value; state.draftProfileName=""; state.sessionError=""; renderChat(); $("#chatWorkModeSelect")?.focus(); });
   // Update state without re-rendering: the textarea lives inside an open
   // <details>, and a re-render would collapse it and take the caret with it.
   $("#chatQualificationReason")?.addEventListener("input", event => { state.draftQualificationReason=event.target.value; });
@@ -1307,7 +1351,7 @@ function renderChat() {
   const draftProvider = enabledProviders.find(provider => provider.id === state.draftProviderID);
   const compatibleProfiles = availableProfiles(draftProvider);
   if (!compatibleProfiles.some(profile => profile.name === state.draftProfileName)) {
-    state.draftProfileName = bestProfileFor(draftProvider, compatibleProfiles)?.name || "";
+    state.draftProfileName = (state.draftWorkMode === "audit" ? bestAuditProfileFor(draftProvider, compatibleProfiles) : bestProfileFor(draftProvider, compatibleProfiles))?.name || "";
   }
   // Bind to the open project by default, not merely the first one in the
   // list: the picker is what put you here, and a session started from this
@@ -1324,7 +1368,7 @@ function renderChat() {
   const sameTranscript = previousMessageList?.dataset.sessionId === String(selectedID || "");
   const scrollWasNearBottom = !sameTranscript || previousMessageList.scrollHeight - previousMessageList.scrollTop - previousMessageList.clientHeight < 80;
   const previousScrollTop = sameTranscript ? previousMessageList.scrollTop : 0;
-  const timeline = (state.sessionDetail?.events || []).filter(event => ["message", "tool_call", "tool_result", "approval_required", "approval_decision", "turn_failed"].includes(event.event_kind));
+  const timeline = (state.sessionDetail?.events || []).filter(event => ["message", "tool_call", "tool_result", "approval_required", "approval_decision", "turn_failed", "turn_stopped", "turn_stop_reconciled"].includes(event.event_kind));
   const incompatibleSession = state.chatTurnError.includes("provider/model revision changed after session creation") || timeline.some(event => event.event_kind === "turn_failed" && String(event.content || "").includes("provider/model revision changed after session creation"));
   const latestOutcome = [...timeline].reverse().find(event => event.event_kind === "turn_failed" || (event.event_kind === "message" && event.role === "assistant"));
   const offlineProvider = !incompatibleSession && (/connectex|connection refused|actively refused/i.test(state.chatTurnError) || (latestOutcome?.event_kind === "turn_failed" && /connectex|connection refused|actively refused/i.test(latestOutcome.content || "")));
@@ -1361,6 +1405,7 @@ function renderChat() {
          ${needsOverride ? `<p class="session-note">เซสชันนี้ใช้ข้อยกเว้นที่ตรวจแล้วเป็นเวลา 24 ชั่วโมง เหตุผลจะถูกบันทึกและแก้ไขได้ในตัวเลือกเพิ่มเติม</p>` : ""}
         ${state.sessionError ? `<p class="session-error" role="alert">${escapeHTML(state.sessionError)}</p>` : ""}
          <details class="session-options" id="sessionOptions" ${optionsOpen ? "open" : ""}><summary>ตัวเลือกเพิ่มเติม · ${escapeHTML(draftProfile ? profileLabel(draftProfile) : "บริบท")}</summary><div class="session-options-body">
+           <label>ประเภทงาน<select id="chatWorkModeSelect"><option value="" ${state.draftWorkMode !== "audit" ? "selected" : ""}>แชตทั่วไป</option><option value="audit" ${state.draftWorkMode === "audit" ? "selected" : ""}>ตรวจเว็บพร้อมรายงาน</option></select></label>
            <label>ขนาดบริบท<select id="chatProfileSelect" ${compatibleProfiles.length ? "" : "disabled"}>${compatibleProfiles.map(profile => {
             const status = profileAdmission(draftProvider, profile);
              const note = status.blocking ? "เล็กเกินไปสำหรับโมเดลนี้"
@@ -1383,14 +1428,15 @@ function renderChat() {
   // Navigation and model setup are shared by Chat, Workspace and Plans.
   // Only the mounted Chat view needs transcript and composer markup.
   if (!root) return;
+  renderProjectChip();
   window.HermetrixVoice?.beforeRender();
   root.innerHTML = `<div class="chat-layout"><section class="chat-stage">
-      ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2>${sessionUsageHTML(session, state.sessionDetail?.events, state.sessionDetail?.latest_context_snapshot)}<small>สัญญา ${escapeHTML(shortHash(session.contract_revision))} · รุ่นแคช ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "ยังไม่ผูก")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">สกิล <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">เครื่องมือ <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP พร้อมใช้ <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
+      ${session ? `<header class="chat-head"><div><p class="eyebrow">${escapeHTML(session.provider_name)} / ${escapeHTML(session.context_profile)}</p><h2>${escapeHTML(session.title)}</h2><small>สัญญา ${escapeHTML(shortHash(session.contract_revision))} · รุ่นแคช ${session.cache_epoch} · ${escapeHTML(session.contract?.qualification?.mode || "ยังไม่ผูก")}</small><div class="session-capabilities"><button class="capability-chip" data-open-capabilities="skills">สกิล <strong>${selectedSkills.length}/${skillCatalog.length}</strong></button><button class="capability-chip" data-open-capabilities="tools">เครื่องมือ <strong>${directTools.length}</strong></button><button class="capability-chip" data-open-capabilities="mcp">MCP พร้อมใช้ <strong>${readyMCPTools}</strong></button></div></div><div class="chat-state">${pill(session.state, session.state === "active" ? "green" : "amber")}${pill(session.model,"blue")}</div></header>
         ${incompatibleSession ? `<div class="session-recovery" role="alert"><span>โมเดลของแชตนี้เปลี่ยนไปแล้ว จึงส่งข้อความต่อไม่ได้</span><button type="button" class="primary" id="recoverNewSession">เริ่มแชตใหม่</button></div>` : ""}
         ${offlineProvider ? `<div class="session-recovery" role="alert"><span>เซิร์ฟเวอร์โมเดลในเครื่องยังไม่เปิด ข้อความล่าสุดอยู่ในประวัติแชต</span><button type="button" class="primary" id="checkChatProvider">เปิด Models และทดสอบ</button></div>` : ""}
          <div class="message-list" id="messageList" data-session-id="${escapeHTML(selectedID || "")}">${timeline.length ? renderConversationTimeline(timeline) : `<div class="chat-welcome"><button type="button" class="voice-avatar" data-voice-open aria-label="เริ่มคุยด้วยเสียงกับ Hermetrix"><img src="/assets/brand/hermetrix-logo.png" alt=""></button><h3>Hermetrix พร้อมใช้งาน</h3><p>อธิบายสิ่งที่ต้องการให้ช่วยได้เลย คุณจะเห็นคำตอบและผลการใช้เครื่องมือที่นี่</p></div>`}${questions.map(elicitationCardHTML).join("")}<article class="chat-message assistant streaming ${state.sending ? "" : "hidden"}" id="streamingAssistant"><div class="message-role">Hermetrix</div><div class="message-body">${renderChatMarkdown(state.streamingText || "")}</div><div class="message-proof" id="streamStatus">กำลังรอโมเดล…</div></article></div>
         <div class="voice-host" id="voiceHost"></div>
-        <form class="composer" id="chatForm"><div class="composer-tools"><button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>สกิลและเครื่องมือ</span></button><button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>ไฟล์</span></button><button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>เทอร์มินัล</span></button><button type="button" class="composer-tool-button" id="composerImageButton" ${activeSessionSupportsVision() ? "" : "disabled"} title="${activeSessionSupportsVision() ? "แนบรูปภาพที่โมเดลรองรับ" : "เซสชันนี้ยังไม่มีโมเดลที่รองรับรูปภาพ"}">${uiIcon("artifact")}<span>รูปภาพ</span></button><button type="button" class="composer-tool-button voice-entry" data-voice-open aria-label="เริ่มคุยด้วยเสียงในเครื่อง">🎙 <span>พูด</span></button><input hidden id="composerImageInput" type="file" multiple accept="image/png,image/jpeg,image/webp"><span class="composer-context">${escapeHTML(projectName)} · ${escapeHTML(session.context_profile)}</span></div><div class="action-row" id="composerAttachments">${composerAttachmentHTML()}</div><textarea id="chatInput" rows="2" maxlength="1048576" placeholder="พิมพ์ข้อความถึง Hermetrix…" ${state.sending ? "disabled" : ""}></textarea><button class="primary" ${state.sending ? "disabled" : ""}>${state.sending ? "กำลังทำงาน…" : "ส่ง"}</button></form>` : `<div class="task-start">
+        ${chatComposerHTML(session, projectName)}` : `<div class="task-start">
           <div class="task-start-heading"><button type="button" class="voice-avatar" data-voice-open aria-label="เริ่มคุยด้วยเสียงกับ Hermetrix"><img src="/assets/brand/hermetrix-logo.png" alt=""></button><p class="eyebrow">แชทส่วนตัว</p><h1>อยากคุยเรื่องอะไร?</h1><p>ถามหรือคุยได้ทันที หากต้องลงมือทำงานให้นำเป้าหมายไป Workspace</p></div>
           <div class="voice-host" id="voiceHost"></div>
           <form class="start-composer" id="startTaskForm">
@@ -1408,7 +1454,8 @@ function renderChat() {
   $$("[data-approve-tool]", root).forEach(button => button.addEventListener("click", () => decideToolApproval(button.dataset.approveTool, "approve")));
   $$("[data-deny-tool]", root).forEach(button => button.addEventListener("click", () => decideToolApproval(button.dataset.denyTool, "deny")));
   $$("[data-open-capabilities]", root).forEach(button => button.addEventListener("click", () => openCapabilityPicker(button.dataset.openCapabilities)));
-  $(".chat-head .session-usage", root)?.addEventListener("toggle", event => { tokenUsageDetailsOpen = event.currentTarget.open; });
+  $(".composer-usage .session-usage", root)?.addEventListener("toggle", event => { tokenUsageDetailsOpen = event.currentTarget.open; });
+  root.querySelector('.composer-tool-options')?.addEventListener("click", event => { if (event.target.closest("button:not(:disabled)")) root.querySelector('.composer-tool-menu').open = false; });
   $("#composerCapabilityButton")?.addEventListener("click", () => openCapabilityPicker("all"));
   $("#composerFilesButton")?.addEventListener("click", () => switchWorkbench("files"));
   // Terminal no longer has a side-strip room to switch to; this opens (or
@@ -1425,6 +1472,7 @@ function renderChat() {
   bindComposer();
   window.HermetrixVoice?.onRender();
   $("#chatForm")?.addEventListener("submit", sendTurn);
+  bindChatControls(root, () => $("#chatInput")?.value || "", () => setComposerDraft("", [], selectedID));
   $("#recoverNewSession")?.addEventListener("click", () => {
     const pendingText = $("#chatInput")?.value?.trim() || state.draftMessage || "";
     if (beginNewTaskDraft()) {
@@ -1594,6 +1642,7 @@ function restorePlanningWorkspace() {
 }
 
 function switchView(name) {
+  $("#compactViewLabel") && ($("#compactViewLabel").textContent = name === "code" ? "ทำงาน" : "แชต");
   ++navigationGeneration;
   captureWorkspaceDrafts();
   captureCodeDraft();
@@ -1648,6 +1697,7 @@ function switchView(name) {
   // fills it, the same way renderChat() fills the empty <section> chat's own
   // main() returns.
   if (view === "code") renderPanes();
+  renderProjectChip();
 }
 
 // Every action answers two questions and no others: did the press register,
@@ -1736,7 +1786,13 @@ function bindComposer() {
 
   // The draft survives the re-render that each streamed delta triggers.
   input.value = state.draftMessage || "";
+  const fitInput = () => {
+    input.style.setProperty("--chat-input-height", "auto");
+    input.style.setProperty("--chat-input-height", `${input.scrollHeight}px`);
+  };
+  fitInput();
   input.addEventListener("input", event => {
+    fitInput();
     if (event.target.value.endsWith("@")) {
       event.target.value = event.target.value.slice(0, -1);
       state.draftMessage = event.target.value;
@@ -1899,6 +1955,7 @@ async function openTasks() {
     renderPanes();
     $$("#viewSwitch [data-view]").forEach(button => button.classList.remove("on"));
     $("#plansViewButton")?.classList.add("on");
+    if ($("#compactViewLabel")) $("#compactViewLabel").textContent = "แผน";
     $$(".rail-nav-item").forEach(button => button.classList.toggle("active", button.hasAttribute("data-open-tasks")));
     $("#durableTaskForm textarea[name='objective']")?.focus();
     rememberSurface("plans");
@@ -2012,6 +2069,8 @@ async function createAgentSession(title = "", options = {}) {
   if (state.sessionCreationPending || !state.draftProviderID || !state.draftProfileName) return;
   // Chat stays personal. Workspace tools request a project binding explicitly.
   const projectID = options.projectID || "";
+  const workMode = options.workMode ?? state.draftWorkMode ?? "";
+  if (workMode === "audit" && !projectID) throw new Error("เลือก Workspace ก่อนเริ่มตรวจเว็บ");
   if (projectID && state.currentProject?.id !== projectID) throw new Error("Workspace changed before session creation");
   const provider = state.providers.find(item => item.id === state.draftProviderID);
   const profile = state.profiles.find(item => item.name === state.draftProfileName);
@@ -2033,6 +2092,9 @@ async function createAgentSession(title = "", options = {}) {
       provider_id: state.draftProviderID,
       project_id: projectID,
       context_profile: state.draftProfileName,
+      work_mode: workMode,
+	  workspace_write_approval: options.automaticWrites && projectID && workMode !== "audit"
+	    ? {reason:"ผู้ใช้เลือกให้ทำงานอัตโนมัติในโปรเจกต์และเว็บ/หน้าต่างที่เลือกเมื่อเริ่มแชต",...(options.workflowTargets||{})} : undefined,
       egress_policy: remote ? "remote_allowed" : "local_only",
       remote_egress_approval: remoteEgressApproval,
       // Name the session after what it is bound to, so the list is readable
@@ -2131,13 +2193,139 @@ async function selectSession(id, options = {}) {
   }
 }
 
+// Both composers use the same owner-bound turn and durable queue.
+function chatComposerHTML(session, projectName) {
+  return `<form class="composer" id="chatForm">
+    <div class="action-row" id="composerAttachments">${composerAttachmentHTML()}</div>
+    <textarea id="chatInput" rows="1" maxlength="1048576" aria-label="ข้อความถึง Hermetrix" placeholder="พิมพ์ข้อความ…"></textarea>
+    <button class="primary" aria-label="${chatTurnBusy(session) ? "เพิ่มข้อความในคิว" : "ส่งข้อความ"}" ${session.state === "control_blocked" ? "disabled" : ""}>${chatTurnBusy(session) ? "เข้าคิว" : "ส่ง"}</button>
+    <div class="composer-footer">
+      <div class="composer-tools"><details class="composer-tool-menu"><summary title="เครื่องมือและไฟล์" aria-label="เปิดเครื่องมือและไฟล์">${uiIcon("plus")}<span>เครื่องมือ</span></summary><div class="composer-tool-options" role="group" aria-label="เครื่องมือแชต">
+        <button type="button" class="composer-tool-button" id="composerCapabilityButton">${uiIcon("plus")}<span>สกิลและเครื่องมือ</span></button>
+        <button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>ไฟล์</span></button>
+        <button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>เทอร์มินัล</span></button>
+        <button type="button" class="composer-tool-button" id="composerImageButton" ${activeSessionSupportsVision() ? "" : "disabled"} title="${activeSessionSupportsVision() ? "แนบรูปภาพที่โมเดลรองรับ" : "เซสชันนี้ยังไม่มีโมเดลที่รองรับรูปภาพ"}">${uiIcon("artifact")}<span>รูปภาพ</span></button>
+        <button type="button" class="composer-tool-button voice-entry" data-voice-open aria-label="เริ่มคุยด้วยเสียงในเครื่อง">🎙 <span>พูด</span></button>
+        <small>${escapeHTML(projectName)}</small>
+      </div></details></div>
+      <div class="composer-usage">${sessionUsageHTML(session, state.sessionDetail?.events, state.sessionDetail?.latest_context_snapshot)}</div>
+      ${chatControlsHTML(session)}
+    </div><input hidden id="composerImageInput" type="file" multiple accept="image/png,image/jpeg,image/webp">
+  </form>`;
+}
+
+function chatTurnBusy(session = state.sessionDetail?.session) {
+  return Boolean(session && ((state.sending && (!state.turnSessionID || state.turnSessionID === session.id)) || ["running", "awaiting_approval", "control_blocked"].includes(session.state)));
+}
+
+const openChatQueues = new Set();
+function chatControlsHTML(session = state.sessionDetail?.session) {
+  const control = state.sessionDetail?.turn_control;
+  const busy = chatTurnBusy(session);
+  const stopping = Boolean(control && control.turn_id === session?.active_turn_id && ["stopping", "needs_review"].includes(control.state));
+  const queue = state.sessionDetail?.queued_messages || [];
+  if (!busy && !queue.length) return "";
+  if (["running","awaiting_approval"].includes(session?.state) || queue.some(item => ["queued","running"].includes(item.state))) scheduleChatControlRefresh(session?.id);
+  const needsReview = queue.some(item => ["needs_review","failed"].includes(item.state));
+  return `<div class="chat-turn-controls" aria-label="ควบคุมงานแชต">
+    ${busy ? `<div class="chat-control-actions"><button type="button" class="ghost" data-chat-stop ${!session.active_turn_id || stopping ? "disabled" : ""}>${stopping ? "กำลังหยุด…" : "หยุด"}</button><button type="button" class="ghost" data-chat-steer title="พิมพ์คำสั่งใหม่แล้วกดเพื่อหยุดงานเดิมก่อนทำต่อ" ${!session.active_turn_id || stopping ? "disabled" : ""}>เปลี่ยนคำสั่ง</button>${stopping && control.state === "needs_review" ? `<button type="button" class="ghost" data-chat-reconcile>ตรวจผลการหยุด</button>` : ""}</div>` : ""}
+    ${queue.length ? `<details class="chat-queue-menu ${needsReview ? "needs-attention" : ""}" data-queue-session="${escapeHTML(session.id)}" ${openChatQueues.has(session.id) ? "open" : ""}><summary aria-label="ดูข้อความในคิว ${queue.length} รายการ${needsReview ? " มีรายการต้องตรวจสอบ" : ""}">${uiIcon("activity")}<span>คิว ${queue.length}</span>${needsReview ? `<span class="queue-attention" title="มีรายการต้องตรวจสอบ">!</span>` : ""}</summary><div class="chat-queue-list"><strong>ข้อความในคิว</strong>${queue.map(item => `<div class="chat-queue-item"><span>${escapeHTML(item.content.slice(0,120))}</span><small>${escapeHTML(({queued:"รอคิว",running:"กำลังทำ",awaiting_approval:"รออนุมัติ",needs_review:"ต้องตรวจสอบ",failed:"ไม่สำเร็จ"})[item.state] || item.state)}</small>${["queued","needs_review"].includes(item.state) ? `<button type="button" class="ghost" data-chat-cancel="${escapeHTML(item.id)}">ยกเลิก</button>` : ""}${item.error ? `<details class="chat-queue-reason"><summary>เหตุผล</summary><p>${escapeHTML(item.error === "Direction changed: review earlier queued messages" ? "เปลี่ยนคำสั่งแล้ว ข้อความเก่าถูกพักไว้ ตรวจหรือยกเลิกได้" : item.error)}</p></details>` : ""}</div>`).join("")}</div></details>` : ""}
+  </div>`;
+}
+
+const pendingQueueKeys = new Map();
+async function queueChatText(content, mode = "queue") {
+  const session = state.sessionDetail?.session;
+  if (!session || !content.trim()) return false;
+  if (session.state === "control_blocked") { toast("ต้องตรวจผลเครื่องมือของงานที่หยุดก่อนทำต่อ", true); return false; }
+  const requestKey = JSON.stringify([session.id,content.trim(),mode,mode === "steer" ? session.active_turn_id : ""]);
+  if (!pendingQueueKeys.has(requestKey)) pendingQueueKeys.set(requestKey,crypto.randomUUID());
+  const payload = {content:content.trim(),mode,idempotency_key:pendingQueueKeys.get(requestKey)};
+  if (mode === "steer") payload.turn_id = session.active_turn_id;
+  try {
+    const item = await api(`/api/sessions/${encodeURIComponent(session.id)}/queue`, {method:"POST",body:JSON.stringify(payload)});
+    pendingQueueKeys.delete(requestKey);
+    if (state.sessionDetail?.session?.id === session.id) {
+      if (mode === "steer") for (const older of state.sessionDetail.queued_messages || []) if (older.state === "queued") older.state = "needs_review";
+      (state.sessionDetail.queued_messages ||= []).push(item);
+    }
+    scheduleChatControlRefresh(session.id);
+    toast(mode === "steer" ? "บันทึกคำสั่งใหม่แล้ว กำลังหยุดงานเดิม" : "เพิ่มข้อความในคิวแล้ว");
+    return true;
+  } catch (error) { toast(error.message,true); return false; }
+}
+
+function bindChatControls(root, draft, clear) {
+  root.querySelectorAll('[data-queue-session]').forEach(menu => menu.addEventListener("toggle", () => {
+    if (menu.open) openChatQueues.add(menu.dataset.queueSession); else openChatQueues.delete(menu.dataset.queueSession);
+  }));
+	root.querySelector('[data-chat-reconcile]')?.addEventListener("click",async event=>{
+		const session=state.sessionDetail?.session;if(!session?.active_turn_id)return;
+		event.currentTarget.disabled=true;
+		try {
+			const control=await api(`/api/sessions/${encodeURIComponent(session.id)}/stop/reconcile`,{method:"POST",body:JSON.stringify({turn_id:session.active_turn_id})});
+			toast(control.state==="stopped"?"ตรวจยืนยันการหยุดแล้ว": "ยังยืนยันผลเครื่องมือไม่ได้ ตรวจประวัติก่อนทำต่อ",control.state!=="stopped");
+			await selectSession(session.id,{refresh:true});refreshPaneChat();
+		}catch(error){event.currentTarget.disabled=false;toast(error.message,true);}
+	});
+  root.querySelector('[data-chat-stop]')?.addEventListener("click", async event => {
+    const session = state.sessionDetail?.session;
+    if (!session?.active_turn_id) return;
+    event.currentTarget.disabled = true;
+    try {
+      const item = await api(`/api/sessions/${encodeURIComponent(session.id)}/stop`, {method:"POST",body:JSON.stringify({turn_id:session.active_turn_id})});
+      if (state.sessionDetail?.session?.id === session.id) state.sessionDetail.turn_control = item;
+      scheduleChatControlRefresh(session.id);
+      renderChat(); refreshPaneChat();
+    } catch(error) { event.currentTarget.disabled = false; toast(error.message,true); }
+  });
+  root.querySelector('[data-chat-steer]')?.addEventListener("click", async () => {
+    const content = draft();
+    if (!content.trim()) { toast("พิมพ์คำสั่งใหม่ในช่องข้อความก่อน", true); return; }
+    if (await queueChatText(content,"steer") && draft() === content) clear();
+    renderChat(); refreshPaneChat();
+  });
+  for (const button of root.querySelectorAll('[data-chat-cancel]')) button.addEventListener("click", async () => {
+    const sessionID = state.sessionDetail?.session?.id;
+    try {
+      await api(`/api/sessions/${encodeURIComponent(sessionID)}/queue/${encodeURIComponent(button.dataset.chatCancel)}`, {method:"DELETE"});
+      if (state.sessionDetail?.session?.id === sessionID) state.sessionDetail.queued_messages = (state.sessionDetail.queued_messages || []).filter(item => item.id !== button.dataset.chatCancel);
+      renderChat(); refreshPaneChat();
+    } catch(error) { toast(error.message,true); }
+  });
+}
+
+let chatControlRefreshTimer = null;
+function scheduleChatControlRefresh(sessionID) {
+  if (!sessionID || chatControlRefreshTimer) return;
+  chatControlRefreshTimer = setTimeout(async () => {
+    chatControlRefreshTimer = null;
+    if (state.sessionDetail?.session?.id !== sessionID) return;
+    if (state.sending) { scheduleChatControlRefresh(sessionID); return; }
+    try {
+      const detail = await api(`/api/sessions/${encodeURIComponent(sessionID)}`, {uiSilent:true});
+      if (state.sessionDetail?.session?.id !== sessionID || state.sending) return;
+      captureComposer();
+      state.sessionDetail = detail;
+      renderChat(); refreshPaneChat();
+      if (["running","awaiting_approval"].includes(detail.session.state) || detail.queued_messages?.some(item => ["queued","running"].includes(item.state))) scheduleChatControlRefresh(sessionID);
+    } catch { /* Keep the durable queue visible; retry without resending. */ scheduleChatControlRefresh(sessionID); }
+  },1200);
+}
+
 async function sendTurn(event) {
   event.preventDefault();
-  if (state.sending || !state.sessionDetail?.session) return;
+  if (!state.sessionDetail?.session) return;
   const input = $("#chatInput");
   const content = input.value.trim();
   const sessionID = state.sessionDetail.session.id;
   const attachments = state.composerAttachments.slice();
+  if (chatTurnBusy()) {
+    if (attachments.length) { toast("ข้อความในคิวรองรับข้อความก่อน กรุณาเก็บรูปไว้ส่งเมื่อพร้อม", true); return; }
+    if (await queueChatText(content) && $("#chatInput")?.value.trim() === content) setComposerDraft("", [], sessionID);
+    renderChat();
+    return;
+  }
   if (!content && !attachments.some(item => item.state === "ready")) return;
   if (attachments.some(item => item.state !== "ready")) { toast("Remove failed images or wait for every upload to become ready", true); return; }
   // Clear the mounted box BEFORE renderChat: renderChat calls
@@ -2147,10 +2335,10 @@ async function sendTurn(event) {
   state.draftMessage = "";
   state.composerCaret = 0;
   state.composerFocused = true;
+  setComposerDraft("", [], sessionID);
   const ok = await submitChatText(content, attachments);
   // The turn never committed, so hand the text back instead of eating it.
-  if (!ok) setComposerDraft(content, attachments, sessionID);
-  else setComposerDraft("", [], sessionID);
+  if (!ok && !state.draftMessage) setComposerDraft(content, attachments, sessionID);
   if (state.sessionDetail?.session?.id === sessionID) renderChat();
 }
 
@@ -2249,6 +2437,8 @@ async function consumeAgentStream(response, onEvent) {
       onEvent?.(item);
       window.HermetrixAssistant?.onStream(item);
       if (item.type === "user_committed" && item.event) {
+        state.sessionDetail.session.active_turn_id = item.turn_id;
+        state.sessionDetail.session.state = "running";
         state.sessionDetail.events.push(item.event);
         renderChat();
       } else if (item.type === "step_bound") {
@@ -2275,6 +2465,8 @@ async function consumeAgentStream(response, onEvent) {
       } else if (item.type === "tool_result") {
         const status = $("#streamStatus");
         if (status) status.textContent = `${item.event?.metadata?.tool_name || "tool"} · ${item.event?.metadata?.tool_status || "receipt committed"}`;
+      } else if (item.type === "stopped") {
+        if (item.event && !state.sessionDetail.events.some(event => event.id === item.event.id)) state.sessionDetail.events.push(item.event);
       } else if (item.type === "failed") {
         failedMessage = item.error || "Turn failed";
       }
@@ -2295,7 +2487,7 @@ function renderProviders() {
     const latest = state.qualifications.find(run => run.provider_id === provider.id && run.model === provider.model && run.provider_revision === provider.revision);
     const keyState = providerCredentialLabel(provider);
     const connectionState = feedback ? feedback.error ? "ทดสอบไม่ผ่าน" : "เชื่อมต่อสำเร็จในหน้านี้" : "ยังไม่ทดสอบการเชื่อมต่อ";
-    return `<article class="model-card" data-model-card="${escapeHTML(provider.id)}"><div class="model-card-main"><div class="model-card-title"><div><h3>${escapeHTML(provider.name)}</h3><p>${escapeHTML(providerModelLabel(provider))}</p></div>${pill(provider.id === state.defaultProviderID ? "ค่าเริ่มต้น" : provider.enabled ? "เปิดใช้งาน" : "ปิดอยู่", provider.id === state.defaultProviderID || provider.enabled ? "green" : "amber")}</div><p class="model-card-endpoint">${escapeHTML(provider.base_url)}</p><div class="model-card-meta"><span>${taskProviderIsLocal(provider) ? "ในเครื่อง" : "ภายนอก"} · ${escapeHTML(provider.adapter_kind)}</span><span>${escapeHTML(keyState)}</span><span data-provider-connection="${escapeHTML(provider.id)}">${escapeHTML(connectionState)}</span><span>${latest ? `บริบท: ${escapeHTML(latest.context_tier)} · grade ${escapeHTML(latest.capability_grade)}` : "ขนาดบริบทยังไม่ผ่านการตรวจ"}</span></div><div class="model-card-actions"><button type="button" class="ghost" data-default-provider="${escapeHTML(provider.id)}" ${provider.id === state.defaultProviderID || !provider.enabled || !provider.credential_ready ? "disabled" : ""}>${provider.id === state.defaultProviderID ? "ใช้เป็นค่าเริ่มต้นแล้ว" : "ตั้งเป็นค่าเริ่มต้น"}</button><button type="button" class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.enabled && provider.credential_ready ? "" : "disabled"}>ทดสอบการเชื่อมต่อ</button><button type="button" class="ghost" data-edit-provider="${escapeHTML(provider.id)}">แก้ไข</button><button type="button" class="ghost" data-provider-key="${escapeHTML(provider.id)}">จัดการ API key</button><button type="button" class="ghost" data-open-qualification="${escapeHTML(provider.id)}" ${provider.enabled && provider.credential_ready ? "" : "disabled"}>ตรวจความพร้อม</button></div><p class="model-test-result ${feedback?.error ? "error" : ""}" data-provider-test-result="${escapeHTML(provider.id)}" role="status">${feedback ? escapeHTML(feedback.text) : ""}</p></div><details class="model-card-details" data-model-details="${escapeHTML(provider.id)}"><summary>รายละเอียดและตัวเลือกการตรวจ</summary><div class="model-card-details-body"><div class="model-detail-grid"><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><strong>${provider.max_output_tokens.toLocaleString()}</strong><span>หลักฐานบริบท</span><strong>${provider.context_evidence === "qualified" ? "ตรวจแล้ว" : "ค่าที่ระบุไว้"}</strong></div><form class="model-qualify-form" data-qualify-form="${escapeHTML(provider.id)}"><h4>ตรวจความพร้อมของ ${escapeHTML(provider.name)}</h4><label>ขนาดบริบทที่ต้องการ<select name="requested_profile">${state.profiles.map(profile => `<option value="${escapeHTML(profile.name)}" ${profile.name === "certified-64k" ? "selected" : ""}>${profileLabel(profile)}</option>`).join("")}</select></label><label>Runtime ในเครื่อง (ถ้ามี)<select name="runtime"><option value="">ไม่ระบุ</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="vllm">vLLM</option><option value="llamacpp">llama.cpp</option></select></label><label class="model-runtime-endpoint" hidden>URL ของ runtime<input name="endpoint" type="url" value="http://127.0.0.1:11434"></label><button class="primary" type="submit">เริ่มตรวจความพร้อม</button></form></div></details></article>`;
+    return `<article class="model-card" data-model-card="${escapeHTML(provider.id)}"><div class="model-card-main"><div class="model-card-title"><div><h3>${escapeHTML(provider.name)}</h3><p>${escapeHTML(providerModelLabel(provider))}</p></div>${pill(provider.id === state.defaultProviderID ? "ค่าเริ่มต้น" : provider.enabled ? "เปิดใช้งาน" : "ปิดอยู่", provider.id === state.defaultProviderID || provider.enabled ? "green" : "amber")}</div><p class="model-card-endpoint">${escapeHTML(provider.base_url)}</p><div class="model-card-meta"><span>${taskProviderIsLocal(provider) ? "ในเครื่อง" : "ภายนอก"} · ${escapeHTML(provider.adapter_kind)}</span><span>${escapeHTML(keyState)}</span><span data-provider-connection="${escapeHTML(provider.id)}">${escapeHTML(connectionState)}</span><span>${latest ? `บริบท: ${escapeHTML(latest.context_tier)} · grade ${escapeHTML(latest.capability_grade)}` : "ขนาดบริบทยังไม่ผ่านการตรวจ"}</span></div><div class="model-card-actions"><button type="button" class="ghost" data-default-provider="${escapeHTML(provider.id)}" ${provider.id === state.defaultProviderID || !provider.enabled || !provider.credential_ready ? "disabled" : ""}>${provider.id === state.defaultProviderID ? "ใช้เป็นค่าเริ่มต้นแล้ว" : "ตั้งเป็นค่าเริ่มต้น"}</button><button type="button" class="ghost" data-test-provider="${escapeHTML(provider.id)}" ${provider.enabled && provider.credential_ready ? "" : "disabled"}>ทดสอบการเชื่อมต่อ</button>${taskProviderIsLocal(provider) ? `<button type="button" class="ghost" data-provider-idle="${escapeHTML(provider.id)}">ตรวจยืนยันว่าโมเดลว่าง</button>` : ""}<button type="button" class="ghost" data-edit-provider="${escapeHTML(provider.id)}">แก้ไข</button><button type="button" class="ghost" data-provider-key="${escapeHTML(provider.id)}">จัดการ API key</button><button type="button" class="ghost" data-open-qualification="${escapeHTML(provider.id)}" ${provider.enabled && provider.credential_ready ? "" : "disabled"}>ตรวจความพร้อม</button></div><p class="model-test-result ${feedback?.error ? "error" : ""}" data-provider-test-result="${escapeHTML(provider.id)}" role="status">${feedback ? escapeHTML(feedback.text) : ""}</p></div><details class="model-card-details" data-model-details="${escapeHTML(provider.id)}"><summary>รายละเอียดและตัวเลือกการตรวจ</summary><div class="model-card-details-body"><div class="model-detail-grid"><span>Context</span><strong>${provider.context_window.toLocaleString()}</strong><span>Output</span><strong>${provider.max_output_tokens.toLocaleString()}</strong><span>หลักฐานบริบท</span><strong>${provider.context_evidence === "qualified" ? "ตรวจแล้ว" : "ค่าที่ระบุไว้"}</strong></div><form class="model-qualify-form" data-qualify-form="${escapeHTML(provider.id)}"><h4>ตรวจความพร้อมของ ${escapeHTML(provider.name)}</h4><label>ขนาดบริบทที่ต้องการ<select name="requested_profile">${state.profiles.map(profile => `<option value="${escapeHTML(profile.name)}" ${profile.name === "certified-64k" ? "selected" : ""}>${profileLabel(profile)}</option>`).join("")}</select></label><label>Runtime ในเครื่อง (ถ้ามี)<select name="runtime"><option value="">ไม่ระบุ</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="vllm">vLLM</option><option value="llamacpp">llama.cpp</option></select></label><label class="model-runtime-endpoint" hidden>URL ของ runtime<input name="endpoint" type="url" value="http://127.0.0.1:11434"></label><button class="primary" type="submit">เริ่มตรวจความพร้อม</button></form></div></details></article>`;
   }).join("") : `<div class="empty model-empty"><h3>ยังไม่มีโมเดล</h3><p>เพิ่มโมเดลในเครื่องหรือผู้ให้บริการที่ใช้ แล้วทดสอบก่อนเริ่มแชต</p></div>`;
   const setup = `<details class="model-connect panel" id="modelConnect" ${list.length ? "" : "open"}><summary>เพิ่มหรือแก้ไขโมเดล</summary><div class="connection-setup-body"><form id="providerForm"><input type="hidden" name="id" value="">
       <div class="model-form-grid"><label>ชื่อที่เรียก<input name="name" required maxlength="80" placeholder="เช่น Bonsai Local"></label><label>โปรโตคอล<select name="adapter_kind"><option value="openai-compatible">OpenAI-compatible</option><option value="anthropic-native">Anthropic native</option><option value="gemini-native">Gemini native</option></select></label></div>
@@ -2309,6 +2501,12 @@ function renderProviders() {
     </form></div></details>`;
   const runs = state.qualifications.length ? `<details class="model-runs" id="modelRuns"><summary>ผลตรวจที่ผ่านมา <span>${state.qualifications.length}</span></summary><div class="model-run-list">${state.qualifications.map(run => `<article class="model-run"><div><strong>${escapeHTML(run.provider_name)} · ${escapeHTML(run.model)}</strong><small>${formatDate(run.completed_at || run.started_at)} · ${escapeHTML(run.context_tier)} · ${run.eligible ? "พร้อมใช้" : "ต้องตรวจเพิ่ม"}</small></div>${pill(`grade ${run.capability_grade}`, run.capability_grade === "A" ? "green" : run.capability_grade === "B" ? "amber" : "red")}</article>`).join("")}</div></details>` : "";
   root.innerHTML = `${hero}<p class="form-note neutral model-context-hint">ขนาดบริบทเป็นพื้นที่รวมของข้อมูลเข้าและคำตอบ ระบบกันพื้นที่ให้คำตอบและความไม่แน่นอน จึงส่งข้อความเข้าได้จริงน้อยกว่าตัวเลข 64k หรือ 128k ที่แสดง ดูจำนวนที่ใช้จริงหลังส่งงานในหน้า “บริบทโมเดล”</p><div class="models-surface">${setup}<div class="model-list">${cards}</div>${runs}</div>`;
+  $$("[data-provider-idle]", root).forEach(button => button.addEventListener("click",async()=>{
+    button.disabled=true;
+    try { await api(`/api/providers/${encodeURIComponent(button.dataset.providerIdle)}/confirm-idle`,{method:"POST"});toast("ยืนยันว่าโมเดลว่างแล้ว การพักโมเดลถูกปลด แต่คำสั่งเดิมจะไม่ถูกส่งซ้ำ"); }
+    catch(error) { toast(error.message,true); }
+    finally { button.disabled=false; }
+  }));
   $("#modelAdd")?.addEventListener("click", () => openProviderEditor());
   $$("[data-default-provider]", root).forEach(button => button.addEventListener("click", () => saveDefaultProvider(button.dataset.defaultProvider)));
   $("#providerCancel")?.addEventListener("click", () => { $("#modelConnect").open = false; $("#providerForm").reset(); $("#providerForm").elements.namedItem("id").value = ""; });
@@ -3355,7 +3553,7 @@ function scheduleOfficePoll() {
   officePollTimer = setTimeout(async () => {
     if (generation !== officePollGeneration || state.activeTab !== "office") return;
     try {
-      const [jobs, reviews] = await Promise.all([api("/api/jobs"), api("/api/reviews")]);
+      const [jobs, reviews] = await Promise.all([api("/api/jobs", {uiSilent:true}), api("/api/reviews", {uiSilent:true})]);
       if (generation !== officePollGeneration || state.activeTab !== "office") return;
       const changed = JSON.stringify([state.jobs,state.reviews]) !== JSON.stringify([jobs,reviews]);
       state.jobs = asList(jobs); state.reviews = asList(reviews);
@@ -3631,6 +3829,8 @@ function renderWorkbenchReview(target = $(".pane-body[data-pane-kind='review']")
   if (!target) return;
   const queued = state.reviews.filter(item => ["queued","running"].includes(item.state));
   const session = state.sessionDetail?.session;
+  const reviewScope = session?.project_id ? state.projects.find(project => project.id === session.project_id)?.name : "แชทส่วนตัว";
+  const ownJobs = state.currentProject?.id ? state.jobs.filter(job => job.payload?.project_id === state.currentProject.id) : state.jobs;
   const contextProfile = state.profiles.find(item => item.name === session?.context_profile);
   const contextBar = sessionContextMeterHTML(session, contextProfile, state.sessionDetail?.events, state.sessionDetail?.latest_context_snapshot) +
     (state.sessionDetail?.context_snapshot_error ? `<p role="alert">${escapeHTML(state.sessionDetail.context_snapshot_error)}</p>` : "");
@@ -3643,8 +3843,8 @@ function renderWorkbenchReview(target = $(".pane-body[data-pane-kind='review']")
     ? "ยังไม่ได้แนบเนื้อหา Skill ในคำขอนี้ แต่โมเดลค้นหาและอ่านเวอร์ชันที่ผูกกับ session ได้ด้วย skill_search และ skill_view"
     : "แชตส่วนตัวนี้ไม่มีเครื่องมือเรียก skill_view หากต้องการให้โมเดลค้นหาและอ่าน Skill ให้เริ่มแชตในโปรเจกต์";
   const sessionPanel = session ? `<div class="panel session-contract-panel"><div class="provider-head"><div><p class="eyebrow">ข้อมูลของแชตนี้</p><h3>${escapeHTML(session.title)}</h3></div>${pill(session.state, session.state === "active" ? "green" : "amber")}</div><div class="kv"><span>โมเดล</span><strong>${escapeHTML(session.model)}</strong><span>บริบท</span><strong>${escapeHTML(session.context_profile)}</strong><span>โปรเจกต์</span><strong>${escapeHTML(state.projects.find(item => item.id === session.project_id)?.name || "แชตส่วนตัว")}</strong><span>สกิลที่เลือก</span><strong>${selectedSkills.length}</strong><span>สกิลในคำขอล่าสุด</span><strong>${lastContextSkills.size}</strong><span>เครื่องมือ</span><strong>${(contract.tool_bindings || []).length}</strong><span>รออนุมัติ</span><strong>${pendingApprovals.length}</strong><span>สัญญา</span><code>${escapeHTML(shortHash(session.contract_revision))}</code><span>รุ่นความสามารถ</span><code>${escapeHTML(shortHash(contract.capability_revision))}</code></div>${selectedSkills.length ? `<div class="meta session-skill-list">${selectedSkills.map(item => pill(item.canonical_name,lastContextSkills.has(`skill:${item.skill_id}:${item.version_id}`) ? "green" : "blue")).join("")}</div>` : `<p class="form-note neutral">${skillAccessNote}</p>`}<div class="action-row"><button class="primary" id="reviewOpenCapabilities">สกิลและเครื่องมือ</button><button class="ghost" id="reviewOpenTools">ศูนย์เครื่องมือ</button></div></div>` : `<div class="panel"><p class="eyebrow">ตรวจแชต</p><h3>เริ่มหรือเลือกแชต</h3><p class="dialog-message">ข้อมูลโมเดล บริบท สกิล เครื่องมือ และการอนุมัติของแชตจะแสดงที่นี่</p></div>`;
-  target.innerHTML = `${usagePanel}${sessionPanel}<div class="panel"><p class="eyebrow">สิทธิ์และงานเบื้องหลัง</p><h3>ตรวจหลักฐานก่อนให้สิทธิ์</h3><p class="dialog-message">ตรวจข้อเสนอสกิล คำขอเขียนไฟล์ งานตรวจทาน และผลคำสั่งได้ที่นี่ ตัวแทนทำงานเพิ่มสิทธิ์ของตัวเองจากหน้านี้ไม่ได้</p><div class="kv"><span>ข้อเสนอ</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>งานตรวจทาน</span><strong>${queued.length}</strong><span>นโยบาย</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">เปิดสตูดิโอสกิล</button><button class="ghost" id="reviewRunNext" title="${queued.length ? "เริ่มตรวจงานที่รออยู่นานที่สุด" : "ไม่มีงานตรวจทานค้างอยู่ งานใหม่จะเข้าคิวเมื่อมีเหตุการณ์หรือคำขอเรียนรู้"}" ${queued.length ? "" : "disabled"}>ตรวจงานถัดไป</button></div></div>
-  <div class="card-list spaced">${state.jobs.slice(0,5).map(job => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(job.payload?.executable || job.kind)}</strong>${pill(job.state,job.state === "completed" ? "green" : job.state === "failed" ? "red" : "amber")}</div><small>${formatDate(job.created_at)} · ${escapeHTML(job.result?.artifact_id || "รอผลการทำงาน")}</small></article>`).join("") || `<div class="probe-empty">ยังไม่มีผลการทำงานล่าสุด</div>`}</div>`;
+  target.innerHTML = `<p class="form-note neutral">ข้อมูลแชท: ${escapeHTML(reviewScope)} · ผลคำสั่ง: ${escapeHTML(state.currentProject?.name || "ทุกโปรเจกต์")} · สตูดิโอสกิล: ทั้งระบบ</p>${usagePanel}${sessionPanel}<div class="panel"><p class="eyebrow">สิทธิ์และงานเบื้องหลัง</p><h3>ตรวจหลักฐานก่อนให้สิทธิ์</h3><p class="dialog-message">ตรวจข้อเสนอสกิล คำขอเขียนไฟล์ งานตรวจทาน และผลคำสั่งได้ที่นี่ ตัวแทนทำงานเพิ่มสิทธิ์ของตัวเองจากหน้านี้ไม่ได้</p><div class="kv"><span>ข้อเสนอ</span><strong>${state.candidates.filter(item => ["needs_review","quarantined"].includes(item.state)).length}</strong><span>งานตรวจทาน</span><strong>${queued.length}</strong><span>นโยบาย</span><strong>${escapeHTML(state.skillAuthority?.mode || "manual")}</strong></div><div class="action-row"><button class="primary" id="reviewOpenSkills">เปิดสตูดิโอสกิล</button><button class="ghost" id="reviewRunNext" title="${queued.length ? "เริ่มตรวจงานที่รออยู่นานที่สุด" : "ไม่มีงานตรวจทานค้างอยู่ งานใหม่จะเข้าคิวเมื่อมีเหตุการณ์หรือคำขอเรียนรู้"}" ${queued.length ? "" : "disabled"}>ตรวจงานถัดไป</button></div></div>
+  <div class="card-list spaced">${ownJobs.slice(0,5).map(job => `<article class="artifact-mini"><div class="provider-head"><strong>${escapeHTML(job.payload?.executable || job.kind)}</strong>${pill(job.state,job.state === "completed" ? "green" : job.state === "failed" ? "red" : "amber")}</div><small>${formatDate(job.created_at)} · ${escapeHTML(job.result?.artifact_id || "รอผลการทำงาน")}</small></article>`).join("") || `<div class="probe-empty">ยังไม่มีผลการทำงานล่าสุด</div>`}</div>`;
   target.querySelector(".review-usage-panel .session-usage")?.addEventListener("toggle", event => { tokenUsageDetailsOpen = event.currentTarget.open; });
   $("#reviewOpenCapabilities")?.addEventListener("click", () => openCapabilityPicker("all"));
   $("#reviewOpenTools")?.addEventListener("click", () => switchTab("mcp"));
@@ -3720,12 +3920,20 @@ window.addEventListener("pagehide", () => {
 });
 function projectCodeTabs(projectID = state.currentProject?.id) {
   if (!projectID) return [];
-  if (!codeTabs.has(projectID)) codeTabs.set(projectID, []);
+  if (!codeTabs.has(projectID)) {
+    let tabs = [];
+    try { tabs = JSON.parse(sessionStorage.getItem("hermetrix.ide.tabs.v1:" + projectID) || "[]"); } catch {}
+    codeTabs.set(projectID, Array.isArray(tabs) ? tabs.filter(path => typeof path === "string" && path.length <= 512).slice(-32) : []);
+  }
   return codeTabs.get(projectID);
 }
 function rememberCodeTab(projectID, path) {
   const tabs = projectCodeTabs(projectID);
   if (!tabs.includes(path)) tabs.push(path);
+  try {
+    sessionStorage.setItem("hermetrix.ide.tabs.v1:" + projectID, JSON.stringify(tabs.slice(-32)));
+    sessionStorage.setItem("hermetrix.ide.active.v1:" + projectID, path);
+  } catch {}
 }
 function captureCodeDraft() {
   const document = state.projectFile;
@@ -3734,6 +3942,10 @@ function captureCodeDraft() {
     ? activeCodeEditor.getValue()
     : $("#workbenchFileContent")?.value;
   if (document && typeof content === "string") {
+    // Read-only mounts can normalize mixed separators (and textarea CRLF).
+    // Only a real edit may replace the original buffer.
+    if (activeCodeEditor?.documentKey === key && activeCodeEditor.changed !== true &&
+        content.replace(/\r\n|\r/g, "\n") === document.content.replace(/\r\n|\r/g, "\n")) return;
     // A mounted editor that never reported a change and reads back empty is
     // "not ready", not "the user deleted everything" (a real clear-all always
     // fires onChange first). Letting that empty read through would poison the
@@ -3934,6 +4146,10 @@ function closeCodeTab(projectID, path) {
   const tabs = projectCodeTabs(projectID);
   const index = tabs.indexOf(path);
   if (index >= 0) tabs.splice(index, 1);
+  try {
+    sessionStorage.setItem("hermetrix.ide.tabs.v1:" + projectID, JSON.stringify(tabs));
+    if (!tabs.length) sessionStorage.removeItem("hermetrix.ide.active.v1:" + projectID);
+  } catch {}
   if (state.projectFile?.projectID === projectID && state.projectFile?.path === path) {
     const next = tabs[Math.min(index, tabs.length - 1)];
     state.projectFile = null;
@@ -4206,7 +4422,7 @@ async function pollTerminal() {
   terminalPollInFlight = true;
   try {
     const cursor = terminalCursor.id === id ? terminalCursor.value : 0;
-    const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=${cursor}`);
+    const output=await api(`/api/terminals/${encodeURIComponent(id)}/output?cursor=${cursor}`, {uiSilent:true});
     if (state.selectedTerminal !== id || !terminalPaneOpen() || screen !== $("#terminalScreen")) return;
     const terminal=state.terminals.find(item => item.id===id);
     if (terminal) Object.assign(terminal,{state:output.state,exit_code:output.exit_code,error:output.error,cursor:output.cursor});
@@ -4260,11 +4476,14 @@ function renderBrowserScreenshot(tab) {
 }
 
 function renderWorkbenchBrowserHTML() {
+  const computerMode=state.browserWorkbenchMode==="desktop";
+  const modeButtons=`<div class="action-row" aria-label="เลือกหน้าควบคุม"><button class="${computerMode?"ghost":"primary"}" type="button" data-browser-mode="browser" aria-pressed="${!computerMode}">เว็บไซต์</button><button class="${computerMode?"primary":"ghost"}" type="button" data-browser-mode="desktop" aria-pressed="${computerMode}">ควบคุมเครื่อง</button></div>`;
+  if(computerMode)return modeButtons+renderDesktopObservationHTML();
   const tab=state.browserTabs.find(item => item.id===state.selectedBrowserTab);
   const ready=tab?.state==="ready";
   const reopen=tab?.state==="interrupted";
   const browserProject=tab ? tab.project_id : state.selectedProject;
-  return `<div class="panel"><div class="provider-head"><div><p class="eyebrow">เบราว์เซอร์สำหรับงานนี้</p><h3>${escapeHTML(tab?.title || "เปิดเว็บไซต์")}</h3></div>${tab ? pill(tab.state,tab.state==="ready"?"green":"amber") : ""}</div>
+  return modeButtons+`<div class="panel"><div class="provider-head"><div><p class="eyebrow">เบราว์เซอร์สำหรับงานนี้</p><h3>${escapeHTML(tab?.title || "เปิดเว็บไซต์")}</h3></div>${tab ? pill(tab.state,tab.state==="ready"?"green":"amber") : ""}</div>
     ${reopen ? `<p class="form-note neutral" role="status">แท็บนี้หยุดทำงานหลังแอปรีสตาร์ต ภาพและข้อความด้านล่างเป็นข้อมูลก่อนหยุด เปิดที่อยู่เดิมในแท็บใหม่แล้วตรวจหน้าอีกครั้งก่อนทำต่อ</p>` : ""}
     ${tab?.state==="blocked" ? `<p class="session-error" role="alert">แท็บนี้ถูกหยุดเพราะนโยบายการเข้าถึง: ${escapeHTML(tab.error || "ตรวจ URL และสิทธิ์ของโปรเจกต์ก่อนเปิดแท็บใหม่")}</p>` : ""}
     <form id="browserOpenForm"><label>ที่อยู่เว็บไซต์<input name="url" type="url" value="${escapeHTML(tab?.url || "https://")}" required></label><label>โปรเจกต์<select name="project_id"><option value="" ${!browserProject?"selected":""}>ไม่ผูกโปรเจกต์</option>${state.projects.map(item=>`<option value="${escapeHTML(item.id)}" ${item.id===browserProject?"selected":""}>${escapeHTML(item.name)}</option>`).join("")}</select></label><label class="check-label"><input name="allow_private" type="checkbox" ${tab?.allow_private?"checked":""}> อนุญาตที่อยู่ในเครื่องหรือเครือข่ายส่วนตัวสำหรับแท็บนี้</label><div class="action-row"><button class="primary">${reopen ? "เปิดที่อยู่เดิมในแท็บใหม่" : "เปิดแท็บใหม่"}</button>${ready?`<button class="ghost" type="button" data-browser-action="navigate">ไปที่ที่อยู่นี้</button><button class="ghost" type="button" data-browser-action="back">ย้อนกลับ</button><button class="ghost" type="button" data-browser-action="scroll_up">เลื่อนหน้าเว็บขึ้น</button><button class="ghost" type="button" data-browser-action="scroll_down">เลื่อนหน้าเว็บลง</button><button class="ghost" type="button" data-browser-action="inspect">อ่านหน้าใหม่</button><button class="ghost" type="button" data-browser-action="capture">จับภาพ</button><button class="danger" type="button" data-browser-action="close">ปิดแท็บ</button>`:""}</div></form>
@@ -4272,19 +4491,24 @@ function renderWorkbenchBrowserHTML() {
     <div class="meta">${state.browserTabs.map(item=>`<button class="ghost" data-browser-id="${escapeHTML(item.id)}">${escapeHTML(item.title||item.url)} · ${escapeHTML(item.state)}</button>`).join("")}</div>
     ${tab?`${renderBrowserScreenshot(tab)}${renderBrowserInspection(tab.inspection)}<section class="inspect-section"><h3>ข้อความในหน้าเว็บ${ready?"":"ก่อนหยุด"}</h3><pre>${escapeHTML((tab.text_snapshot||"").slice(0,8000))}</pre></section>${ready?`<div class="browser-elements">${(tab.elements||[]).map(element=>`<article class="browser-element"><strong>${element.ref}</strong><span><strong>${escapeHTML(element.is_password ? "ช่องรหัสผ่าน · ใช้ในเบราว์เซอร์เอง" : element.text||element.placeholder||element.tag)}</strong><small>${escapeHTML(element.tag)} ${escapeHTML(element.role||"")}</small></span><span>${element.is_password ? "" : `<button class="ghost" data-browser-click="${element.ref}">ตรวจและคลิก</button>${["input","textarea"].includes(element.tag)?`<button class="ghost" data-browser-type="${element.ref}">ตรวจและพิมพ์</button>`:""}`}</span></article>`).join("")}</div>`:""}`:`<div class="probe-empty">เปิดเว็บไซต์เพื่อดูภาพและรายการที่คลิกหรือพิมพ์ได้ การกระทำที่อาจเปลี่ยนข้อมูลจะแสดงให้ตรวจยืนยันก่อน</div>`}
     ${ready && (tab.elements || []).some(element => !element.is_password) ? `<form id="browserKeyForm" class="inspect-section"><h3>กดปุ่มบนหน้าเว็บ</h3><p>เลือกรายการและปุ่มที่จะกด ระบบจะจับภาพและให้ตรวจยืนยันก่อนส่งปุ่ม</p><label>รายการ<select name="ref">${tab.elements.filter(element => !element.is_password).map(element => `<option value="${element.ref}">${element.ref}. ${escapeHTML(element.text || element.placeholder || element.tag)}</option>`).join("")}</select></label><label>ปุ่ม<select name="key"><option>Tab</option><option>Enter</option><option>Escape</option><option>ArrowDown</option><option>ArrowUp</option></select></label><button class="ghost" type="submit">ตรวจและกดปุ่ม</button></form>` : ""}
-  </div>${renderDesktopObservationHTML()}`;
+  </div>`;
 }
 
+function desktopEvidenceHTML(before, after) {
+  return `<div class="desktop-evidence">${[[before,"ภาพก่อนทำ"],[after,"ภาพหลังทำ"]].filter(([id])=>id).map(([id,label])=>`<figure><figcaption>${label}</figcaption><a href="/api/artifacts/${encodeURIComponent(id)}/content" target="_blank" rel="noopener noreferrer"><img src="/api/artifacts/${encodeURIComponent(id)}/content" alt="${label}" loading="lazy"></a></figure>`).join("")}</div>`;
+}
 function renderDesktopObservationHTML() {
-  const windows = state.desktopWindows || [];
-  const observed = state.desktopObservation;
-  const selected = state.desktopSelectedWindow || "";
-  return `<section class="panel desktop-observation"><div class="provider-head"><div><p class="eyebrow">Windows · UI Automation</p><h3>ดูหน้าต่างบนเครื่อง</h3><p>เลือกหน้าต่างเพื่อดูภาพและรายการที่เข้าถึงได้ ข้อมูลจะจับจากหน้าต่างที่เลือกในขณะนั้น</p></div></div>
-    <div class="action-row"><button class="ghost" id="desktopListWindows" type="button">${state.desktopWindowsLoaded ? "โหลดรายการใหม่" : "แสดงหน้าต่าง"}</button></div>
-    ${state.desktopActionPending ? `<div class="action-row"><p role="status">กำลังส่งคำสั่ง Windows · ${escapeHTML(state.desktopActionPending.id)}</p><button class="danger" id="desktopStopAction" type="button">หยุดคำสั่ง</button></div>` : ""}
-    ${state.desktopError ? `<p class="session-error" role="alert">${escapeHTML(state.desktopError)}</p>` : ""}
-    ${windows.length ? `<label>หน้าต่าง<select id="desktopWindowSelect">${windows.map(item => { const value = `${item.process_id}:${item.handle}`; return `<option value="${escapeHTML(value)}" ${selected === value ? "selected" : ""}>${escapeHTML(item.title)} · PID ${item.process_id}</option>`; }).join("")}</select></label><button class="primary" id="desktopObserveWindow" type="button">ดูหน้าต่างที่เลือก</button>` : state.desktopWindowsLoaded ? `<p>ไม่พบหน้าต่างที่เข้าถึงได้ในเซสชันนี้</p>` : ""}
-    ${observed ? `<p>ข้อมูลเวลา ${formatDate(observed.observed_at)} · ${escapeHTML(observed.window.title)} · PID ${observed.window.process_id}</p>${observed.screenshot_artifact_id ? `<img class="browser-shot" src="/api/artifacts/${encodeURIComponent(observed.screenshot_artifact_id)}/content" alt="ภาพหน้าต่าง ${escapeHTML(observed.window.title)}">` : `<p class="session-error">ภาพหน้าต่างไม่พร้อม: ${escapeHTML(observed.screenshot_error || "ระบบไม่สามารถจับภาพหน้าต่างนี้")}</p>`}<details><summary>รายการในหน้าต่าง · ${(observed.elements || []).length}</summary><ul>${(observed.elements || []).map(item => `<li>${item.ref}. ${escapeHTML(item.name || item.automation_id || item.control_type)} <small>${escapeHTML(item.control_type)} ${escapeHTML(item.native_class || "")}</small>${item.enabled && observed.screenshot_artifact_id && /(\.Button$|BUTTON)/i.test(`${item.control_type} ${item.native_class}`) ? `<button class="ghost" data-desktop-ref="${item.ref}" data-desktop-action="invoke">ตรวจและกด</button>` : ""}${item.enabled && !item.is_password && observed.screenshot_artifact_id && /(\.Edit$|EDIT)/i.test(`${item.control_type} ${item.native_class}`) ? `<label>ข้อความ<input data-desktop-value-ref="${item.ref}" aria-label="ข้อความสำหรับ ${escapeHTML(item.name || item.automation_id || `รายการ ${item.ref}`)}"><button class="ghost" data-desktop-ref="${item.ref}" data-desktop-action="set_value">ตรวจและพิมพ์</button></label>` : ""}</li>`).join("")}</ul></details>` : ""}
+  const windows=state.desktopWindows||[], observed=state.desktopObservation, selected=state.desktopSelectedWindow||"";
+  const busy=state.desktopBusy||state.desktopActionPending, point=state.desktopPoint, last=state.desktopLastAction;
+  return `<section class="panel desktop-observation" aria-busy="${Boolean(busy)}"><div class="provider-head"><div><p class="eyebrow">ควบคุมเครื่อง</p><h3>ดูภาพและคลิกใน Windows</h3><p>เลือกหน้าต่าง ดูภาพล่าสุด แล้วเลือกจุดหรือรายการที่จะกด สั่งผ่านแชทใหม่ของโปรเจกต์ได้ด้วย</p></div>${pill(busy ? "กำลังทำงาน" : observed ? "มีภาพให้ตรวจ" : "เลือกหน้าต่าง",busy?"amber":"blue")}</div>
+    <div class="action-row"><button class="ghost" id="desktopListWindows" type="button" ${busy?"disabled":""}>${state.desktopWindowsLoaded?"โหลดรายการใหม่":"แสดงหน้าต่าง"}</button><button class="ghost" id="desktopLastReceipt" type="button" ${busy?"disabled":""}>ตรวจผลคำสั่งล่าสุด</button></div>
+    ${busy?`<p role="status">${escapeHTML(state.desktopBusy||"กำลังส่งคำสั่งและจับภาพผล…")}</p>`:""}
+    ${state.desktopActionPending?`<button class="danger" id="desktopStopAction" type="button">หยุดรอผล</button><p class="form-note">คำสั่งที่ส่งไปแล้วอาจเกิดผล ตรวจภาพใหม่ก่อนทำต่อ</p>`:""}
+    ${state.desktopError?`<p class="session-error" role="alert">${escapeHTML(state.desktopError)}</p>`:""}
+    ${windows.length?`<label>หน้าต่าง<select id="desktopWindowSelect" ${busy?"disabled":""}><option value="" ${!selected?"selected":""}>เลือกหน้าต่างที่จะควบคุม…</option>${windows.map(item=>{const value=`${item.process_id}:${item.handle}`;return `<option value="${escapeHTML(value)}" ${selected===value?"selected":""}>${escapeHTML(item.title)}</option>`;}).join("")}</select></label><button class="primary" id="desktopObserveWindow" type="button" ${busy||!selected?"disabled":""}>ดูภาพล่าสุด</button>`:state.desktopWindowsLoaded?`<p>ไม่พบหน้าต่างในเซสชันนี้ เปิดแอปที่จะใช้งานแล้วโหลดรายการใหม่</p>`:""}
+    ${observed?`<p class="form-note">ภาพขณะตรวจ ${formatDate(observed.observed_at)} · ${escapeHTML(observed.window.title)} · ภาพจะอัปเดตเมื่อกดดูหรือหลังคำสั่ง</p>${observed.screenshot_artifact_id?`<div class="desktop-shot-frame"><img id="desktopPointerImage" class="browser-shot" src="/api/artifacts/${encodeURIComponent(observed.screenshot_artifact_id)}/content" alt="ภาพหน้าต่าง ${escapeHTML(observed.window.title)} เลือกจุดด้วยเมาส์ หรือกรอกตำแหน่งด้านล่าง">${point?`<span class="desktop-point-marker" aria-hidden="true" data-x="${point.x}" data-y="${point.y}"></span>`:""}</div><form id="desktopPointForm" class="desktop-point-form"><p>คลิกบนภาพเพื่อเลือกจุด แล้วกดยืนยันด้านล่าง</p><label>แนวนอน (x)<input name="x" type="number" min="0" max="${observed.window.bounds.width-1}" step="1" required value="${point?.x??""}" ${busy?"disabled":""}></label><label>แนวตั้ง (y)<input name="y" type="number" min="0" max="${observed.window.bounds.height-1}" step="1" required value="${point?.y??""}" ${busy?"disabled":""}></label><button class="primary" ${busy?"disabled":""}>ตรวจและคลิกจุดนี้</button></form>`:`<p class="session-error">ภาพไม่พร้อม: ${escapeHTML(observed.screenshot_error||"จับภาพไม่ได้ ลองเลือกหน้าต่างที่เปิดอยู่")}</p>`}
+    <details><summary>ปุ่มและช่องข้อความ · ${(observed.elements||[]).length}</summary><ul>${(observed.elements||[]).map(item=>`<li>${item.ref}. ${escapeHTML(item.name||item.automation_id||item.control_type)}${item.enabled&&observed.screenshot_artifact_id&&/(\.Button$|BUTTON)/i.test(`${item.control_type} ${item.native_class}`)?`<button class="ghost" data-desktop-ref="${item.ref}" data-desktop-action="invoke" ${busy?"disabled":""}>ตรวจและกด</button>`:""}${item.enabled&&!item.is_password&&observed.screenshot_artifact_id&&/(\.Edit$|EDIT)/i.test(`${item.control_type} ${item.native_class}`)?`<label>ข้อความ<input data-desktop-value-ref="${item.ref}" aria-label="ข้อความสำหรับ ${escapeHTML(item.name||item.automation_id||`รายการ ${item.ref}`)}" ${busy?"disabled":""}><button class="ghost" data-desktop-ref="${item.ref}" data-desktop-action="set_value" ${busy?"disabled":""}>ตรวจและพิมพ์</button></label>`:""}</li>`).join("")}</ul></details>`:""}
+    ${last?`<section class="inspect-section"><h4>ผลคำสั่งล่าสุด</h4><p role="status">${escapeHTML(({prepared:"รอยืนยัน",completed:"ส่งคำสั่งแล้วและจับภาพผลได้",cancelled:"ยกเลิกแล้ว",dispatched:"ส่งแล้ว กำลังรอผล",uncertain:"ยังยืนยันผลไม่ได้ ตรวจหน้าต่างก่อนทำต่อ"})[last.state]||last.state)}</p>${last.error?`<p role="alert">${escapeHTML(last.error)}</p>`:""}${desktopEvidenceHTML(last.screenshot_before_id,last.screenshot_after_id)}${last.state==="prepared"?`<button class="ghost" id="desktopCancelLast" type="button" ${busy?"disabled":""}>ยกเลิกคำสั่งค้าง</button>`:""}</section>`:""}
   </section>`;
 }
 
@@ -4370,6 +4594,7 @@ function renderBrowserInspection(inspection) {
 }
 
 function bindWorkbenchBrowserEvents() {
+  $$("[data-browser-mode]").forEach(button=>button.addEventListener("click",()=>{state.browserWorkbenchMode=button.dataset.browserMode;refreshWorkbenchSurface("browser");}));
   // The app CSP blocks HTML style attributes. Position the fresh-observation
   // hotspots through CSSOM so the visible screenshot and its controls align.
   $$(".browser-shot-hotspot").forEach(button => {
@@ -4385,13 +4610,27 @@ function bindWorkbenchBrowserEvents() {
   $$('[data-browser-click]').forEach(button=>button.addEventListener("click",()=>browserWorkbenchAction("click",Number(button.dataset.browserClick))));
   $$('[data-browser-type]').forEach(button=>button.addEventListener("click",()=>typeBrowserElement(Number(button.dataset.browserType))));
   $("#desktopListWindows")?.addEventListener("click", listDesktopWindows);
-  $("#desktopWindowSelect")?.addEventListener("change", event => { state.desktopSelectedWindow = event.target.value; state.desktopObservation = null; refreshWorkbenchSurface("browser"); });
+  $("#desktopWindowSelect")?.addEventListener("change", event => { state.desktopSelectedWindow = event.target.value; state.desktopObservation = null; state.desktopPoint=null; desktopObservationGeneration++; refreshWorkbenchSurface("browser"); });
   $("#desktopObserveWindow")?.addEventListener("click", observeDesktopWindow);
   $$('[data-desktop-action]').forEach(button => button.addEventListener("click", () => performDesktopAction(button.dataset.desktopAction, Number(button.dataset.desktopRef))));
   $("#desktopStopAction")?.addEventListener("click", stopDesktopAction);
+  $("#desktopLastReceipt")?.addEventListener("click",loadLastDesktopReceipt);
+  $("#desktopCancelLast")?.addEventListener("click",cancelLastDesktopReceipt);
+  $("#desktopPointerImage")?.addEventListener("click",event=>{
+    if(state.desktopBusy||state.desktopActionPending)return;
+    const bounds=event.currentTarget.getBoundingClientRect(), observed=state.desktopObservation;
+    if(!observed||bounds.width<=0||bounds.height<=0)return;
+    state.desktopPoint={x:Math.min(observed.window.bounds.width-1,Math.max(0,Math.floor((event.clientX-bounds.left)/bounds.width*observed.window.bounds.width))),y:Math.min(observed.window.bounds.height-1,Math.max(0,Math.floor((event.clientY-bounds.top)/bounds.height*observed.window.bounds.height)))};
+    refreshWorkbenchSurface("browser");
+  });
+  $("#desktopPointForm")?.addEventListener("submit",event=>{event.preventDefault();const form=new FormData(event.currentTarget),x=Number(form.get("x")),y=Number(form.get("y")),b=state.desktopObservation?.window.bounds;if(!b||!Number.isInteger(x)||!Number.isInteger(y)||x<0||y<0||x>=b.width||y>=b.height)return;state.desktopPoint={x,y};performDesktopAction("invoke",0,{x,y});});
+  const marker=$(".desktop-point-marker"), bounds=state.desktopObservation?.window.bounds;
+  if(marker&&bounds){marker.style.setProperty("--desktop-point-x",`${Number(marker.dataset.x)/bounds.width*100}%`);marker.style.setProperty("--desktop-point-y",`${Number(marker.dataset.y)/bounds.height*100}%`);}
+
 }
 
 let desktopActionAbortController = null;
+let desktopObservationGeneration=0;
 
 function stopDesktopAction() {
   if (!desktopActionAbortController || !state.desktopActionPending) return;
@@ -4400,28 +4639,35 @@ function stopDesktopAction() {
   refreshWorkbenchSurface("browser");
 }
 
-async function performDesktopAction(action, ref) {
+async function performDesktopAction(action, ref, point=null) {
+  if(state.desktopBusy||state.desktopActionPending)return;
   const observed = state.desktopObservation;
-  const target = observed?.elements?.find(item => item.ref === ref);
-  if (!target || !observed.observation_hash) return;
-  state.desktopError = "";
+  const target = point ? {name:`คลิกตำแหน่ง (${point.x}, ${point.y})`} : observed?.elements?.find(item => item.ref === ref);
+  if (!target || !observed?.observation_hash) return;
   const textValue = action === "set_value" ? String($(`[data-desktop-value-ref="${ref}"]`)?.value || "") : "";
+  const selected=state.desktopSelectedWindow; const generation=++desktopObservationGeneration;
+  state.desktopBusy="กำลังตรวจภาพและตำแหน่ง…";
+  refreshWorkbenchSurface("browser");
+  state.desktopError = "";
   const task = state.durableTasks.find(item => item.id === state.selectedDurableTask && item.project_id === state.currentProject?.id);
   try {
     const prepared = await api("/api/desktop/actions", {method:"POST", body:JSON.stringify({
       task_id:task?.id || "", handle:observed.window.handle, process_id:observed.window.process_id, action,
-      element_ref:ref, text:textValue, observation_hash:observed.observation_hash})});
+      element_ref:ref, text:textValue, observation_hash:observed.observation_hash, point})});
+    state.desktopLastAction=prepared;
+    localStorage.setItem("hermetrix.desktop.last-action",prepared.id);
     const confirmed = await askAction({title:action === "invoke" ? "ยืนยันการกดใน Windows" : "ยืนยันการพิมพ์ใน Windows",
       message:`หน้าต่าง: ${observed.window.title} · PID ${observed.window.process_id}\nรายการ: ${target.name || target.automation_id || target.control_type}${action === "set_value" ? `\nข้อความ: ${textValue}` : ""}\nการยืนยันใช้กับรายการนี้และภาพหน้าต่างฉบับที่ตรวจเท่านั้น`,
       confirmLabel:action === "invoke" ? "กดรายการนี้" : "พิมพ์ข้อความนี้"});
     if (!confirmed) {
-      await api(`/api/desktop/actions/${encodeURIComponent(prepared.id)}/cancel`, {method:"POST", body:JSON.stringify({subject_hash:prepared.subject_hash})});
+      state.desktopLastAction=await api(`/api/desktop/actions/${encodeURIComponent(prepared.id)}/cancel`, {method:"POST", body:JSON.stringify({subject_hash:prepared.subject_hash})});
       if (task) await loadTaskExecution(task.id);
       return;
     }
     const controller = new AbortController();
     desktopActionAbortController = controller;
     state.desktopActionPending = {id:prepared.id, task_id:task?.id || ""};
+    state.desktopBusy="กำลังคลิกและจับภาพผล…";
     refreshWorkbenchSurface("browser");
     let receipt;
     try {
@@ -4431,7 +4677,8 @@ async function performDesktopAction(action, ref) {
       if (!controller.signal.aborted) throw error;
       try {
         const current = await api(`/api/desktop/actions/${encodeURIComponent(prepared.id)}`);
-        if (current.state === "prepared") await api(`/api/desktop/actions/${encodeURIComponent(prepared.id)}/cancel`, {method:"POST", body:JSON.stringify({subject_hash:prepared.subject_hash})});
+        state.desktopLastAction=current;
+        if (current.state === "prepared") state.desktopLastAction=await api(`/api/desktop/actions/${encodeURIComponent(prepared.id)}/cancel`, {method:"POST", body:JSON.stringify({subject_hash:prepared.subject_hash})});
       } catch (_) { /* Keep the uncertain receipt for manual inspection. */ }
       if (task) await loadTaskExecution(task.id);
       return;
@@ -4440,38 +4687,59 @@ async function performDesktopAction(action, ref) {
       state.desktopActionPending = null;
       refreshWorkbenchSurface("browser");
     }
-    state.desktopObservation = receipt.observation || null;
+    state.desktopLastAction=receipt;
+    if(selected===state.desktopSelectedWindow&&generation===desktopObservationGeneration){state.desktopObservation = receipt.observation || null;state.desktopPoint=null;}
     if (receipt.state !== "completed") state.desktopError = `ผลคำสั่งไม่แน่นอน: ${receipt.error || "โปรดตรวจหน้าต่างก่อนทำต่อ"}`;
     else toast("ตรวจผลหลังคำสั่งแล้ว");
     if (task) await loadTaskExecution(task.id);
     refreshWorkbenchSurface("browser");
-  } catch (error) { state.desktopError = error.message; refreshWorkbenchSurface("browser"); }
+  } catch (error) {
+    state.desktopError = error.message;
+    const last=state.desktopLastAction;
+    if(last?.state==="prepared") {try {state.desktopLastAction=await api(`/api/desktop/actions/${encodeURIComponent(last.id)}`);if(state.desktopLastAction.state==="prepared")state.desktopLastAction=await api(`/api/desktop/actions/${encodeURIComponent(last.id)}/cancel`,{method:"POST",body:JSON.stringify({subject_hash:last.subject_hash})});}catch(_){}}
+  } finally {state.desktopBusy="";refreshWorkbenchSurface("browser");}
+}
+
+async function loadLastDesktopReceipt(){
+ const id=state.desktopLastAction?.id||localStorage.getItem("hermetrix.desktop.last-action");
+ if(!id){state.desktopError="ยังไม่มีคำสั่งที่บันทึกไว้ในเบราว์เซอร์นี้";refreshWorkbenchSurface("browser");return;}
+ try {state.desktopLastAction=await api(`/api/desktop/actions/${encodeURIComponent(id)}`);state.desktopError="";}catch(error){state.desktopError=error.message;}
+ refreshWorkbenchSurface("browser");
+}
+async function cancelLastDesktopReceipt(){
+ const last=state.desktopLastAction;if(last?.state!=="prepared")return;
+ try{state.desktopLastAction=await api(`/api/desktop/actions/${encodeURIComponent(last.id)}/cancel`,{method:"POST",body:JSON.stringify({subject_hash:last.subject_hash})});}catch(error){state.desktopError=error.message;}
+ refreshWorkbenchSurface("browser");
 }
 
 async function listDesktopWindows() {
+  if(state.desktopBusy||state.desktopActionPending)return;
+  state.desktopBusy="กำลังอ่านหน้าต่างที่เปิดอยู่…";refreshWorkbenchSurface("browser");
   state.desktopError = "";
   try {
     state.desktopWindows = await api("/api/desktop/windows");
     state.desktopWindowsLoaded = true;
     if (!state.desktopWindows.some(item => `${item.process_id}:${item.handle}` === state.desktopSelectedWindow)) {
-      state.desktopSelectedWindow = state.desktopWindows.length ? `${state.desktopWindows[0].process_id}:${state.desktopWindows[0].handle}` : "";
+      state.desktopSelectedWindow = "";
       state.desktopObservation = null;
     }
   } catch (error) { state.desktopError = error.message; state.desktopWindowsLoaded = true; }
-  refreshWorkbenchSurface("browser");
+  state.desktopBusy="";refreshWorkbenchSurface("browser");
 }
 
 async function observeDesktopWindow() {
+  if(state.desktopBusy||state.desktopActionPending)return;
+  const generation=++desktopObservationGeneration;
   const [processID, handle] = String(state.desktopSelectedWindow || $("#desktopWindowSelect")?.value || "").split(":").map(Number);
   if (!processID || !handle) return;
   state.desktopError = "";
-  state.desktopObservation = null;
+  state.desktopObservation = null;state.desktopPoint=null;state.desktopBusy="กำลังจับภาพหน้าต่าง…";
   refreshWorkbenchSurface("browser");
   try {
     const observed = await api("/api/desktop/observe", {method:"POST", body:JSON.stringify({process_id:processID, handle})});
-    if (state.desktopSelectedWindow === `${processID}:${handle}`) state.desktopObservation = observed;
+    if (generation===desktopObservationGeneration&&state.desktopSelectedWindow === `${processID}:${handle}`) state.desktopObservation = observed;
   } catch (error) { state.desktopError = error.message; }
-  refreshWorkbenchSurface("browser");
+  if(generation===desktopObservationGeneration)state.desktopBusy="";refreshWorkbenchSurface("browser");
 }
 
 function renderWorkbenchBrowser() {
@@ -4728,6 +4996,7 @@ function taskPlanAwaitsReview(task) {
 }
 
 function taskCanStartStep(task, execution) {
+  if (!(task.plan?.steps || []).some(step => !["completed", "skipped"].includes(step.state))) return false;
   if ((execution.effects || []).some(effect => ["planned", "dispatched", "uncertain"].includes(effect.state))) return false;
   if (execution.attempt?.state === "running" && (execution.effects || []).some(effect => effect.action === "provider.propose" && effect.state === "observed" && effect.receipt?.status === "failed")) return false;
   const currentRun = !execution.run || execution.run.plan_revision === task.active_plan_revision;
@@ -4743,6 +5012,7 @@ function taskStage(task, execution) {
   if (!task.active_plan_revision) return {number:2, label:"วางแผน", detail:"สร้างขั้นตอนและตรวจขอบเขตกับวิธีพิสูจน์ก่อนเริ่มงาน"};
   if (taskPlanAwaitsReview(task)) return {number:2, label:"ทบทวนแผน", detail:"ตรวจขั้นตอน เกณฑ์ และวิธีพิสูจน์ก่อนอนุมัติให้เริ่มงาน"};
   if (task.plan?.review_status === "rejected") return {number:2, label:"แก้แผน", detail:"แผนฉบับนี้ถูกส่งกลับ แก้ Goal หรือสร้างแผนฉบับใหม่"};
+  if (execution?.completion?.awaiting_user_acceptance) return {number:5, label:"รอรับงาน", detail:"ผลตรวจและรีวิวผ่านแล้ว ตรวจหลักฐานและรับรองผลก่อนปิดงาน"};
   if (task.state === "verifying") return {number:5, label:"ตรวจผล", detail:"ตรวจหลักฐานปัจจุบันและแก้รายการที่ยังไม่ผ่านก่อนปิดงาน"};
   const proposal = execution?.run?.plan_revision === task.active_plan_revision ? execution.proposal : null;
   if (proposal?.state === "awaiting_post_review") return {number:5, label:"รอตรวจทาน", detail:"ผลตรวจผ่านแล้ว ต้องตรวจหลักฐานอีกรอบก่อนปิดงาน"};
@@ -4750,6 +5020,7 @@ function taskStage(task, execution) {
   if (proposal && ["pending_review", "approved"].includes(proposal.state)) return {number:3, label:"ตรวจการแก้ไข", detail:"อ่านไฟล์ที่เสนอให้ครบก่อนอนุมัติและนำไปใช้"};
   const failedStep = task.plan?.steps?.find(step => step.state === "failed");
   if (failedStep) return {number:3, label:"ขั้นตอนติดขัด", detail:`ตรวจสาเหตุของ “${failedStep.title}” แล้วเริ่มรอบแก้ไขจากหลักฐานที่บันทึกไว้`};
+  if (task.state === "paused") return {number:3, label:"พักงานแล้ว", detail:"ผลที่ตรวจผ่านยังอยู่ แก้เป้าหมายหรือเริ่มขั้นถัดไปได้เมื่อพร้อม"};
   return {number:3, label:"ทำตามแผน", detail:"ทำทีละขั้นและตรวจผลก่อนเดินหน้าต่อ"};
 }
 
@@ -4823,12 +5094,16 @@ function taskExecutionHTML(task, execution) {
   const proposal = execution.proposal;
   const providers = taskEligibleProviders(task);
   const uncertainEffects = (execution.effects || []).filter(effect => effect.state === "uncertain");
+  const activeEffect = (execution.effects || []).find(effect => effect.state === "dispatched");
   const failedProposal = (execution.effects || []).some(effect => effect.action === "provider.propose" && effect.state === "observed" && effect.receipt?.status === "failed") && proposal?.attempt_id !== execution.attempt?.id && ["running","interrupted"].includes(execution.attempt?.state);
   const busy = taskActions.get(task.id);
   const expired = task.state === "running" && execution.run?.plan_revision === task.active_plan_revision && !taskRunIsLive(execution.run);
   let action = "";
   if (uncertainEffects.length) {
     action = `<p>มี ${uncertainEffects.length} การกระทำที่ต้องตรวจหลังรีสตาร์ต ระบบจะอ่านหลักฐานที่บันทึกไว้โดยไม่เรียกการกระทำนั้นซ้ำ</p><button class="primary" id="taskReconcileEffects">ตรวจผลที่บันทึกไว้</button>`;
+  } else if (activeEffect) {
+    const label = {"provider.select_files":"กำลังเลือกไฟล์สำหรับขั้นนี้", "provider.propose":"กำลังสร้างข้อเสนอแก้ไฟล์", "workspace.apply":"กำลังเขียนไฟล์ตามข้อเสนอ", "workspace.run":"กำลังรันวิธีตรวจ", "provider.review":"กำลังตรวจผลรอบแยก"}[activeEffect.action] || "กำลังดำเนินการตามแผน";
+    action = `<p role="status" aria-busy="true">${escapeHTML(label)} · ระบบยังไม่ยืนยันผล ขั้นนี้จะเปิดให้ตรวจเมื่อมีหลักฐานครบ</p><button class="ghost" id="taskReload">ดูความคืบหน้าล่าสุด</button>`;
   } else if (task.state === "paused" && execution.run?.state === "paused" && execution.attempt?.state === "interrupted" && proposal?.state === "awaiting_post_review") {
     action = `<p>การตรวจโมเดลถูกขัดจังหวะ ผลทดสอบและไฟล์ยังอยู่ครบ ตรวจหลักฐานที่บันทึกไว้ แล้วต่อการรีวิวด้วยสิทธิ์รอบใหม่</p><button class="primary" id="taskResumeObservedReview">ต่อการรีวิวที่ค้าง</button>`;
   } else if (task.state === "paused" && execution.run?.state === "paused" && execution.attempt?.state === "completed" && proposal?.state === "awaiting_post_review") {
@@ -4839,6 +5114,8 @@ function taskExecutionHTML(task, execution) {
     action = `<p>ข้อเสนอถูกปฏิเสธแล้ว ระบบจะเก็บเหตุผลไว้ให้โมเดลใช้แก้ในรอบใหม่ โดยยังอ้างอิงแผนเดิม</p><button class="primary" id="taskRetryRejectedProposal">แก้ข้อเสนอแล้วลองใหม่</button>${taskProposalHTML(proposal)}`;
   } else if (expired || execution.leaseError) {
     action = `<p class="session-error" role="alert">${escapeHTML(execution.leaseError || "สิทธิ์ของรอบงานหมดอายุ ข้อเสนอและหลักฐานยังอยู่ ต้องกู้รอบงานก่อนทำต่อ")}</p><button class="primary" id="taskRecoverExpiredRun">กู้งานที่บันทึกไว้</button>`;
+  } else if (execution.completion?.awaiting_user_acceptance) {
+    action = `<p>ผลตรวจและรีวิวผ่านแล้ว รอคุณตรวจหลักฐานและรับรองผลฉบับนี้</p><button class="primary" type="button" data-task-jump="taskAcceptResult">ไปตรวจและรับรองผล</button>`;
   } else if (taskCanStartStep(task, execution)) {
     const nextStep = (task.plan?.steps || []).find(step => step.state !== "completed" && step.state !== "skipped");
     const priorFailure = nextStep?.state === "failed" ? `<p class="session-error" role="alert">${escapeHTML(taskFriendlyError(nextStep.last_error || "ขั้นตอนก่อนหน้าตรวจไม่ผ่าน"))}. ${proposal?.state === "verification_failed" ? "ระบบพยายามคืนไฟล์จากหลักฐานก่อนแก้แล้ว ตรวจไฟล์และผลคำสั่งก่อนเริ่มรอบใหม่" : "ตรวจหลักฐานก่อนเริ่มรอบใหม่"}</p>` : "";
@@ -4846,7 +5123,7 @@ function taskExecutionHTML(task, execution) {
       <label>โมเดล<select name="provider_id" required>${taskProviderOptions(providers, $("#chatProvider")?.value)}</select></label>
       <details><summary>เลือกไฟล์เอง</summary><label>ระบุ path ภายในโปรเจกต์ บรรทัดละไฟล์<textarea name="files" rows="3" placeholder="เว้นว่างเพื่อให้ระบบเลือกไฟล์จากโปรเจกต์&#10;internal/service.go"></textarea></label></details>
       <p>ตรวจขอบเขตและวิธีพิสูจน์ในแผนก่อนเริ่ม ข้อเสนอที่สร้างจะเปิดให้ทบทวนก่อนนำไปใช้</p>
-      <button class="primary" ${providers.length ? "" : "disabled"}>${proposal?.state === "verified" ? "เริ่มขั้นถัดไป" : "สร้างข้อเสนอให้ตรวจ"}</button></form>`;
+      <button class="primary" ${providers.length ? "" : "disabled"}>${proposal?.state === "verified" ? "เริ่มขั้นถัดไป" : "สร้างข้อเสนอให้ตรวจ"}</button></form>${taskRunIsLive(execution.run) && execution.attempt?.state !== "running" ? `<button class="ghost" type="button" id="taskPauseRun">พักก่อนเริ่มขั้นถัดไป</button><p class="form-note neutral">พักรอบงานเพื่อแก้เป้าหมายหรือแผนได้ ผลที่ตรวจผ่านและไฟล์ยังอยู่</p>` : ""}`;
   } else if (proposal?.state === "pending_review") {
     const ready = taskProposalBodies.get(proposal.artifact_id)?.changes?.length;
     action = `${taskProposalHTML(proposal)}<div class="action-row"><button class="primary" data-task-proposal-decision="approved" ${ready ? "" : "disabled"}>อนุมัติข้อเสนอ</button><button class="danger" data-task-proposal-decision="rejected">ส่งข้อเสนอกลับ</button></div>`;
@@ -5043,6 +5320,14 @@ function renderCurrentTaskCockpit(taskID) {
   if (liveBody?.isConnected) renderTaskCockpit(liveBody);
 }
 
+const taskViewportPositions = new Map();
+
+function rememberTaskViewport(body) {
+  const taskID = body?.querySelector('.task-cockpit')?.dataset?.taskId;
+  if (!taskID) return;
+  taskViewportPositions.set(taskID, {top:body.scrollTop, left:body.scrollLeft});
+}
+
 function taskJumpAction(task, execution) {
   if (!task) return null;
   if (task.state === "completed") return {target:"taskGateHeading", label:"ดูหลักฐาน"};
@@ -5087,6 +5372,7 @@ function taskPlanDiffHTML(task, previousPlan) {
 }
 
 function renderTaskCockpit(body) {
+  rememberTaskViewport(body);
   if (state.plansOverview) {
     renderPlansOverview(body);
     return;
@@ -5114,6 +5400,7 @@ function renderTaskCockpit(body) {
   const revisionDraft = selected && (taskRevisionDrafts.get(selected.id) || {
     outcome:selected.objective, criteria:(selected.requirement?.criteria || []).map(item => item.description).join("\n"),
     scope:selected.requirement?.contract?.scope || "", experience_preview:selected.requirement?.contract?.experience_preview || "", assumptions:(selected.requirement?.contract?.assumptions || []).join("\n"),
+    writable_paths:(selected.requirement?.contract?.writable_paths || []).join("\n"),
     affected_journeys:(selected.requirement?.contract?.affected_journeys || []).join("\n"),
     verification:selected.requirement?.contract?.verification || "", constraints:(selected.requirement?.constraints || []).join("\n"),
     unknowns:(selected.requirement?.unknowns || []).join("\n"),
@@ -5122,7 +5409,7 @@ function renderTaskCockpit(body) {
   const clarificationDraft = taskClarificationDraft(selected);
   const optionalToolsWereOpen = Boolean(body.querySelector("#taskOptionalTools")?.open);
   if (selected && optionalToolsWereOpen) taskOptionalToolsOpen.add(selected.id);
-  body.innerHTML = `<div class="panel task-cockpit"><div class="provider-head"><div><p class="eyebrow">${escapeHTML(state.currentProject?.name || "โปรเจกต์")}</p><h3>${selected ? escapeHTML(selected.title) : "สร้างงานใหม่"}</h3>${selected ? "" : "<p>กำหนดเป้าหมายและเกณฑ์สำเร็จ แล้วสร้างแผนให้ตรวจ</p>"}</div></div>
+  body.innerHTML = `<div class="panel task-cockpit" data-task-id="${escapeHTML(selected?.id || "")}"><div class="provider-head"><div><p class="eyebrow">${escapeHTML(state.currentProject?.name || "โปรเจกต์")}</p><h3>${selected ? escapeHTML(selected.title) : "สร้างงานใหม่"}</h3>${selected ? "" : "<p>กำหนดเป้าหมายและเกณฑ์สำเร็จ แล้วสร้างแผนให้ตรวจ</p>"}</div></div>
     ${taskErrors.get(selected?.id) || taskErrors.get("create") ? `<div class="task-feedback" role="alert">${escapeHTML(taskFriendlyError(taskErrors.get(selected?.id) || taskErrors.get("create")))}</div>` : ""}
     ${selected ? `<div class="task-detail-toolbar"><button class="ghost" type="button" id="taskBackToOverview">← งานทั้งหมด</button><span>${tasks.length} งานในโปรเจกต์นี้</span></div>` : ""}
     ${selected ? `<div id="taskCurrentAction" class="task-current-action">${taskPlanAwaitsReview(selected) ? `<p class="task-current-caption">ตรวจแผนก่อนเริ่มงาน</p><button class="primary" type="button" data-task-jump="taskPlanReview">ไปตรวจและยืนยันแผน</button>` : selected.plan?.review_status === "rejected" ? `<p class="task-current-caption">แผนถูกส่งกลับแก้</p><button class="primary" type="button" data-task-jump="taskAutoPlan">สร้างแผนใหม่</button>` : !selected.active_plan_revision ? `<p class="task-current-caption">ยังไม่มีแผนสำหรับเป้าหมายนี้</p><button class="primary" type="button" data-task-jump="taskAutoPlan">ไปสร้างแผน</button>` : taskExecutionHTML(selected, execution)}</div>` : ""}
@@ -5133,13 +5420,13 @@ function renderTaskCockpit(body) {
       <label>ผลที่คาดว่าจะเห็นหรือใช้งานได้<textarea name="experience_preview" rows="3" placeholder="เช่น หน้าเริ่มงานแสดงสรุปเป้าหมาย แผน และปุ่มส่งกลับแก้ก่อนเริ่มทำ">${escapeHTML(draft.experience_preview || "")}</textarea></label>
       <label>จะรู้ได้อย่างไรว่าสำเร็จ?<textarea name="criteria" required rows="3" placeholder="หนึ่งผลที่ตรวจได้ต่อหนึ่งบรรทัด">${escapeHTML(draft.criteria || "")}</textarea></label>
       <p class="task-draft-note">นี่คือแบบร่าง แก้เป้าหมาย ผลที่คาดว่าจะเห็น และเกณฑ์ตรวจได้ก่อนสร้างแผน การสร้างแผนยังไม่เริ่มแก้โปรเจกต์</p>
-      <details><summary>รายละเอียดเพิ่มเติม</summary><label>ชื่อสั้น ๆ · ไม่บังคับ<input name="title" maxlength="160" value="${escapeHTML(draft.title || "")}"></label><label>ขอบเขตงาน<textarea name="scope" rows="2">${escapeHTML(draft.scope || "")}</textarea></label><label>สมมติฐาน · หนึ่งข้อต่อบรรทัด<textarea name="assumptions" rows="2">${escapeHTML(draft.assumptions || "")}</textarea></label><label>เส้นทางที่ได้รับผล · หนึ่งรายการต่อบรรทัด<textarea name="affected_journeys" rows="2">${escapeHTML(draft.affected_journeys || "")}</textarea></label><label>วิธียืนยันผลที่ต้องการ<textarea name="verification" rows="2">${escapeHTML(draft.verification || "")}</textarea></label><label>ข้อจำกัด · หนึ่งข้อต่อบรรทัด<textarea name="constraints" rows="2">${escapeHTML(draft.constraints || "")}</textarea></label><label>เรื่องที่ยังต้องรู้ · หนึ่งข้อต่อบรรทัด<textarea name="unknowns" rows="2">${escapeHTML(draft.unknowns || "")}</textarea></label><label class="task-acceptance-choice"><input type="checkbox" name="require_user_acceptance" ${draft.require_user_acceptance ? "checked" : ""}>ให้ฉันตรวจและรับรองผลก่อนปิดงาน</label><label class="task-acceptance-choice"><input type="checkbox" name="allow_remote_research" ${draft.allow_remote_research ? "checked" : ""}>อนุญาตบริการภายนอกสำหรับงานนี้ (คำค้นไป Crossref และอาจใช้โมเดลภายนอก)</label></details>
+      <details><summary>รายละเอียดเพิ่มเติม</summary><label>ชื่อสั้น ๆ · ไม่บังคับ<input name="title" maxlength="160" value="${escapeHTML(draft.title || "")}"></label><label>ขอบเขตงาน<textarea name="scope" rows="2">${escapeHTML(draft.scope || "")}</textarea></label><label>ไฟล์ที่อนุญาตให้แก้ · path ภายในโปรเจกต์ บรรทัดละไฟล์<textarea name="writable_paths" rows="2" placeholder="เช่น frontend/services/api.js · เว้นว่างเพื่อใช้ไฟล์ที่เลือกในแต่ละขั้น">${escapeHTML(draft.writable_paths || "")}</textarea></label><label>สมมติฐาน · หนึ่งข้อต่อบรรทัด<textarea name="assumptions" rows="2">${escapeHTML(draft.assumptions || "")}</textarea></label><label>เส้นทางที่ได้รับผล · หนึ่งรายการต่อบรรทัด<textarea name="affected_journeys" rows="2">${escapeHTML(draft.affected_journeys || "")}</textarea></label><label>วิธียืนยันผลที่ต้องการ<textarea name="verification" rows="2">${escapeHTML(draft.verification || "")}</textarea></label><label>ข้อจำกัด · หนึ่งข้อต่อบรรทัด<textarea name="constraints" rows="2">${escapeHTML(draft.constraints || "")}</textarea></label><label>เรื่องที่ยังต้องรู้ · หนึ่งข้อต่อบรรทัด<textarea name="unknowns" rows="2">${escapeHTML(draft.unknowns || "")}</textarea></label><label class="task-acceptance-choice"><input type="checkbox" name="require_user_acceptance" ${draft.require_user_acceptance ? "checked" : ""}>ให้ฉันตรวจและรับรองผลก่อนปิดงาน</label><label class="task-acceptance-choice"><input type="checkbox" name="allow_remote_research" ${draft.allow_remote_research ? "checked" : ""}>อนุญาตบริการภายนอกสำหรับงานนี้ (คำค้นไป Crossref และอาจใช้โมเดลภายนอก)</label></details>
       <p>โปรเจกต์: ${escapeHTML(state.currentProject?.name || "เลือกโปรเจกต์ก่อน")}</p><button class="primary" ${state.currentProject?.id ? "" : "disabled"}>${taskActions.has("create") ? "กำลังสร้าง…" : state.taskDraftAutoPlan ? "สร้างร่างแผนให้ตรวจ" : "สร้างงาน"}</button></fieldset></form></details>
     ${selected ? `<section class="inspect-section" id="taskGoal"><div class="provider-head"><div><h3>เป้าหมายของงาน</h3></div><span>${steps.filter(step => step.state === "completed").length}/${steps.length} ขั้น</span></div>
       ${selected.pause_reason ? `<details class="task-pause-detail"><summary>รายละเอียดทางเทคนิคของสถานะ</summary><p class="session-error">${escapeHTML(selected.pause_reason)}</p></details>` : ""}
       ${steps.length ? `<section class="task-plan-brief" aria-label="สรุปก่อนทำงาน"><div><span class="task-brief-label">เป้าหมาย</span><p>${escapeHTML(selected.objective)}</p></div><div><span class="task-brief-label">ภาพที่คาดว่าจะได้</span><p>${escapeHTML(selected.requirement?.contract?.experience_preview || selected.plan?.reason || "ยังไม่ได้ระบุภาพที่คาดว่าจะได้ · เพิ่มได้ในแก้เป้าหมายหรือเกณฑ์")}</p></div><div><span class="task-brief-label">วิธีรู้ว่าสำเร็จ</span><ul>${(selected.requirement?.criteria || []).map(item => `<li>${escapeHTML(item.description)}</li>`).join("")}</ul></div></section>` : ""}
-      <details><summary>เกณฑ์สำเร็จและข้อจำกัด</summary>${selected.requirement?.contract?.scope ? `<p><strong>ขอบเขต:</strong> ${escapeHTML(selected.requirement.contract.scope)}</p>` : ""}<ul>${(selected.requirement?.criteria || []).map(item => `<li>${escapeHTML(item.description)}</li>`).join("")}</ul>${(selected.requirement?.contract?.assumptions || []).map(item => `<p>สมมติฐาน: ${escapeHTML(item)}</p>`).join("")}${(selected.requirement?.contract?.affected_journeys || []).map(item => `<p>เส้นทางที่ได้รับผล: ${escapeHTML(item)}</p>`).join("")}${selected.requirement?.contract?.verification ? `<p>วิธียืนยันผล: ${escapeHTML(selected.requirement.contract.verification)}</p>` : ""}${(selected.requirement?.constraints || []).map(item => `<p>${escapeHTML(item)}</p>`).join("")}${(selected.requirement?.unknowns || []).map(item => `<p>เรื่องที่ยังต้องรู้: ${escapeHTML(item)}</p>`).join("")}${selected.requirement?.contract?.reviewer_policy === "independent_code_changes" ? `<p>การแก้โค้ดต้องผ่านการตรวจอีกครั้งด้วยโปรไฟล์แยก พร้อมหลักฐานการทดสอบ</p>` : ""}${selected.requirement?.contract?.require_user_acceptance ? `<p>ต้องให้ผู้ใช้รับรองผลก่อนปิดงาน</p>` : ""}</details>
-      ${selected.state !== "completed" && selected.state !== "cancelled" ? `<details class="task-revise" ${taskRevisionDrafts.has(selected.id) ? "open" : ""}><summary>แก้เป้าหมาย ภาพที่คาดว่าจะได้ หรือเกณฑ์</summary><p>การบันทึกจะสร้าง Goal ฉบับใหม่และต้องสร้างแผนใหม่ หลักฐานเดิมยังดูได้แต่ใช้ปิดงานฉบับใหม่นี้ไม่ได้</p><form id="taskReviseForm"><fieldset ${!canReviseGoal ? "disabled" : ""}><label>ผลลัพธ์ที่ต้องการ<textarea name="outcome" required rows="2">${escapeHTML(revisionDraft.outcome)}</textarea></label><label>ภาพหน้าจอหรือ flow ที่คาดว่าจะได้<textarea name="experience_preview" rows="3">${escapeHTML(revisionDraft.experience_preview)}</textarea></label><label>เกณฑ์ที่ตรวจได้ · หนึ่งข้อต่อบรรทัด<textarea name="criteria" required rows="3">${escapeHTML(revisionDraft.criteria)}</textarea></label><label>ขอบเขต<textarea name="scope" rows="2">${escapeHTML(revisionDraft.scope)}</textarea></label><label>สมมติฐาน · หนึ่งข้อต่อบรรทัด<textarea name="assumptions" rows="2">${escapeHTML(revisionDraft.assumptions)}</textarea></label><label>เส้นทางที่ได้รับผล · หนึ่งรายการต่อบรรทัด<textarea name="affected_journeys" rows="2">${escapeHTML(revisionDraft.affected_journeys)}</textarea></label><label>วิธียืนยันผล<textarea name="verification" rows="2">${escapeHTML(revisionDraft.verification)}</textarea></label><label>ข้อจำกัด · หนึ่งข้อต่อบรรทัด<textarea name="constraints" rows="2">${escapeHTML(revisionDraft.constraints)}</textarea></label><label>เรื่องที่ยังต้องรู้ · หนึ่งข้อต่อบรรทัด<textarea name="unknowns" rows="2">${escapeHTML(revisionDraft.unknowns)}</textarea></label><label class="task-acceptance-choice"><input type="checkbox" name="require_user_acceptance" ${revisionDraft.require_user_acceptance ? "checked" : ""}>ให้ฉันตรวจและรับรองผลก่อนปิดงาน</label><button class="ghost" type="submit">บันทึก Goal ฉบับใหม่</button></fieldset></form>${!canReviseGoal ? `<p>มีงานหรือผลการกระทำที่ยังไม่สิ้นสุด ตรวจและจัดการสิ่งที่ค้างก่อนแก้เป้าหมาย</p>` : ""}</details>` : ""}
+      <details><summary>เกณฑ์สำเร็จและข้อจำกัด</summary>${selected.requirement?.contract?.scope ? `<p><strong>ขอบเขต:</strong> ${escapeHTML(selected.requirement.contract.scope)}</p>` : ""}<ul>${(selected.requirement?.criteria || []).map(item => `<li>${escapeHTML(item.description)}</li>`).join("")}</ul>${(selected.requirement?.contract?.assumptions || []).map(item => `<p>สมมติฐาน: ${escapeHTML(item)}</p>`).join("")}${(selected.requirement?.contract?.affected_journeys || []).map(item => `<p>เส้นทางที่ได้รับผล: ${escapeHTML(item)}</p>`).join("")}${selected.requirement?.contract?.verification ? `<p>วิธียืนยันผล: ${escapeHTML(selected.requirement.contract.verification)}</p>` : ""}${selected.requirement?.contract?.writable_paths?.length ? `<p><strong>ไฟล์ที่อนุญาตให้แก้:</strong> ${selected.requirement.contract.writable_paths.map(escapeHTML).join(", ")}</p>` : ""}${(selected.requirement?.constraints || []).map(item => `<p>${escapeHTML(item)}</p>`).join("")}${(selected.requirement?.unknowns || []).map(item => `<p>เรื่องที่ยังต้องรู้: ${escapeHTML(item)}</p>`).join("")}${selected.requirement?.contract?.reviewer_policy === "independent_code_changes" ? `<p>การแก้โค้ดต้องผ่านการตรวจอีกครั้งด้วยโปรไฟล์แยก พร้อมหลักฐานการทดสอบ</p>` : ""}${selected.requirement?.contract?.require_user_acceptance ? `<p>ต้องให้ผู้ใช้รับรองผลก่อนปิดงาน</p>` : ""}</details>
+      ${selected.state !== "completed" && selected.state !== "cancelled" ? `<details class="task-revise" ${taskRevisionDrafts.has(selected.id) ? "open" : ""}><summary>แก้เป้าหมาย ภาพที่คาดว่าจะได้ หรือเกณฑ์</summary><p>การบันทึกจะสร้าง Goal ฉบับใหม่และต้องสร้างแผนใหม่ หลักฐานเดิมยังดูได้แต่ใช้ปิดงานฉบับใหม่นี้ไม่ได้</p><form id="taskReviseForm"><fieldset ${!canReviseGoal ? "disabled" : ""}><label>ผลลัพธ์ที่ต้องการ<textarea name="outcome" required rows="2">${escapeHTML(revisionDraft.outcome)}</textarea></label><label>ภาพหน้าจอหรือ flow ที่คาดว่าจะได้<textarea name="experience_preview" rows="3">${escapeHTML(revisionDraft.experience_preview)}</textarea></label><label>เกณฑ์ที่ตรวจได้ · หนึ่งข้อต่อบรรทัด<textarea name="criteria" required rows="3">${escapeHTML(revisionDraft.criteria)}</textarea></label><label>ขอบเขต<textarea name="scope" rows="2">${escapeHTML(revisionDraft.scope)}</textarea></label><label>ไฟล์ที่อนุญาตให้แก้ · path ภายในโปรเจกต์ บรรทัดละไฟล์<textarea name="writable_paths" rows="2" placeholder="เช่น frontend/services/api.js · เว้นว่างเพื่อใช้ไฟล์ที่เลือกในแต่ละขั้น">${escapeHTML(revisionDraft.writable_paths || "")}</textarea></label><label>สมมติฐาน · หนึ่งข้อต่อบรรทัด<textarea name="assumptions" rows="2">${escapeHTML(revisionDraft.assumptions)}</textarea></label><label>เส้นทางที่ได้รับผล · หนึ่งรายการต่อบรรทัด<textarea name="affected_journeys" rows="2">${escapeHTML(revisionDraft.affected_journeys)}</textarea></label><label>วิธียืนยันผล<textarea name="verification" rows="2">${escapeHTML(revisionDraft.verification)}</textarea></label><label>ข้อจำกัด · หนึ่งข้อต่อบรรทัด<textarea name="constraints" rows="2">${escapeHTML(revisionDraft.constraints)}</textarea></label><label>เรื่องที่ยังต้องรู้ · หนึ่งข้อต่อบรรทัด<textarea name="unknowns" rows="2">${escapeHTML(revisionDraft.unknowns)}</textarea></label><label class="task-acceptance-choice"><input type="checkbox" name="require_user_acceptance" ${revisionDraft.require_user_acceptance ? "checked" : ""}>ให้ฉันตรวจและรับรองผลก่อนปิดงาน</label><button class="ghost" type="submit">บันทึก Goal ฉบับใหม่</button></fieldset></form>${!canReviseGoal ? `<p>มีงานหรือผลการกระทำที่ยังไม่สิ้นสุด ตรวจและจัดการสิ่งที่ค้างก่อนแก้เป้าหมาย</p>` : ""}</details>` : ""}
       ${(selected.requirement?.contract?.clarifications || []).length ? `<details class="task-clarification-history"><summary>คำตอบที่บันทึกใน Goal · ${selected.requirement.contract.clarifications.length}</summary><ol>${selected.requirement.contract.clarifications.map(item => `<li><strong>${escapeHTML(item.question)}</strong><p>${escapeHTML(item.answer)}</p></li>`).join("")}</ol></details>` : ""}
       ${(selected.requirement?.unknowns || []).length && !["completed","cancelled"].includes(selected.state) ? `<section class="task-clarification" aria-labelledby="taskClarificationHeading"><h4 id="taskClarificationHeading">ตอบเรื่องที่ยังต้องรู้</h4><p>คำตอบจะสร้าง Goal ฉบับใหม่ และต้องตรวจแผนกับหลักฐานอีกครั้ง</p><form id="taskClarificationForm"><fieldset ${!canReviseGoal ? "disabled" : ""}><label>คำถาม<select name="question">${selected.requirement.unknowns.map(question => `<option value="${escapeHTML(question)}" ${question === clarificationDraft.question ? "selected" : ""}>${escapeHTML(question)}</option>`).join("")}</select></label><label>คำตอบ<textarea name="answer" rows="3" maxlength="2000" required>${escapeHTML(clarificationDraft.answer)}</textarea></label><button class="ghost" type="submit">บันทึกคำตอบและทบทวนแผน</button></fieldset></form>${!canReviseGoal ? `<p>จัดการงานหรือผลการกระทำที่ค้างก่อนตอบคำถามนี้</p>` : ""}</section>` : ""}
       <div id="taskPlan">${!steps.length ? `<label>โมเดลวางแผน<select id="taskPlannerProvider">${taskProviderOptions(providers)}</select></label><button class="primary" id="taskAutoPlan" ${busy || !providers.length ? "disabled" : ""}>${taskActions.get(selected.id) || "สร้างแผน"}</button>` : `<section class="task-plan-reference" aria-label="แผนที่ใช้อ้างอิง"><div class="task-plan-reference-head"><h4>แผนฉบับ ${selected.plan.revision}</h4>${pill(selected.plan.review_status === "approved" ? "ยืนยันแล้ว" : selected.plan.review_status === "rejected" ? "ส่งกลับแก้" : taskPlanAwaitsReview(selected) ? "รอตรวจ" : "ใช้งานแล้ว", selected.plan.review_status === "approved" || !taskPlanAwaitsReview(selected) ? "green" : "amber")}</div><p>${escapeHTML(selected.plan.reason || "ขั้นตอนที่จะทำตามเป้าหมายนี้")}</p><details class="task-plan-all-steps" ${taskPlanAwaitsReview(selected) ? "open" : ""}><summary>ดูขั้นตอนและวิธีตรวจ · ${steps.length} ขั้น</summary><ol class="task-plan-steps">${steps.map((step, index) => `<li><details ${index === 0 && taskPlanAwaitsReview(selected) ? "open" : ""}><summary><strong>${escapeHTML(step.title)}</strong> ${pill(step.state, step.state === "completed" ? "green" : step.state === "failed" ? "red" : "blue")}</summary><p>${escapeHTML(step.instructions)}</p><p><strong>วิธีตรวจ</strong></p><ul>${(step.checks || []).map(check => `<li><code>${escapeHTML(check)}</code></li>`).join("")}</ul><small>เกณฑ์ที่ขั้นนี้ต้องพิสูจน์: ${escapeHTML((step.requirement_ids || []).map(id => selected.requirement?.criteria?.find(item => item.id === id)?.description || id).join(" · "))}</small></details></li>`).join("")}</ol></details></section><p class="form-note neutral">${taskPlanReferenceNote(selected)}</p>`}</div>
@@ -5163,14 +5450,14 @@ function renderTaskCockpit(body) {
   });
   $("#taskReviseForm")?.addEventListener("input", event => {
     const form = new FormData(event.currentTarget);
-    const values = Object.fromEntries(["outcome","experience_preview","criteria","scope","assumptions","affected_journeys","verification","constraints","unknowns"].map(name => [name, String(form.get(name) || "")]));
+    const values = Object.fromEntries(["outcome","experience_preview","criteria","scope","writable_paths","assumptions","affected_journeys","verification","constraints","unknowns"].map(name => [name, String(form.get(name) || "")]));
     values.require_user_acceptance = form.has("require_user_acceptance");
     taskRevisionDrafts.set(selected.id, values);
   });
   $("#durableTaskForm")?.addEventListener("input", event => {
     const form = new FormData(event.currentTarget);
     state.taskDraftObjective = String(form.get("objective") || "");
-    state.taskDraftDetails = Object.fromEntries(["title", "experience_preview", "criteria", "scope", "assumptions", "affected_journeys", "verification", "constraints", "unknowns"].map(name => [name, String(form.get(name) || "")]));
+    state.taskDraftDetails = Object.fromEntries(["title", "experience_preview", "criteria", "scope", "writable_paths", "assumptions", "affected_journeys", "verification", "constraints", "unknowns"].map(name => [name, String(form.get(name) || "")]));
     state.taskDraftDetails.require_user_acceptance = form.has("require_user_acceptance");
     state.taskDraftDetails.allow_remote_research = form.has("allow_remote_research");
     rememberProjectDraft();
@@ -5184,6 +5471,7 @@ function renderTaskCockpit(body) {
   });
   $("#taskBackToOverview")?.addEventListener("click", () => {
     state.plansOverview = true;
+    rememberSurface("plans");
     renderPanes();
   });
   $$('[data-board-task]', body).forEach(button => button.addEventListener("click", async () => {
@@ -5207,6 +5495,7 @@ function renderTaskCockpit(body) {
   $("#taskResumeApprovedReview")?.addEventListener("click", () => resumeApprovedTaskReview(body));
   $("#taskRetryFailedProposal")?.addEventListener("click", () => retryFailedTaskProposal(body));
   $("#taskRetryRejectedProposal")?.addEventListener("click", () => retryRejectedTaskProposal(body));
+  $("#taskPauseRun")?.addEventListener("click", () => pauseIdleTaskRun(body));
   $("#taskDecisionShadow")?.addEventListener("click", () => compareTaskDecision(body));
   $("#taskDecisionBenchmark")?.addEventListener("click", () => benchmarkTaskDecision(body));
   $("#taskDecisionAdmission")?.addEventListener("click", event => changeTaskDecisionAdmission(event, body));
@@ -5302,7 +5591,7 @@ function renderTaskCockpit(body) {
   });
   body.querySelectorAll("[data-social-refresh]").forEach(button => button.addEventListener("click", () => refreshTaskSocialPost(selected.id, button.dataset.socialRefresh, body)));
   const exportStep = [...body.querySelectorAll(".task-content-step")].find(section => section.querySelector("h4")?.textContent.startsWith("6 ·"));
-  const approvedDrafts = (state.taskExecutions[selected.id]?.content?.drafts || []).filter(draft => draft.approved);
+  const approvedDrafts = (state.taskExecutions[selected?.id]?.content?.drafts || []).filter(draft => draft.approved);
   exportStep?.querySelectorAll(".task-content-draft").forEach((article, index) => {
     const draft = approvedDrafts[index];
     const posts = (state.taskExecutions[selected.id]?.socialPosts || []).filter(post => post.draft_id === draft?.id);
@@ -5328,6 +5617,8 @@ function renderTaskCockpit(body) {
   $("#taskComfyStart")?.addEventListener("click", () => startTaskComfy(selected.id, body));
   body.querySelectorAll("[data-comfy-refresh]").forEach(button => button.addEventListener("click", () => refreshTaskComfy(selected.id, button.dataset.comfyRefresh, body)));
   body.querySelectorAll("[data-comfy-cancel]").forEach(button => button.addEventListener("click", () => cancelTaskComfy(selected.id, button.dataset.comfyCancel, body)));
+  const position = selected && taskViewportPositions.get(selected.id);
+  if (position) { body.scrollTop = position.top; body.scrollLeft = position.left; }
   const jumpToTaskControl = targetID => {
     const target = body.querySelector(`#${targetID}`) || body.querySelector('[data-task-models]');
     if (!target) return;
@@ -5356,25 +5647,29 @@ function renderTaskCockpit(body) {
 }
 
 function renderPlansOverview(body) {
-  const tasks = state.durableTasks.slice();
+  const tasks = state.durableTasks.filter(task => state.plansScope !== "project" || task.project_id === state.currentProject?.id);
   const active = tasks.filter(task => !["completed", "cancelled"].includes(task.state));
-  const blocked = active.filter(task => taskBoardLane(task) === "blocked");
-  const next = active.filter(task => !blocked.includes(task));
+  const blocked = active.filter(task => taskBoardLane(task) === "blocked" || task.plan?.review_status === "rejected");
+  const ready = active.filter(task => state.taskExecutions[task.id]?.completion?.awaiting_user_acceptance);
+  const next = active.filter(task => !blocked.includes(task) && !ready.includes(task));
   const card = task => {
     const project = state.projects.find(item => item.id === task.project_id);
     const steps = task.plan?.steps || [];
     const nextStep = steps.find(step => !["completed", "skipped"].includes(step.state));
     const done = steps.filter(step => ["completed", "skipped"].includes(step.state)).length;
     const stage = taskStage(task, state.taskExecutions[task.id]);
-    const nextAction = nextStep ? `ขั้นถัดไป: ${nextStep.title}` : stage.detail;
-    return `<article class="plans-overview-card"><div><small>${escapeHTML(project?.name || "Workspace")} · ${escapeHTML(stage.label)} · ${steps.length ? `${done}/${steps.length} ขั้น` : "ยังไม่มีแผน"}</small><h4>${escapeHTML(task.title)}</h4><p>${escapeHTML(nextAction)}</p></div><button class="ghost" type="button" data-plans-task="${escapeHTML(task.id)}">เปิดงาน</button></article>`;
+    const nextAction = task.plan?.review_status === "rejected" ? "ขั้นถัดไป: แก้แผนตามข้อเสนอแนะก่อนเริ่มทำงาน" : nextStep && task.plan?.review_status === "approved" ? `ขั้นถัดไป: ${nextStep.title}` : stage.detail;
+    const tone = ready.includes(task) ? "ready" : blocked.includes(task) ? "blocked" : "normal";
+    const action = tone === "ready" ? "ตรวจผลและรับงาน" : tone === "blocked" ? "ดูสาเหตุและทำต่อ" : "เปิดงาน";
+    return `<article class="plans-overview-card" data-tone="${tone}"><div><small>${escapeHTML(project?.name || "Workspace")} · ${escapeHTML(stage.label)} · ${steps.length ? `${done}/${steps.length} ขั้น` : "ยังไม่มีแผน"}</small><h4>${escapeHTML(task.title)}</h4><p>${escapeHTML(nextAction)}</p></div><button class="${tone === "ready" ? "primary" : "ghost"}" type="button" data-plans-task="${escapeHTML(task.id)}">${action}<span aria-hidden="true">›</span></button></article>`;
   };
-  body.innerHTML = `<section class="plans-overview" aria-labelledby="plansOverviewTitle"><header class="plans-overview-head"><div><p class="eyebrow">Plans</p><h2 id="plansOverviewTitle">ภาพรวมแผนงาน</h2><p>เลือกงานเพื่อดูเป้าหมาย แผน หลักฐาน และสิ่งที่ต้องทำต่อ</p></div><span>${tasks.length} งานล่าสุด</span></header>
-    <div class="plans-overview-summary"><div><strong>${blocked.length}</strong><span>ต้องจัดการก่อน</span></div><div><strong>${next.length}</strong><span>กำลังเดินต่อ</span></div><div><strong>${tasks.filter(task => task.state === "completed").length}</strong><span>เสร็จแล้ว</span></div></div>
+  body.innerHTML = `<section class="plans-overview" aria-labelledby="plansOverviewTitle"><header class="plans-overview-head"><div><p class="eyebrow">แผนงาน</p><h2 id="plansOverviewTitle">งานของคุณ</h2><p>ดูสิ่งที่ต้องทำต่อ ตรวจผล และเริ่มงานใหม่ได้จากที่นี่</p></div><div class="plans-overview-tools"><span>${tasks.length} งานล่าสุด</span>${state.currentProject?.id ? `<button class="primary" type="button" id="plansNewTask">${uiIcon("plus")} เริ่มงานใหม่</button>` : ""}</div></header>
+    <div class="plans-overview-summary"><div class="summary-ready"><strong>${ready.length}</strong><span>รอคุณรับรองผล</span></div><div><strong>${blocked.length}</strong><span>ต้องจัดการก่อน</span></div><div><strong>${next.length}</strong><span>กำลังดำเนินการ</span></div><div><strong>${tasks.filter(task => task.state === "completed").length}</strong><span>เสร็จแล้ว</span></div></div>
+    ${ready.length ? `<section><h3>${uiIcon("review")} พร้อมให้คุณตรวจผล</h3>${ready.map(card).join("")}</section>` : ""}
     <section><h3>ต้องจัดการก่อน</h3>${blocked.length ? blocked.map(card).join("") : `<p class="task-kanban-empty">ไม่มีงานที่ติดขัด</p>`}</section>
     <section><h3>งานที่กำลังเดินต่อ</h3>${next.length ? next.map(card).join("") : `<p class="task-kanban-empty">ยังไม่มีงานที่กำลังทำ</p>`}</section>
     <details><summary>งานที่เสร็จแล้ว · ${tasks.length - active.length}</summary>${tasks.filter(task => !active.includes(task)).map(card).join("") || `<p class="task-kanban-empty">ยังไม่มีงานที่เสร็จแล้ว</p>`}</details>
-    ${state.currentProject?.id ? `<div class="action-row"><button class="primary" type="button" id="plansNewTask">เริ่มงานใหม่ใน ${escapeHTML(state.currentProject.name)}</button><button class="ghost" type="button" id="plansChooseWorkspace">เลือก Workspace อื่น</button></div>` : `<button class="primary" type="button" id="plansChooseWorkspace">เลือก Workspace เพื่อเริ่มงานใหม่</button>`}</section>`;
+    <div class="action-row"><button class="ghost" type="button" id="plansChooseWorkspace">${state.currentProject?.id ? "เลือก Workspace อื่น" : "เลือก Workspace เพื่อเริ่มงานใหม่"}</button></div></section>`;
   body.querySelectorAll("[data-plans-task]").forEach(button => button.addEventListener("click", async () => {
     const task = tasks.find(item => item.id === button.dataset.plansTask);
     if (!task) return;
@@ -5389,7 +5684,20 @@ function renderPlansOverview(body) {
     renderPanes();
   }));
   body.querySelector("#plansChooseWorkspace")?.addEventListener("click", showPicker);
+  const scope = document.createElement("label");
+  scope.innerHTML = `แสดงงาน <select aria-label="ขอบเขตแผนงาน"><option value="all">ทุกโปรเจกต์</option><option value="project">โปรเจกต์นี้</option></select>`;
+  scope.querySelector("select").value = state.plansScope || "all";
+  scope.querySelector("select").addEventListener("change", event => { state.plansScope = event.target.value; renderPlansOverview(body); });
+  body.querySelector(".plans-overview-tools").prepend(scope);
   body.querySelector("#plansNewTask")?.addEventListener("click", () => { state.plansOverview = false; state.selectedDurableTask = "__new__"; rememberSurface("plans"); renderPanes(); });
+  for (const task of tasks.filter(item => item.state === "verifying")) {
+    if (Object.prototype.hasOwnProperty.call(state.taskExecutions, task.id)) continue;
+    state.taskExecutions[task.id] = null;
+    loadTaskExecution(task.id).then(() => {
+      if (body.isConnected && state.plansOverview) renderPlansOverview(body);
+      else renderCurrentTaskCockpit(task.id);
+    });
+  }
 }
 
 async function loadTaskDecisionLab(taskID) {
@@ -5514,6 +5822,19 @@ async function loadTaskExecution(taskID) {
       catch (error) { taskProposalBodies.set(artifactID, {error:error.message}); }
     }
   } catch (error) { if (taskExecutionLoadSerial.get(taskID) === serial) state.taskExecutions[taskID] = {error:error.message, effects:[]}; }
+}
+
+// A task may advance from Discord or another client. Refresh must invalidate
+// older completion/actions as well as its card, and fence late cached responses.
+function reconcileTaskCache(tasks, force = false) {
+  for (const task of tasks) {
+    const cached = state.taskExecutions[task.id];
+    if ((force && Object.prototype.hasOwnProperty.call(state.taskExecutions, task.id)) || (cached?.task?.revision && cached.task.revision < task.revision)) {
+      delete state.taskExecutions[task.id];
+      taskErrors.delete(task.id);
+      taskExecutionLoadSerial.set(task.id, (taskExecutionLoadSerial.get(task.id) || 0) + 1);
+    }
+  }
 }
 
 async function cancelTaskDesktopAction(taskID, actionID, subjectHash, body) {
@@ -6008,7 +6329,7 @@ async function postReviewTaskProposal(body) {
   if (!proposal || !taskEligibleProviders(task, proposal.provider_id).some(item => item.id === providerID)) return;
   await performTaskAction(taskID, body, "กำลังตรวจผลโดยโมเดลแยก", async () => {
     const output = await api(`/api/task-code-proposals/${encodeURIComponent(proposal.id)}/post-review`, {method:"POST", body:JSON.stringify({provider_id:providerID, authority:await renewTaskAuthority(taskID)})});
-    toast(output.review?.verdict === "reject" ? "ผู้ตรวจส่งข้อเสนอกลับ เปิดหลักฐานและผลคืนไฟล์ก่อนเริ่มใหม่" : "ผู้ตรวจรอบแยกยืนยันผลแล้ว");
+    toast(output.review?.verdict === "reject" ? "ผู้ตรวจส่งข้อเสนอกลับ เปิดหลักฐานและผลคืนไฟล์ก่อนเริ่มใหม่" : output.task?.state === "verifying" && output.task?.requirement?.contract?.require_user_acceptance ? "ผู้ตรวจยืนยันผลแล้ว รอคุณตรวจและรับรองก่อนปิดงาน" : "ผู้ตรวจรอบแยกยืนยันผลแล้ว");
   });
 }
 
@@ -6030,7 +6351,7 @@ async function createDurableTask(event) {
       title:String(form.get("title") || "").trim() || objective.split("\n")[0].slice(0,80), objective, original_request:objective,
       criteria, constraints:lines("constraints"), unknowns:lines("unknowns"), egress_policy:form.has("allow_remote_research") ? "remote_allowed" : "local_only",
       remote_egress_approval:form.has("allow_remote_research") ? {actor:currentActor(), reason:"ผู้ใช้เลือกให้ค้นบทความจาก Crossref สำหรับงานนี้"} : undefined, actor:currentActor(),
-      contract:{scope:String(form.get("scope") || "").trim(), experience_preview:String(form.get("experience_preview") || "").trim(), assumptions:lines("assumptions"), affected_journeys:lines("affected_journeys"),
+      contract:{scope:String(form.get("scope") || "").trim(), writable_paths:lines("writable_paths"), experience_preview:String(form.get("experience_preview") || "").trim(), assumptions:lines("assumptions"), affected_journeys:lines("affected_journeys"),
         verification:String(form.get("verification") || "").trim(), require_plan_review:true,
         require_user_acceptance:form.has("require_user_acceptance")}})});
     state.durableTasks.unshift(task);
@@ -6083,6 +6404,18 @@ async function retryFailedTaskProposal(body) {
   });
 }
 
+async function pauseIdleTaskRun(body) {
+  const taskID = state.selectedDurableTask;
+  const execution = state.taskExecutions[taskID];
+  const task = execution?.task || state.durableTasks.find(item => item.id === taskID);
+  if (!task || !taskRunIsLive(execution?.run) || taskActions.has(taskID)) return;
+  await performTaskAction(taskID, body, "กำลังพักรอบงาน", async () => {
+    const updated = await api(`/api/task-runs/${encodeURIComponent(execution.run.id)}/pause`, {method:"POST",body:JSON.stringify({lease_token:execution.run.lease_token,expected_task_revision:task.revision,actor:currentActor(),reason:"พักก่อนเริ่มขั้นถัดไปเพื่อทบทวนเป้าหมายหรือแผน"})});
+    state.durableTasks = state.durableTasks.map(item => item.id === updated.id ? updated : item);
+    toast("พักแล้ว แก้เป้าหมายหรือเริ่มรอบใหม่จากหลักฐานเดิมได้");
+  });
+}
+
 async function retryRejectedTaskProposal(body) {
   const taskID = state.selectedDurableTask;
   const task = state.durableTasks.find(item => item.id === taskID);
@@ -6119,6 +6452,7 @@ async function reviseDurableTask(event, body) {
   const criteria = revisedTaskCriteria(task, lines("criteria"));
   if (!outcome || !criteria.length) return;
   const contract = {outcome, scope:String(form.get("scope") || "").trim(), experience_preview:String(form.get("experience_preview") || "").trim(), assumptions:lines("assumptions"),
+    writable_paths:lines("writable_paths"),
     affected_journeys:lines("affected_journeys"), verification:String(form.get("verification") || "").trim(),
     clarifications:task.requirement?.contract?.clarifications || [],
     require_plan_review:Boolean(task.requirement?.contract?.require_plan_review),
@@ -6216,13 +6550,41 @@ function paneToolbarHTML() {
   const count = state.panes.length || 1;
   const layout = normalisePaneLayout(count);
   const planning = state.maximisedPane !== null && state.panes[state.maximisedPane] === "tasks";
-  return `<header class="workspace-toolbar ${planning ? "planning-toolbar" : layout === "ide" ? "ide-toolbar" : ""} ${!planning && !workspaceToolbarExpanded ? "is-collapsed" : ""}"><div class="workspace-toolbar-heading"><strong>${planning ? "แผนงาน" : `พื้นที่ทำงาน <span class="workspace-active-label">· ${escapeHTML(paneContent(compactPaneID()).label)}</span>`}</strong><small>${planning ? "เป้าหมาย → แผน → ทบทวนการแก้ไข → ตรวจผล" : state.view === "chat" ? "เลือกเครื่องมือที่ต้องการจากปุ่มเพิ่ม" : "เพิ่มช่องได้ต่อเนื่อง · เลื่อนแนวนอนและลากขอบช่องเพื่อปรับขนาด"}</small>${planning ? "" : `<button type="button" class="ghost compact workspace-toolbar-toggle" id="workspaceToolbarToggle" aria-controls="workspaceActions workspacePaneTabs" aria-expanded="${workspaceToolbarExpanded}" aria-label="${workspaceToolbarExpanded ? "พับเมนูพื้นที่ทำงาน" : "แสดงเมนูพื้นที่ทำงาน"}"><span>เมนู</span><span aria-hidden="true">⌄</span></button>`}</div>
+  return `<header class="workspace-toolbar ${compactWorkspace() ? "workspace-compact" : ""} ${planning ? "planning-toolbar" : layout === "ide" ? "ide-toolbar" : ""} ${!planning && !workspaceToolbarExpanded ? "is-collapsed" : ""}"><div class="workspace-toolbar-heading"><strong>${planning ? "แผนงาน" : `พื้นที่ทำงาน <span class="workspace-active-label">· ${escapeHTML(paneContent(compactPaneID()).label)}</span>`}</strong><small>${planning ? "เป้าหมาย → แผน → ทบทวนการแก้ไข → ตรวจผล" : "เปิดส่วนงานจากปุ่มเพิ่มแท็บ · เลื่อนแถบเพื่อสลับส่วนงาน"}</small>${planning ? "" : `<button type="button" class="ghost compact workspace-toolbar-toggle" id="workspaceToolbarToggle" aria-controls="workspaceActions" aria-expanded="${workspaceToolbarExpanded}" aria-label="${workspaceToolbarExpanded ? "พับเมนูพื้นที่ทำงาน" : "แสดงเมนูพื้นที่ทำงาน"}"><span>เมนู</span><span aria-hidden="true">⌄</span></button>`}</div>
     ${layout === "ide" && !planning ? `<div class="ide-mode-switch" role="group" aria-label="Workspace mode"><button type="button" id="ideAgentMode">Agent</button><button type="button" class="active" aria-current="page">Editor</button></div>` : ""}
     <div class="workspace-actions" id="workspaceActions">
       ${planning ? "" : `<button class="ghost compact" id="workspaceIDE" aria-label="${layout === "ide" ? "มุมมองยืดหยุ่น" : "โหมดแก้ไฟล์"}" title="${layout === "ide" ? "มุมมองยืดหยุ่น" : "โหมดแก้ไฟล์"}">${uiIcon("workbench")}<span>${layout === "ide" ? "Flexible view" : "Editor mode"}</span></button><button class="ghost compact" data-ide-panel="terminal" aria-label="เปิด Terminal" title="เปิด Terminal">${uiIcon("terminal")}<span>Terminal</span></button>`}
       <span id="paneCountLabel">${count} ช่อง</span>
-      <button type="button" class="ghost compact" id="paneAdd" ${state.view === "chat" ? 'aria-expanded="false" aria-controls="workspacePaneMenu" aria-label="เลือกเครื่องมือในแถบข้าง"' : 'aria-label="สร้างช่องทำงาน"'} title="${state.view === "chat" ? "เลือกเครื่องมือในแถบข้าง" : "สร้างช่องทำงานและเปิดทันที"}">${uiIcon("plus")}<span>${state.view === "chat" ? "เครื่องมือ" : "สร้างช่อง"}</span></button>
-    </div>${state.view === "chat" && !planning ? `<div class="workspace-pane-menu" id="workspacePaneMenu" hidden><p>เปิดในแถบข้าง</p>${["terminal", "browser", "files", "review", "artifacts", "team"].map(id => { const item = paneContent(id); return `<button type="button" data-open-side-pane="${id}">${uiIcon(item.icon)}<span>${escapeHTML(item.label)}</span></button>`; }).join("")}</div>` : ""}${planning ? "" : `<nav class="compact-pane-tabs" id="workspacePaneTabs" aria-label="Workspace panels">${state.panes.map(id => `<button type="button" data-compact-pane="${id}" aria-pressed="${id === compactPaneID()}">${escapeHTML(paneContent(id).label)}</button>`).join("")}</nav>`}</header>`;
+    </div>${planning ? "" : `<div class="workspace-tab-bar"><nav class="compact-pane-tabs" id="workspacePaneTabs" aria-label="แท็บพื้นที่ทำงาน">${state.panes.map(id => `<button type="button" data-compact-pane="${escapeHTML(id)}" aria-pressed="${id === compactPaneID()}" tabindex="${id === compactPaneID() ? "0" : "-1"}">${uiIcon(paneContent(id).icon)}<span>${escapeHTML(workspaceTabLabel(id))}</span></button>`).join("")}</nav><button type="button" class="ghost compact" id="paneAdd" aria-expanded="false" aria-controls="workspacePaneMenu" aria-label="เพิ่มแท็บพื้นที่ทำงาน" title="เพิ่มแท็บพื้นที่ทำงาน">${uiIcon("plus")}<span>เพิ่มแท็บ</span></button>${count > 1 ? `<button type="button" class="ghost compact workspace-tab-close" data-active-pane-close="${state.panes.indexOf(compactPaneID())}" aria-label="ปิดแท็บ ${escapeHTML(workspaceTabLabel(compactPaneID()))}" title="ปิดแท็บนี้">×</button>` : ""}</div><div class="workspace-pane-menu" id="workspacePaneMenu" hidden><p>เลือกส่วนงานที่จะเปิด</p>${PANE_CONTENT.map(item => `<button type="button" data-open-side-pane="${item.id}" ${item.id === "editor" && !state.projectFile ? 'disabled title="เปิดไฟล์จากแท็บไฟล์ก่อน"' : ""}>${uiIcon(item.icon)}<span>${escapeHTML(item.label)}</span>${state.panes.includes(item.id) ? '<small>เปิดอยู่</small>' : ""}</button>`).join("")}</div>`}</header>`;
+}
+
+function workspaceTabLabel(id) {
+  const label = paneContent(id).label;
+  const notes = state.panes.filter(item => item.startsWith("notes:"));
+  return id.startsWith("notes:") && notes.length > 1 ? `${label} ${notes.indexOf(id) + 1}` : label;
+}
+
+function revealWorkspaceTab({focus = false} = {}) {
+  const strip = $("#workspacePaneTabs");
+  if (!strip) return;
+  const button = $$('[data-compact-pane]', strip).find(item => item.dataset.compactPane === compactPaneID());
+  if (!button) return;
+  if (focus) button.focus({preventScroll:true});
+  const left = button.offsetLeft;
+  const right = left + button.offsetWidth;
+  if (left < strip.scrollLeft) strip.scrollLeft = left;
+  else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth;
+}
+
+function activateWorkspacePane(id, {focus = true} = {}) {
+  if (!state.panes.includes(id)) return;
+  state.compactPane = id;
+  state.maximisedPane = null;
+  workspaceToolbarExpanded = false;
+  renderPanes();
+  revealWorkspaceTab({focus});
+  revealWorkspacePane(id);
+  saveLayout();
 }
 
 function ideActivityHTML() {
@@ -6236,7 +6598,7 @@ function ideActivityHTML() {
 function compactPaneID() { return state.panes.includes(state.compactPane) ? state.compactPane : state.panes[0]; }
 // Chat's workbench is a narrow side panel even on a wide desktop. Use one
 // visible pane there; viewport width alone left other panes off screen.
-function compactWorkspace() { return state.view === "chat" || window.innerWidth <= (state.paneLayout === "ide" ? 900 : 700); }
+function compactWorkspace() { return state.view === "chat" || window.innerWidth <= 1080; }
 
 function paneDividerHTML(count, layout) {
   return "";
@@ -6428,6 +6790,7 @@ function mountPaneContent(body, id) {
 }
 
 function renderPanes() {
+  document.querySelectorAll('.pane-body[data-pane-kind="tasks"]').forEach(rememberTaskViewport);
   captureCodeDraft();
   stopWorkbenchPolling();
   disposeWorkspaceWidgets();
@@ -6451,6 +6814,7 @@ function renderPanes() {
   const count = state.panes.length;
   state.paneLayout = normalisePaneLayout(count);
   host.classList.toggle("ide-host", state.paneLayout === "ide" && state.view === "code");
+  host.classList.toggle("workspace-compact", compactWorkspace());
   host.innerHTML = `<div class="pane-grid pane-layout-${count} pane-arrangement-${state.paneLayout} ${state.maximisedPane === null ? "" : "one-up"}">${
     state.panes.map((id, index) => {
       const hidden = state.maximisedPane !== null ? state.maximisedPane !== index : compactWorkspace() && id !== compactPaneID();
@@ -6459,10 +6823,7 @@ function renderPanes() {
         <header class="pane-head">
           <button type="button" class="pane-drag-handle" draggable="true" data-pane-drag="${index}" aria-label="ย้ายช่อง ${escapeHTML(item.label)}" title="ลากเพื่อย้าย หรือใช้ปุ่มลูกศรเรียงลำดับ">${uiIcon("grip")}</button>
           ${uiIcon(item.icon)}
-          <select data-pane-content="${index}" aria-label="เนื้อหาในช่อง">${
-            PANE_CONTENT.map(option =>
-              `<option value="${option.id}" ${option.id === item.id ? "selected" : ""} ${option.id === "editor" && !state.projectFile ? "disabled" : ""}>${escapeHTML(option.label)}</option>`).join("")
-          }</select>
+          <strong class="pane-title">${escapeHTML(workspaceTabLabel(id))}</strong>
           <button class="ghost compact pane-window-action" data-pane-max="${index}" aria-label="${state.maximisedPane === index ? "คืนขนาด" : "ขยายเต็มพื้นที่"}ช่อง ${escapeHTML(item.label)}" title="${state.maximisedPane === index ? "คืนขนาดช่อง" : "ขยายช่องเต็มพื้นที่"}">${state.maximisedPane === index ? "↙" : "⛶"}</button>
           ${state.panes.length > 1
             ? `<button class="ghost compact pane-window-action" data-pane-close="${index}" aria-label="ปิดช่อง ${escapeHTML(item.label)}" title="ปิดช่องนี้">×</button>` : ""}
@@ -6477,7 +6838,18 @@ function renderPanes() {
   });
   $("#paneCountLabel").textContent = `${count} ช่อง`;
   bindPaneControls();
-  $$('[data-compact-pane]').forEach(button => button.addEventListener("click", () => { state.compactPane = button.dataset.compactPane; state.maximisedPane = null; workspaceToolbarExpanded = false; renderPanes(); revealWorkspacePane(state.compactPane); }));
+  $$('[data-compact-pane]').forEach(button => {
+    button.addEventListener("click", () => activateWorkspacePane(button.dataset.compactPane));
+    button.addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const index = state.panes.indexOf(button.dataset.compactPane);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? state.panes.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + state.panes.length) % state.panes.length;
+      activateWorkspacePane(state.panes[next]);
+    });
+  });
+  revealWorkspaceTab();
   state.panes.forEach((id, index) => {
     if (state.maximisedPane !== null && state.maximisedPane !== index) return;
     if (state.maximisedPane === null && compactWorkspace() && id !== compactPaneID()) return;
@@ -6500,9 +6872,11 @@ function splitPane() {
 
 function closePane(index) {
   if (state.panes.length <= 1) return;
-  state.panes.splice(index, 1);
+  const [closed] = state.panes.splice(index, 1);
+  if (closed === state.compactPane) state.compactPane = state.panes[Math.min(index, state.panes.length - 1)];
   state.maximisedPane = null;
   renderPanes();
+  revealWorkspaceTab({focus:true});
   saveLayout();
 }
 
@@ -6607,7 +6981,14 @@ function bindPaneControls() {
     if (state.paneLayout === "ide") setPaneLayout("adaptive");
     else window.HermetrixWorkspace?.open();
   });
-  $("#ideAgentMode")?.addEventListener("click", () => switchView("chat"));
+  $("#ideAgentMode")?.addEventListener("click", async () => {
+    const projectID = state.currentProject?.id;
+    if (!projectID || state.sending) return;
+    const own = state.sessions.find(session => session.project_id === projectID && !session.team_child);
+    if (own) await selectSession(own.id);
+    else await createAgentSession(`งานใน ${state.currentProject.name}`, {projectID});
+    if (state.sessionDetail?.session?.project_id === projectID) switchView("chat");
+  });
   $$('[data-ide-side]').forEach(button => button.addEventListener("click", () => window.HermetrixWorkspace?.panel(button.dataset.ideSide)));
   $$('[data-ide-panel]').forEach(button => button.addEventListener("click", () => {
     if (state.paneLayout === "ide") window.HermetrixWorkspace?.panel(button.dataset.idePanel);
@@ -6618,9 +6999,13 @@ function bindPaneControls() {
     if (!menu) { splitPane(); return; }
     menu.hidden = !menu.hidden;
     $("#paneAdd").setAttribute("aria-expanded", String(!menu.hidden));
-    if (!menu.hidden) menu.querySelector("button")?.focus();
+    if (!menu.hidden) menu.querySelector("button:not(:disabled)")?.focus();
   });
-  $$("[data-open-side-pane]").forEach(button => button.addEventListener("click", () => openContentPane(button.dataset.openSidePane)));
+  $$("[data-open-side-pane]").forEach(button => button.addEventListener("click", () => {
+    const id = button.dataset.openSidePane === "notes" ? `notes:${crypto.randomUUID()}` : button.dataset.openSidePane;
+    openContentPane(id);
+    revealWorkspaceTab({focus:true});
+  }));
   $("#workspacePaneMenu")?.addEventListener("keydown", event => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -6632,6 +7017,8 @@ function bindPaneControls() {
     select.addEventListener("change", event => setPaneContent(Number(select.dataset.paneContent), event.target.value)));
   $$("[data-pane-max]").forEach(button =>
     button.addEventListener("click", () => maximisePane(Number(button.dataset.paneMax))));
+  $$("[data-active-pane-close]").forEach(button =>
+    button.addEventListener("click", () => closePane(Number(button.dataset.activePaneClose))));
   $$("[data-pane-close]").forEach(button =>
     button.addEventListener("click", () => closePane(Number(button.dataset.paneClose))));
   $$("[data-pane-size]").forEach(handle => {
@@ -6879,7 +7266,7 @@ async function startWorkbenchTeamRun(event){
 }
 async function cancelWorkbenchTeamRun(id){const approved=await askAction({title:"Cancel this team run?",message:"Hermetrix will cancel every active child context and mark queued/running tasks cancelled. Completed child effects are not undone or retried.",confirmLabel:"Cancel team",danger:true});if(!approved)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(id)}/cancel`,{method:"POST",body:JSON.stringify({actor:currentActor()})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast("Team and active child contexts cancelled");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
 async function decideWorkbenchTeamApproval(runId,taskId,decision){const response=await askAction({title:decision==="approve"?"Approve this child effect once?":"Deny this child effect?",message:"The decision is bound to the exact child approval and arguments hash. The child resumes its existing turn; Hermetrix does not replay its prompt or earlier effects.",confirmLabel:decision==="approve"?"Approve exact effect":"Deny effect",reasonLabel:decision==="deny"?"Reason":"",danger:decision==="deny"});if(!response)return;try{const run=await api(`/api/team-runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/approval`,{method:"POST",body:JSON.stringify({actor:currentActor(),decision,reason:decision==="deny"?response:"approved after team preview"})});state.teamRuns=state.teamRuns.map(item=>item.id===run.id?run:item);toast(decision==="approve"?"Child effect approved; DAG resumes from its receipt":"Child effect denied; DAG resumes without mutation");renderWorkbenchTeam();}catch(error){toast(error.message,true);}}
-async function pollTeamRuns(){if(!workspacePaneVisible("team"))return;try{const runs=await api("/api/team-runs");if(!workspacePaneVisible("team"))return;state.teamRuns=runs;if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){if(workspacePaneVisible("team"))toast(error.message,true);}}
+async function pollTeamRuns(){if(!workspacePaneVisible("team"))return;try{const runs=await api("/api/team-runs",{uiSilent:true});if(!workspacePaneVisible("team"))return;state.teamRuns=runs;if(document.activeElement?.closest("#teamCreateForm,#teamRunForm")){scheduleWorkbenchPoll(pollTeamRuns,900);return;}renderWorkbenchTeam();}catch(error){if(workspacePaneVisible("team"))toast(error.message,true);}}
 
 // CONFIG_SECTIONS is the settings room's navigation. Configuration used to sit
 // in the workspace as a fourteen-entry tab strip beside a five-entry sidebar,
@@ -7125,6 +7512,7 @@ const PALETTE_ROOMS = [
 // sessions that exist right now.
 function buildCommands() {
   const commands = [];
+  commands.push({group:"ไปที่", icon:"review", title:"แผนงาน", subtitle:"วางแผน ตรวจผล และดูสิ่งที่ต้องทำต่อ", keywords:"แผน งาน plans tasks ผล หลักฐาน", run:()=>switchView("plans")});
   commands.push({ group: "Go to", icon: "chat", title: "Agent Workspace",
     subtitle: "Chat, tool calls and approvals", keywords: "chat session workspace home",
     run: closeConfig });
@@ -7522,6 +7910,7 @@ function saveLayout() {
     localStorage.setItem(layoutKey(), JSON.stringify({
       zones: state.zoneWidths,
       panes: layout.panes,
+      compactPane: layout.compactPane,
       paneWidths: layout.paneWidths,
       maximised: layout.maximisedPane,
       paneLayout: layout.paneLayout,
@@ -7565,7 +7954,7 @@ function applyLayout() {
     if (state.panes.includes("review")) state.panes.splice(editorIndex, 1);
     else state.panes[editorIndex] = "review";
   }
-  if (!state.panes.includes(state.compactPane)) state.compactPane = state.panes[0];
+  state.compactPane = state.panes.includes(saved?.compactPane) ? saved.compactPane : state.panes[0];
   state.paneWidths = saved?.paneWidths && typeof saved.paneWidths === "object" ? saved.paneWidths : {};
   state.paneLayout = normalisePaneLayout(state.panes.length, saved?.paneLayout || "adaptive");
   const restoredSplit = (value, fallback) => Number.isFinite(value) ? Math.min(80, Math.max(20, value)) : fallback;
@@ -7635,11 +8024,18 @@ document.addEventListener("DOMContentLoaded", () => {
   $$("#viewSwitch [data-view]").forEach(button => button.addEventListener("click", () => button.dataset.view === "code" ? openWorkspace() : switchView(button.dataset.view)));
   $("#openConfig").addEventListener("click", () => openConfig());
   $("#plansViewButton").addEventListener("click", openTasks);
+  $$('[data-compact-view]').forEach(button => button.addEventListener("click", () => {
+    $("#compactNavigation").open = false;
+    const view = button.dataset.compactView;
+    if (view === "plans") void openTasks(); else if (view === "code") void openWorkspace(); else switchView("chat");
+  }));
+  $("#compactSearch")?.addEventListener("click", () => { $("#compactNavigation").open = false; $("#commandButton").click(); });
+  $("#compactHardware")?.addEventListener("click", () => { $("#compactNavigation").open = false; $("#hardwareMonitor").open = !$("#hardwareMonitor").open; });
   $("#closeConfig").addEventListener("click", closeConfig);
   $("#configSearch").addEventListener("input", renderConfigNav);
   $$(".zone-handle").forEach(handle => handle.addEventListener("pointerdown", event => startZoneDrag(handle, event)));
   $("#toggleRail").addEventListener("click", () => {
-    if (window.innerWidth <= 700) {
+    if (window.innerWidth <= 1080) {
       const open = $("#zones").classList.toggle("mobile-rail-open");
       $("#toggleRail").setAttribute("aria-expanded", String(open));
       return;
@@ -7655,12 +8051,20 @@ document.addEventListener("DOMContentLoaded", () => {
     saveLayout();
   });
   document.addEventListener("pointerdown", event => {
+    $$('details.composer-tool-menu[open], details.chat-queue-menu[open], #compactNavigation[open], .composer-usage .token-meter[open]').forEach(disclosure => {
+      if (!disclosure.contains(event.target)) disclosure.open = false;
+    });
     const menu = $("#workspacePaneMenu");
     if (!menu || menu.hidden || menu.contains(event.target) || $("#paneAdd")?.contains(event.target)) return;
     menu.hidden = true;
     $("#paneAdd")?.setAttribute("aria-expanded", "false");
   });
   $("#refreshButton").addEventListener("click", load);
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    $$('details.composer-tool-menu[open], details.chat-queue-menu[open], #compactNavigation[open], .composer-usage .token-meter[open]').forEach(disclosure => { disclosure.open = false; disclosure.querySelector("summary")?.focus(); });
+    dismissMobileRail();
+  });
   $("#createButton").addEventListener("click", openCandidateDialog);
   $("#candidateForm").addEventListener("submit", submitCandidate);
   $$('[data-close-candidate]').forEach(button => button.addEventListener("click", closeCandidateDialog));
@@ -7692,7 +8096,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (event.key === "Escape" && !$("dialog[open]")) dismissMobileRail();
   });
   $("#zoneMain").addEventListener("pointerdown", () => { if (window.innerWidth <= 700) dismissMobileRail(); });
-  window.matchMedia("(max-width: 700px)").addEventListener("change", () => {
+  window.matchMedia("(max-width: 1080px)").addEventListener("change", () => {
     dismissMobileRail();
     if (!$("#appShell").hidden && $("#workspacePaneHost")) renderPanes();
   });
@@ -7704,5 +8108,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#pickerBrowseExisting").addEventListener("click", () => openFolderPicker("", "picker"));
   $("#pickerBackToChat").addEventListener("click", () => { state.pendingWorkspaceGoal = ""; showShell(); switchView("chat"); });
   $("#projectChip").addEventListener("click", () => showPicker());
-  initPicker();
+  const finishBoot = globalThis.HermetrixInteraction?.beginOperation("กำลังเปิดพื้นที่ทำงาน");
+  initPicker().then(() => finishBoot?.(state.sessionError ? new Error(state.sessionError) : undefined))
+    .catch(error => { finishBoot?.(error); toast(error.message, true); });
 });

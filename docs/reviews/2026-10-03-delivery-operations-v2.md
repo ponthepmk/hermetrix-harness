@@ -1,0 +1,15 @@
+# Delivery operations v2 — 2026-10-03
+
+The user reproduced missing whole-service management in the Delivery demo: shallow admin/rider flow, no personal information or order edits. The sibling application **D:/Projects/hermetrix-delivery** is now upgraded at **http://127.0.0.1:18920/**. This is Codex implementation and real local verification on the existing supervised project, not evidence of a new autonomous Hermetrix build/learning run.
+
+Implemented: admin accounts/roles/store/rider management; profile/password/address book; scoped paginated/searchable orders; pre-assignment edits with authoritative pricing; dispatch/reassign; failure/retry/return; support conversations; adjustable fee/share; manual collection/payout records and CSV. Visible role navigation, pending/errors, retained drafts, version conflicts and mobile layouts are integrated.
+
+Read [the complete acceptance report](D:/Projects/hermetrix-delivery/docs/ACCEPTANCE.md) and [current Thai user guide](D:/Projects/hermetrix-delivery/USER_GUIDE.md). Actual preview browser delivery with recovery reaches delivered/version11/11events and manual fictional receipt+payout; separate return reaches returned/version7/7events. Support resolved, profile/address persistence, pricing snapshots, outage retained-form/no-auto-replay and date CSV verified. Go10 tests pass4.069s, vet and Node7/7 pass. Password behavior uses synthetic API tests; no real/demo browser password changed.
+
+Fresh stopped snapshots before/after Docker release prove original3orders/9events/3keys/2legacy audits unchanged, SQLite integrity/foreign keys pass. Live QA order119e16e26592974df7fcb09e was created, prepared, assigned, opened directly by rider, explicitly released and cancelled;6events/version6. Live totals4orders/15events. Original open order remains untouched. Final imagea5faa3fd0bc958547ac97cbe2186145269192e3e643627695542a5c07d07cda5, healthy, UID10001/read-only/loopback, same named volume.
+
+Screenshot/DOM audit evidence is in Delivery docs/evidence/2026-10-03. Actual375/390/414/768/1024/1440 checks; corrected tiny mobile nav captions; default viewport restored. Shared visual runtime was absent, so repository-owned read-only audit plus CUA screenshots was used; not a full accessibility certification. Final UI tab is live admin overview. Owned18921 preview helper is stopped; evidence DB and binaries retained.
+
+Keep .tmp-ui/delivery-v2-before-20261002, delivery-v2-release-before-20261003, delivery-v2-release-after-20261003 and delivery-v2-preview-data. Never overwrite live DB from a running copy or delete the named volume.
+
+Original18801, supervised Harness18804, desktop18806 and their model/Discord/task acceptance state are unchanged. Do not mark Delivery Task101 or unrelated acceptance complete from this product upgrade. Public HTTPS, real onboarding/recovery, GPS/maps/ETA, external notifications, payment callbacks/reconciliation/refunds/tax, native app and load/recovery monitoring remain external integration work; no commercial rollout was performed.

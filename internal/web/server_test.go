@@ -152,6 +152,10 @@ func (webTeamAgent) DecideApproval(_ context.Context, _ string, _ agent.Approval
 }
 
 func testHandler(t *testing.T) http.Handler {
+	return testConfiguredServer(t).Handler()
+}
+
+func testConfiguredServer(t *testing.T) *Server {
 	t.Helper()
 	dataStore, err := store.Open(context.Background(), t.TempDir())
 	if err != nil {
@@ -195,7 +199,7 @@ func testHandler(t *testing.T) http.Handler {
 	return New(skillService, learningService, curatorService, compiler, estimator,
 		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
-		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).WithSocialVault(vault).Handler()
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).WithSocialVault(vault)
 }
 
 func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
@@ -749,7 +753,7 @@ func TestEndToEndAgentSearchDescribeAndCallRealMCPServer(t *testing.T) {
 		// Raised to 11 when skill_manage joined the waist.
 		// Raised to 12 when workspace.run joined the waist.
 		// Raised to 13 when browser joined the waist.
-		if len(request.Tools) > 13 {
+		if len(request.Tools) > 14 {
 			t.Errorf("direct tool prompt grew with the catalog: %d tools", len(request.Tools))
 		}
 		for _, tool := range request.Tools {

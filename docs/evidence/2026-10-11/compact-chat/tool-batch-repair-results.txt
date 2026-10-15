@@ -1,0 +1,8 @@
+=== RUN   TestAuditRepairsRejectedBatchBeforeAnyDispatchAndStillRequiresApproval
+--- PASS: TestAuditRepairsRejectedBatchBeforeAnyDispatchAndStillRequiresApproval (0.22s)
+=== RUN   TestOrdinaryChatRepairsMixedApprovalBatchWithoutDispatch
+--- PASS: TestOrdinaryChatRepairsMixedApprovalBatchWithoutDispatch (0.19s)
+=== RUN   TestOrdinaryChatRepairsAfterApprovalWithoutReplayingEffect
+--- PASS: TestOrdinaryChatRepairsAfterApprovalWithoutReplayingEffect (0.23s)
+PASS
+ok  	hermetrix-harness/internal/agent	2.635s

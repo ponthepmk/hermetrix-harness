@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-10-10T18:00:54.4740387+07:00",
+  "preview_url": "http://127.0.0.1:18810/",
+  "preview_health": {
+    "expected_schema": 76,
+    "ok": true,
+    "schema": 76,
+    "service": "hermetrix-harness"
+  },
+  "main_health": {
+    "expected_schema": 73,
+    "ok": true,
+    "schema": 73,
+    "service": "hermetrix-harness"
+  },
+  "model_health": {
+    "status": "ok"
+  },
+  "go_tested_packages": 35,
+  "go_failed_lines": 0,
+  "node_tests_passed": 138,
+  "live_chat_and_workspace": "passed on standalone preview with original Bonsai",
+  "task_fixture": "revision6 verifying; all automated gates passed; user acceptance pending",
+  "main_cutover": "not performed",
+  "project_brain_boundary": "MCP only; no Pi changes this stage"
+}

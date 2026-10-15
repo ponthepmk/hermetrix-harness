@@ -10,6 +10,14 @@ Hermetrix is a local-first, provider-flexible agent harness built around three h
 
 For a Thai-language overview of the product contract, implemented scope, and pending release gates, see [the specification summary](docs/SPEC-SUMMARY.md). This is a reference document; the application does not need it to run.
 
+The optional [Video Research project](scripts/video-research/README.md) supports
+public YouTube transcription, sampled-frame vision and source-linked Thai
+research reports with local Whisper/Qwen models. Its foreground CLI works through
+the normal workspace.run job lifecycle; HTTP/MCP activation and verification
+status are documented in [the research review](docs/reviews/2026-10-13-youtube-research.md).
+
+The optional [self-improvement planning lab](docs/SELF-IMPROVEMENT.md) runs as a separate supervisor. It lets Hermetrix propose a checklist, compares paired planning outcomes, checks the original core before and after, and retains the current version unless measured gates pass. It never installs a candidate automatically.
+
 The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
 
 The name reflects the architecture: a **hermetic core** for bounded local authority plus a **matrix** of versioned skills, tools, context and model capabilities. Product-owned identity files and their usage contract live in [assets/brand](assets/brand/README.md).

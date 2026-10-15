@@ -1,0 +1,369 @@
+{
+  "revision": "planning-lab-v1",
+  "scope": "synthetic structured planning coverage; no implementation or autonomous code-upgrade claim",
+  "suite_hash": "f74b325ca2d0d65ad395a84e74c5128fa8bda11c765e1f6d5c2b57b52bdafac3",
+  "candidate_hash": "f9274f549cf32feb4d7b384b882458f66bf9a2d97c86c2996c238ddcecc3772c",
+  "candidate": "1. Requirements: list goals for customers, stores, riders, admins; cover profiles, addresses, orders, edit/cancel, dispatch/reassign, failed delivery, returns, fees, collections/payouts, support.\n2. Roles: map every action to allowed roles; state owner-only, role-only, admin-only; deny by default; define read/write/delete boundaries.\n3. Data: define entities, ownership, status, timestamps, versions, audit logs; preserve existing data; avoid destructive changes.\n4. States: define order/job statuses and legal transitions; block invalid transitions; keep failed parcels assigned until resolved.\n5. Concurrency: use version checks for edits; use idempotency keys for duplicate submissions; prevent double dispatch, double payout, duplicate orders.\n6. Recovery: specify retry, timeout, reassignment, manual override, compensation for failed delivery/returns; no automatic replay without guard; record collections/payouts only for verified delivered events.\n7. Verification: test happy paths, permission denials, concurrent edits, duplicate requests, failed delivery, returns, fee calculation, payout rules, audit trail, data preservation, rollback/recovery.",
+  "started_at": "2026-10-02T18:21:55.0751665Z",
+  "completed_at": "2026-10-02T18:36:40.3947569Z",
+  "core_before": {
+    "passed": true,
+    "source_hash": "c6f6b6f207a3fbfee5fa4fef21f7796f965bd12ab4cb3231d87d66042e350d0c",
+    "test_hash": "e5d7f487001bff34569de6dd18f12b921358cb6913640350829d4bb474784240",
+    "go_passed": 1052,
+    "go_packages": 34,
+    "node_passed": 135,
+    "node_skipped": 0,
+    "skipped": [
+      "hermetrix-harness/internal/agentplatform/piidentity/TestLivePiToolDiscovery",
+      "hermetrix-harness/internal/mcp/TestInstalledComfyMCPDiscovery",
+      "hermetrix-harness/internal/store/TestAgedInstalledDatabaseMigratesOnCopy",
+      "hermetrix-harness/internal/taskcoord/TestBonsaiDecisionAgainstLocalServer",
+      "hermetrix-harness/internal/web/TestInstalledComfyReadinessThroughHermetrixAPI",
+      "hermetrix-harness/internal/web/TestInstalledComfyPreflightThroughHermetrixAPI",
+      "hermetrix-harness/internal/web/TestInstalledComfyJobPersistsAndIngestsOutput",
+      "hermetrix-harness/internal/skills/TestParseExternalSkillFixture",
+      "hermetrix-harness/internal/product/TestChromeBlocksAPrivateSubresourceBeforeItReachesTheServer",
+      "hermetrix-harness/internal/product/TestChromePassiveInspectionReportsLoadedAPIAndClientSource",
+      "hermetrix-harness/internal/agent/TestRealEmbedderCrossesScripts",
+      "hermetrix-harness/internal/web/TestResidentWhisperPreservesThaiAndEnglish",
+      "hermetrix-harness/internal/web/TestLiveVoicePartialAndFinalInARealBrowser"
+    ],
+    "go_log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\self-improvement-20261003\\context-trial\\before-go.jsonl",
+    "node_log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\self-improvement-20261003\\context-trial\\before-node.txt",
+    "errors": []
+  },
+  "core_after": {
+    "passed": true,
+    "source_hash": "c6f6b6f207a3fbfee5fa4fef21f7796f965bd12ab4cb3231d87d66042e350d0c",
+    "test_hash": "e5d7f487001bff34569de6dd18f12b921358cb6913640350829d4bb474784240",
+    "go_passed": 1052,
+    "go_packages": 34,
+    "node_passed": 135,
+    "node_skipped": 0,
+    "skipped": [
+      "hermetrix-harness/internal/agentplatform/piidentity/TestLivePiToolDiscovery",
+      "hermetrix-harness/internal/mcp/TestInstalledComfyMCPDiscovery",
+      "hermetrix-harness/internal/taskcoord/TestBonsaiDecisionAgainstLocalServer",
+      "hermetrix-harness/internal/store/TestAgedInstalledDatabaseMigratesOnCopy",
+      "hermetrix-harness/internal/product/TestChromeBlocksAPrivateSubresourceBeforeItReachesTheServer",
+      "hermetrix-harness/internal/product/TestChromePassiveInspectionReportsLoadedAPIAndClientSource",
+      "hermetrix-harness/internal/web/TestInstalledComfyReadinessThroughHermetrixAPI",
+      "hermetrix-harness/internal/web/TestInstalledComfyPreflightThroughHermetrixAPI",
+      "hermetrix-harness/internal/web/TestInstalledComfyJobPersistsAndIngestsOutput",
+      "hermetrix-harness/internal/skills/TestParseExternalSkillFixture",
+      "hermetrix-harness/internal/agent/TestRealEmbedderCrossesScripts",
+      "hermetrix-harness/internal/web/TestResidentWhisperPreservesThaiAndEnglish",
+      "hermetrix-harness/internal/web/TestLiveVoicePartialAndFinalInARealBrowser"
+    ],
+    "go_log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\self-improvement-20261003\\context-trial\\after-go.jsonl",
+    "node_log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\self-improvement-20261003\\context-trial\\after-node.txt",
+    "errors": []
+  },
+  "context_profile": "extended-96k",
+  "context_override": true,
+  "token_ceiling": 220000,
+  "development": {
+    "case_id": "",
+    "trial": 0,
+    "condition": "",
+    "session_id": "session_2e910a1a46f9e3401e6096e554d5f416",
+    "turn_id": "turn_0d1918c7ee8824f5dba09cb076cda446",
+    "provider_revision": "provider-b08fce41a406ea42",
+    "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+    "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+    "tokens": 2371,
+    "duration_ms": 23047,
+    "score": {
+      "passed": 31,
+      "total": 31,
+      "missing": []
+    }
+  },
+  "proposal": {
+    "case_id": "",
+    "trial": 0,
+    "condition": "",
+    "session_id": "session_050d955031fc1469c61fb5a91de4a814",
+    "turn_id": "turn_9caf7aaed10a1a629945721c008fbb71",
+    "provider_revision": "provider-b08fce41a406ea42",
+    "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+    "answer": "\n\n{\"instructions\":\"1. Requirements: list goals for customers, stores, riders, admins; cover profiles, addresses, orders, edit/cancel, dispatch/reassign, failed delivery, returns, fees, collections/payouts, support.\\n2. Roles: map every action to allowed roles; state owner-only, role-only, admin-only; deny by default; define read/write/delete boundaries.\\n3. Data: define entities, ownership, status, timestamps, versions, audit logs; preserve existing data; avoid destructive changes.\\n4. States: define order/job statuses and legal transitions; block invalid transitions; keep failed parcels assigned until resolved.\\n5. Concurrency: use version checks for edits; use idempotency keys for duplicate submissions; prevent double dispatch, double payout, duplicate orders.\\n6. Recovery: specify retry, timeout, reassignment, manual override, compensation for failed delivery/returns; no automatic replay without guard; record collections/payouts only for verified delivered events.\\n7. Verification: test happy paths, permission denials, concurrent edits, duplicate requests, failed delivery, returns, fee calculation, payout rules, audit trail, data preservation, rollback/recovery.\"}",
+    "tokens": 2219,
+    "duration_ms": 15463,
+    "score": {
+      "passed": 0,
+      "total": 0,
+      "missing": null
+    }
+  },
+  "outcomes": [
+    {
+      "case_id": "dispatch-recovery",
+      "trial": 1,
+      "condition": "baseline",
+      "session_id": "session_b881e2b414266ec78f4d2078b76a9c45",
+      "turn_id": "turn_8ee7074f24ec269523cdb28a90e642f3",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"view_own_orders\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"audit_history\"\n  ]\n}",
+      "tokens": 3473,
+      "duration_ms": 33300,
+      "score": {
+        "passed": 19,
+        "total": 19,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "dispatch-recovery",
+      "trial": 1,
+      "condition": "candidate",
+      "session_id": "session_79e89e42c8bbead8ac8af569fd7cfacb",
+      "turn_id": "turn_719560a9bf50eed0ac0c35470273e4f2",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+      "tokens": 7710,
+      "duration_ms": 60029,
+      "score": {
+        "passed": 19,
+        "total": 19,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "dispatch-recovery",
+      "trial": 2,
+      "condition": "candidate",
+      "session_id": "session_b68ad850eb1b63f4bf1b1f818a0a7052",
+      "turn_id": "turn_e541330062a00e249dabbd4e6ed32fea",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+      "tokens": 10545,
+      "duration_ms": 81096,
+      "score": {
+        "passed": 19,
+        "total": 19,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "dispatch-recovery",
+      "trial": 2,
+      "condition": "baseline",
+      "session_id": "session_2192703aae8e11130a12f17abb2e19f7",
+      "turn_id": "turn_a278caf2730616ba7ed8acfe7c5ba0b5",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\"roles\":{\"customer\":[\"create_order\",\"view_own_orders\"],\"merchant\":[\"accept_order\",\"handover_order\",\"receive_return\"],\"rider\":[\"set_availability\",\"accept_job\",\"deliver_order\",\"report_failure\",\"return_order\"],\"admin\":[\"manage_riders\",\"assign_rider\",\"reassign_rider\"]},\"invariants\":[\"owner_only\",\"role_authorization\",\"one_active_job\",\"no_cancel_after_pickup\",\"failed_parcel_stays_assigned\",\"audit_history\"]}",
+      "tokens": 5329,
+      "duration_ms": 48744,
+      "score": {
+        "passed": 19,
+        "total": 19,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "account-finance",
+      "trial": 1,
+      "condition": "baseline",
+      "session_id": "session_14b43df10ac31b96c0cfc26a6c540f7b",
+      "turn_id": "turn_b394f8d9e06db93f6ecfd14eef1d2167",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"edit_profile\",\n      \"manage_addresses\",\n      \"view_own_orders\"\n    ],\n    \"merchant\": [\n      \"edit_profile\"\n    ],\n    \"rider\": [\n      \"edit_profile\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"server_calculates_fee\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\",\n    \"audit_history\",\n    \"version_conflict\",\n    \"no_automatic_replay\"\n  ]\n}",
+      "tokens": 3260,
+      "duration_ms": 17992,
+      "score": {
+        "passed": 21,
+        "total": 21,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "account-finance",
+      "trial": 1,
+      "condition": "candidate",
+      "session_id": "session_c9bbaed7a360beb58ffbc6930d511672",
+      "turn_id": "turn_3513e325c814518ed200f427ccc2654e",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"edit_profile\",\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"edit_profile\",\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+      "tokens": 5718,
+      "duration_ms": 49027,
+      "score": {
+        "passed": 21,
+        "total": 21,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "account-finance",
+      "trial": 2,
+      "condition": "candidate",
+      "session_id": "session_dd88eda610730169cc20f1be11dbaf70",
+      "turn_id": "turn_8632f4b89b601768b058aed1247d020e",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\",\n      \"return_order\"\n    ],\n    \"merchant\": [\n      \"edit_profile\",\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"edit_profile\",\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+      "tokens": 6947,
+      "duration_ms": 69828,
+      "score": {
+        "passed": 0,
+        "total": 21,
+        "missing": [
+          "customer:edit_profile",
+          "customer:manage_addresses",
+          "customer:view_own_orders",
+          "merchant:edit_profile",
+          "rider:edit_profile",
+          "admin:manage_users",
+          "admin:manage_stores",
+          "admin:manage_riders",
+          "admin:manage_fees",
+          "admin:financial_report",
+          "admin:resolve_support",
+          "admin:record_collection",
+          "admin:record_payout",
+          "invariant:owner_only",
+          "invariant:role_authorization",
+          "invariant:server_calculates_fee",
+          "invariant:payout_delivered_only",
+          "invariant:preserve_existing_data",
+          "invariant:audit_history",
+          "invariant:version_conflict",
+          "invariant:no_automatic_replay"
+        ],
+        "error": "invalid, duplicate or unauthorized role action: customer:return_order"
+      }
+    },
+    {
+      "case_id": "account-finance",
+      "trial": 2,
+      "condition": "baseline",
+      "session_id": "session_f2298d147bad4d7db34d47c02363ba4b",
+      "turn_id": "turn_b0755f9809e1006039de69123e989b3d",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"edit_profile\",\n      \"manage_addresses\",\n      \"view_own_orders\"\n    ],\n    \"merchant\": [\n      \"edit_profile\"\n    ],\n    \"rider\": [\n      \"edit_profile\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"server_calculates_fee\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\",\n    \"audit_history\",\n    \"version_conflict\",\n    \"no_automatic_replay\"\n  ]\n}",
+      "tokens": 4721,
+      "duration_ms": 55613,
+      "score": {
+        "passed": 21,
+        "total": 21,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "customer-store",
+      "trial": 1,
+      "condition": "baseline",
+      "session_id": "session_1e5aa2ec9ec3825314de8cd14cb019ba",
+      "turn_id": "turn_c3dbc7c0b57f04699985acc884c5db26",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\"roles\":{\"customer\":[\"create_order\",\"edit_order\",\"cancel_order\",\"view_own_orders\",\"edit_profile\",\"manage_addresses\"],\"merchant\":[\"accept_order\",\"prepare_order\",\"handover_order\"],\"rider\":[\"set_availability\",\"accept_job\",\"deliver_order\"],\"admin\":[\"manage_users\",\"manage_stores\",\"manage_riders\",\"assign_rider\",\"resolve_support\"]},\"invariants\":[\"owner_only\",\"role_authorization\",\"one_active_job\",\"no_cancel_after_pickup\",\"server_calculates_fee\",\"version_conflict\",\"no_automatic_replay\",\"audit_history\"]}",
+      "tokens": 4563,
+      "duration_ms": 39213,
+      "score": {
+        "passed": 25,
+        "total": 25,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "customer-store",
+      "trial": 1,
+      "condition": "candidate",
+      "session_id": "session_1219c1be6a939e0ac96cbef036631adc",
+      "turn_id": "turn_ca7ef5b3b50fe35180a7438c37b62a56",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+      "tokens": 7521,
+      "duration_ms": 70987,
+      "score": {
+        "passed": 25,
+        "total": 25,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "customer-store",
+      "trial": 2,
+      "condition": "candidate",
+      "session_id": "session_31f50d65609e25c9f51a2cd0e33c1969",
+      "turn_id": "turn_839f09502f39bc7411463aa5a0586c48",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\",\n      \"receive_return\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\",\n      \"report_failure\",\n      \"return_order\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"reassign_rider\",\n      \"manage_fees\",\n      \"financial_report\",\n      \"resolve_support\",\n      \"record_collection\",\n      \"record_payout\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"failed_parcel_stays_assigned\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\",\n    \"payout_delivered_only\",\n    \"preserve_existing_data\"\n  ]\n}",
+      "tokens": 7473,
+      "duration_ms": 86844,
+      "score": {
+        "passed": 25,
+        "total": 25,
+        "missing": []
+      }
+    },
+    {
+      "case_id": "customer-store",
+      "trial": 2,
+      "condition": "baseline",
+      "session_id": "session_c02883615c9a738ea9040d2cafb0206d",
+      "turn_id": "turn_a8b9449214a09f939f6b8746090df522",
+      "provider_revision": "provider-b08fce41a406ea42",
+      "catalog_hash": "b2a03545b6af13a17cdf9316d5408a4946545b6cc0bf33cb6c8bd97fdc37d781",
+      "answer": "\n\n{\n  \"roles\": {\n    \"customer\": [\n      \"create_order\",\n      \"edit_order\",\n      \"cancel_order\",\n      \"view_own_orders\",\n      \"edit_profile\",\n      \"manage_addresses\"\n    ],\n    \"merchant\": [\n      \"accept_order\",\n      \"prepare_order\",\n      \"handover_order\"\n    ],\n    \"rider\": [\n      \"set_availability\",\n      \"accept_job\",\n      \"deliver_order\"\n    ],\n    \"admin\": [\n      \"manage_users\",\n      \"manage_stores\",\n      \"manage_riders\",\n      \"assign_rider\",\n      \"resolve_support\"\n    ]\n  },\n  \"invariants\": [\n    \"owner_only\",\n    \"role_authorization\",\n    \"one_active_job\",\n    \"no_cancel_after_pickup\",\n    \"server_calculates_fee\",\n    \"version_conflict\",\n    \"no_automatic_replay\",\n    \"audit_history\"\n  ]\n}",
+      "tokens": 2723,
+      "duration_ms": 25141,
+      "score": {
+        "passed": 25,
+        "total": 25,
+        "missing": []
+      }
+    }
+  ],
+  "comparison": {
+    "verdict": "keep_current",
+    "baseline_passed": 130,
+    "candidate_passed": 109,
+    "total": 130,
+    "baseline_tokens": 24069,
+    "candidate_tokens": 45914,
+    "improvements": 0,
+    "regressions": [
+      "account-finance/2/customer:edit_profile",
+      "account-finance/2/customer:manage_addresses",
+      "account-finance/2/customer:view_own_orders",
+      "account-finance/2/merchant:edit_profile",
+      "account-finance/2/rider:edit_profile",
+      "account-finance/2/admin:manage_users",
+      "account-finance/2/admin:manage_stores",
+      "account-finance/2/admin:manage_riders",
+      "account-finance/2/admin:manage_fees",
+      "account-finance/2/admin:financial_report",
+      "account-finance/2/admin:resolve_support",
+      "account-finance/2/admin:record_collection",
+      "account-finance/2/admin:record_payout",
+      "account-finance/2/invariant:owner_only",
+      "account-finance/2/invariant:role_authorization",
+      "account-finance/2/invariant:server_calculates_fee",
+      "account-finance/2/invariant:payout_delivered_only",
+      "account-finance/2/invariant:preserve_existing_data",
+      "account-finance/2/invariant:audit_history",
+      "account-finance/2/invariant:version_conflict",
+      "account-finance/2/invariant:no_automatic_replay"
+    ],
+    "reasons": [
+      "invalid answer account-finance/2/",
+      "one or more previously covered requirements regressed",
+      "no measured coverage improvement",
+      "candidate still omits required planning capabilities",
+      "candidate exceeds 1.5x baseline token budget"
+    ],
+    "auto_promoted": false
+  }
+}

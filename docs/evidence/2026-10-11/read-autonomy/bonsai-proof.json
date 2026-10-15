@@ -1,0 +1,28 @@
+{
+  "fixture_sha256": "DBFA5FA7C06B7827D041513E150566DEB2CAABB9FE57B834D16AC7F8139C9CB9",
+  "title": "ทดสอบอ่านอัตโนมัติ",
+  "session_id": "session_4a7f8743a94c0acc7ddee275922a373a",
+  "runtime_pid": 83928,
+  "assistant_content": "สรุปผลการทดสอบ (ทั้ง 3 คำสั่งอ่านสำเร็จทันที ไม่ถามขออนุญาต):\n\n1. **workspace.read_file** — อ่าน `read-autonomy-fixture.txt` ได้สำเร็จ\n   - Marker ที่อ่านได้: `READ_AUTONOMY_20261011`\n   - เนื้อหาตามตัวอักษรในไฟล์: \"Hermetrix owns task execution; Project Brain remains separate and connects only through MCP.\"\n   - (ขนาด 118 bytes, sha256: `dbfa5fa7c06b7827d041513e150566deb2caabb9fe57b834d16ac7f8139c9cb9`)\n\n2. **skill_search** (query: `project`) — สำเร็จ แต่ **ไม่มีผลค้นหา** (`results: []`, catalog_size 0)\n\n3. **context_search** (query: `ทดสอบอ่านอัตโนมัติ`) — สำเร็จ พบ **2 ผล** (event 2件: ข้อความผู้ใช้และ tool_call ของคำสั่ง search นี้อะไร) — ตรวจแล้ว: ผลคือ event ของ user message และ tool_call ของ context_search เอง\n\nสถานะ: ทุกคำสั่งอ่านทำงานได้จริงตาม policy read-autonomy, ไม่เรียก browser / workspace.run, ไม่สร้างหรือแก้ไขไฟล์, ไม่เรียก skill_manage",
+  "provider_id": "provider_bf4dda84609872a4d72a630272442ee1",
+  "turn_failed": 0,
+  "approvals": 0,
+  "model_steps": 2,
+  "tool_results": [
+    {
+      "name": "workspace.read_file",
+      "status": "succeeded",
+      "tool_call_id": "idKWEWPd85521wBXjuLA5NW7LgTZ7wpS"
+    },
+    {
+      "name": "skill_search",
+      "status": "succeeded",
+      "tool_call_id": "1el19PgBGj9ZCQbGeKWlNQbI1D3LjLrd"
+    },
+    {
+      "name": "context_search",
+      "status": "succeeded",
+      "tool_call_id": "iAvRYnhBL5tjVXzqDq3iDvUrWT023cle"
+    }
+  ]
+}

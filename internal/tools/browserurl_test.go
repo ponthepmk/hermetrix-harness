@@ -22,6 +22,7 @@ func TestBrowserNeedsApproval(t *testing.T) {
 		{"read", "", false},
 		{"click", "", true},
 		{"type", "", true},
+		{"key", "http://localhost:18820/", true},
 		{"capture", "", false},
 		{"back", "", false},
 		{"close", "", false},

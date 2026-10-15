@@ -164,10 +164,15 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		s.mu.Unlock()
 		return
 	}
-	jobRuntimeRoot := filepath.Join(s.store.Root, "runtime", "jobs", job.ID)
+	// Child processes may change directory (for example, go -C backend).
+	// TEMP/TMP must keep pointing at this job's directory after that change.
+	jobRuntimeRoot, tempSetupErr := filepath.Abs(filepath.Join(s.store.Root, "runtime", "jobs", job.ID))
 	jobTempDir := filepath.Join(jobRuntimeRoot, "tmp")
-	if err := os.MkdirAll(jobTempDir, 0o700); err != nil {
-		errorMessage := "create isolated command temp directory: " + err.Error()
+	if tempSetupErr == nil {
+		tempSetupErr = os.MkdirAll(jobTempDir, 0o700)
+	}
+	if tempSetupErr != nil {
+		errorMessage := "create isolated command temp directory: " + tempSetupErr.Error()
 		resultJSON, _ := json.Marshal(map[string]any{"exit_code": -1})
 		completed := time.Now().UTC()
 		durability.Exec("mark command temp setup failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,

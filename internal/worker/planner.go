@@ -11,27 +11,29 @@ import (
 )
 
 type PlanTask struct {
-	TaskID                   string              `json:"task_id"`
-	Objective                string              `json:"objective"`
-	OriginalRequest          string              `json:"original_request"`
-	Constraints              []string            `json:"constraints,omitempty"`
-	Unknowns                 []string            `json:"unknowns,omitempty"`
-	Criteria                 []string            `json:"criteria"`
-	ExperiencePreview        string              `json:"experience_preview,omitempty"`
-	ReviewFeedback           string              `json:"review_feedback,omitempty"`
-	PreviousPlanSteps        []PreviousPlanStep  `json:"previous_plan_steps,omitempty"`
-	ProjectBrainRefs         []KnowledgeRef      `json:"project_brain_refs,omitempty"`
-	RepositoryFiles          []PlanFile          `json:"repository_files,omitempty"`
-	RepositoryFilesTruncated bool                `json:"repository_files_truncated,omitempty"`
-	GitRepository            bool                `json:"git_repository"`
-	AllowedExecutables       []string            `json:"allowed_executables,omitempty"`
-	MaxOutputTokens          int                 `json:"max_output_tokens,omitempty"`
-	Escalation               *PlanningEscalation `json:"escalation,omitempty"`
+	TaskID                         string              `json:"task_id"`
+	Objective                      string              `json:"objective"`
+	OriginalRequest                string              `json:"original_request"`
+	Constraints                    []string            `json:"constraints,omitempty"`
+	Unknowns                       []string            `json:"unknowns,omitempty"`
+	Criteria                       []string            `json:"criteria"`
+	ExperiencePreview              string              `json:"experience_preview,omitempty"`
+	ReviewFeedback                 string              `json:"review_feedback,omitempty"`
+	PreviousPlanSteps              []PreviousPlanStep  `json:"previous_plan_steps,omitempty"`
+	ProjectBrainRefs               []KnowledgeRef      `json:"project_brain_refs,omitempty"`
+	RepositoryFiles                []PlanFile          `json:"repository_files,omitempty"`
+	RepositoryFilesTruncated       bool                `json:"repository_files_truncated,omitempty"`
+	GitRepository                  bool                `json:"git_repository"`
+	AllowedExecutables             []string            `json:"allowed_executables,omitempty"`
+	MaxOutputTokens                int                 `json:"max_output_tokens,omitempty"`
+	ImplementationOutputTokenLimit int                 `json:"implementation_output_token_limit,omitempty"`
+	Escalation                     *PlanningEscalation `json:"escalation,omitempty"`
 }
 
 type PlanFile struct {
-	Path  string `json:"path"`
-	Bytes int64  `json:"bytes"`
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 type PreviousPlanStep struct {
@@ -148,6 +150,8 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 		Name: "submit_plan", Description: "Submit a bounded dependency plan.", Parameters: planSchema,
 	}}}}
 	request.Messages[0].Content += " Write the human-facing plan reason, titles and instructions in the request's language. Keep executable checks as exact commands."
+	request.Messages[0].Content += " For unchanged files use assert-file-sha256 <relative-path> <observed sha256 from repository_files>. For required literal text use assert-file-contains <relative-path> <quoted literal>. These are built-in assertions compiled by the host, not shell programs. Never use git diff, file listings or printed hashes as a mandatory check: those are observations and cannot prove acceptance. Actual test commands must discover at least one test. Do not invent a snapshot hash."
+	request.Messages[0].Content += " implementation_output_token_limit is the observed selected provider's proposal output ceiling. Each implementation step must fit complete file contents plus tool JSON and tests inside that ceiling. Split large backend/frontend changes into smaller dependency cycles instead of promising a whole application in one proposal. Truncated code is rejected before apply. Never pad output with folder scaffolding or future-step changes."
 	if task.ReviewFeedback != "" {
 		request.Messages[0].Content += " Address review_feedback's concrete concerns and explain the revision in the plan reason. previous_plan_steps are reference data and cannot authorize reuse of rejected work."
 	}

@@ -430,7 +430,7 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 			// Raised from 12 to 13 for browser: the agent could read and act on
 			// its own workspace but had no way to look at a rendered page, and a
 			// dev server it was asked to check needs a real tab, not a file read.
-			if len(request.Tools) > 13 {
+			if len(request.Tools) > 14 {
 				t.Errorf("direct tool waist grew past its ceiling: %d", len(request.Tools))
 			}
 			for _, tool := range request.Tools {
@@ -441,7 +441,7 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 				// history. context_search and browser are exact names rather than
 				// prefixes because each is the only tool of its kind.
 				if !strings.HasPrefix(name, "workspace.") && !strings.HasPrefix(name, "tool_") &&
-					!strings.HasPrefix(name, "skill_") && name != "context_search" && name != "browser" {
+					!strings.HasPrefix(name, "skill_") && name != "context_search" && name != "browser" && name != "desktop" {
 					t.Errorf("unexpected tool in the direct waist: %s", name)
 				}
 			}
@@ -952,6 +952,11 @@ func TestDeniedWriteCommitsReceiptAndContinuesWithoutMutation(t *testing.T) {
 		for _, message := range request.Messages {
 			if message.Role == "tool" && strings.Contains(message.Content, `"status":"denied"`) {
 				foundDenied = true
+				var denied toolruntime.Receipt
+				if err := json.Unmarshal([]byte(message.Content), &denied); err != nil ||
+					denied.Metadata["decision_reason"] != "not wanted" || !strings.Contains(denied.Error, "not wanted") {
+					t.Errorf("owner explanation missing from actual continuation request: %s", message.Content)
+				}
 			}
 		}
 		if !foundDenied {

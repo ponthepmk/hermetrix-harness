@@ -1,0 +1,7 @@
+=== RUN   TestChatStopQueueSteerInRealBrowser
+=== RUN   TestChatStopQueueSteerInRealBrowser/Workspace
+    ui_chat_controls_e2e_test.go:184: Stop→Queue→Steer acceptance session=session_fc13308a8ad18fc88b2ae494f02dd8c4 mode=Bonsai local
+--- PASS: TestChatStopQueueSteerInRealBrowser (3.54s)
+    --- PASS: TestChatStopQueueSteerInRealBrowser/Workspace (3.54s)
+PASS
+ok  	hermetrix-harness/internal/web	6.387s

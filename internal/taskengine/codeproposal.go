@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -180,6 +181,34 @@ func (s *Service) LatestRejectedProposalFeedback(ctx context.Context, taskID, st
 type RecordCodeProposalInput struct {
 	ID, TaskID, StepID, AttemptID, ProjectID, PacketHash string
 	ProviderID, ProviderRevision, ArtifactID, ResultHash string
+}
+
+// LatestFailedProposalFeedback carries a bounded, saved diagnostic into a new
+// attempt for this same immutable step. It grants no permission to replay the
+// failed request or change the approved file/check scope.
+func (s *Service) LatestFailedProposalFeedback(ctx context.Context, taskID, stepID string) (string, error) {
+	var receipt string
+	err := s.store.DB.QueryRowContext(ctx, `SELECT e.receipt_json FROM task_effect_intents e
+		JOIN task_step_attempts a ON a.id=e.attempt_id
+		WHERE e.task_id=? AND a.step_id=? AND e.action='provider.propose' AND e.state='observed'
+		AND json_extract(e.receipt_json,'$.status')='failed'
+		ORDER BY e.updated_at DESC,e.id DESC LIMIT 1`, taskID, stepID).Scan(&receipt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var saved struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(receipt), &saved); err != nil {
+		return "", err
+	}
+	if len([]rune(saved.Error)) > 2000 {
+		return "", fmt.Errorf("proposal failure diagnostic is too long")
+	}
+	return saved.Error, nil
 }
 
 func (s *Service) RecordCodeProposal(ctx context.Context, input RecordCodeProposalInput) (CodeProposal, error) {

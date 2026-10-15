@@ -48,6 +48,42 @@ func TestVerifiedTaskCompletionQueuesBoundedLearningDigest(t *testing.T) {
 	}
 }
 
+func TestProposalFailureEvidenceUsesBoundedSameProjectCommandLogs(t *testing.T) {
+	ctx := context.Background()
+	dataStore, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dataStore.Close()
+	products := product.NewService(dataStore, skills.NewService(dataStore))
+	defer products.Close()
+	project, err := products.EnsureWorkspaceProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := products.EnsureWorkspaceProject(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := products.CreateArtifact(ctx, product.ArtifactInput{ProjectID: project.ID, Name: "failed.txt", Kind: "terminal_log", MIMEType: "text/plain", Content: strings.Repeat("ก", 2100) + "actual failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignLog, err := products.CreateArtifact(ctx, product.ArtifactInput{ProjectID: foreign.ID, Name: "foreign.txt", Kind: "terminal_log", MIMEType: "text/plain", Content: "foreign project secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := taskengine.StepPacket{ProjectID: project.ID, Step: taskengine.Step{StepSpec: taskengine.StepSpec{Checks: []string{"node test.js"}}}, ValidationEvidence: []taskengine.Validation{
+		{ID: "old", CheckID: "node test.js", Status: taskengine.ValidationFail, EvidenceRefs: []string{"artifact:" + foreignLog.ID}},
+		{ID: "latest", CheckID: "node test.js", SubjectRevision: "step:2", Status: taskengine.ValidationFail, Actual: "state=failed exit_code=1", EvidenceRefs: []string{"job:test", "artifact:" + foreignLog.ID, "artifact:" + log.ID}},
+		{ID: "unrelated", CheckID: "another check", Status: taskengine.ValidationFail, EvidenceRefs: []string{"artifact:" + foreignLog.ID}},
+	}}
+	evidence, err := (&Service{products: products}).proposalFailureEvidence(ctx, packet)
+	if err != nil || len(evidence) != 1 || evidence[0].ValidationID != "latest" || evidence[0].ArtifactID != log.ID || evidence[0].ArtifactSHA256 != log.Checksum || !evidence[0].Truncated || len([]rune(evidence[0].Output)) != 2000 || !strings.HasSuffix(evidence[0].Output, "actual failure") || strings.Contains(evidence[0].Output, "foreign project") {
+		t.Fatalf("bounded failure context=%+v err=%v", evidence, err)
+	}
+}
+
 func TestRollbackReceiptProvesRestoredBytesAndRefusesLaterEdits(t *testing.T) {
 	ctx := context.Background()
 	dataStore, err := store.Open(ctx, t.TempDir())
@@ -354,11 +390,14 @@ func TestFailedMandatoryTaskCheckPersistsRollbackReceiptInActivity(t *testing.T)
 	}
 }
 
-type rollbackReviewAdapter struct{}
+type rollbackReviewAdapter struct{ onReview func(providers.ChatRequest) }
 
-func (rollbackReviewAdapter) StreamChat(ctx context.Context, profile providers.Profile, key string, request providers.ChatRequest,
+func (a rollbackReviewAdapter) StreamChat(ctx context.Context, profile providers.Profile, key string, request providers.ChatRequest,
 	stream func(providers.Delta) error) (providers.Completion, error) {
 	if len(request.Tools) == 1 && request.Tools[0].Function.Name == "submit_review" {
+		if a.onReview != nil {
+			a.onReview(request)
+		}
 		return providers.Completion{FinishReason: "tool_calls", ToolCalls: []providers.ToolCall{{
 			Name: "submit_review", Arguments: `{"verdict":"reject","rationale":"independent reviewer found an unresolved issue","findings":["fixture reviewer rejection"]}`,
 		}}}, nil
@@ -388,7 +427,17 @@ func TestPostReviewRejectionPersistsRollbackReceiptInActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	providersService := providers.NewService(dataStore, rollbackReviewAdapter{})
+	reviewCaptured := false
+	providersService := providers.NewService(dataStore, rollbackReviewAdapter{onReview: func(request providers.ChatRequest) {
+		var input worker.ReviewTask
+		if err := json.Unmarshal([]byte(request.Messages[1].Content), &input); err != nil {
+			t.Fatal(err)
+		}
+		if len(input.AcceptanceCriteria) != 1 || !strings.HasPrefix(input.AcceptanceCriteria[0], "AC-1:") {
+			t.Fatalf("review got future step criteria: %+v", input.AcceptanceCriteria)
+		}
+		reviewCaptured = true
+	}})
 	workerProfile, err := providersService.Save(ctx, providers.SaveInput{Name: "fixture worker", BaseURL: "http://127.0.0.1:8088/v1",
 		Model: "worker-fixture", ContextWindow: 98304, MaxOutputTokens: 4096})
 	if err != nil {
@@ -402,7 +451,7 @@ func TestPostReviewRejectionPersistsRollbackReceiptInActivity(t *testing.T) {
 	tasks := taskengine.NewService(dataStore)
 	task, err := tasks.Create(ctx, taskengine.CreateTaskInput{ProjectID: project.ID, Title: "Post-review rollback fixture",
 		Objective: "correct the README status", OriginalRequest: "change the status", Actor: "owner",
-		Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "README status is ready and mandatory test passes"}}})
+		Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "README status is ready and mandatory test passes"}, {ID: "AC-2", Description: "Future release must also be verified"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +459,8 @@ func TestPostReviewRejectionPersistsRollbackReceiptInActivity(t *testing.T) {
 		RequirementRevision: task.ActiveRequirementRevision, Reason: "bounded fixture", Actor: "planner",
 		Steps: []taskengine.StepSpec{{Key: "fix", Title: "Correct README", Instructions: "change only the status",
 			RequirementIDs: []string{"AC-1"}, Checks: []string{"node test.js"},
-			EffectScope: []string{proposalEffect, "workspace.apply", "workspace.run", "provider.review"}}}})
+			EffectScope: []string{proposalEffect, "workspace.apply", "workspace.run", "provider.review"}},
+			{Key: "release", Title: "Verify future release", Instructions: "Verify release separately", RequirementIDs: []string{"AC-2"}, Dependencies: []string{"fix"}, Checks: []string{"node test.js"}, EffectScope: []string{proposalEffect, "workspace.apply", "workspace.run", "provider.review"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,6 +502,9 @@ func TestPostReviewRejectionPersistsRollbackReceiptInActivity(t *testing.T) {
 		t.Fatalf("expected passing checks before reviewer rejection: %+v err=%v", verified, err)
 	}
 	reviewed, err := coordinator.Review(ctx, authority, proposed.Proposal.ID, reviewerProfile.ID)
+	if !reviewCaptured {
+		t.Fatal("reviewer was not dispatched")
+	}
 	if err != nil || reviewed.Review.Verdict != "reject" || !reviewed.RolledBack ||
 		reviewed.RollbackEvidence.Kind != "code_rollback_receipt" || reviewed.Proposal.State != taskengine.ProposalReviewRejected {
 		t.Fatalf("post-review rejection=%+v err=%v", reviewed, err)
@@ -517,6 +570,14 @@ func (a *proposalAdapter) StreamChat(_ context.Context, _ providers.Profile, _ s
 }
 
 func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) {
+	testProposalReviewWorkflow(t, false)
+}
+
+func TestPostReviewWaitsForHumanAcceptanceWithoutReportingFailure(t *testing.T) {
+	testProposalReviewWorkflow(t, true)
+}
+
+func testProposalReviewWorkflow(t *testing.T, requireAcceptance bool) {
 	ctx := context.Background()
 	dataStore, err := store.Open(ctx, t.TempDir())
 	if err != nil {
@@ -562,6 +623,7 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		ProjectID: project.ID, Title: "Fix sum", Objective: "make addition correct", OriginalRequest: "fix add",
 		Constraints: []string{"preserve function signature"},
 		Criteria:    []taskengine.Criterion{{ID: "AC-1", Description: "addition returns the sum"}}, Actor: "owner",
+		Contract:     taskengine.GoalContract{RequireUserAcceptance: requireAcceptance, WritablePaths: []string{"sum.go"}},
 		EgressPolicy: "remote_allowed", RemoteEgressApproval: &taskengine.TaskEgressApproval{Actor: "owner", Reason: "test adapter"},
 	})
 	if err != nil {
@@ -729,6 +791,29 @@ func TestProposalWorkerPersistsReviewArtifactWithoutWritingSource(t *testing.T) 
 		t.Fatalf("reviewed output=%+v calls=%d err=%v", reviewed, adapter.reviewCalls, err)
 	}
 	finishedTask, err := tasks.Get(ctx, task.ID)
+	if requireAcceptance {
+		if err != nil || finishedTask.State != taskengine.StateVerifying {
+			t.Fatalf("review must leave the task waiting for acceptance: task=%+v err=%v", finishedTask, err)
+		}
+		if _, err := tasks.RecoverInterrupted(ctx); err != nil {
+			t.Fatal(err)
+		}
+		finishedTask, err = tasks.Get(ctx, task.ID)
+		if err != nil || finishedTask.State != taskengine.StateVerifying {
+			t.Fatalf("restart hid the acceptance action: task=%+v err=%v", finishedTask, err)
+		}
+		report, err := tasks.EvaluateCompletion(ctx, task.ID, finishedTask.Revision)
+		if err != nil || !report.AwaitingUserAcceptance || report.CanComplete {
+			t.Fatalf("acceptance gate=%+v err=%v", report, err)
+		}
+		if _, err := tasks.CompleteTask(ctx, task.ID, finishedTask.Revision); err == nil {
+			t.Fatal("review must not bypass human acceptance")
+		}
+		if _, err := tasks.RecordUserAcceptance(ctx, task.ID, finishedTask.Revision, report.SubjectHash, "test-human"); err != nil {
+			t.Fatal(err)
+		}
+		finishedTask, err = tasks.CompleteTask(ctx, task.ID, finishedTask.Revision)
+	}
 	if err != nil || finishedTask.State != taskengine.StateCompleted || finishedTask.Plan.Steps[0].State != taskengine.StepCompleted {
 		t.Fatalf("finished task=%+v err=%v", finishedTask, err)
 	}

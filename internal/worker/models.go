@@ -17,7 +17,22 @@ type Task struct {
 	RecommendedChecks  []string          `json:"recommended_checks,omitempty"`
 	ProjectBrainRefs   []KnowledgeRef    `json:"project_brain_refs,omitempty"`
 	Files              map[string]string `json:"files"`
+	WritablePaths      []string          `json:"writable_paths,omitempty"`
+	FailureEvidence    []FailureEvidence `json:"failure_evidence,omitempty"`
 	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
+}
+
+// FailureEvidence is saved, historical diagnostic data, never current proof
+// of success or permission to change a plan, test, or read-only file.
+type FailureEvidence struct {
+	ValidationID    string `json:"validation_id"`
+	CheckID         string `json:"check_id"`
+	SubjectRevision string `json:"subject_revision"`
+	Actual          string `json:"actual"`
+	ArtifactID      string `json:"artifact_id,omitempty"`
+	ArtifactSHA256  string `json:"artifact_sha256,omitempty"`
+	Output          string `json:"output,omitempty"`
+	Truncated       bool   `json:"truncated,omitempty"`
 }
 
 // KnowledgeRef is version-bound external reference data. It never changes a

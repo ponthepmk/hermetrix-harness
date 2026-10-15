@@ -59,6 +59,7 @@ type BrowserOpenRequest struct {
 
 // BrowserActRequest drives an already-open tab.
 type BrowserActRequest struct {
+	DurationMS      int
 	ProjectID       string
 	Action          string
 	URL             string

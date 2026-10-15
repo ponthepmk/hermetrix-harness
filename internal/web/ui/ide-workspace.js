@@ -115,6 +115,19 @@
   function resultText(job) {
     return String(job?.result?.output || "") + (job?.error ? `\n${job.error}` : "");
   }
+  function testOutcome(run) {
+    const args = run.job.payload?.arguments || [];
+    const isTest = run.action === "test" || args.includes("--test") || args.includes("unittest");
+    if (!isTest || live(run.job)) return "";
+    const output = stripANSI(resultText(run.job));
+    const summaries = [...output.matchAll(/^# tests (\d+)\s*$/gm), ...output.matchAll(/^Ran (\d+) tests? in /gm)];
+    const goPackages = [...output.matchAll(/^ok\s+[^\r\n]+/gm)];
+    const emptyGo = (run.job.payload?.executable === "go" || run.label?.startsWith("go test")) &&
+      (output.includes("[no test files]") || goPackages.length > 0) && goPackages.every(match => match[0].includes("[no tests to run]"));
+    if (emptyGo || summaries.length && summaries.every(match => Number(match[1]) === 0)) return "ไม่พบการทดสอบ · คำสั่งจบแล้ว แต่ยังยืนยันผลไม่ได้ กรุณาเพิ่มไฟล์ทดสอบหรือเลือกคำสั่งของโปรเจกต์";
+    if (run.job.state !== "completed") return "การทดสอบไม่สำเร็จ · ดูข้อผิดพลาดด้านล่าง";
+    return summaries.length ? `รันทดสอบ ${summaries.reduce((total, match) => total + Number(match[1]), 0)} รายการ · ดูผลด้านล่าง` : "คำสั่งทดสอบจบแล้ว · ตรวจรายละเอียดเพื่อยืนยันว่าทดสอบเงื่อนไขครบ";
+  }
   function diagnostics(output) {
     const result = [], seen = new Set();
     for (const line of output.split("\n")) {
@@ -143,6 +156,8 @@
       return; }
     const job = run.job, output = resultText(job), problems = diagnostics(output.slice(-131072));
     body.innerHTML = `<div class="ide-output"><div class="ide-console-toolbar"><code>${escapeHTML(run.label)}</code><strong data-job-state>${escapeHTML(job.state)}</strong>${live(job) ? `<button class="danger" data-job-stop>Stop</button>` : `<span>Exit ${escapeHTML(String(job.result?.exit_code ?? "—"))}</span>${run.path ? `<button class="ghost" data-job-again>Run again</button>` : ""}`}</div><div data-job-problems>${problems.map((problem, index) => `<button class="ide-problem" data-problem="${index}">${escapeHTML(problem.text)}</button>`).join("")}</div><pre class="ide-console-output" tabindex="0" aria-label="Command output">${escapeHTML(stripANSI(output.slice(-131072)) || (live(job) ? "Waiting for output…" : "No output."))}</pre>${output.length > 131072 ? `<p>Showing the last 128 KiB. Full captured output is retained in the job receipt, up to 2 MiB.</p>` : ""}${job.result?.truncated ? `<p>Process output exceeded the 2 MiB capture limit.</p>` : ""}<div class="ide-console-footer"><span>Project: ${escapeHTML(state.currentProject?.name || "")}</span><button class="ghost" data-explain-output>Ask local AI about this result</button></div></div>`;
+    const outcome = testOutcome(run);
+    if (outcome) { const note = document.createElement("p"); note.setAttribute("role", "status"); note.textContent = outcome; body.querySelector(".ide-console-toolbar").after(note); }
     body.querySelector("[data-job-stop]")?.addEventListener("click", async () => {
       try { await api(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, {method:"POST", body:JSON.stringify({actor:currentActor()})}); await pollOutput(id); } catch (error) { toast(error.message,true); }
     });
@@ -276,5 +291,5 @@
     if (event.altKey && event.shiftKey && event.key.toLowerCase()==="f") { event.preventDefault(); void action("format"); }
     if (event.key==="F5") { event.preventDefault(); panel("debug"); }
   });
-  window.HermetrixWorkspace={supports,action,format,open,panel,feedback,dirty,renderOutput,renderDebug,breakpoint,editorMounted,command,diagnostics,resume};
+  window.HermetrixWorkspace={supports,action,format,open,panel,feedback,dirty,renderOutput,renderDebug,breakpoint,editorMounted,command,diagnostics,resume,testOutcome};
 })();

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -113,6 +115,31 @@ func TestRunToolStartReturnsAJobIDWithoutWaiting(t *testing.T) {
 	}
 	if !strings.HasPrefix(runner.started[0].Actor, "agent:") {
 		t.Fatalf("actor = %q, want an agent-prefixed actor", runner.started[0].Actor)
+	}
+}
+
+func TestRunToolDuplicateNodeGivesCorrectionWithoutDispatchOrRewrite(t *testing.T) {
+	service, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	runner := &fakeRunner{}
+	service.WithRuntime(runner, nil)
+	definition := toolruntime.Definition{Name: "workspace.run", Revision: "v1", Effect: "execute"}
+	receipt := service.executeRunTool(context.Background(), session,
+		runCall(`{"action":"start","executable":"node","arguments":["node","cli.mjs","--url","https://youtu.be/jNQXAC9IVRw"]}`), definition)
+	if receipt.Status != "failed" || len(runner.started) != 0 || receipt.Metadata["diagnostic_code"] != "executable_repeated_as_argument" || !strings.Contains(receipt.Error, "cli.mjs") {
+		t.Fatalf("missing non-dispatching repair receipt: %+v starts=%v", receipt, runner.started)
+	}
+	scoped, err := service.scopedTools(context.Background(), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scoped.Root(), "node"), []byte("console.log('legitimate project script');"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	receipt = service.executeRunTool(context.Background(), session,
+		runCall(`{"action":"start","executable":"node","arguments":["node","argument"]}`), definition)
+	if receipt.Status != "succeeded" || len(runner.started) != 1 || runner.started[0].Arguments[0] != "node" {
+		t.Fatalf("legitimate same-name script was changed: %+v starts=%v", receipt, runner.started)
 	}
 }
 

@@ -86,6 +86,9 @@ export function createTerminal(parent, options = {}) {
 }
 
 export function createEditor(parent, options = {}) {
+  // CodeMirror normalizes its internal document. Serialize with the source's
+  // separator so merely running a CRLF file cannot rewrite its bytes.
+  const lineSeparator = String(options.doc || "").match(/\r\n|\r|\n/)?.[0] || "\n";
   const onSave = () => { options.onSave?.(); return true; };
   const wrapping = new Compartment();
   const updateBreakpoints = StateEffect.define();
@@ -131,6 +134,7 @@ export function createEditor(parent, options = {}) {
     parent,
     extensions: [
       basicSetup,
+      EditorState.lineSeparator.of(lineSeparator),
       EditorView.cspNonce.of(parent.ownerDocument.querySelector('meta[name="hermetrix-style-nonce"]')?.content || ""),
       EditorView.contentAttributes.of({"aria-label":`Code editor: ${options.path || "untitled"}`, spellcheck:"false"}),
       breakpointPositions,
@@ -156,7 +160,7 @@ export function createEditor(parent, options = {}) {
       languageFor(options.path),
       syntaxHighlighting(hermetrixHighlightStyle),
       EditorView.updateListener.of(update => {
-        if (update.docChanged) options.onChange?.(update.state.doc.toString());
+        if (update.docChanged) options.onChange?.(update.state.sliceDoc());
         if (update.docChanged || update.selectionSet) {
           const line = update.state.doc.lineAt(update.state.selection.main.head);
           options.onCursor?.(line.number, update.state.selection.main.head - line.from + 1);
@@ -179,11 +183,11 @@ export function createEditor(parent, options = {}) {
     ]
   });
   return {
-    getValue: () => view.state.doc.toString(),
+    getValue: () => view.state.sliceDoc(),
     setWrap: enabled => view.dispatch({effects:wrapping.reconfigure(enabled ? EditorView.lineWrapping : [])}),
     setValue: content => {
-      const next = String(content ?? "");
-      if (next === view.state.doc.toString()) return false;
+      const next = String(content ?? "").replace(/\r\n|\r|\n/g, lineSeparator);
+      if (next === view.state.sliceDoc()) return false;
       const selection = EditorSelection.create(view.state.selection.ranges.map(range => EditorSelection.range(
         Math.min(range.anchor, next.length), Math.min(range.head, next.length))), view.state.selection.mainIndex);
       const breakpoints = view.state.field(breakpointPositions).map(position => view.state.doc.lineAt(position).number);

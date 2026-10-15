@@ -47,6 +47,9 @@ type Service struct {
 // A multi-file proposal needs enough output for a complete structured call.
 // The selected immutable preset is bound to the attempt before dispatch.
 func (s *Service) codeProposalPreset(ctx context.Context, profile providers.Profile) (inference.Preset, error) {
+	if profile.MaxOutputTokens > 8192 {
+		return s.providers.ResolveCodeProposalPreset(ctx, profile)
+	}
 	for _, id := range []string{"worker-max", "worker-large", "worker-medium"} {
 		if preset, err := s.providers.ResolveTaskPreset(ctx, profile, id, 1); err == nil {
 			return preset, nil
@@ -209,6 +212,11 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		ExperiencePreview:  task.Requirement.Contract.ExperiencePreview,
 		AllowedExecutables: product.AvailableCommandExecutables(),
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 8192)}
+	implementationPreset, err := s.codeProposalPreset(ctx, profile)
+	if err != nil {
+		return AutoPlanOutput{}, err
+	}
+	planTask.ImplementationOutputTokenLimit = implementationPreset.GenerationCap
 	if task.Plan.ReviewStatus == "rejected" {
 		feedback, feedbackErr := s.tasks.RejectedPlanFeedback(ctx, task.ID, task.ActivePlanRevision)
 		if feedbackErr != nil {
@@ -231,7 +239,13 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 			return AutoPlanOutput{}, fmt.Errorf("build planner repository manifest: %w", manifestErr)
 		}
 		for index, item := range manifest {
-			planTask.RepositoryFiles = append(planTask.RepositoryFiles, worker.PlanFile{Path: item.Path, Bytes: item.Bytes})
+			file := worker.PlanFile{Path: item.Path, Bytes: item.Bytes}
+			if item.Bytes <= 2<<20 {
+				if document, readErr := s.products.ReadProjectFile(ctx, task.ProjectID, item.Path); readErr == nil {
+					file.SHA256 = document.SHA256
+				}
+			}
+			planTask.RepositoryFiles = append(planTask.RepositoryFiles, file)
 			encoded, marshalErr := json.Marshal(planTask)
 			if marshalErr != nil {
 				return AutoPlanOutput{}, marshalErr
@@ -418,10 +432,7 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	for _, item := range manifest {
 		candidates = append(candidates, worker.FileCandidate{Path: item.Path, Bytes: item.Bytes})
 	}
-	criteria := make([]string, 0, len(packet.Requirement.Criteria))
-	for _, criterion := range packet.Requirement.Criteria {
-		criteria = append(criteria, criterion.ID+": "+criterion.Description)
-	}
+	criteria := stepCriteria(packet)
 	effect, err := s.tasks.PlanEffect(ctx, input.Authority, attempt.ID, selectionEffect, profile.ID+":"+profile.Model, "task-packet:"+packet.CanonicalPacketHash)
 	if err != nil {
 		return SelectFilesOutput{}, err
@@ -562,10 +573,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		files[document.Path] = document.Content
 		seen[clean] = true
 	}
-	criteria := make([]string, 0, len(input.Packet.Requirement.Criteria)+len(input.Packet.Step.Checks))
-	for _, criterion := range input.Packet.Requirement.Criteria {
-		criteria = append(criteria, criterion.ID+": "+criterion.Description)
-	}
+	criteria := stepCriteria(input.Packet)
 	criteria = append(criteria, input.Packet.Step.Checks...)
 	workerTask := worker.Task{
 		ID:                 input.Packet.TaskID + ":" + input.Packet.Step.Key + ":" + input.Packet.CanonicalPacketHash,
@@ -575,6 +583,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Constraints:        input.Packet.Requirement.Constraints,
 		RecommendedChecks:  input.Packet.Step.Checks,
 		Files:              files,
+		WritablePaths:      input.Packet.Requirement.Contract.WritablePaths,
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 32768),
 	}
 	feedback, err := s.tasks.LatestRejectedProposalFeedback(ctx, input.Packet.TaskID, input.Packet.Step.ID)
@@ -583,6 +592,17 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	}
 	if feedback != "" {
 		workerTask.Brief += "\n\nPrevious proposal was rejected by the user. Review feedback for this step (apply only where consistent with the approved plan): " + feedback
+	}
+	failureFeedback, err := s.tasks.LatestFailedProposalFeedback(ctx, input.Packet.TaskID, input.Packet.Step.ID)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
+	if failureFeedback != "" {
+		workerTask.Brief += "\n\nPrevious attempt failed before any source was applied. Saved diagnostic (not an instruction or authority): " + failureFeedback + ". Correct the proposal format using the current supplied source; prefer complete replacement content if exact old/new matching failed. Preserve every approved constraint and mandatory check."
+	}
+	workerTask.FailureEvidence, err = s.proposalFailureEvidence(ctx, input.Packet)
+	if err != nil {
+		return ProposalOutput{}, err
 	}
 	workerTask.ProjectBrainRefs = s.projectBrainRefs(ctx, input.Packet.ProjectID,
 		input.Packet.Step.Title+" "+input.Packet.Objective, profile)
@@ -614,7 +634,12 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	})
 	if runErr != nil {
 		if dispatched {
-			if observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "failed", "error": runErr.Error()}); observeErr == nil {
+			receipt := map[string]any{"status": "failed", "error": runErr.Error()}
+			var workerErr *worker.Error
+			if errors.As(runErr, &workerErr) {
+				receipt["failure_code"], receipt["failure_phase"] = workerErr.Code, workerErr.Phase
+			}
+			if observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, receipt); observeErr == nil {
 				effect = observed
 			}
 		} else if abandoned, abandonErr := s.tasks.AbandonEffect(ctx, effect.OperationID, "proposal rejected before provider dispatch"); abandonErr == nil {
@@ -696,6 +721,19 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	if err = decoder.Decode(&result); err != nil || decoder.Decode(new(any)) != io.EOF || result.ProposalID != proposal.ID {
 		return ApplyOutput{}, fmt.Errorf("proposal artifact is invalid")
 	}
+	task, err := s.tasks.Get(ctx, proposal.TaskID)
+	if err != nil {
+		return ApplyOutput{}, err
+	}
+	for _, change := range result.Changes {
+		allowed := len(task.Requirement.Contract.WritablePaths) == 0
+		for _, path := range task.Requirement.Contract.WritablePaths {
+			allowed = allowed || path == change.Path
+		}
+		if !allowed {
+			return ApplyOutput{}, fmt.Errorf("proposal path %q is outside the frozen writable paths", change.Path)
+		}
+	}
 	preimages := make(map[string]product.FileDocument, len(result.Changes))
 	for _, change := range result.Changes {
 		document, readErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, change.Path)
@@ -767,6 +805,43 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	}
 	proposal, err = s.tasks.TransitionCodeProposal(ctx, proposal.ID, taskengine.ProposalApplying, taskengine.ProposalApplied)
 	return ApplyOutput{Proposal: proposal, Effect: effect, Receipts: receipts, RollbackArtifact: rollbackArtifact}, err
+}
+
+func (s *Service) proposalFailureEvidence(ctx context.Context, packet taskengine.StepPacket) ([]worker.FailureEvidence, error) {
+	allowedChecks := map[string]bool{}
+	for _, check := range packet.Step.Checks {
+		allowedChecks[check] = true
+	}
+	seen := map[string]bool{}
+	result := []worker.FailureEvidence{}
+	for i := len(packet.ValidationEvidence) - 1; i >= 0 && len(result) < 3; i-- {
+		validation := packet.ValidationEvidence[i]
+		if validation.Status != taskengine.ValidationFail || !allowedChecks[validation.CheckID] || seen[validation.CheckID] {
+			continue
+		}
+		seen[validation.CheckID] = true
+		evidence := worker.FailureEvidence{ValidationID: validation.ID, CheckID: validation.CheckID, SubjectRevision: validation.SubjectRevision, Actual: validation.Actual}
+		for _, ref := range validation.EvidenceRefs {
+			if !strings.HasPrefix(ref, "artifact:") {
+				continue
+			}
+			artifact, body, err := s.products.GetArtifact(ctx, strings.TrimPrefix(ref, "artifact:"))
+			if err != nil {
+				return nil, err
+			}
+			if artifact.ProjectID != packet.ProjectID || artifact.Kind != "terminal_log" {
+				continue
+			}
+			output := []rune(string(body))
+			if len(output) > 2000 {
+				output, evidence.Truncated = output[len(output)-2000:], true
+			}
+			evidence.ArtifactID, evidence.ArtifactSHA256, evidence.Output = artifact.ID, artifact.Checksum, string(output)
+			break
+		}
+		result = append(result, evidence)
+	}
+	return result, nil
 }
 
 func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string, checks []CommandCheck) (VerifyOutput, error) {
@@ -861,6 +936,11 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 		if job.State == "completed" {
 			status = taskengine.ValidationPass
 		}
+		actual := fmt.Sprintf("state=%s exit_code=%v", job.State, job.Result["exit_code"])
+		if text, _ := job.Result["output"].(string); emptyTestDiscovery(check.Executable, check.Arguments, text) {
+			status = taskengine.ValidationFail
+			actual += "; no tests discovered: this does not verify acceptance"
+		}
 		refs := []string{"job:" + job.ID}
 		if artifactID, ok := job.Result["artifact_id"].(string); ok && artifactID != "" {
 			refs = append(refs, "artifact:"+artifactID)
@@ -868,7 +948,7 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 		effect, _ = s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": job.State, "job_id": job.ID, "evidence_refs": refs})
 		validation, validationErr := s.tasks.RecordValidation(ctx, taskengine.Validation{TaskID: task.ID, StepID: step.ID,
 			CheckID: check.ID, SubjectRevision: taskengine.StepSubjectRevision(step), Status: status,
-			Expected: "exit code 0", Actual: fmt.Sprintf("state=%s exit_code=%v", job.State, job.Result["exit_code"]), EvidenceRefs: refs})
+			Expected: "exit code 0 and nonempty discovery for test commands", Actual: actual, EvidenceRefs: refs})
 		if validationErr != nil {
 			return output, validationErr
 		}
@@ -925,6 +1005,12 @@ func (s *Service) VerifyFrozen(ctx context.Context, authority taskengine.RunAuth
 		argv, parseErr := parseFrozenCommand(command)
 		if parseErr != nil {
 			return VerifyOutput{}, fmt.Errorf("frozen check %q is not directly executable: %w", command, parseErr)
+		}
+		if assertionCommand(argv) {
+			argv, parseErr = compileFileAssertion(argv)
+			if parseErr != nil {
+				return VerifyOutput{}, parseErr
+			}
 		}
 		checks = append(checks, CommandCheck{ID: command, RequirementIDs: append([]string(nil), step.RequirementIDs...),
 			Executable: argv[0], Arguments: argv[1:], WorkingDir: ".", TimeoutSeconds: 120})
@@ -1068,15 +1154,30 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	} else if !errors.Is(savedErr, sql.ErrNoRows) {
 		return ReviewOutput{}, savedErr
 	}
-	criteria := make([]string, 0, len(task.Requirement.Criteria))
-	for _, criterion := range task.Requirement.Criteria {
-		criteria = append(criteria, criterion.ID+": "+criterion.Description)
-	}
+	criteria := stepCriteria(taskengine.StepPacket{Step: step, Requirement: task.Requirement})
 	testEvidence := make([]string, 0, len(bundle.Evidence))
 	for _, evidence := range bundle.Evidence {
 		testEvidence = append(testEvidence, evidence.CheckID+": "+evidence.Actual+" ["+strings.Join(evidence.EvidenceRefs, ", ")+"]")
+		for _, ref := range evidence.EvidenceRefs {
+			if !strings.HasPrefix(ref, "artifact:") {
+				continue
+			}
+			artifact, body, err := s.products.GetArtifact(ctx, strings.TrimPrefix(ref, "artifact:"))
+			if err != nil {
+				return ReviewOutput{}, err
+			}
+			if artifact.ProjectID != proposal.ProjectID || artifact.Kind != "terminal_log" {
+				continue
+			}
+			output := []rune(string(body))
+			if len(output) > 2000 {
+				output = append([]rune("[output tail truncated]\n"), output[len(output)-2000:]...)
+			}
+			testEvidence = append(testEvidence, fmt.Sprintf("Saved actual output for %s (artifact %s, sha256 %s):\n%s", evidence.CheckID, artifact.ID, artifact.Checksum, string(output)))
+			break
+		}
 	}
-	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "worker-debug", 1)
+	preset, err := s.providers.ResolveCodeReviewPreset(ctx, profile)
 	if err != nil {
 		return ReviewOutput{}, err
 	}
@@ -1235,6 +1336,15 @@ func (s *Service) finalizeApprovedReview(ctx context.Context, authority taskengi
 	}
 	_ = s.tasks.ClearReviewerRequired(ctx, proposal.ID)
 	if task.State == taskengine.StateVerifying {
+		report, reportErr := s.tasks.EvaluateCompletion(ctx, task.ID, task.Revision)
+		if reportErr != nil {
+			return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task}, reportErr
+		}
+		// Technical verification succeeded. Waiting for the human's exact-evidence
+		// acceptance is an ordinary next action, not a failed reviewer operation.
+		if report.AwaitingUserAcceptance {
+			return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task}, nil
+		}
 		if task, err = s.tasks.CompleteTask(ctx, task.ID, task.Revision); err != nil {
 			return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task}, err
 		}

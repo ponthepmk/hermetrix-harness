@@ -40,3 +40,5 @@ tmp-mockup-data/
 /internal/web/.tmp-ui/
 /.hermetrix-gitconfig
 /.hermetrix-pi-release.gitconfig
+/scripts/video-research/.research-jobs/
+/scripts/video-research/__pycache__/

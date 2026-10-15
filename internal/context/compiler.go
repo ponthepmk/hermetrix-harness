@@ -200,7 +200,14 @@ func (c *Compiler) spillLargeTools(ctx stdcontext.Context, fragments []Fragment,
 	var receipts []SpillReceipt
 	for i := range out {
 		fragment := &out[i]
-		if fragment.Kind != KindToolResult || c.estimator.Count(fragment.Content) <= limit {
+		inlineLimit := limit
+		// Retain a small, correlated completed-video report as ordinary tool
+		// data for its handoff. Total/pinned/active/cumulative budgets remain
+		// unchanged; larger reports still spill through the normal reader.
+		if fragment.Pinned && fragment.Metadata["video_report_handoff"] == "owner-cli-video-v1" {
+			inlineLimit = max(limit, 4096)
+		}
+		if fragment.Kind != KindToolResult || c.estimator.Count(fragment.Content) <= inlineLimit {
 			continue
 		}
 		if c.spiller == nil {
@@ -211,7 +218,7 @@ func (c *Compiler) spillLargeTools(ctx stdcontext.Context, fragments []Fragment,
 			return nil, nil, fmt.Errorf("spill tool result %s: %w", fragment.ID, err)
 		}
 		preview := headTail(compactWhitespace(fragment.Content), 900)
-		fragment.Content = fmt.Sprintf("[artifact ref=%s bytes=%d sha256=%s]\nPreview: %s", receipt.Ref, receipt.Bytes, receipt.Checksum, preview)
+		fragment.Content = fmt.Sprintf("[artifact ref=%s bytes=%d sha256=%s source=%s]\nPreview: %s", receipt.Ref, receipt.Bytes, receipt.Checksum, fragment.ID, preview)
 		fragment.Kind = KindArtifactReceipt
 		if fragment.Metadata == nil {
 			fragment.Metadata = map[string]string{}

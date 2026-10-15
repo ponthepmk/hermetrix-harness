@@ -300,6 +300,9 @@ func (s *Service) RunNext(ctx context.Context) (Job, error) {
 			suggested.BaseVersionID = target.CurrentVersionID
 			origin = target.Origin
 		}
+		if err := s.boundSuggestionToSource(reviewCtx, job.SessionID, suggested); err != nil {
+			return err
+		}
 		candidate, createErr := s.skills.CreateCandidate(reviewCtx, skills.CreateCandidateInput{
 			CanonicalName: suggested.CanonicalName, ScopeKind: suggested.ScopeKind, ScopeRef: suggested.ScopeRef,
 			Origin: origin, Owner: suggested.Owner, ChangeKind: suggested.ChangeKind,

@@ -1,0 +1,5 @@
+youtube-transcript-api==1.2.4
+yt-dlp==2026.8.19
+faster-whisper==1.2.1
+# PyAV19 removed metadata_errors used by faster-whisper1.2.1's audio decoder.
+av==16.0.1

@@ -27,6 +27,58 @@ const model = {id:"local", name:"Local", enabled:true, credential_ready:true, mo
 const liveRun = () => ({id:"run-1", state:"running", plan_revision:1, lease_token:"private-lease", lease_expires_at:new Date(Date.now()+600000).toISOString()});
 const baseTask = () => ({id:"task-1", title:"Fix sum", objective:"Addition returns sum", state:"ready", revision:2, active_plan_revision:1, egress_policy:"local_only", plan:{steps:[{key:"fix", title:"Fix", state:"pending"}]}});
 
+test("boundary pause is offered only after active work has settled", () => {
+  const {context}=cockpit({state:{durableTasks:[],taskExecutions:{},providers:[model],selectedDurableTask:"task-1"}});
+  const task={...baseTask(),state:"running"};
+  assert.match(context.taskExecutionHTML(task,{run:liveRun(),attempt:{state:"completed"},effects:[]}),/taskPauseRun/);
+  assert.doesNotMatch(context.taskExecutionHTML(task,{run:liveRun(),attempt:{state:"running"},effects:[{state:"dispatched",action:"provider.propose"}]}),/taskPauseRun/);
+  assert.equal(context.taskStage({...task,state:"paused"},{run:{state:"paused"},attempt:{state:"completed"},proposal:{state:"verified"}}).label,"พักงานแล้ว");
+});
+
+test("refresh fences stale completion evidence when another client advances the task", () => {
+  const {context} = cockpit();
+  context.state.taskExecutions["task-1"] = {task:{revision:1},completion:{awaiting_user_acceptance:true}};
+  context.reconcileTaskCache([{id:"task-1",revision:3}]);
+  assert.equal(context.state.taskExecutions["task-1"], undefined);
+  context.state.taskExecutions["task-1"] = {task:{revision:3}};
+  context.reconcileTaskCache([{id:"task-1",revision:2}]);
+  assert.equal(context.state.taskExecutions["task-1"].task.revision, 3);
+});
+
+test("technically verified work presents the human acceptance action after restart", () => {
+  const {context} = cockpit();
+  const task = {...baseTask(), state:"verifying", plan:{steps:[{key:"fix", state:"completed"}]}};
+  const execution = {run:{state:"paused", plan_revision:1}, attempt:{state:"completed"}, proposal:{state:"verified"}, effects:[], completion:{awaiting_user_acceptance:true}};
+  assert.equal(context.taskCanStartStep(task, execution), false);
+  assert.equal(context.taskStage(task, execution).label, "รอรับงาน");
+  const html = context.taskExecutionHTML(task, execution);
+  assert.match(html, /data-task-jump="taskAcceptResult"/);
+  assert.doesNotMatch(html, /taskProposalForm/);
+  assert.equal(context.taskCanStartStep({...task, state:"paused"}, execution), false);
+});
+
+test("explicit refresh replaces same-revision evidence and fences the old pending read", async () => {
+  const task = baseTask(); let settleOld, executions = 0;
+  const old = new Promise(resolve => { settleOld = resolve; });
+  const {context} = cockpit({api:async path => {
+    if (path.endsWith("/execution")) return ++executions === 1 ? old : {task, effects:[]};
+    if (path.includes("/completion?")) return {task_revision:task.revision, gates:[{id:"criterion:AC-1",status:"fail",evidence_refs:["artifact:latest-failure"]}]};
+    return [];
+  }});
+  context.state.durableTasks = [task];
+  context.state.taskExecutions[task.id] = {task,completion:{gates:[{id:"criterion:AC-1",status:"pass"}]}};
+  context.reconcileTaskCache([task]);
+  assert.equal(context.state.taskExecutions[task.id].completion.gates[0].status, "pass", "ordinary list hydration retains current details");
+  const pending = context.loadTaskExecution(task.id);
+  context.reconcileTaskCache([task], true);
+  assert.equal(context.state.taskExecutions[task.id], undefined);
+  await context.loadTaskExecution(task.id);
+  settleOld({task,effects:[{id:"obsolete"}]});
+  await pending;
+  assert.equal(context.state.taskExecutions[task.id].completion.gates[0].status, "fail");
+  assert.deepEqual(context.state.taskExecutions[task.id].effects, []);
+});
+
 test("failed step names the recovery target until a fresh proposal reaches review", () => {
   const {context} = cockpit();
   const task = {...baseTask(), state:"paused", plan:{steps:[{key:"fix", title:"Fix sum", state:"failed"}]}};

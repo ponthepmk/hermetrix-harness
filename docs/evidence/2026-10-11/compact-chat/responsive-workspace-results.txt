@@ -1,0 +1,10 @@
+=== RUN   TestResponsiveWorkspaceFlowsInARealBrowser
+=== RUN   TestResponsiveWorkspaceFlowsInARealBrowser/1280x720
+=== RUN   TestResponsiveWorkspaceFlowsInARealBrowser/800x900
+=== RUN   TestResponsiveWorkspaceFlowsInARealBrowser/390x844
+--- PASS: TestResponsiveWorkspaceFlowsInARealBrowser (5.78s)
+    --- PASS: TestResponsiveWorkspaceFlowsInARealBrowser/1280x720 (1.62s)
+    --- PASS: TestResponsiveWorkspaceFlowsInARealBrowser/800x900 (2.01s)
+    --- PASS: TestResponsiveWorkspaceFlowsInARealBrowser/390x844 (2.15s)
+PASS
+ok  	hermetrix-harness/internal/web	8.849s

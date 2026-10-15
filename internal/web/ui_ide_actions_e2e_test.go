@@ -29,7 +29,8 @@ func TestIDEFormatRunTestAndDebugInBrowser(t *testing.T) {
 	}
 	root := t.TempDir()
 	original := "const total=2+3;\nconst doubled=total*2;\nconsole.log(doubled);\n"
-	for name, content := range map[string]string{"main.js": original, "main.test.js": "const test = require('node:test'); const assert = require('node:assert/strict'); test('sum', () => assert.equal(2+3,5));\n"} {
+	crlf := "console.log('CRLF-preserved');\r\n"
+	for name, content := range map[string]string{"main.js": original, "windows.js": crlf} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -82,6 +83,20 @@ func TestIDEFormatRunTestAndDebugInBrowser(t *testing.T) {
 	act(`HermetrixWorkspace.panel('chat');'assistant'`)
 	waitBrowserValue(t, ctx, client, `document.querySelector('.cm-editor') && document.querySelector('.ide-assistant') ? 'ide':''`, "ide")
 	waitForStyledEditor(t, ctx, client)
+	act(`openWorkbenchFile('windows.js');'crlf'`)
+	waitBrowserValue(t, ctx, client, `document.querySelector('#codeSaveState')?.textContent==='Saved' && state.projectFile?.path==='windows.js' ? 'ready':''`, "ready")
+	act(`document.querySelector('[data-editor-action="run"]').click();'run-crlf'`)
+	waitBrowserValue(t, ctx, client, `document.querySelector('[data-job-state]')?.textContent==='completed' && document.querySelector('.ide-console-output')?.textContent.includes('CRLF-preserved') ? 'ran':''`, "ran")
+	if data, err := os.ReadFile(filepath.Join(root, "windows.js")); err != nil || string(data) != crlf {
+		t.Fatalf("untouched Run changed CRLF bytes: %q %v", data, err)
+	}
+	act(`document.querySelector('[data-editor-action="test"]').click();'empty-test'`)
+	waitBrowserValue(t, ctx, client, `document.querySelector('.ide-output')?.textContent.includes('ไม่พบการทดสอบ') ? 'unverified':''`, "unverified")
+	if err := os.WriteFile(filepath.Join(root, "main.test.js"), []byte("const test = require('node:test'); const assert = require('node:assert/strict'); test('sum', () => assert.equal(2+3,5));\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	act(`openWorkbenchFile('main.js');'main'`)
+	waitBrowserValue(t, ctx, client, `state.projectFile?.path==='main.js' ? 'ready':''`, "ready")
 	act(`document.querySelector('[data-editor-action="format"]').click();'format'`)
 	waitBrowserValue(t, ctx, client, `document.querySelector('#codeFeedback')?.textContent.startsWith('Formatted') ? 'formatted':''`, "formatted")
 	before, err := os.ReadFile(filepath.Join(root, "main.js"))
@@ -99,7 +114,9 @@ func TestIDEFormatRunTestAndDebugInBrowser(t *testing.T) {
 	act(`document.querySelector('[data-editor-action="format"]').click();'format-again'`)
 	waitBrowserValue(t, ctx, client, `activeCodeEditor.getValue().startsWith('const total = 2 + 3;')?'formatted':''`, "formatted")
 	act(`document.querySelector('[data-editor-action="run"]').click();'run'`)
-	waitBrowserValue(t, ctx, client, `document.querySelector('[data-job-state]')?.textContent==='completed' && document.querySelector('.ide-console-output')?.textContent.includes('10') ? 'ran':''`, "ran")
+	// A previous test receipt contains timings (including "10"). Wait for
+	// this file's Run result instead of accepting that stale completed job.
+	waitBrowserValue(t, ctx, client, `document.querySelector('.ide-console-toolbar code')?.textContent==='node ./main.js' && document.querySelector('[data-job-state]')?.textContent==='completed' && document.querySelector('.ide-console-output')?.textContent.trim()==='10' ? 'ran':''`, "ran")
 	saved, err := os.ReadFile(filepath.Join(root, "main.js"))
 	if err != nil || !strings.HasPrefix(string(saved), "const total = 2 + 3;") {
 		t.Fatalf("run did not save exact formatted buffer: %q %v", saved, err)
