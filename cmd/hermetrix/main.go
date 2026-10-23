@@ -333,6 +333,10 @@ func runServe(args []string) {
 	} else if recovered > 0 {
 		logger.Warn("paused interrupted durable tasks for effect reconciliation", "count", recovered)
 	}
+	if err := taskService.RecoverGoals(ctx); err != nil {
+		logger.Error("recover interrupted goal dispatches", "error", err)
+		return
+	}
 	discordService, err := discordbridge.NewService(ctx, dataStore, vault, discordbridge.NewAgentAdapter(agentService, providerService, productService))
 	if err != nil {
 		logger.Error("initialize Discord remote control", "error", err)
@@ -368,6 +372,10 @@ func runServe(args []string) {
 	server := &http.Server{Addr: *listen, Handler: webServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute,
 		IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
+	goalCtx, stopGoals := context.WithCancel(ctx)
+	goalsDone := make(chan struct{})
+	go func() { defer close(goalsDone); taskCoordinator.ServeGoals(goalCtx) }()
+	defer func() { stopGoals(); <-goalsDone }()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)

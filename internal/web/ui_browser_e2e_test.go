@@ -390,6 +390,10 @@ func TestWorkspacePaneSizesAreIndependentInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `(() => { const strip=document.querySelector('.pane-grid'), handle=strip?.querySelector('[data-pane-size="0"]'); if(!strip||!handle||getComputedStyle(strip).display!=='flex')return ''; const r=handle.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2); return hit===handle ? 'resize-handles-reachable' : ''; })()`, "resize-handles-reachable")
+	if err := client.waitForPaint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	capture("workspace-before-resize.png")
 	coords, err := client.evaluate(ctx, `(() => {const r=document.querySelector('[data-pane-size="0"]').getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})()`)
 	if err != nil {
 		t.Fatal(err)
@@ -417,6 +421,7 @@ func TestWorkspacePaneSizesAreIndependentInARealBrowser(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	capture("workspace-after-drag.png")
 	waitBrowserValue(t, ctx, client, `state.paneWidths.chat > 500 && document.querySelector('.pane-index-0').getBoundingClientRect().width > 500 ? 'drag-resized' : JSON.stringify({saved:state.paneWidths.chat,width:document.querySelector('.pane-index-0').getBoundingClientRect().width})`, "drag-resized")
 	capture("workspace-dynamic.png")
 	if _, err := client.evaluate(ctx, `state.panes=['chat','editor','environment','output']; renderPanes(); saveLayout(); 'four-panes'`); err != nil {
@@ -1638,6 +1643,9 @@ func TestPrimaryRequestOpensEditablePlanBeforeExecution(t *testing.T) {
 	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.waitForPaint(ctx); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `!document.querySelector('#toast')?.classList.contains('show') && Number(getComputedStyle(document.querySelector('#toast')).opacity) < 0.01 ? 'toast-dismissed' : ''`, "toast-dismissed")
 	if _, err := client.evaluate(ctx, `document.querySelector('.task-plan-brief').scrollIntoView({block:'start'}); 'brief-visible'`); err != nil {
 		t.Fatal(err)
@@ -1658,6 +1666,9 @@ func TestPrimaryRequestOpensEditablePlanBeforeExecution(t *testing.T) {
 		}
 	}
 	if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.waitForPaint(ctx); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.documentElement.scrollWidth <= innerWidth + 1 && document.querySelector('.task-cockpit')?.getBoundingClientRect().width <= innerWidth ? 'brief-mobile' : ''`, "brief-mobile")
@@ -1685,7 +1696,51 @@ func TestPrimaryRequestOpensEditablePlanBeforeExecution(t *testing.T) {
 	if _, err := client.evaluate(ctx, `renderPanes(); 'pane-remounted'`); err != nil {
 		t.Fatal(err)
 	}
-	waitBrowserValue(t, ctx, client, `(() => {const button=document.querySelector('#taskApprovePlan'); const rect=button?.getBoundingClientRect(); const hit=rect&&document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2); return hit && (hit===button || button.contains(hit)) && rect.left>=0 && rect.right<=innerWidth ? 'review-button-reachable' : '';})()`, "review-button-reachable")
+	if err := client.waitForPaint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `(() => {const button=document.querySelector('#taskApprovePlan'); const rect=button?.getBoundingClientRect(); const hit=rect&&document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2); return hit && (hit===button || button.contains(hit)) && rect.left>=0 && rect.right<=innerWidth ? 'review-button-reachable' : JSON.stringify({button:rect,hit:hit?.outerHTML?.slice(0,240),viewport:[innerWidth,innerHeight],documentScroll:[scrollX,scrollY],position:taskViewportPositions.get(state.selectedDurableTask),body:(()=>{const b=button?.closest('.pane-body');return{rect:b?.getBoundingClientRect(),scrollTop:b?.scrollTop,scrollHeight:b?.scrollHeight,clientHeight:b?.clientHeight}})()});})()`, "review-button-reachable")
+	if path := os.Getenv("HERMETRIX_PLAN_REVIEW_MOBILE_SCREENSHOT"); path != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if err := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); err != nil {
+			t.Fatal(err)
+		}
+		pixels, err := base64.StdEncoding.DecodeString(shot.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(path, pixels, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A DOM hit test alone cannot prove the confirmation is actionable. Use
+	// native input and cancel the review dialog without approving any work.
+	pointJSON, err := client.evaluate(ctx, `(()=>{const r=document.querySelector('#taskApprovePlan').getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2})})()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var point struct{ X, Y float64 }
+	if err = json.Unmarshal([]byte(pointJSON), &point); err != nil {
+		t.Fatal(err)
+	}
+	for _, eventType := range []string{"mousePressed", "mouseReleased"} {
+		if err = client.call(ctx, "Input.dispatchMouseEvent", map[string]any{"type": eventType, "x": point.X, "y": point.Y, "button": "left", "clickCount": 1}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#actionDialog')?.open && document.querySelector('#actionDialog').textContent.includes('อนุมัติแผนนี้') ? 'native-review-open' : ''`, "native-review-open")
+	if _, err = client.evaluate(ctx, `document.querySelector('#actionCancel').click(); 'review-cancelled'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `!document.querySelector('#actionDialog')?.open ? 'review-closed' : ''`, "review-closed")
+	if err = json.Unmarshal(requestJSON(t, server.URL+"/api/tasks", http.MethodGet, nil, http.StatusOK), &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Plan.ReviewStatus != "pending" {
+		t.Fatalf("opening/canceling review approved work: %+v", tasks)
+	}
 }
 
 // TestIDEWorkspaceRunsInARealBrowser covers the two work surfaces whose
@@ -2371,6 +2426,7 @@ func TestResponsiveWorkspaceFlowsInARealBrowser(t *testing.T) {
 			waitBrowserValue(t, ctx, client, `document.querySelector('[data-open-project]') ? 'ready' : ''`, "ready")
 			evaluate(`document.querySelector('[data-open-project]').click(); 'open'`)
 			waitBrowserValue(t, ctx, client, `state.currentProject?.name === 'Responsive workspace project' ? 'composer' : ''`, "composer")
+			evaluate(`window.__e2eModelEvents=[];['pointerdown','pointerup','click','change','close'].forEach(kind=>document.addEventListener(kind,event=>{const target=event.target,button=target.closest?.('button');if(!['startModelOptions','sessionSetupDone','sessionSetupClose','chatProviderSelect','sessionSetupDialog'].includes(button?.id||target.id))return;window.__e2eModelEvents.push({kind,target:target.id,button:button?.id,at:performance.now(),open:document.querySelector('#sessionSetupDialog')?.open,value:document.querySelector('#chatProviderSelect')?.value,draft:state.draftProviderID,focus:document.activeElement?.id});if(window.__e2eModelEvents.length>40)window.__e2eModelEvents.shift()},true));'model-event-probe'`)
 			checkHeader("start")
 			captureLayout("start")
 			if viewport.width <= 1080 {
@@ -2476,7 +2532,37 @@ func waitBrowserValue(t *testing.T, ctx context.Context, client *e2eCDPClient, e
 		time.Sleep(100 * time.Millisecond)
 	}
 	diagnostic, diagnosticErr := client.evaluate(ctx, `JSON.stringify({chat:{sending:state.sending,session:state.sessionDetail?.session?.state,control:state.sessionDetail?.turn_control,queue:state.sessionDetail?.queued_messages,failures:state.sessionDetail?.events?.filter(e=>e.event_kind==='turn_failed').map(e=>e.content),error:state.chatTurnError},project:state?.currentProject?.id||'',projectOpening:state?.projectOpening||false,view:state?.view||'',tab:state?.activeTab||'',statePanes:state?.panes||[],compactPane:state?.compactPane||'',layout:state?.paneLayout||'',viewport:innerWidth,toast:document.querySelector('#toast')?.textContent||'',dialog:document.querySelector('#actionDialog')?.open||false,openProjectError:window.__e2eOpenProjectError||'',panes:document.querySelector('#workspacePaneHost')?.textContent?.slice(0,240)||'',office:{filter:typeof officeFilter==='undefined'?'':officeFilter,limit:typeof officeHistoryLimit==='undefined'?0:officeHistoryLimit,jobs:state?.jobs?.length,rows:document.querySelectorAll('.office-entry').length,moreHidden:document.querySelector('#officeMore')?.hidden,count:document.querySelector('#officeCount')?.textContent},task:(()=>{const b=document.querySelector('.pane-body[data-pane-kind="tasks"]'),t=document.querySelector('#taskAutoPlan'),id=state.selectedDurableTask;return{selected:id,action:id&&taskActions.get(id),error:id&&taskErrors.get(id),brief:id&&state.taskExecutions[id]?.content?.brief,contentSteps:document.querySelectorAll('.task-content-step').length,briefForm:!!document.querySelector('#taskContentBriefForm'),draftForm:!!document.querySelector('[data-content-draft="facebook"]'),jump:typeof pendingTaskJump==='undefined'?null:pendingTaskJump,bodyScroll:b?.scrollTop,bodyHeight:b?.clientHeight,bodyContentHeight:b?.scrollHeight,bodyOverflow:b&&getComputedStyle(b).overflowY,targetTop:t?.getBoundingClientRect().top,detailsOpen:t?.closest('details')?.open}})()})`)
-	t.Fatalf("browser value did not become %q: value=%q err=%v diagnostic=%q diagnostic_err=%v", want, value, err, diagnostic, diagnosticErr)
+	modelDiagnostic, modelDiagnosticErr := client.evaluate(ctx, `JSON.stringify({open:document.querySelector('#sessionSetupDialog')?.open,value:document.querySelector('#chatProviderSelect')?.value,draft:state.draftProviderID,default:state.defaultProviderID,focus:document.activeElement?.id,events:window.__e2eModelEvents||[]})`)
+	// Capture only after the failed observation. Taking a screenshot before
+	// the assertion can itself commit a compositor frame and conceal a race.
+	if directory := os.Getenv("HERMETRIX_E2E_FAILURE_DIR"); directory != "" {
+		var shot struct {
+			Data string `json:"data"`
+		}
+		if captureErr := client.call(ctx, "Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": false}, &shot); captureErr == nil {
+			if pixels, decodeErr := base64.StdEncoding.DecodeString(shot.Data); decodeErr == nil {
+				label := strings.Map(func(r rune) rune {
+					if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+						return r
+					}
+					return '_'
+				}, t.Name())
+				if len(label) > 96 {
+					label = label[:96]
+				}
+				name := fmt.Sprintf("%s-%d", label, time.Now().UnixNano())
+				path := filepath.Join(directory, name+".png")
+				if saveErr := os.WriteFile(path, pixels, 0600); saveErr == nil {
+					t.Logf("failed browser view: %s", path)
+				} else {
+					t.Logf("failed browser capture save: %v", saveErr)
+				}
+			}
+		} else {
+			t.Logf("failed browser capture: %v", captureErr)
+		}
+	}
+	t.Fatalf("browser value did not become %q: value=%q err=%v diagnostic=%q diagnostic_err=%v model=%q model_err=%v", want, value, err, diagnostic, diagnosticErr, modelDiagnostic, modelDiagnosticErr)
 }
 
 type e2eChromeTarget struct {
@@ -2590,6 +2676,12 @@ func (c *e2eCDPClient) call(ctx context.Context, method string, params, result a
 		}
 		return nil
 	}
+}
+
+// Native CDP input can hit the previous compositor layout immediately after
+// navigation or viewport emulation, even when DOM geometry already changed.
+func (c *e2eCDPClient) waitForPaint(ctx context.Context) error {
+	return c.call(ctx, "Runtime.evaluate", map[string]any{"expression": `new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve('painted'))))`, "awaitPromise": true, "returnByValue": true}, nil)
 }
 
 func (c *e2eCDPClient) evaluate(ctx context.Context, expression string) (string, error) {

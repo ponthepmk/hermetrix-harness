@@ -1,8 +1,278 @@
 {
   "version": 1,
-  "updated": "2026-10-13",
+  "updated": "2026-10-23",
   "docs_root": "docs/",
   "files": [
+    {
+      "path": "internal/product/browser_profile.go",
+      "role": "module",
+      "summary": "Generated Chrome profile scope/identity checks, bounded transient cleanup retries and retained-error logging."
+    },
+    {
+      "path": "internal/product/browser_profile_windows.go",
+      "role": "module",
+      "summary": "Windows access-denied/sharing-violation classification for Chrome teardown."
+    },
+    {
+      "path": "internal/product/browser_profile_other.go",
+      "role": "module",
+      "summary": "Non-Windows Chrome cleanup error behavior without filesystem retry."
+    },
+    {
+      "path": "internal/product/browser_profile_test.go",
+      "role": "test",
+      "summary": "Actual Chrome profile disappearance after Close and preservation of root/user/outside/nested data."
+    },
+    {
+      "path": "internal/product/browser_profile_windows_test.go",
+      "role": "test",
+      "summary": "Actual Windows file lock reproduction and cleanup after handle release."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-browser-profile-cleanup.md",
+      "role": "feature",
+      "summary": "Transient Crashpad profile cleanup reproduction, scoped production fix, actual OS/browser evidence and platform boundaries."
+    },
+    {
+      "path": "internal/agent/store_fixture_test.go",
+      "role": "test",
+      "summary": "Pristine migrated image per test process with independent real stores/principals, cold-schema isolation checks and bootstrap benchmark."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-agent-verification-bootstrap.md",
+      "role": "feature",
+      "summary": "Agent race timeout diagnosis, both fixture call paths, isolation/migration coverage, measured bootstrap and package outcomes."
+    },
+    {
+      "path": "internal/taskengine/goal_commit_test.go",
+      "role": "test",
+      "summary": "Real SQLite forced-order regressions for atomic Goal evidence/Stop/requirement commits and released claims."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-atomic-completion.md",
+      "role": "feature",
+      "summary": "False metadata completion and stranded claim reproductions, transaction fix, actual receipt binding and fixture CPU profile."
+    },
+    {
+      "path": "internal/product/snapshot_guard.go",
+      "role": "feature",
+      "summary": "Canonical-root and known-output snapshot capture/guards for short evidence commits."
+    },
+    {
+      "path": "internal/product/snapshot_guard_test.go",
+      "role": "test",
+      "summary": "Snapshot guards exclude single/batch writes and root updates, retain absence and reject newer bytes."
+    },
+    {
+      "path": "internal/taskcoord/review_snapshot.go",
+      "role": "feature",
+      "summary": "Final Goal source snapshot fence independent of separate Task review completion."
+    },
+    {
+      "path": "internal/taskcoord/review_snapshot_test.go",
+      "role": "test",
+      "summary": "Real Node and barrier regressions for source/root/other-output drift during verification/review and final Goal completion."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-snapshot-fence.md",
+      "role": "feature",
+      "summary": "Stale completion and concurrent Stop reproductions, source fixes, real process acceptance, full-race failures and dependency limits."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-browser-qualification.md",
+      "role": "feature",
+      "summary": "Reproduced mobile plan-review layout race, frame synchronization, native input/cancel authority, screenshots and whole-suite qualification."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-repository-context.md",
+      "role": "feature",
+      "summary": "Repository discovery reproduction, 4096-source timing/allocation receipts, actual coding acceptance and scale limits."
+    },
+    {
+      "path": "docs/decisions/ADR-003-task-source-discovery.md",
+      "role": "feature",
+      "summary": "Decision to use fresh ranked metadata and bounded hashes rather than an unqualified stale source cache/index."
+    },
+    {
+      "path": "internal/taskcoord/repository_context_test.go",
+      "role": "test",
+      "summary": "Actual 2200-long-path Node coding lifecycle through provider preflight, partial context receipts and mandatory pin retention."
+    },
+    {
+      "path": "internal/taskcoord/repository_context.go",
+      "role": "module",
+      "summary": "Linear provider-preset/body fitting before source hashing; ranked planner/selector context and artifact receipts."
+    },
+    {
+      "path": "internal/product/manifest_scale_test.go",
+      "role": "test",
+      "summary": "Late-source reproduction, filtered/ranked discovery, fresh changes, read-growth bounds and preserved legacy/ranked filesystem benchmarks."
+    },
+    {
+      "path": "internal/product/task_manifest.go",
+      "role": "module",
+      "summary": "Fresh task-ranked path discovery with exact writable pins, bounded heap/stat work and canonical-root batch hash budgets."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-async-verification.md",
+      "role": "feature",
+      "summary": "Schema78 async verification receipts, actual over-120-second Node proof, no replay, source/runtime boundary and remaining live acceptance."
+    },
+    {
+      "path": "internal/product/verification_command_test.go",
+      "role": "test",
+      "summary": "Atomic two-slot durable command publication, long check authorization and unchanged interactive timeout."
+    },
+    {
+      "path": "internal/taskcoord/goal_verification_test.go",
+      "role": "test",
+      "summary": "Real Node long-run, polling, lost acknowledgement, bounded queue, cancellation, migration and reopen acceptance."
+    },
+    {
+      "path": "internal/taskcoord/goal_verification.go",
+      "role": "module",
+      "summary": "Async goal checks reuse exact managed jobs, release workers, bound concurrency, preserve budgets and cancel owned processes."
+    },
+    {
+      "path": "internal/taskengine/goal_verification.go",
+      "role": "module",
+      "summary": "Owner/action-claim guarded verification checkpoints, effect scope and free poll scheduling."
+    },
+    {
+      "path": "internal/store/goal_verification.go",
+      "role": "module",
+      "summary": "Schema78 durable goal verification checkpoints and poll schedule."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-file-creation.md",
+      "role": "feature",
+      "summary": "New source creation and canonical-root evidence; retained rollback quarantine, tests and pending real model/EA acceptance."
+    },
+    {
+      "path": "internal/taskcoord/create_goal_test.go",
+      "role": "test",
+      "summary": "Real Node create/fail/rollback/replan/completion workflow, stale owner writes and changed-root effect rejection."
+    },
+    {
+      "path": "internal/worker/create_test.go",
+      "role": "test",
+      "summary": "Explicit absent-file proposal validation, full-content creation, existing-empty distinction and scope checks."
+    },
+    {
+      "path": "internal/product/create_snapshot_test.go",
+      "role": "test",
+      "summary": "Real absent-file publication/concurrency, multi-file receipt failure, quarantine recovery and redirected-root rejection."
+    },
+    {
+      "path": "internal/product/root_guard.go",
+      "role": "module",
+      "summary": "Canonical project root identities and per-project mutation guards; captured-root binding for file and command effects."
+    },
+    {
+      "path": "internal/product/restore_absence.go",
+      "role": "module",
+      "summary": "Exact created-file rollback into retained quarantine; operation receipts and verified absence recovery."
+    },
+    {
+      "path": "internal/product/create_snapshot.go",
+      "role": "module",
+      "summary": "Bounded source manifest and exact absent-leaf snapshots; canonical-root binding, existing parent and secret filters."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-runner.md",
+      "role": "feature",
+      "summary": "Goal runner receipts, full-suite caveats, isolated pilot, rejected activation and pending model/EA acceptance."
+    },
+    {
+      "path": "internal/taskcoord/review_failure.go",
+      "role": "module",
+      "summary": "Observed reviewer rejections bind to active requirements and artifact hashes; bounded findings feed correction and replanning."
+    },
+    {
+      "path": "internal/taskengine/review_failure.go",
+      "role": "module",
+      "summary": "Observed reviewer rejections bind to active requirements and artifact hashes; bounded findings feed correction and replanning."
+    },
+    {
+      "path": "docs/reviews/2026-10-13-research-handoff.md",
+      "role": "feature",
+      "summary": "Preserved prior research/runtime handoff; historical policy and deployment boundaries."
+    },
+    {
+      "path": "docs/redesign/2026-10-23-goal-execution-plan.md",
+      "role": "feature",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "docs/GOAL-RUNNER.md",
+      "role": "feature",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "scripts/mt5/README.md",
+      "role": "feature",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/mt5/cli.mjs",
+      "role": "module",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/mt5/runner.test.mjs",
+      "role": "test",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/mt5/runner.mjs",
+      "role": "module",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "cmd/hermetrix-goal/main_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "cmd/hermetrix-goal/main.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/web/goals_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/web/goals.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/store/goal_runs.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/taskcoord/goal_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/taskcoord/goal.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/taskengine/goal_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/taskengine/goal.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
     {
       "path": "scripts/video-research/SETUP.md",
       "role": "feature",
@@ -1131,7 +1401,7 @@
     {
       "path": "internal/web/ui_browser_e2e_test.go",
       "role": "test",
-      "summary": "Real Chrome goal/planning/IDE/terminal/keyboard and responsive navigation regressions."
+      "summary": "Real Chrome goal/planning/IDE/terminal/navigation checks, synchronized viewport input, pending-plan cancellation and failure-only screenshot diagnostics."
     },
     {
       "path": "internal/web/video_test.go",

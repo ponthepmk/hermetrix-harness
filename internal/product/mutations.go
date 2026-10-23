@@ -92,11 +92,23 @@ func (s *Service) RecoverFileMutations(ctx context.Context) (int64, error) {
 		}
 		switch current {
 		case item.afterSHA:
-			artifact, _, findErr := s.FindArtifactByOperationID(ctx, item.operationID)
+			artifact, body, findErr := s.FindArtifactByOperationID(ctx, item.operationID)
 			if findErr != nil && !errors.Is(findErr, sql.ErrNoRows) {
 				return recovered, findErr
 			}
+			if findErr == nil && item.afterSHA == "absent" && !verifiedAbsenceReceipt(root, item.projectID, item.path, item.beforeSHA, item.operationID, artifact, body) {
+				if err = s.transitionFileMutation(ctx, item.operationID, mutationDispatched, mutationUncertain, "", "absence receipt or retained quarantine failed verification"); err != nil {
+					return recovered, err
+				}
+				continue
+			}
 			if errors.Is(findErr, sql.ErrNoRows) {
+				if item.afterSHA == "absent" {
+					if err = s.transitionFileMutation(ctx, item.operationID, mutationDispatched, mutationUncertain, "", "absence rollback has no verified quarantine receipt; inspect retained file"); err != nil {
+						return recovered, err
+					}
+					continue
+				}
 				body, _ := json.Marshal(map[string]any{"operation_id": item.operationID, "path": item.path,
 					"before_sha256": item.beforeSHA, "after_sha256": item.afterSHA, "recovered": true})
 				artifact, findErr = s.CreateArtifact(ctx, ArtifactInput{ProjectID: item.projectID,

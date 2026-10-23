@@ -583,11 +583,11 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 		"--disable-default-apps", "--disable-sync", "--metrics-recording-only", "about:blank")
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		_ = os.RemoveAll(profile)
+		s.cleanupBrowserProfile(profile)
 		return nil, err
 	}
 	if err := command.Start(); err != nil {
-		_ = os.RemoveAll(profile)
+		s.cleanupBrowserProfile(profile)
 		return nil, err
 	}
 	devToolsURL := make(chan string, 1)
@@ -629,7 +629,7 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 			debugURL = devToolsURLFromProfile(profile)
 		case processErr := <-processDone:
 			stderrText := <-stderrDone
-			_ = os.RemoveAll(profile)
+			s.cleanupBrowserProfile(profile)
 			if stderrText != "" {
 				return nil, fmt.Errorf("Chrome exited before DevTools became ready: %v: %s", processErr, stderrText)
 			}
@@ -637,12 +637,12 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 		case <-ctx.Done():
 			_ = command.Process.Kill()
 			<-processDone
-			_ = os.RemoveAll(profile)
+			s.cleanupBrowserProfile(profile)
 			return nil, ctx.Err()
 		case <-timeout.C:
 			_ = command.Process.Kill()
 			<-processDone
-			_ = os.RemoveAll(profile)
+			s.cleanupBrowserProfile(profile)
 			return nil, fmt.Errorf("Chrome DevTools did not become ready within 10 seconds")
 		}
 	}
@@ -657,7 +657,7 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 	s.mu.Unlock()
 	_ = command.Process.Kill()
 	<-processDone
-	_ = os.RemoveAll(profile)
+	s.cleanupBrowserProfile(profile)
 	return existing, nil
 }
 
@@ -696,7 +696,7 @@ func (s *Service) closeBrowser() {
 		if browser.done != nil {
 			<-browser.done
 		}
-		_ = os.RemoveAll(browser.profile)
+		s.cleanupBrowserProfile(browser.profile)
 	}
 }
 

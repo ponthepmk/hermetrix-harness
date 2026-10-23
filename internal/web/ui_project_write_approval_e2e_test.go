@@ -109,6 +109,9 @@ func TestProjectAutomaticWritesInRealBrowser(t *testing.T) {
 		if err := client.call(ctx, "Emulation.setDeviceMetricsOverride", map[string]any{"width": width, "height": 900, "deviceScaleFactor": 1, "mobile": false}, nil); err != nil {
 			t.Fatal(err)
 		}
+		if err := client.waitForPaint(ctx); err != nil {
+			t.Fatal(err)
+		}
 		fit := eval(`(()=>{const b=document.querySelector('[data-assistant-auto-write]'),r=b.closest('label').getBoundingClientRect();return !b.disabled&&b.checked&&r.width>0&&r.right<=innerWidth&&r.bottom<=innerHeight&&document.documentElement.scrollWidth<=innerWidth?'fits':JSON.stringify({rect:r,disabled:b.disabled,viewport:innerWidth})})()`)
 		if fit != "fits" {
 			t.Fatalf("permission control at %d: %s", width, fit)

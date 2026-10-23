@@ -18,6 +18,12 @@ status are documented in [the research review](docs/reviews/2026-10-13-youtube-r
 
 The optional [self-improvement planning lab](docs/SELF-IMPROVEMENT.md) runs as a separate supervisor. It lets Hermetrix propose a checklist, compares paired planning outcomes, checks the original core before and after, and retains the current version unless measured gates pass. It never installs a candidate automatically.
 
+The [durable coding goal runner](docs/GOAL-RUNNER.md) connects planning, actual
+file edits, frozen-command checks, rollback and separate review through a
+server-owned bounded loop. It includes CLI/API control and an optional
+[MT5 compile/backtest adapter](scripts/mt5/README.md). Automated process/evidence
+checks pass; live model, real MT5 and installed-release qualification remain open.
+
 The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
 
 The name reflects the architecture: a **hermetic core** for bounded local authority plus a **matrix** of versioned skills, tools, context and model capabilities. Product-owned identity files and their usage contract live in [assets/brand](assets/brand/README.md).

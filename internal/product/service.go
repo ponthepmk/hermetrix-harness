@@ -212,6 +212,11 @@ func (s *Service) SaveProject(ctx context.Context, input ProjectInput) (Project,
 		_, err = s.store.DB.ExecContext(ctx, `INSERT INTO projects(id,name,root_path,state,created_at,updated_at,owner_principal_id)
 	  VALUES(?,?,?,'active',?,?,?)`, input.ID, input.Name, root, formatTime(now), formatTime(now), ownerID)
 	} else {
+		unlock, lockErr := s.guardProjectRoot(ctx, input.ID, "")
+		if lockErr != nil {
+			return Project{}, lockErr
+		}
+		defer unlock()
 		var changed sql.Result
 		changed, err = s.store.DB.ExecContext(ctx, `UPDATE projects SET name=?,root_path=?,updated_at=? WHERE id=? AND owner_principal_id=?`,
 			input.Name, root, formatTime(now), input.ID, ownerID)

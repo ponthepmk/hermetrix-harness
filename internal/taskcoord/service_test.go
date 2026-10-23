@@ -214,7 +214,7 @@ func TestAutoPlanUsesImmutablePresetWithinNative61440Context(t *testing.T) {
 	if err = json.Unmarshal([]byte(adapter.plannerRequest.Messages[1].Content), &plannerInput); err != nil {
 		t.Fatal(err)
 	}
-	if len(plannerInput.RepositoryFiles) != 2 || plannerInput.RepositoryFiles[0].Path != "go.mod" ||
+	if len(plannerInput.RepositoryFiles) != 2 || plannerInput.RepositoryFiles[0].Path != "sum.go" || plannerInput.RepositoryFiles[1].Path != "go.mod" ||
 		len(plannerInput.AllowedExecutables) == 0 {
 		t.Fatalf("planner repository context=%+v executables=%v", plannerInput.RepositoryFiles, plannerInput.AllowedExecutables)
 	}

@@ -42,3 +42,9 @@ tmp-mockup-data/
 /.hermetrix-pi-release.gitconfig
 /scripts/video-research/.research-jobs/
 /scripts/video-research/__pycache__/
+
+# Local goal pilot state, machine-specific test configuration and MT5 evidence.
+/.hermetrix-goal-pilot/
+.mt5-runs/
+mt5.local.json
+goal.local.json

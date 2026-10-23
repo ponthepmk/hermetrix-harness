@@ -24,7 +24,6 @@ import (
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
-	"hermetrix-harness/internal/store"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -1135,7 +1134,7 @@ func testAgentServiceAtRoot(t *testing.T, server *httptest.Server, workspaceRoot
 	t.Helper()
 	t.Setenv("HERMETRIX_RUNTIME_TEST_KEY", "runtime-secret")
 	ctx := context.Background()
-	dataStore, err := store.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	dataStore, err := openAgentFixtureStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1369,13 +1368,18 @@ func TestCumulativeTokenBudgetStopsTheTurn(t *testing.T) {
 // The wall-time case matters more than the others: a deadline that fires
 // without releasing the lease would strand the session in running forever.
 func TestWallTimeBudgetStopsTheTurnAndReleasesTheLease(t *testing.T) {
+	release := make(chan struct{})
 	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, r *http.Request) {
+		// Consume the request so net/http can observe client cancellation while
+		// the response is held. Test cleanup also owns an explicit release.
+		_, _ = io.Copy(io.Discard, r.Body)
 		select {
 		case <-r.Context().Done():
-		case <-time.After(10 * time.Second):
+		case <-release:
 		}
 	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 50, MaxWallTimeSeconds: 1, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
+	defer close(release)
 	started := time.Now()
 	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "hang"}, nil)
 	if err == nil {

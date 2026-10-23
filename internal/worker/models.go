@@ -18,6 +18,7 @@ type Task struct {
 	ProjectBrainRefs   []KnowledgeRef    `json:"project_brain_refs,omitempty"`
 	Files              map[string]string `json:"files"`
 	WritablePaths      []string          `json:"writable_paths,omitempty"`
+	AbsentFiles        []string          `json:"absent_files,omitempty"`
 	FailureEvidence    []FailureEvidence `json:"failure_evidence,omitempty"`
 	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
 }

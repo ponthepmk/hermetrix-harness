@@ -1,17 +1,82 @@
-# Next session — 2026-10-13
+# Next session - 2026-10-23
 
-State: YouTube speech/frame/web research source and installed models exist, but full live/natural-client completion is NOT achieved. Read reviews/2026-10-13-youtube-research.md. Whisper turbo CPU/int8/2threads/beam1 transcribed an actual public19s clip; Qwen3-VL4B read2actual frames and synthesized a structured Thai report with1read primary source. Latest guided owned-command flow passed143.54s, completed1command/exit0 and read/displayed the real report. Artifact scripts/video-research/.research-jobs/4cd3d17658be473481efda0cbdb2dde7/report.md. Actual390/1440Chrome report/images/pointer recovery checks pass; Python10tests pass.
+State: Broad user goal ACTIVE. This turn made concrete source/evidence progress:
+agent race bootstrap no longer exhausts the package deadline, and a real Chrome
+profile teardown defect is reproduced/fixed. Work began clean at11a6fd8; current
+work is uncommitted. No PR. No overall/live-acceptance completion claim.
 
-Natural Thai client run then started a real command, completed exit0 and read scripts/video-research/.research-jobs/bb8da708ab0a40ffade062c0af50e3af/report.md, but exhausted12model steps before answering. Source now has a correlated completion handoff and bounded retention of the complete small report as untrusted tool data. No hard/cumulative budgets or authority were widened. That final handoff repair still needs an actual natural-client retest; do not claim it passed. Source also rejects duplicated node executable in argv with actionable feedback before dispatch, preserving legitimate scripts named node. Full Agent48.960s, Context2.118s, Tools0.845s and vet pass after the new source. First Context test compile failed on a nonexistent Report.FinalTokens field; fixed to actual PredictedInput ledger. Failed raw evidence remains.
+Latest sources:
+- internal/agent/store_fixture_test.go: production migrations build a pristine
+  closed database image once per test process. Both agent service/skill fixtures
+  create independent roots/real stores/blob directories and distinct principals.
+  No shared live DB or test data. Cold-schema/seed equality, ownership, FK/WAL,
+  integrity, root lock and blob/data isolation verified. Production Open and all
+  actual migration tests remain unchanged. Mechanism sample under race,3ops:
+  cold4.802s vs image0.0876s,292005 vs20173 B/op. Fixture result only.
+  Full agent race52.981s:192 top-level pass/2 existing external skips. Store's
+  actual migration race73.474s:14 pass/1 existing optional skip. First partial
+  helper adoption was interrupted when JSON traced another cold path; both
+  helpers are now converted. See agent-verification-bootstrap review.
+- browser_profile.go + Windows/other variants: all7 generated-profile cleanup
+  paths use owned direct-child/identity checks, Windows access-denied/sharing
+  retry within2s, other errors immediate, persistent failures logged/retained.
+  Actual Chrome Close left CrashpadMetrics-active.pma despite exited root and
+  all4 captured children; exact first RemoveAll was access denied, immediate
+  second attempt succeeded. Permanent old-source regression failed0.42s.
+  Fixed actual Chrome startup/shutdown count3 passes (9cycles); real Windows
+  file lock release and scope/data preservation tests pass race21.236s.
+  No UI JS/CSS/input assertion/timeout changes. See browser-profile-cleanup review.
 
-Blockers: Original Bonsai PID32164 crashed,8088has no listener. Existing .tmp-ui/project-automation-20261013/bonsai-error.txt ends with bad allocation and GGML_ASSERT(batch.slot_batched || batch.size()==0), at15:12:55local. No agent-issued Bonsai stop. Current Qwen8089 PID53620 is healthy/idle but private memory grew ~6.3GB to13.6GB; actual binary cache-ram default is8192MiB. Shared memory pressure is plausible, not fully isolated. Prepared launcher disables extra RAM-cache/idle snapshots and refuses to reuse an unqualified vision configuration. An exact owned-idle Qwen53620 stop/restart-to-bound-cache proposal was rejected BEFORE execution with generic blocked by policy. Do not retry via another route, erase slots, or create replacements. No detailed policy class returned. A diagnostic question about whether the user closed Bonsai is pending; log confirms an allocation/assertion crash.
+Whole repository race with required Chrome AFTER fixture changes but BEFORE
+Chrome cleanup fix PASSES exit0: fixture-full-ci-race.jsonl. Agent95.375s,
+store105.798s, engine337.051s, coord459.011s, web505.885s, product564.138s.
+All packages pass/no tests with existing external-service skips. This closes
+that run's cumulative timeout; it does not erase old failures or prove all models.
+Final source race after Chrome fix is live in fixture-profile-final-ci-race.jsonl
+(exec session77343). At last read: agent96.47s/store106.60s/engine335.15s pass;
+coord/product/web still running, no test failure observed yet. Collect terminal
+result before calling current-source whole race green. Vet passes. Native
+Windows build and pure-Go Linux/Darwin builds/product vet pass. Initial CGO cross
+attempt inherited Windows GCC and failed on Linux headers; CGO_ENABLED=0 succeeds.
+Target binaries were not executed on Linux/Darwin.
 
-Runtime:18810 PID22292 original file-only binary/data unchanged.18812 PID91896 initial workflow/reasoning preview unchanged. Python18814 PID75232 initial old video service remains stale/format-failing; its restart was also rejected before execution. No MCP registration to it. New .tmp-ui/hermetrix-video-research-ready-20261013.exe is prepared,50,909,696bytes, SHA256 CEC37DC56901DC9AA91CCFB30DE5EE0B53EDBB39ED8CE69259D938754918D064; NOT deployed. Previous final core ACB2... remains historical. Prior original core/preview/model-stop/recovery/combined-game-grant denials remain binding; no alternative route was used.
+Prepared-only latest Windows server:
+.tmp-ui/goal-20261023/hermetrix-goal-with-browser-cleanup.exe,51,279,360 bytes,
+SHA256 49A7D5202F15391B4B1ADE6C16D00738CD5E6C3B631AAAAC65ED1F5C4C1E2BBA.
+Not executed or installed. Source schema78; last pilot read-only health schema77.
+Older prepared CLI/binaries remain. FILE_MAP312 paths indexes new sources/reviews.
 
-Next: Human-resolved restoration of Bonsai8088, bounded vision model activation, then rerun TestLiveHermetrixBonsaiVideoResearchOwnedWorkflow with HERMETRIX_VIDEO_SOURCE_ROOT pointing to scripts/video-research. It now uses a natural Thai client request and ordinary compact32k/verified thinking-off; temporary DB only, heavy95% history preserved diagnostically, no qualification override or automatic file grant. Verify one real terminal command, report read and clear final answer. Then activate prepared core and same-port research companion after the execution boundary is resolved. scripts/start-video-research.ps1 never stops existing services and refuses stale18814/unsafe existing vision settings. Do not treat source tests or ephemeral150sbrowser fixtures as deployment.
+Next: finish source qualification, then actual host/model/EA acceptance when
+inputs are available. An async text question asking host, MT4/MT5, EA and optional
+backtest criteria was issued again this turn; no answer yet. Do not send secrets.
+Responsive model-choice preservation remains an unproven intermittent issue:
+old whole normal run failed choice-preserved at1280x720, with chat expected at
+that stage (not navigation failure). Bounded test-only model event diagnostics
+are now present. Unchanged isolated3 runs and instrumented20 runs passed; full
+web diagnostic97.109s and pre-cleanup whole race also passed. No cause/repair
+claim for that issue. Doc-truth's existing ignored Exec errors remain open.
 
-Note: Installed verified model files/manifest are D:/llm-server/Hermetrix-research/models; isolated packages .tmp-ui/youtube-research-20261013/python-packages; bundled Python is required, default Anaconda is broken. PyAV16.0.1 is pinned because19failed audio decode. Actual ASR misheard fronts/trunks; raw audio transcript/manual captions/differences retained. Whole bracketed caption sound cues are excluded from human speech evidence. Dates cannot silently become filming dates; one bounded repair uses date-free actual passages and rejects Unicode numerals. CLI emits sparse progress and terminal path, not full report twice; controller displays the report directly to avoid another hallucinated paraphrase. Source and failed receipts/screenshots/logs are in .tmp-ui/youtube-research-20261013. README is a short operator guide; SETUP.md holds detail.
+Earlier source scope remains: durable API/CLI coding goals, schema77/78 intents/
+claims/cumulative budgets/Stop/recovery, rollback/replan/reviewer feedback,
+explicit source creation with absence/quarantine receipts, frozen roots, async
+checks (actual121s process), ranked bounded fresh repository context, MT5 adapterv2.
+Atomic Goal completion now reads Task/requirement/Stop and current DB gates in the
+same transaction; failed gates wait/release claim, completed receipts bind actual
+subject hash/revisions. Source guards bind known writable outputs/root across
+verification/review/final receipt. They do not freeze arbitrary dependencies or
+prevent future owner edits. See GOAL-RUNNER.md, goal execution plan and prior
+review documents. Directory/delete contracts, huge flat-directory memory/load,
+semantic indexing and unspecified scale targets remain open; no Goal UI controls.
+Sticky brief section navigation over scroll anchors also remains unaddressed.
 
-Core caveat: Actual b10743 ignored per-request reasoning-budget fields, while enable_thinking=false worked. Earlier wire/admission tests do not prove a hard bounded cap. Disabled source mode is the actual verified path; bounded enforcement still needs a separate adapter follow-up.
-
-Original3Dgame remains INCOMPLETE; no playable game acceptance. Self-improvement lab remains paused. No Project Brain call/edit, original credential migration, real Discord message send, user Task acceptance, commit, PR, new Codex thread or automation. Preserve pre-existing dirty work. Earlier handoff copied to .tmp-ui/youtube-research-20261013/NEXT_SESSION-before-research.md; historical reviews retain prior delivery/UI/workflow milestones.
+Live blockers: no selected reachable model/actual EA/history/thresholds/remote
+host. No ready model at last inspected8088/8089 or standard MT5 installation.
+Never infer credentials/host or change selected inference route to bypass a denial.
+Runtime boundary: first-turn identity-checked idle pilot stop/replacement at18816
+(PID203556) was rejected BEFORE execution by automatic approval review: blocked
+by policy, no detailed class. Do not retry through another port/process/route.
+Last pilot is .tmp-ui/goal-20261023/hermetrix-goal.exe with pilot-data, predating
+reviewer feedback, creation, async/context changes; provider/Task lists were empty.
+Original runtime/model denials remain in 2026-10-13-research-handoff.md. This turn
+only ran tests/builds and never attempted activation. Overall goal remains active
+until real requested outcomes and required owner acceptance are verified.

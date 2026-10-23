@@ -12,6 +12,7 @@ run:
 test:
 	go test ./...
 	node --test internal/web/ui/runtime.test.js
+	node --test scripts/mt5/runner.test.mjs
 	node --check internal/web/ui/app.js
 	./scripts/doc-truth.sh check
 

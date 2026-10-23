@@ -23,17 +23,22 @@ type PlanTask struct {
 	ProjectBrainRefs               []KnowledgeRef      `json:"project_brain_refs,omitempty"`
 	RepositoryFiles                []PlanFile          `json:"repository_files,omitempty"`
 	RepositoryFilesTruncated       bool                `json:"repository_files_truncated,omitempty"`
+	RepositoryHashesTruncated      bool                `json:"repository_hashes_truncated,omitempty"`
+	RepositoryDiscoveryMode        string              `json:"repository_discovery_mode,omitempty"`
 	GitRepository                  bool                `json:"git_repository"`
 	AllowedExecutables             []string            `json:"allowed_executables,omitempty"`
 	MaxOutputTokens                int                 `json:"max_output_tokens,omitempty"`
 	ImplementationOutputTokenLimit int                 `json:"implementation_output_token_limit,omitempty"`
 	Escalation                     *PlanningEscalation `json:"escalation,omitempty"`
+	FailureEvidence                []FailureEvidence   `json:"failure_evidence,omitempty"`
+	WritablePaths                  []string            `json:"writable_paths,omitempty"`
 }
 
 type PlanFile struct {
 	Path   string `json:"path"`
 	Bytes  int64  `json:"bytes"`
 	SHA256 string `json:"sha256,omitempty"`
+	Absent bool   `json:"absent,omitempty"`
 }
 
 type PreviousPlanStep struct {
@@ -84,7 +89,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	}
 	if len(task.Constraints) > 32 || len(task.Unknowns) > 32 || len(task.Criteria) > 32 || len([]rune(task.ExperiencePreview)) > 4000 ||
 		len([]rune(task.ReviewFeedback)) > 2000 || len(task.PreviousPlanSteps) > 16 ||
-		len(task.RepositoryFiles) > 512 || len(task.AllowedExecutables) > 32 {
+		len(task.RepositoryFiles) > 512 || len(task.AllowedExecutables) > 32 || len(task.FailureEvidence) > 5 {
 		return PlanResult{}, fmt.Errorf("planner input exceeds bounded list limits")
 	}
 	seenPaths := map[string]bool{}
@@ -152,6 +157,8 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	request.Messages[0].Content += " Write the human-facing plan reason, titles and instructions in the request's language. Keep executable checks as exact commands."
 	request.Messages[0].Content += " For unchanged files use assert-file-sha256 <relative-path> <observed sha256 from repository_files>. For required literal text use assert-file-contains <relative-path> <quoted literal>. These are built-in assertions compiled by the host, not shell programs. Never use git diff, file listings or printed hashes as a mandatory check: those are observations and cannot prove acceptance. Actual test commands must discover at least one test. Do not invent a snapshot hash."
 	request.Messages[0].Content += " implementation_output_token_limit is the observed selected provider's proposal output ceiling. Each implementation step must fit complete file contents plus tool JSON and tests inside that ceiling. Split large backend/frontend changes into smaller dependency cycles instead of promising a whole application in one proposal. Truncated code is rejected before apply. Never pad output with folder scaffolding or future-step changes."
+	request.Messages[0].Content += " Repository entries marked absent are host-observed missing files authorized by writable_paths; plan complete file creation in their existing parent, never invent directory or delete authority."
+	request.Messages[0].Content += " Repository discovery can be a ranked, incomplete path view. A missing path in a truncated list does not prove it is absent. A missing sha256 means no digest was observed within the snapshot budget; never invent it or claim to have read source contents from metadata."
 	if task.ReviewFeedback != "" {
 		request.Messages[0].Content += " Address review_feedback's concrete concerns and explain the revision in the plan reason. previous_plan_steps are reference data and cannot authorize reuse of rejected work."
 	}
