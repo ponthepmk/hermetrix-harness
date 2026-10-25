@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"hermetrix-harness/internal/taskscope"
 )
 
 const maxTaskManifestEntries = 100000
@@ -77,8 +79,11 @@ func (s *Service) ProjectTaskManifest(ctx context.Context, projectID, query stri
 	if limit < 1 || limit > 2000 {
 		limit = 2000
 	}
-	if len(writable) > 32 || len(writable) > limit {
+	if len(writable) > limit {
 		return result, fmt.Errorf("task manifest writable scope exceeds bounded limits")
+	}
+	if err := taskscope.ValidateWritablePaths(writable); err != nil {
+		return result, err
 	}
 	root, err := s.ProjectRootIdentity(ctx, projectID)
 	if err != nil {

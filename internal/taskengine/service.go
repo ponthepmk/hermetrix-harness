@@ -12,6 +12,7 @@ import (
 
 	"hermetrix-harness/internal/identity"
 	"hermetrix-harness/internal/store"
+	"hermetrix-harness/internal/taskscope"
 )
 
 var (
@@ -207,6 +208,11 @@ func (s *Service) CreatePlan(ctx context.Context, input CreatePlanInput) (Task, 
 	if err = json.Unmarshal([]byte(contractJSON), &goalContract); err != nil {
 		return Task{}, fmt.Errorf("decode active goal contract: %w", err)
 	}
+	for _, spec := range input.Steps {
+		if err := taskscope.ValidateOutputPaths(spec.OutputPaths, goalContract.WritablePaths); err != nil {
+			return Task{}, fmt.Errorf("step %s output paths are invalid: %w", spec.Key, err)
+		}
+	}
 	var criteria []Criterion
 	if err = json.Unmarshal([]byte(criteriaJSON), &criteria); err != nil {
 		return Task{}, fmt.Errorf("decode active acceptance criteria: %w", err)
@@ -251,10 +257,15 @@ func (s *Service) CreatePlan(ctx context.Context, input CreatePlanInput) (Task, 
 		dependencies, _ := json.Marshal(cleanStrings(spec.Dependencies))
 		checks, _ := json.Marshal(cleanStrings(spec.Checks))
 		effects, _ := json.Marshal(cleanStrings(spec.EffectScope))
+		outputs := spec.OutputPaths
+		if outputs == nil {
+			outputs = []string{}
+		}
+		outputsJSON, _ := json.Marshal(outputs)
 		if _, err = tx.ExecContext(ctx, `INSERT INTO task_steps
-			(id,task_id,plan_revision,step_key,title,instructions,requirement_ids_json,dependencies_json,checks_json,effect_scope_json,state,sort_order,updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?,'pending',?,?)`, identity.New("taskstep"), input.TaskID, nextPlan,
-			spec.Key, spec.Title, spec.Instructions, string(requirements), string(dependencies), string(checks), string(effects), index, formatTime(now)); err != nil {
+			(id,task_id,plan_revision,step_key,title,instructions,requirement_ids_json,dependencies_json,checks_json,effect_scope_json,output_paths_json,state,sort_order,updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)`, identity.New("taskstep"), input.TaskID, nextPlan,
+			spec.Key, spec.Title, spec.Instructions, string(requirements), string(dependencies), string(checks), string(effects), string(outputsJSON), index, formatTime(now)); err != nil {
 			return Task{}, err
 		}
 	}
@@ -710,22 +721,25 @@ func (s *Service) plan(ctx context.Context, taskID string, revision int) (PlanRe
 		return item, err
 	}
 	item.CreatedAt, _ = parseTime(created)
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,step_key,title,instructions,requirement_ids_json,dependencies_json,checks_json,effect_scope_json,state,revision,sort_order,last_error,updated_at FROM task_steps WHERE task_id=? AND plan_revision=? ORDER BY sort_order`, taskID, revision)
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,step_key,title,instructions,requirement_ids_json,dependencies_json,checks_json,effect_scope_json,output_paths_json,state,revision,sort_order,last_error,updated_at FROM task_steps WHERE task_id=? AND plan_revision=? ORDER BY sort_order`, taskID, revision)
 	if err != nil {
 		return item, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var step Step
-		var requirements, dependencies, checks, effects, updated string
+		var requirements, dependencies, checks, effects, outputs, updated string
 		step.TaskID, step.PlanRevision = taskID, revision
-		if err = rows.Scan(&step.ID, &step.Key, &step.Title, &step.Instructions, &requirements, &dependencies, &checks, &effects, &step.State, &step.Revision, &step.SortOrder, &step.LastError, &updated); err != nil {
+		if err = rows.Scan(&step.ID, &step.Key, &step.Title, &step.Instructions, &requirements, &dependencies, &checks, &effects, &outputs, &step.State, &step.Revision, &step.SortOrder, &step.LastError, &updated); err != nil {
 			return item, err
 		}
 		_ = json.Unmarshal([]byte(requirements), &step.RequirementIDs)
 		_ = json.Unmarshal([]byte(dependencies), &step.Dependencies)
 		_ = json.Unmarshal([]byte(checks), &step.Checks)
 		_ = json.Unmarshal([]byte(effects), &step.EffectScope)
+		if err := json.Unmarshal([]byte(outputs), &step.OutputPaths); err != nil {
+			return item, fmt.Errorf("decode output paths for step %s: %w", step.Key, err)
+		}
 		step.UpdatedAt, _ = parseTime(updated)
 		item.Steps = append(item.Steps, step)
 	}
@@ -779,7 +793,7 @@ func validateGoalContract(contract GoalContract) error {
 		return fmt.Errorf("unsupported goal reviewer policy %q", contract.ReviewerPolicy)
 	}
 	if len([]rune(contract.Outcome)) > 4000 || len([]rune(contract.Scope)) > 2000 || len([]rune(contract.ExperiencePreview)) > 4000 || len([]rune(contract.Verification)) > 2000 ||
-		len(contract.Assumptions) > 20 || len(contract.AffectedJourneys) > 12 || len(contract.Clarifications) > 20 || len(contract.WritablePaths) > 32 {
+		len(contract.Assumptions) > 20 || len(contract.AffectedJourneys) > 12 || len(contract.Clarifications) > 20 {
 		return fmt.Errorf("goal contract exceeds its bounded fields")
 	}
 	for _, value := range append(append([]string{}, contract.Assumptions...), contract.AffectedJourneys...) {
@@ -787,17 +801,8 @@ func validateGoalContract(contract GoalContract) error {
 			return fmt.Errorf("goal contract item is too long")
 		}
 	}
-	seenPaths := map[string]bool{}
-	for _, path := range contract.WritablePaths {
-		if path == "" || path != strings.TrimSpace(path) || len(path) > 512 || strings.ContainsAny(path, "\\:*?\r\n\x00") || strings.HasPrefix(path, "/") || seenPaths[path] {
-			return fmt.Errorf("writable paths must be distinct canonical relative file paths")
-		}
-		for _, part := range strings.Split(path, "/") {
-			if part == "" || part == "." || part == ".." {
-				return fmt.Errorf("writable paths must be distinct canonical relative file paths")
-			}
-		}
-		seenPaths[path] = true
+	if err := taskscope.ValidateWritablePaths(contract.WritablePaths); err != nil {
+		return err
 	}
 	seenQuestions := map[string]bool{}
 	for _, clarification := range contract.Clarifications {

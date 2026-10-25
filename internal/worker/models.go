@@ -21,6 +21,11 @@ type Task struct {
 	AbsentFiles        []string          `json:"absent_files,omitempty"`
 	FailureEvidence    []FailureEvidence `json:"failure_evidence,omitempty"`
 	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
+	// ProposalFormat is caller-owned output-format authority. Blank retains
+	// legacy auto behavior. "edits_only" restricts output to exact-match text
+	// edits and cannot create absent files. "content_only" restricts output to
+	// full file-content replacements.
+	ProposalFormat string `json:"proposal_format,omitempty"`
 }
 
 // FailureEvidence is saved, historical diagnostic data, never current proof

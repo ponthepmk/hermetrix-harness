@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"hermetrix-harness/internal/providers"
+	"hermetrix-harness/internal/taskscope"
 )
 
 type PlanTask struct {
@@ -66,6 +67,7 @@ type PlannedStep struct {
 	Dependencies    []string `json:"dependencies"`
 	Checks          []string `json:"checks"`
 	EffectScope     []string `json:"effect_scope"`
+	OutputPaths     []string `json:"output_paths,omitempty"`
 }
 
 type PlanResult struct {
@@ -120,6 +122,9 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	if task.MaxOutputTokens <= 0 || task.MaxOutputTokens > 8192 {
 		task.MaxOutputTokens = 8192
 	}
+	if err := taskscope.ValidateWritablePaths(task.WritablePaths); err != nil {
+		return PlanResult{}, fmt.Errorf("planner writable scope is invalid: %w", err)
+	}
 	body, err := json.Marshal(task)
 	if err != nil || len(body) > 64*1024 {
 		return PlanResult{}, fmt.Errorf("planner input exceeds 64 KiB")
@@ -139,6 +144,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 			"dependencies":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"checks":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"effect_scope":     map[string]any{"type": "array", "minItems": len(requiredStepEffects), "maxItems": len(requiredStepEffects), "uniqueItems": true, "items": effectSchema},
+			"output_paths":     map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": map[string]any{"type": "string"}},
 		},
 	}
 	planSchema := map[string]any{
@@ -159,6 +165,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	request.Messages[0].Content += " implementation_output_token_limit is the observed selected provider's proposal output ceiling. Each implementation step must fit complete file contents plus tool JSON and tests inside that ceiling. Split large backend/frontend changes into smaller dependency cycles instead of promising a whole application in one proposal. Truncated code is rejected before apply. Never pad output with folder scaffolding or future-step changes."
 	request.Messages[0].Content += " Repository entries marked absent are host-observed missing files authorized by writable_paths; plan complete file creation in their existing parent, never invent directory or delete authority."
 	request.Messages[0].Content += " Repository discovery can be a ranked, incomplete path view. A missing path in a truncated list does not prove it is absent. A missing sha256 means no digest was observed within the snapshot budget; never invent it or claim to have read source contents from metadata."
+	request.Messages[0].Content += " output_paths are the exact authorized per-step file outputs; they are mandatory when the global writable scope exceeds 32 entries, limited to 32 per step, and must be a subset of writable_paths. Never derive write authority from workspace_change prose."
 	if task.ReviewFeedback != "" {
 		request.Messages[0].Content += " Address review_feedback's concrete concerns and explain the revision in the plan reason. previous_plan_steps are reference data and cannot authorize reuse of rejected work."
 	}
@@ -181,7 +188,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	case len(completion.ToolCalls) == 0 && strings.TrimSpace(completion.Content) != "":
 		raw = completion.Content
 	default:
-		return PlanResult{}, fmt.Errorf("expected one complete submit_plan call")
+		return PlanResult{}, fmt.Errorf("expected one complete submit_plan call (tool_calls=%d, content_present=%t, sole_name_matches=%t, reasoning_present=%t)", len(completion.ToolCalls), strings.TrimSpace(completion.Content) != "", len(completion.ToolCalls) == 1 && completion.ToolCalls[0].Name == "submit_plan", strings.TrimSpace(completion.Reasoning) != "")
 	}
 	result := PlanResult{Usage: completion.Usage}
 	decoder := json.NewDecoder(strings.NewReader(raw))
@@ -213,6 +220,9 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 			return PlanResult{}, fmt.Errorf("planner step %q has no concrete workspace change", step.Key)
 		}
 		seen[step.Key] = true
+		if err := taskscope.ValidateOutputPaths(step.OutputPaths, task.WritablePaths); err != nil {
+			return PlanResult{}, fmt.Errorf("planner step %q output scope is invalid: %w", step.Key, err)
+		}
 		stepCriteria := map[string]bool{}
 		for _, criterionID := range step.RequirementIDs {
 			criterionID = strings.TrimSpace(criterionID)

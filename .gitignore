@@ -48,3 +48,20 @@ tmp-mockup-data/
 .mt5-runs/
 mt5.local.json
 goal.local.json
+
+# Local jobs produced by Hermetrix. Keep the harness source and its regression
+# tests versioned; the marketplace job, runtime entrypoint, and job-specific
+# supervision documents stay on this machine.
+/examples/marketplace/
+/examples/marketplace-mockup/
+/compose.yaml
+/docs/specs/*-marketplace-*.md
+/docs/specs/*-autonomous-marketplace-program.md
+/docs/specs/*-seller-*.md
+/docs/specs/2026-10-25-identity-browser-recovery.md
+/docs/specs/2026-10-25-identity-email-compatibility.md
+/docs/reviews/*-marketplace-*.md
+/docs/reviews/2026-10-24-compose-local-development.md
+/docs/reviews/2026-10-25-identity-browser-qualification.md
+/docs/reviews/2026-10-25-shop-onboarding-backend.md
+/docs/handoffs/*-autonomous-marketplace-resume.md

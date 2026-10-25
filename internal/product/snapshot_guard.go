@@ -16,8 +16,8 @@ type ProjectSnapshot struct {
 }
 
 func (s *Service) lockSnapshotPaths(ctx context.Context, projectID, expectedRoot string, paths []string) (string, func(), error) {
-	if len(paths) > 64 {
-		return "", nil, fmt.Errorf("snapshot exceeds 64 source paths")
+	if len(paths) > 512 {
+		return "", nil, fmt.Errorf("snapshot exceeds 512 source paths")
 	}
 	rootUnlock, err := s.guardProjectRoot(ctx, projectID, expectedRoot)
 	if err != nil {

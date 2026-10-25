@@ -69,6 +69,7 @@ type RequirementRevision struct {
 }
 
 type StepSpec struct {
+	OutputPaths    []string `json:"output_paths,omitempty"`
 	Key            string   `json:"key"`
 	Title          string   `json:"title"`
 	Instructions   string   `json:"instructions"`

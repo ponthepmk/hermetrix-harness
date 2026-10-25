@@ -21,6 +21,7 @@ import (
 	"hermetrix-harness/internal/product"
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/taskengine"
+	"hermetrix-harness/internal/taskscope"
 	"hermetrix-harness/internal/worker"
 )
 
@@ -334,7 +335,7 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		// of the frozen step packet; it cannot be lost between planning and execution.
 		instructions := "Workspace change: " + strings.TrimSpace(step.WorkspaceChange) + "\n\n" + strings.TrimSpace(step.Instructions)
 		steps = append(steps, taskengine.StepSpec{Key: step.Key, Title: step.Title, Instructions: instructions,
-			RequirementIDs: step.RequirementIDs, Dependencies: step.Dependencies, Checks: step.Checks, EffectScope: step.EffectScope})
+			RequirementIDs: step.RequirementIDs, Dependencies: step.Dependencies, Checks: step.Checks, EffectScope: step.EffectScope, OutputPaths: step.OutputPaths})
 	}
 	task, err = s.tasks.CreatePlan(ctx, taskengine.CreatePlanInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision,
 		RequirementRevision: task.ActiveRequirementRevision, Reason: result.Reason, Actor: input.Actor, Steps: steps})
@@ -371,6 +372,10 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	if packet.ProjectID == "" || packet.CanonicalPacketHash != attempt.InputHash {
 		return SelectFilesOutput{}, fmt.Errorf("attempt packet is not bound to a project or its input hash")
 	}
+	effectiveWritable, err := taskscope.EffectiveWritablePaths(packet.Step.OutputPaths, packet.Requirement.Contract.WritablePaths)
+	if err != nil {
+		return SelectFilesOutput{}, err
+	}
 	effects, err := s.tasks.AttemptEffects(ctx, attempt.ID)
 	if err != nil {
 		return SelectFilesOutput{}, err
@@ -391,6 +396,21 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 			decoder.DisallowUnknownFields()
 			if loadErr = decoder.Decode(&result); loadErr != nil || decoder.Decode(new(any)) != io.EOF || len(result.Files) == 0 {
 				return SelectFilesOutput{Artifact: artifact, Effect: effect}, fmt.Errorf("persisted file selection is invalid")
+			}
+			if len(packet.Step.OutputPaths) > 0 {
+				_, mergeErr := mergeStepOutputFiles(packet.Step.OutputPaths, result.Files, nil)
+				if mergeErr != nil {
+					return SelectFilesOutput{Artifact: artifact, Effect: effect}, fmt.Errorf("cached file selection is invalid for explicit step outputs: %w; inspect or replan rather than replaying the provider call", mergeErr)
+				}
+				originalSet := make(map[string]struct{}, len(result.Files))
+				for _, p := range result.Files {
+					originalSet[p] = struct{}{}
+				}
+				for _, p := range packet.Step.OutputPaths {
+					if _, ok := originalSet[p]; !ok {
+						return SelectFilesOutput{Artifact: artifact, Effect: effect}, fmt.Errorf("cached file selection is missing required output %q; inspect or replan rather than replaying the provider call", p)
+					}
+				}
 			}
 			return SelectFilesOutput{Result: result, Artifact: artifact, Effect: effect}, nil
 		}
@@ -415,8 +435,11 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 		return SelectFilesOutput{}, err
 	}
 	selectionInput := worker.FileSelectionTask{TaskID: packet.TaskID, Objective: packet.Objective, StepTitle: packet.Step.Title, StepInstructions: packet.Step.Instructions, AcceptanceCriteria: stepCriteria(packet), Constraints: packet.Requirement.Constraints, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 4096)}
-	repositoryContext, err := s.selectionRepositoryContext(ctx, packet.ProjectID, packet.Requirement.Contract.WritablePaths, packet.Step.Checks, &selectionInput, preset.ContextMax)
+	repositoryContext, err := s.selectionRepositoryContext(ctx, packet.ProjectID, effectiveWritable, packet.Step.Checks, &selectionInput, preset.ContextMax)
 	if err != nil {
+		return SelectFilesOutput{}, err
+	}
+	if _, err := mergeStepOutputFiles(packet.Step.OutputPaths, nil, selectionInput.Candidates); err != nil {
 		return SelectFilesOutput{}, err
 	}
 	effect, err := s.tasks.PlanEffect(ctx, input.Authority, attempt.ID, selectionEffect, profile.ID+":"+profile.Model, "task-packet:"+packet.CanonicalPacketHash)
@@ -436,6 +459,14 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 		}
 		return dispatchErr
 	}})
+	if selectErr == nil {
+		merged, mergeErr := mergeStepOutputFiles(packet.Step.OutputPaths, result.Files, selectionInput.Candidates)
+		if mergeErr != nil {
+			selectErr = mergeErr
+		} else {
+			result.Files = merged
+		}
+	}
 	if selectErr != nil {
 		if dispatched {
 			effect, _ = s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "selection_failed", "error": selectErr.Error()})
@@ -470,7 +501,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	if strings.TrimSpace(input.AttemptID) == "" || strings.TrimSpace(input.ProviderID) == "" {
 		return ProposalOutput{}, fmt.Errorf("attempt and provider are required")
 	}
-	if len(input.Files) == 0 || len(input.Files) > 32 {
+	if len(input.Files) > 32 {
 		return ProposalOutput{}, fmt.Errorf("select 1-32 files for the bounded proposal")
 	}
 	attempt, err := s.tasks.Attempt(ctx, input.AttemptID)
@@ -491,6 +522,21 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	}
 	if input.Packet.ProjectID == "" {
 		return ProposalOutput{}, fmt.Errorf("code proposal requires a task-bound project")
+	}
+	outputs := input.Packet.Step.OutputPaths
+	effectiveWritable, err := taskscope.EffectiveWritablePaths(outputs, input.Packet.Requirement.Contract.WritablePaths)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
+	if len(input.Files) == 0 && len(outputs) == 0 {
+		return ProposalOutput{}, fmt.Errorf("select 1-32 files for the bounded proposal")
+	}
+	if len(outputs) > 0 {
+		merged, mergeErr := mergeStepOutputFiles(outputs, input.Files, nil)
+		if mergeErr != nil {
+			return ProposalOutput{}, mergeErr
+		}
+		input.Files = merged
 	}
 	task, err := s.tasks.Get(ctx, input.Packet.TaskID)
 	if err != nil {
@@ -558,7 +604,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		}
 		if document.SHA256 == "absent" {
 			allowed := false
-			for _, path := range input.Packet.Requirement.Contract.WritablePaths {
+			for _, path := range effectiveWritable {
 				allowed = allowed || path == clean
 			}
 			if !allowed {
@@ -582,7 +628,7 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Constraints:        input.Packet.Requirement.Constraints,
 		RecommendedChecks:  input.Packet.Step.Checks,
 		Files:              files,
-		WritablePaths:      input.Packet.Requirement.Contract.WritablePaths,
+		WritablePaths:      effectiveWritable,
 		AbsentFiles:        absentFiles,
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 32768),
 	}
@@ -650,7 +696,10 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		}
 		return ProposalOutput{Effect: effect}, runErr
 	}
-	if err = worker.ValidateResult(workerTask, result); err != nil {
+	if err = worker.ValidateResult(workerTask, result); err == nil {
+		err = requireAbsentStepOutputs(outputs, absentFiles, result.Changes)
+	}
+	if err != nil {
 		if observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "invalid_proposal"}); observeErr == nil {
 			effect = observed
 		}
@@ -735,15 +784,19 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	if err != nil {
 		return ApplyOutput{}, err
 	}
+	writablePaths, err := s.proposalWritablePaths(ctx, proposal, task)
+	if err != nil {
+		return ApplyOutput{}, err
+	}
 	for _, change := range result.Changes {
-		allowed := len(task.Requirement.Contract.WritablePaths) == 0
-		if change.BeforeSHA256 == "absent" && len(task.Requirement.Contract.WritablePaths) == 0 {
+		allowed := len(writablePaths) == 0
+		if change.BeforeSHA256 == "absent" && len(writablePaths) == 0 {
 			return ApplyOutput{}, fmt.Errorf("new files require explicit frozen writable paths")
 		}
 		if change.BeforeSHA256 == "absent" && frozenRoot == "" {
 			return ApplyOutput{}, fmt.Errorf("creation proposal requires a frozen project root")
 		}
-		for _, path := range task.Requirement.Contract.WritablePaths {
+		for _, path := range writablePaths {
 			allowed = allowed || path == change.Path
 		}
 		if !allowed {
@@ -950,15 +1003,29 @@ func (s *Service) prepareVerification(ctx context.Context, proposalID, actor str
 	if err = json.Unmarshal(proposalBody, &changes); err != nil {
 		return verificationContext{}, err
 	}
-	paths := append([]string(nil), task.Requirement.Contract.WritablePaths...)
-	pathSeen := map[string]bool{}
-	for _, path := range paths {
-		pathSeen[path] = true
+	writablePaths, err := s.proposalWritablePaths(ctx, proposal, task)
+	if err != nil {
+		return verificationContext{}, err
+	}
+	// Per-step change authorization stays bound to the effective writable
+	// scope; the snapshot below guards the wider frozen global outputs.
+	effectiveSeen := map[string]bool{}
+	for _, path := range writablePaths {
+		effectiveSeen[path] = true
 	}
 	for _, change := range changes.Changes {
-		if !pathSeen[change.Path] {
+		if len(writablePaths) > 0 && !effectiveSeen[change.Path] {
+			return verificationContext{}, fmt.Errorf("verification change %q is outside the frozen writable scope", change.Path)
+		}
+	}
+	// Snapshot a defensive copy of the frozen global writable paths in their
+	// existing order so drift of any global output is caught. A read-only
+	// global scope grants no write authority; legacy nil globals fall back
+	// to the actual applied changes.
+	paths := append([]string(nil), task.Requirement.Contract.WritablePaths...)
+	if len(paths) == 0 {
+		for _, change := range changes.Changes {
 			paths = append(paths, change.Path)
-			pathSeen[change.Path] = true
 		}
 	}
 	snapshot, err := s.products.CaptureProjectSnapshot(ctx, proposal.ProjectID, frozenRoot, paths)
@@ -1236,6 +1303,21 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	var changeSet worker.Result
 	if err = json.Unmarshal(proposalBody, &changeSet); err != nil {
 		return ReviewOutput{}, fmt.Errorf("proposal artifact is invalid")
+	}
+	writablePaths, err := s.proposalWritablePaths(ctx, proposal, task)
+	if err != nil {
+		return ReviewOutput{}, err
+	}
+	for _, change := range changeSet.Changes {
+		if len(writablePaths) > 0 {
+			allowed := false
+			for _, path := range writablePaths {
+				allowed = allowed || path == change.Path
+			}
+			if !allowed {
+				return ReviewOutput{}, fmt.Errorf("review change %q is outside the frozen writable scope", change.Path)
+			}
+		}
 	}
 	files := make(map[string]string, len(changeSet.Changes))
 	releaseSource, err := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, bundle.Snapshot)
