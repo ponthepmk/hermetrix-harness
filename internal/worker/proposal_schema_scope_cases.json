@@ -1,0 +1,194 @@
+{
+  "golden": [
+    {
+      "allowed": [
+        "sum.go"
+      ],
+      "name": "whole",
+      "max_changes": 1
+    },
+    {
+      "allowed": [
+        "sum.go"
+      ],
+      "name": "partial",
+      "max_changes": 1
+    },
+    {
+      "allowed": [
+        "new.txt"
+      ],
+      "name": "absent",
+      "max_changes": 1
+    }
+  ],
+  "cases": [
+    {
+      "task": {
+        "brief": "one change",
+        "writable_paths": [
+          "a.go"
+        ],
+        "files": {
+          "a.go": "//a",
+          "reference.txt": "readonly"
+        }
+      },
+      "allowed": [
+        "a.go"
+      ],
+      "name": "single",
+      "max_changes": 1
+    },
+    {
+      "task": {
+        "brief": "two",
+        "writable_paths": [
+          "z.go",
+          "a.go"
+        ],
+        "files": {
+          "z.go": "//z",
+          "ref.txt": "readonly",
+          "a.go": "//a"
+        }
+      },
+      "allowed": [
+        "a.go",
+        "z.go"
+      ],
+      "name": "subset_sorted",
+      "max_changes": 2
+    },
+    {
+      "task": {
+        "files": {
+          "a.go": "//a",
+          "b.go": "//b"
+        },
+        "brief": "legacy"
+      },
+      "allowed": [
+        "a.go",
+        "b.go"
+      ],
+      "name": "legacy_all",
+      "max_changes": 2
+    },
+    {
+      "task": {
+        "brief": "new",
+        "absent_files": [
+          "new.go"
+        ],
+        "writable_paths": [
+          "new.go"
+        ],
+        "files": {
+          "ref.txt": "readonly",
+          "new.go": ""
+        }
+      },
+      "allowed": [
+        "new.go"
+      ],
+      "name": "absent",
+      "max_changes": 1
+    },
+    {
+      "task": {
+        "brief": "unicode",
+        "writable_paths": [
+          "ก.go",
+          "a.go"
+        ],
+        "files": {
+          "a.go": "//a",
+          "ก.go": "//thai"
+        }
+      },
+      "allowed": [
+        "a.go",
+        "ก.go"
+      ],
+      "name": "unicode",
+      "max_changes": 2
+    },
+    {
+      "task": {
+        "files": {
+          "p00.go": "//fixture",
+          "p04.go": "//fixture",
+          "p25.go": "//fixture",
+          "p07.go": "//fixture",
+          "p23.go": "//fixture",
+          "p26.go": "//fixture",
+          "p30.go": "//fixture",
+          "p16.go": "//fixture",
+          "p05.go": "//fixture",
+          "p28.go": "//fixture",
+          "p11.go": "//fixture",
+          "p17.go": "//fixture",
+          "p21.go": "//fixture",
+          "p29.go": "//fixture",
+          "p27.go": "//fixture",
+          "p08.go": "//fixture",
+          "p13.go": "//fixture",
+          "p12.go": "//fixture",
+          "p18.go": "//fixture",
+          "p02.go": "//fixture",
+          "p03.go": "//fixture",
+          "p31.go": "//fixture",
+          "p14.go": "//fixture",
+          "p19.go": "//fixture",
+          "p06.go": "//fixture",
+          "p20.go": "//fixture",
+          "p24.go": "//fixture",
+          "p22.go": "//fixture",
+          "p09.go": "//fixture",
+          "p15.go": "//fixture",
+          "p01.go": "//fixture",
+          "p10.go": "//fixture"
+        },
+        "brief": "all32"
+      },
+      "allowed": [
+        "p00.go",
+        "p01.go",
+        "p02.go",
+        "p03.go",
+        "p04.go",
+        "p05.go",
+        "p06.go",
+        "p07.go",
+        "p08.go",
+        "p09.go",
+        "p10.go",
+        "p11.go",
+        "p12.go",
+        "p13.go",
+        "p14.go",
+        "p15.go",
+        "p16.go",
+        "p17.go",
+        "p18.go",
+        "p19.go",
+        "p20.go",
+        "p21.go",
+        "p22.go",
+        "p23.go",
+        "p24.go",
+        "p25.go",
+        "p26.go",
+        "p27.go",
+        "p28.go",
+        "p29.go",
+        "p30.go",
+        "p31.go"
+      ],
+      "name": "upper32",
+      "max_changes": 32
+    }
+  ],
+  "tool_description": "Bounded edits for review; no apply."
+}

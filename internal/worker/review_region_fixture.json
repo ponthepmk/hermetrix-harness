@@ -1,0 +1,40 @@
+{
+  "arguments": {
+    "changes": [
+      {
+        "path": "x.go",
+        "edits": [
+          {
+            "new": "Ω",
+            "old": "alpha"
+          },
+          {
+            "new": "B\r",
+            "old": "beta"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_after": "head\r\nΩ B\r\nHIDDEN_TAIL",
+  "expected_regions": [
+    "",
+    "head\r\n",
+    "Ω B\r"
+  ],
+  "source": "head\r\nalpha beta\nHIDDEN_TAIL",
+  "views": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      6
+    ],
+    [
+      6,
+      16
+    ]
+  ]
+}

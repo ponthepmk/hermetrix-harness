@@ -9,18 +9,19 @@ import (
 // Task is the complete, caller-curated contract for one bounded worker call.
 // Files contain source text rather than paths for the worker to discover.
 type Task struct {
-	ID                 string            `json:"id,omitempty"`
-	Kind               string            `json:"kind,omitempty"`
-	Brief              string            `json:"brief"`
-	AcceptanceCriteria []string          `json:"acceptance_criteria,omitempty"`
-	Constraints        []string          `json:"constraints,omitempty"`
-	RecommendedChecks  []string          `json:"recommended_checks,omitempty"`
-	ProjectBrainRefs   []KnowledgeRef    `json:"project_brain_refs,omitempty"`
-	Files              map[string]string `json:"files"`
-	WritablePaths      []string          `json:"writable_paths,omitempty"`
-	AbsentFiles        []string          `json:"absent_files,omitempty"`
-	FailureEvidence    []FailureEvidence `json:"failure_evidence,omitempty"`
-	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
+	ID                 string                       `json:"id,omitempty"`
+	Kind               string                       `json:"kind,omitempty"`
+	Brief              string                       `json:"brief"`
+	AcceptanceCriteria []string                     `json:"acceptance_criteria,omitempty"`
+	Constraints        []string                     `json:"constraints,omitempty"`
+	RecommendedChecks  []string                     `json:"recommended_checks,omitempty"`
+	ProjectBrainRefs   []KnowledgeRef               `json:"project_brain_refs,omitempty"`
+	Files              map[string]string            `json:"files"`
+	FileViews          map[string][]BoundedFileView `json:"file_views,omitempty"`
+	WritablePaths      []string                     `json:"writable_paths,omitempty"`
+	AbsentFiles        []string                     `json:"absent_files,omitempty"`
+	FailureEvidence    []FailureEvidence            `json:"failure_evidence,omitempty"`
+	MaxOutputTokens    int                          `json:"max_output_tokens,omitempty"`
 }
 
 // FailureEvidence is saved, historical diagnostic data, never current proof
@@ -55,10 +56,11 @@ type TextEdit struct {
 }
 
 type Change struct {
-	Path         string `json:"path"`
-	BeforeSHA256 string `json:"before_sha256"`
-	Content      string `json:"content"`
-	Strategy     string `json:"strategy"`
+	Path         string     `json:"path"`
+	BeforeSHA256 string     `json:"before_sha256"`
+	Content      string     `json:"content"`
+	Strategy     string     `json:"strategy"`
+	Edits        []TextEdit `json:"edits,omitempty"`
 }
 
 type Result struct {
