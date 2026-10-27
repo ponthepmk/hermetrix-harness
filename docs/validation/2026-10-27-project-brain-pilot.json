@@ -1,0 +1,147 @@
+{
+  "scope": "single curated lesson; 10 paraphrases incl2 unrelated; development4/holdout6; not coding or general intelligence benchmark",
+  "retrieval": {
+    "baseline": {
+      "positive_hits": 2,
+      "positive_total": 8,
+      "holdout_positive_hits": 0,
+      "holdout_positive_total": 5,
+      "unrelated_hits": 0,
+      "unrelated_total": 2,
+      "max_lookup_calls": 2,
+      "misses": [
+        "dev-th-mixed",
+        "hold-en-late",
+        "hold-th-id",
+        "hold-th-error",
+        "hold-en-map",
+        "hold-th-pure"
+      ]
+    },
+    "improved": {
+      "positive_hits": 7,
+      "positive_total": 8,
+      "holdout_positive_hits": 4,
+      "holdout_positive_total": 5,
+      "unrelated_hits": 0,
+      "unrelated_total": 2,
+      "max_lookup_calls": 2,
+      "misses": [
+        "hold-th-pure"
+      ]
+    }
+  },
+  "arms": {
+    "off": {
+      "calls": 10,
+      "valid_answers": 10,
+      "positive_procedure": {
+        "pass": 0,
+        "total": 8
+      },
+      "holdout_positive_procedure": {
+        "pass": 0,
+        "total": 5
+      },
+      "historical_recall": {
+        "pass": 0,
+        "total": 8
+      },
+      "unrelated_correct": {
+        "pass": 2,
+        "total": 2
+      },
+      "unsupported_claims": 0,
+      "prompt_tokens": 2214,
+      "output_tokens": 1173,
+      "median_model_ms": 1826.0
+    },
+    "baseline": {
+      "calls": 10,
+      "valid_answers": 10,
+      "positive_procedure": {
+        "pass": 1,
+        "total": 8
+      },
+      "holdout_positive_procedure": {
+        "pass": 0,
+        "total": 5
+      },
+      "historical_recall": {
+        "pass": 2,
+        "total": 8
+      },
+      "unrelated_correct": {
+        "pass": 2,
+        "total": 2
+      },
+      "unsupported_claims": 0,
+      "prompt_tokens": 4046,
+      "output_tokens": 1289,
+      "median_model_ms": 1855.5
+    },
+    "improved": {
+      "calls": 10,
+      "valid_answers": 10,
+      "positive_procedure": {
+        "pass": 7,
+        "total": 8
+      },
+      "holdout_positive_procedure": {
+        "pass": 4,
+        "total": 5
+      },
+      "historical_recall": {
+        "pass": 7,
+        "total": 8
+      },
+      "unrelated_correct": {
+        "pass": 2,
+        "total": 2
+      },
+      "unsupported_claims": 0,
+      "prompt_tokens": 8178,
+      "output_tokens": 1622,
+      "median_model_ms": 2759.0
+    }
+  },
+  "limits": [
+    "One existing curated lesson, eight related paraphrases and two unrelated questions; not eight independent problem domains.",
+    "One response per case and arm; no general coding or production readiness inference.",
+    "Real Pi query/passages were captured and version-verified, then replayed through actual Retriever, Context Compiler, rendering and real provider service.",
+    "Offline model abstention is not classified as factual error. Historical recall and procedure completeness are separate.",
+    "Model times exclude live retrieval and may be influenced by cache/order; not a speedup claim."
+  ],
+  "date": "2026-10-27",
+  "model": "prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0",
+  "context_limit": 16384,
+  "output_limit": 3072,
+  "reasoning": "disabled",
+  "post_apply": {
+    "test_exit": 0,
+    "package_skip": 8,
+    "fail": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "source_overlay": false,
+    "pass": 1435,
+    "package_pass": 36,
+    "skip": 20
+  },
+  "native_source_files": 4,
+  "native_ancestry_steps": 9,
+  "native_review": {
+    "approved": 1,
+    "findings": 0,
+    "same_model_separate_profile": true
+  },
+  "native_write_receipts": 4,
+  "rollback_receipts": 0,
+  "source_sha256": {
+    "internal/projectbrain/retrieval.go": "fdff6798a0b1b55b49964c4cd7a36a0125095af66ec2356348ef40df1f5ee19d",
+    "internal/projectbrain/query_fallback.go": "bdadb273edf028ad3de16057d58c021e73e0377a6db4c14b544b7be8e3769a88",
+    "internal/projectbrain/query_fallback_test.go": "ca993e4af452776200874274a771276521db5b0e4acb3af6faf14fa50628f832",
+    "internal/projectbrain/query_fallback_retrieval_test.go": "bca269a40673ea89f1f940aba8a3d03531170d293fe69b53e6ebe33f8369f7ee"
+  },
+  "raw_evidence": "Local only under docs/evidence/2026-10-27/project-brain-measurement; intentionally excluded from Git."
+}

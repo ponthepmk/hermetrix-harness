@@ -1,0 +1,42 @@
+[
+  {
+    "input": "",
+    "want": ""
+  },
+  {
+    "input": "please help me how to",
+    "want": ""
+  },
+  {
+    "input": "How do I repair cache consistency?",
+    "want": "repair cache"
+  },
+  {
+    "input": "ช่วยดู load_record ที่เรียกจาก cache_store หน่อย",
+    "want": "load_record cache_store"
+  },
+  {
+    "input": "please inspect the failure carefully and then call load_record",
+    "want": "load_record"
+  },
+  {
+    "input": "Load_Record load_record CACHE_STORE",
+    "want": "Load_Record CACHE_STORE"
+  },
+  {
+    "input": "alpha Alpha beta",
+    "want": "alpha beta"
+  },
+  {
+    "input": "ช่วยดู cache ให้หน่อย",
+    "want": "cache"
+  },
+  {
+    "input": "ระบบปฏิเสธสิทธิ์ต้องตรวจอย่างไร",
+    "want": ""
+  },
+  {
+    "input": "board project ID",
+    "want": "board project"
+  }
+]
