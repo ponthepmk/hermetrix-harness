@@ -914,7 +914,7 @@ func TestHTTPSkillReplayCapabilityReviewAndFidelityEvidence(t *testing.T) {
 	// so the HTTP surface has to be able to record one -- without this route an
 	// operator could never promote an improvement through the API at all.
 	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/behavioral-eval", http.MethodPost,
-		map[string]any{"tasks": 5, "baseline_passed": 5, "candidate_passed": 5}, http.StatusCreated)
+		map[string]any{"tasks": 5, "baseline_passed": 5, "candidate_passed": 5, "result": json.RawMessage(`{"cases":[{"case_id":"A","baseline_passed":true,"candidate_passed":true},{"case_id":"B","baseline_passed":true,"candidate_passed":true},{"case_id":"C","baseline_passed":true,"candidate_passed":true},{"case_id":"D","baseline_passed":true,"candidate_passed":true},{"case_id":"E","baseline_passed":true,"candidate_passed":true}]}`)}, http.StatusCreated)
 	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/promote", http.MethodPost,
 		map[string]any{"actor": "user", "expected_revision": updated.Revision}, http.StatusOK)
 	casesResponse, err := http.Get(harness.URL + "/api/fidelity/cases")

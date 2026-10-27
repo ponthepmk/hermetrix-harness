@@ -335,7 +335,8 @@ func TestSessionUsesFrozenSkillVersionAfterLaterPromotion(t *testing.T) {
 	if _, err := service.skills.RecordBehavioralEval(ctx, skills.BehavioralEvalInput{
 		CandidateID: improvement.ID, Tasks: skills.MinimumBehavioralTasks,
 		BaselinePassed:  skills.MinimumBehavioralTasks,
-		CandidatePassed: skills.MinimumBehavioralTasks}); err != nil {
+		CandidatePassed: skills.MinimumBehavioralTasks,
+		Result:          []byte(`{"cases":[{"case_id":"A","baseline_passed":true,"candidate_passed":true},{"case_id":"B","baseline_passed":true,"candidate_passed":true},{"case_id":"C","baseline_passed":true,"candidate_passed":true},{"case_id":"D","baseline_passed":true,"candidate_passed":true},{"case_id":"E","baseline_passed":true,"candidate_passed":true}]}`)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.skills.PromoteCandidate(ctx, improvement.ID, "test", improvement.Revision); err != nil {

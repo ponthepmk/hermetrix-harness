@@ -1,0 +1,461 @@
+{
+  "base_bindings": {
+    "preset_revision": 1,
+    "provider_id": "fixture-provider",
+    "model": "local-fixture-model",
+    "provider_revision": "provider-fixture-v1",
+    "session_id": "",
+    "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "preset_id": "worker-fixture",
+    "project_id": "",
+    "dataset_split": "validation",
+    "case_ids": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "evaluator_revision": "fixed-evaluator-v1",
+    "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "binding_case_count": 16,
+  "binding_cases": [
+    {
+      "bindings": {
+        "preset_revision": 2,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "preset_revision",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "changed-provider_id",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "provider_id",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "changed-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "model",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "changed-provider_revision",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "provider_revision",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "changed-session_id",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "session_id",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "catalog_sha256",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "changed-preset_id",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "preset_id",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "changed-project_id",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "project_id",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "holdout",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "dataset_split",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "changed-case-A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "case_ids",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "dataset_sha256",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "environment_sha256",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "changed-evaluator_revision",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "evaluator_revision",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "budget_sha256",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "name": "model_config_sha256",
+      "expected_error": "revision_conflict"
+    },
+    {
+      "bindings": {
+        "preset_revision": 1,
+        "provider_id": "fixture-provider",
+        "model": "local-fixture-model",
+        "provider_revision": "provider-fixture-v1",
+        "session_id": "",
+        "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "preset_id": "worker-fixture",
+        "project_id": "",
+        "dataset_split": "validation",
+        "case_ids": [
+          "B",
+          "A",
+          "C",
+          "D",
+          "E"
+        ],
+        "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "evaluator_revision": "fixed-evaluator-v1",
+        "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": "case_ids_order",
+      "expected_error": "revision_conflict"
+    }
+  ],
+  "manifest_sha_mismatch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

@@ -1,0 +1,446 @@
+{
+  "decode": [
+    {
+      "name": "valid-canonical",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}",
+      "hash": "444185a89b2a3f390fbe0c46b4a9b12cac836b3a79ea1ca3c02ad36a8c9f83f7",
+      "expected_valid": true
+    },
+    {
+      "name": "valid-base",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"fixture-base\",\"candidate_revision\":1,\"base_hash\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}",
+      "hash": "9ec3e250f736c2e4ce9a2474f17b58d13238f16b7da81315580cf310165be0f1",
+      "expected_valid": true
+    },
+    {
+      "name": "malformed",
+      "body": "{",
+      "hash": "021fb596db81e6d02bf3d2586ee3981fe519f275c0ac9ca76bbcf2ebb4097d96",
+      "expected_valid": false
+    },
+    {
+      "name": "trailing",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}{}",
+      "hash": "30276a94054e83a198fefc9a0c0d1c65f386dbf9d0b54ac4816f057abdbebb10",
+      "expected_valid": false
+    },
+    {
+      "name": "whitespace",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}\n",
+      "hash": "ee26fe21a98b2adb1b976f93a114b105ae629c20c63387975e80ef54f3c2efef",
+      "expected_valid": false
+    },
+    {
+      "name": "reordered",
+      "body": "{\"candidate_id\":\"fixture-candidate\",\"candidate_revision\":1,\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"base_hash\":\"\",\"base_blob_ref\":\"\",\"owner_principal_id\":\"fixture-owner\",\"scope_kind\":\"user\",\"scope_ref\":\"\",\"bindings\":{\"preset_revision\":1,\"provider_id\":\"fixture-provider\",\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"session_id\":\"\",\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"preset_id\":\"worker-fixture\",\"project_id\":\"\",\"dataset_split\":\"validation\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+      "hash": "cd6069d72344e95edee8d30dc2d856ee609dd35a1d489c27651d82b92ea7dbc5",
+      "expected_valid": false
+    },
+    {
+      "name": "unknown",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"},\"unexpected\":true}",
+      "hash": "efea57f6d7e16b5f2284faeec0c4b551505908a4ca9627c3720e0982a795d0f4",
+      "expected_valid": false
+    },
+    {
+      "name": "duplicate",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"},\"candidate_id\":\"fixture-candidate\"}",
+      "hash": "e4c4a3b4373c942c22f108b507412a076871d3c820a537305b9283e012d422ce",
+      "expected_valid": false
+    },
+    {
+      "name": "incomplete",
+      "body": "{}",
+      "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "expected_valid": false
+    },
+    {
+      "name": "null",
+      "body": "null",
+      "hash": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "expected_valid": false
+    },
+    {
+      "name": "invalidfields",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}",
+      "hash": "17366ae4403b584c21d835eea55d59055567aec73037d83ec123ce569eb84c2e",
+      "expected_valid": false
+    },
+    {
+      "name": "hash-mismatch",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}",
+      "hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_valid": false
+    },
+    {
+      "name": "hash-uppercase",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}",
+      "hash": "444185A89B2A3F390FBE0C46B4A9B12CAC836B3A79EA1CA3C02AD36A8C9F83F7",
+      "expected_valid": false
+    },
+    {
+      "name": "hash-short",
+      "body": "{\"candidate_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"owner_principal_id\":\"fixture-owner\",\"scope_ref\":\"\",\"scope_kind\":\"user\",\"candidate_id\":\"fixture-candidate\",\"base_blob_ref\":\"\",\"candidate_blob_ref\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"base_version_id\":\"\",\"candidate_revision\":1,\"base_hash\":\"\",\"bindings\":{\"project_id\":\"\",\"session_id\":\"\",\"budget_sha256\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"environment_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"provider_id\":\"fixture-provider\",\"case_ids\":[\"A\",\"B\",\"C\",\"D\",\"E\"],\"model\":\"local-fixture-model\",\"provider_revision\":\"provider-fixture-v1\",\"preset_revision\":1,\"catalog_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dataset_sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"preset_id\":\"worker-fixture\",\"model_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"evaluator_revision\":\"fixed-evaluator-v1\",\"dataset_split\":\"validation\"}}",
+      "hash": "444185a89b2a3f390fbe0c46b4a9b12cac836b3a79ea1ca3c02ad36a8c9f83f",
+      "expected_valid": false
+    }
+  ],
+  "states": [
+    {
+      "name": "prepared-empty",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "dispatched-empty",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "dispatched",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "uncertain-empty",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "uncertain",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "stale-empty",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "stale",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "aborted-empty",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "aborted",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "completed-full",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "fixture-eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "stale-full",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "stale",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "fixture-eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "aborted-full",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "aborted",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "fixture-eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "id-upper-boundary",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expected_valid": true
+    },
+    {
+      "name": "id-empty",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": ""
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "id-trim",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": " id"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "id-over",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "start-zero",
+      "run": {
+        "started_at": "0001-01-01T00:00:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "start-nonUTC",
+      "run": {
+        "started_at": "2026-10-26T10:30:00+07:00",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "prepared-id-only",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "eval",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "prepared-sha-only",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "prepared-time-only",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "prepared",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "unknown-state",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "invented",
+        "result_sha256": "",
+        "evaluation_id": "",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "dispatched-full-rejected",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "dispatched",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "uncertain-full-rejected",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "uncertain",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-no-id",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-id-trim",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": " eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-id-over",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-bad-sha",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-no-sha",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:30:01Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-no-time",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": null
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-zero-time",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "0001-01-01T00:00:00Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-before-start",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T03:29:59Z"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "complete-nonUTC",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "completed",
+        "result_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evaluation_id": "eval",
+        "id": "fixture-run",
+        "completed_at": "2026-10-26T10:30:01+07:00"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "stale-partial",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "stale",
+        "result_sha256": "",
+        "evaluation_id": "eval",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    },
+    {
+      "name": "aborted-partial",
+      "run": {
+        "started_at": "2026-10-26T03:30:00Z",
+        "state": "aborted",
+        "result_sha256": "",
+        "evaluation_id": "eval",
+        "id": "fixture-run"
+      },
+      "expected_valid": false
+    }
+  ]
+}

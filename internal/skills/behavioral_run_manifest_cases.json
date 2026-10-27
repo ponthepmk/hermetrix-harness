@@ -1,0 +1,979 @@
+{
+  "cases": [
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "valid-no-base",
+      "expected_valid": true
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "fixture-base",
+        "base_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "base_blob_ref": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "valid-base",
+      "expected_valid": true
+    },
+    {
+      "manifest": {
+        "candidate_id": "候補-ทดสอบ",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "workspace",
+        "scope_ref": "โครงการ",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "valid-unicode",
+      "expected_valid": true
+    },
+    {
+      "manifest": {
+        "candidate_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "scope_kind": "ssssssssssssssssssssssssssssssss",
+        "scope_ref": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "valid-byte-boundaries",
+      "expected_valid": true
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "workspace",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "valid-format-empty-scope-ref",
+      "expected_valid": true
+    },
+    {
+      "manifest": {
+        "candidate_id": "",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "candidate-empty",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": " candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "candidate-trim",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "candidate-over",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "owner-empty",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "owner ",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "owner-trim",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 0,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "revision-zero",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": -1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "revision-negative",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "candidate-hash-upper",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "candidate-hash-short",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "candidate-blob-nonhex",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "orphan-base-hash",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "orphan-base-blob",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "scope-kind-empty",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "sssssssssssssssssssssssssssssssss",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "scope-kind-over",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "scope-ref-over",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "ref ",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "scope-ref-trim",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": " base",
+        "base_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "base_blob_ref": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "base-id-trim",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "base",
+        "base_hash": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+        "base_blob_ref": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "base-hash-bad",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "base",
+        "base_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "fixture-provider",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "base-blob-missing",
+      "expected_valid": false
+    },
+    {
+      "manifest": {
+        "candidate_id": "fixture-candidate",
+        "candidate_revision": 1,
+        "candidate_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_blob_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "base_version_id": "",
+        "base_hash": "",
+        "base_blob_ref": "",
+        "owner_principal_id": "fixture-owner",
+        "scope_kind": "user",
+        "scope_ref": "",
+        "bindings": {
+          "preset_revision": 1,
+          "provider_id": "",
+          "model": "local-fixture-model",
+          "provider_revision": "provider-fixture-v1",
+          "session_id": "",
+          "catalog_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preset_id": "worker-fixture",
+          "project_id": "",
+          "dataset_split": "validation",
+          "case_ids": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ],
+          "dataset_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "environment_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evaluator_revision": "fixed-evaluator-v1",
+          "budget_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "model_config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "name": "invalid-nested-bindings",
+      "expected_valid": false
+    }
+  ]
+}

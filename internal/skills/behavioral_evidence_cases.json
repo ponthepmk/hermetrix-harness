@@ -1,0 +1,184 @@
+{
+  "stored": [
+    {
+      "candidate_passed": 5,
+      "regressions": 0,
+      "tasks": 5,
+      "baseline_passed": 5,
+      "state": "passed",
+      "result": {}
+    },
+    {
+      "candidate_passed": 5,
+      "regressions": 0,
+      "tasks": 5,
+      "baseline_passed": 5,
+      "state": "passed",
+      "result": null
+    },
+    {
+      "candidate_passed": 5,
+      "regressions": 0,
+      "tasks": 5,
+      "baseline_passed": 0,
+      "state": "passed",
+      "result": {
+        "cases": [
+          {
+            "case_id": "A",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "B",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "C",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "D",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "E",
+            "baseline_passed": true,
+            "candidate_passed": true
+          }
+        ]
+      }
+    },
+    {
+      "candidate_passed": 3,
+      "regressions": 0,
+      "tasks": 5,
+      "baseline_passed": 3,
+      "state": "passed",
+      "result": {
+        "cases": [
+          {
+            "case_id": "A",
+            "baseline_passed": true,
+            "candidate_passed": false
+          },
+          {
+            "case_id": "B",
+            "baseline_passed": false,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "C",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "D",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "E",
+            "baseline_passed": false,
+            "candidate_passed": false
+          }
+        ]
+      }
+    },
+    {
+      "candidate_passed": 5,
+      "regressions": 0,
+      "tasks": 4,
+      "baseline_passed": 5,
+      "state": "passed",
+      "result": {
+        "cases": [
+          {
+            "case_id": "A",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "B",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "C",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "D",
+            "baseline_passed": true,
+            "candidate_passed": true
+          },
+          {
+            "case_id": "E",
+            "baseline_passed": true,
+            "candidate_passed": true
+          }
+        ]
+      }
+    }
+  ],
+  "aggregate": [
+    {
+      "candidate_passed": 5,
+      "tasks": 5,
+      "baseline_passed": 5
+    },
+    {
+      "candidate_passed": 5,
+      "tasks": 5,
+      "baseline_passed": 3
+    },
+    {
+      "candidate_passed": 3,
+      "tasks": 5,
+      "baseline_passed": 3
+    },
+    {
+      "candidate_passed": 0,
+      "tasks": 0,
+      "baseline_passed": 0
+    },
+    {
+      "candidate_passed": 99,
+      "tasks": 5,
+      "baseline_passed": -1
+    }
+  ],
+  "good": {
+    "cases": [
+      {
+        "case_id": "A",
+        "baseline_passed": true,
+        "candidate_passed": true
+      },
+      {
+        "case_id": "B",
+        "baseline_passed": true,
+        "candidate_passed": true
+      },
+      {
+        "case_id": "C",
+        "baseline_passed": true,
+        "candidate_passed": true
+      },
+      {
+        "case_id": "D",
+        "baseline_passed": true,
+        "candidate_passed": true
+      },
+      {
+        "case_id": "E",
+        "baseline_passed": true,
+        "candidate_passed": true
+      }
+    ]
+  }
+}
