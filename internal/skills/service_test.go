@@ -209,7 +209,8 @@ func passBehavioralEval(t *testing.T, service *Service, candidateID string) {
 	t.Helper()
 	eval, err := service.RecordBehavioralEval(context.Background(), BehavioralEvalInput{
 		CandidateID: candidateID, Tasks: MinimumBehavioralTasks,
-		BaselinePassed: MinimumBehavioralTasks, CandidatePassed: MinimumBehavioralTasks})
+		BaselinePassed: MinimumBehavioralTasks, CandidatePassed: MinimumBehavioralTasks,
+		Result: []byte(`{"cases":[{"case_id":"A","baseline_passed":true,"candidate_passed":true},{"case_id":"B","baseline_passed":true,"candidate_passed":true},{"case_id":"C","baseline_passed":true,"candidate_passed":true},{"case_id":"D","baseline_passed":true,"candidate_passed":true},{"case_id":"E","baseline_passed":true,"candidate_passed":true}]}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

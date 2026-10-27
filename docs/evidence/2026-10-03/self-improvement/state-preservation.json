@@ -1,0 +1,21 @@
+{
+  "tasks": [
+    {
+      "name": "easiiot",
+      "unchanged": true,
+      "id": "task_d648a0d0795b9c60b4ef6b0fa3775d98",
+      "state": "verifying",
+      "revision": 31
+    },
+    {
+      "name": "delivery",
+      "unchanged": true,
+      "id": "task_17ce136598805924fa488715999b247c",
+      "state": "verifying",
+      "revision": 101
+    }
+  ],
+  "skillsSameVersionsAndState": true,
+  "skillsBefore": 2,
+  "skillsAfter": 2
+}

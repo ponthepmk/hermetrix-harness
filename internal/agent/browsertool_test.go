@@ -64,6 +64,27 @@ func browserCall(arguments string) providers.ToolCall {
 	return providers.ToolCall{ID: "call_browser", Type: "function", Name: "browser", Arguments: arguments}
 }
 
+func TestBrowserGameKeyIsApprovedBoundedAndNotAvailableInLegacyBinding(t *testing.T) {
+	s, session, cleanup := newAgentServiceWithProject(t)
+	defer cleanup()
+	driver := &fakeDriver{page: BrowserPage{TabID: "game", URL: "http://localhost:18820/", ObservationHash: strings.Repeat("a", 64), ScreenshotArtifactID: "screen", Elements: []BrowserPageElement{{Ref: 1, Tag: "canvas", Text: "Game"}}}}
+	s.WithRuntime(nil, driver)
+	call := browserCall(`{"action":"key","tab_id":"game","ref":1,"text":"w","duration_ms":500,"observation_hash":"` + strings.Repeat("a", 64) + `"}`)
+	old := s.executeBrowserTool(context.Background(), session, call, toolruntime.Definition{Revision: "v5"}, true)
+	if old.Status != "failed" || len(driver.actions) != 0 {
+		t.Fatal("legacy binding gained key authority")
+	}
+	definition := toolruntime.Definition{Name: "browser", Revision: "v6", Effect: "browse"}
+	denied := s.executeBrowserTool(context.Background(), session, call, definition, false)
+	if denied.Status != "failed" || len(driver.actions) != 0 || len(driver.prepared) != 0 {
+		t.Fatal("keyboard dispatched without approval")
+	}
+	result := s.executeBrowserTool(context.Background(), session, call, definition, true)
+	if result.Status != "succeeded" || len(driver.actions) != 1 || len(driver.prepared) != 1 || driver.actions[0].DurationMS != 500 || driver.prepared[0].DurationMS != 500 || driver.actions[0].ReceiptID == "" {
+		t.Fatalf("approved held input not propagated: %+v %+v", result, driver.actions)
+	}
+}
+
 func TestBrowserToolOpenMarksPageContentAsUntrusted(t *testing.T) {
 	service, session, cleanup := newAgentServiceWithProject(t)
 	defer cleanup()

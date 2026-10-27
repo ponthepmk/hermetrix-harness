@@ -24,7 +24,6 @@ import (
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
-	"hermetrix-harness/internal/store"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -336,7 +335,8 @@ func TestSessionUsesFrozenSkillVersionAfterLaterPromotion(t *testing.T) {
 	if _, err := service.skills.RecordBehavioralEval(ctx, skills.BehavioralEvalInput{
 		CandidateID: improvement.ID, Tasks: skills.MinimumBehavioralTasks,
 		BaselinePassed:  skills.MinimumBehavioralTasks,
-		CandidatePassed: skills.MinimumBehavioralTasks}); err != nil {
+		CandidatePassed: skills.MinimumBehavioralTasks,
+		Result:          []byte(`{"cases":[{"case_id":"A","baseline_passed":true,"candidate_passed":true},{"case_id":"B","baseline_passed":true,"candidate_passed":true},{"case_id":"C","baseline_passed":true,"candidate_passed":true},{"case_id":"D","baseline_passed":true,"candidate_passed":true},{"case_id":"E","baseline_passed":true,"candidate_passed":true}]}`)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.skills.PromoteCandidate(ctx, improvement.ID, "test", improvement.Revision); err != nil {
@@ -430,7 +430,7 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 			// Raised from 12 to 13 for browser: the agent could read and act on
 			// its own workspace but had no way to look at a rendered page, and a
 			// dev server it was asked to check needs a real tab, not a file read.
-			if len(request.Tools) > 13 {
+			if len(request.Tools) > 14 {
 				t.Errorf("direct tool waist grew past its ceiling: %d", len(request.Tools))
 			}
 			for _, tool := range request.Tools {
@@ -441,7 +441,7 @@ func TestRunTurnExecutesOnlyFrozenReadToolAndContinues(t *testing.T) {
 				// history. context_search and browser are exact names rather than
 				// prefixes because each is the only tool of its kind.
 				if !strings.HasPrefix(name, "workspace.") && !strings.HasPrefix(name, "tool_") &&
-					!strings.HasPrefix(name, "skill_") && name != "context_search" && name != "browser" {
+					!strings.HasPrefix(name, "skill_") && name != "context_search" && name != "browser" && name != "desktop" {
 					t.Errorf("unexpected tool in the direct waist: %s", name)
 				}
 			}
@@ -952,6 +952,11 @@ func TestDeniedWriteCommitsReceiptAndContinuesWithoutMutation(t *testing.T) {
 		for _, message := range request.Messages {
 			if message.Role == "tool" && strings.Contains(message.Content, `"status":"denied"`) {
 				foundDenied = true
+				var denied toolruntime.Receipt
+				if err := json.Unmarshal([]byte(message.Content), &denied); err != nil ||
+					denied.Metadata["decision_reason"] != "not wanted" || !strings.Contains(denied.Error, "not wanted") {
+					t.Errorf("owner explanation missing from actual continuation request: %s", message.Content)
+				}
 			}
 		}
 		if !foundDenied {
@@ -1130,7 +1135,7 @@ func testAgentServiceAtRoot(t *testing.T, server *httptest.Server, workspaceRoot
 	t.Helper()
 	t.Setenv("HERMETRIX_RUNTIME_TEST_KEY", "runtime-secret")
 	ctx := context.Background()
-	dataStore, err := store.Open(ctx, filepath.Join(t.TempDir(), "data"))
+	dataStore, err := openAgentFixtureStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1353,13 +1358,18 @@ func TestCumulativeTokenBudgetStopsTheTurn(t *testing.T) {
 // The wall-time case matters more than the others: a deadline that fires
 // without releasing the lease would strand the session in running forever.
 func TestWallTimeBudgetStopsTheTurnAndReleasesTheLease(t *testing.T) {
+	release := make(chan struct{})
 	service, sessionID, cleanup := budgetTestSession(t, func(w http.ResponseWriter, r *http.Request) {
+		// Consume the request so net/http can observe client cancellation while
+		// the response is held. Test cleanup also owns an explicit release.
+		_, _ = io.Copy(io.Discard, r.Body)
 		select {
 		case <-r.Context().Done():
-		case <-time.After(10 * time.Second):
+		case <-release:
 		}
 	}, TaskBudget{MaxModelSteps: 10, MaxToolCalls: 50, MaxWallTimeSeconds: 1, MaxCumulativeTokens: 1 << 20})
 	defer cleanup()
+	defer close(release)
 	started := time.Now()
 	_, err := service.RunTurn(context.Background(), sessionID, TurnInput{Content: "hang"}, nil)
 	if err == nil {

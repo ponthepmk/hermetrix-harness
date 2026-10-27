@@ -1,0 +1,67 @@
+[
+  {
+    "want_error": false,
+    "arguments": {
+      "changes": [
+        {
+          "edits": [
+            {
+              "new": "return a+b",
+              "old": "return a-b"
+            }
+          ],
+          "path": "big.go"
+        }
+      ]
+    },
+    "name": "valid"
+  },
+  {
+    "want_error": true,
+    "arguments": {
+      "changes": [
+        {
+          "content": "return a+b",
+          "path": "big.go"
+        }
+      ]
+    },
+    "name": "content_only"
+  },
+  {
+    "want_error": true,
+    "arguments": {
+      "changes": [
+        {
+          "edits": [
+            {
+              "new": "return a+b",
+              "old": "return a-b"
+            }
+          ],
+          "content": "return a+b",
+          "path": "big.go"
+        }
+      ]
+    },
+    "name": "both_representations"
+  },
+  {
+    "want_error": true,
+    "arguments": {
+      "file_views": {},
+      "changes": [
+        {
+          "edits": [
+            {
+              "new": "return a+b",
+              "old": "return a-b"
+            }
+          ],
+          "path": "big.go"
+        }
+      ]
+    },
+    "name": "model_views"
+  }
+]

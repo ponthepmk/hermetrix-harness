@@ -173,6 +173,27 @@ func TestPlanRejectsDependencyCycle(t *testing.T) {
 	}
 }
 
+func TestGoalWritablePathsRejectTraversalAndPersistAcrossRequirementRevision(t *testing.T) {
+	service, _ := testService(t)
+	ctx := context.Background()
+	input := CreateTaskInput{Title: "Scoped repair", Objective: "repair the service", OriginalRequest: "repair the service", Actor: "owner", Criteria: []Criterion{{ID: "AC-1", Description: "tests pass"}}}
+	for _, paths := range [][]string{{"../api.js"}, {"/api.js"}, {"C:/api.js"}, {"frontend\\api.js"}, {"frontend//api.js"}, {"frontend/./api.js"}, {"*.js"}, {"api.js", "api.js"}, {" api.js"}, {""}} {
+		input.Contract.WritablePaths = paths
+		if _, err := service.Create(ctx, input); err == nil {
+			t.Fatalf("unsafe writable paths accepted: %q", paths)
+		}
+	}
+	input.Contract.WritablePaths = []string{"frontend/services/api.js"}
+	task, err := service.Create(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err = service.ReviseRequirements(ctx, ReviseRequirementsInput{TaskID: task.ID, ExpectedTaskRevision: task.Revision, Criteria: input.Criteria, Actor: "owner"})
+	if err != nil || len(task.Requirement.Contract.WritablePaths) != 1 || task.Requirement.Contract.WritablePaths[0] != "frontend/services/api.js" {
+		t.Fatalf("frozen write scope lost across requirement revision: %+v err=%v", task.Requirement.Contract, err)
+	}
+}
+
 func TestPlanRejectsUnknownAcceptanceCriterionMapping(t *testing.T) {
 	service, _ := testService(t)
 	ctx := context.Background()

@@ -1,0 +1,42 @@
+[
+  {
+    "expected_input_sha256": "46176eb0d1e493479bea65ed26dfe5b6a616168737e5653092a9215412e3c539",
+    "name": "whole_file",
+    "expected_before_sha256": "cba06b5736faf67e54b07b561eae94395e774c517a7d910a54369e1263ccfbd4",
+    "task_json": "{\"id\":\"legacy-whole\",\"brief\":\"fix\",\"files\":{\"x\":\"old\"}}",
+    "expected_content": "new",
+    "expected_strategy": "replace_file",
+    "expected_proposal_id": "2a6aa5e8139aea4e5ad1ade3a6a5881801b9487de66129df3362a0eba601ff9a",
+    "arguments": "{\"changes\":[{\"path\":\"x\",\"content\":\"new\"}]}"
+  },
+  {
+    "expected_input_sha256": "7e99fb04eeba217e018fa3cbe277cc3ce4b89577cf600acd203194bc7bb96ec8",
+    "name": "sequential_edits",
+    "expected_before_sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+    "task_json": "{\"id\":\"legacy-sequential\",\"brief\":\"fix\",\"files\":{\"x\":\"a\"}}",
+    "expected_content": "c",
+    "expected_strategy": "replace_text",
+    "expected_proposal_id": "796bdd1a22b71adb400035e20c21462f0b1cf77b0b4ffff06e16f97c7e27bdb7",
+    "arguments": "{\"changes\":[{\"path\":\"x\",\"edits\":[{\"old\":\"a\",\"new\":\"b\"},{\"old\":\"b\",\"new\":\"c\"}]}]}"
+  },
+  {
+    "expected_input_sha256": "c6d3b28b68ccaf1142c28381aa5c63457a2c8eb851ec5761d2f0eb339ef58ea1",
+    "name": "empty_existing",
+    "expected_before_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "task_json": "{\"id\":\"legacy-empty\",\"brief\":\"fix\",\"files\":{\"x\":\"\"}}",
+    "expected_content": "new",
+    "expected_strategy": "replace_file",
+    "expected_proposal_id": "459cbdbaaf7a88ca1fe2d8272d83f829d94a672a9f0eb6192ca895cdc6bea9d4",
+    "arguments": "{\"changes\":[{\"path\":\"x\",\"content\":\"new\"}]}"
+  },
+  {
+    "expected_input_sha256": "5b912d7f4be4977a242b2fe5ca42b1e7a45f950038b137456f1c782c8903dc1f",
+    "name": "absent_new",
+    "expected_before_sha256": "absent",
+    "task_json": "{\"id\":\"legacy-create\",\"brief\":\"fix\",\"files\":{\"x\":\"\"},\"writable_paths\":[\"x\"],\"absent_files\":[\"x\"]}",
+    "expected_content": "new",
+    "expected_strategy": "create_file",
+    "expected_proposal_id": "55545c7e8bd015958308087729ae390cc9c381001b913a37737f60cc525bcdaf",
+    "arguments": "{\"changes\":[{\"path\":\"x\",\"content\":\"new\"}]}"
+  }
+]

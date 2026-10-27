@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-27",
+  "schema_version": 80,
+  "source_only": true,
+  "installed_app_updated": false,
+  "verification": {
+    "test_exit": 0,
+    "package_skip": 8,
+    "fail": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "source_overlay": false,
+    "pass": 1435,
+    "package_pass": 36,
+    "skip": 20
+  },
+  "test_count_note": "pass/skip count test events including parent/subtests; package events reported separately.",
+  "host_operations": {
+    "source_files": 37,
+    "native_ancestry_steps": 121,
+    "approved_review_packets": 8,
+    "native_write_receipts": 37,
+    "rollback_receipts": 0,
+    "source_manifest_sha256": "5fa048cdb54e8d9a4e0cf7e2bd48952e4e07b2a9382166196ba9d7e9d13d01b7",
+    "prior_post_apply": {
+      "skipped_test_events": 20,
+      "passing_test_events": 1421,
+      "scope": "Actual applied37 source files, entire repository, no source overlay",
+      "build_exit": 0,
+      "source_overlay": false,
+      "test_exit": 0,
+      "failed_events": 0,
+      "vet_exit": 0,
+      "source_manifest_sha256": "5fa048cdb54e8d9a4e0cf7e2bd48952e4e07b2a9382166196ba9d7e9d13d01b7"
+    }
+  },
+  "project_brain_summary": "2026-10-27-project-brain-pilot.json",
+  "limits": [
+    "No broad coding-performance or autonomous-learning claim.",
+    "Generated projects, raw inference captures, local databases and temporary workspaces are not included in Git."
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "binary_sha256": "1e40d6777552bd034e6b98cb55b42f4b944068eacda8c7e9c1c080b783a62d78",
+  "url": "https://desktop-nh66lnq.tail0f7f57.ts.net:18810/",
+  "pid": 65596,
+  "schema": 76,
+  "backup": ".tmp-ui/compact-chat-before-final-20261011.db",
+  "main18804": "unchanged",
+  "token": "unchanged",
+  "node_pass": 138,
+  "browser": "passed current release and existing user session over HTTPS; 5 viewport sizes, hit-testing, disclosures, drawer and long draft",
+  "core_repair": "mock transport, exact real approval pipeline; no effect replay",
+  "full_go": "passed go test ./... -count=1; subsequent CSS notice visibility scope refinement passed affected Chrome surface tests"
+}

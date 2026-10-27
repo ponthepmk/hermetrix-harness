@@ -495,6 +495,57 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 			return fmt.Errorf("apply schema v74: %w", err)
 		}
 	}
+	if version < 75 {
+		if _, err := tx.ExecContext(ctx, schemaV75); err != nil {
+			return fmt.Errorf("apply schema v75: %w", err)
+		}
+	}
+	if version < 76 {
+		// Early local v75 previews already carried the stop's job receipts.
+		var present int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('agent_turn_controls') WHERE name='run_ids_json'`).Scan(&present); err != nil {
+			return err
+		}
+		if present == 0 {
+			if _, err := tx.ExecContext(ctx, schemaV76); err != nil {
+				return fmt.Errorf("apply schema v76: %w", err)
+			}
+		}
+	}
+	if version < 77 {
+		if _, err := tx.ExecContext(ctx, schemaV77); err != nil {
+			return fmt.Errorf("apply schema v77: %w", err)
+		}
+	}
+	if version < 78 {
+		var present int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('task_goal_runs') WHERE name='poll_after'`).Scan(&present); err != nil {
+			return err
+		}
+		if present == 0 {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE task_goal_runs ADD COLUMN poll_after TEXT NOT NULL DEFAULT ''`); err != nil {
+				return fmt.Errorf("add goal poll schedule: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, schemaV78); err != nil {
+			return fmt.Errorf("apply schema v78: %w", err)
+		}
+	}
+	if version < 79 {
+		if _, err := tx.ExecContext(ctx, schemaV79); err != nil {
+			return fmt.Errorf("apply schema v79: %w", err)
+		}
+	}
+	if version < 80 {
+		if _, err := tx.ExecContext(ctx, schemaV80); err != nil {
+			return fmt.Errorf("apply schema v80: %w", err)
+		}
+	}
+	if version < 81 {
+		if err := migrateV81(ctx, tx); err != nil {
+			return fmt.Errorf("apply schema v81: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, CurrentSchemaVersion)); err != nil {
 		return fmt.Errorf("set schema version: %w", err)
 	}
@@ -507,7 +558,7 @@ func migrate(ctx context.Context, db *sql.DB, blobs *blob.Store) error {
 // CurrentSchemaVersion is the version Open migrates to. Tests assert against
 // this rather than a literal, so adding a migration does not break a test that
 // was never about the number.
-const CurrentSchemaVersion = 74
+const CurrentSchemaVersion = 81
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS skills (

@@ -54,11 +54,18 @@ func TestBrowserInspectionFlowInARealBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('#browserOpenForm') ? 'ready' : ''`, "ready")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-browser-mode="desktop"]').click(); 'computer-mode'`); err != nil {
+		t.Fatal(err)
+	}
 	waitBrowserValue(t, ctx, client, `document.querySelector('#desktopListWindows') && document.querySelector('.desktop-observation') ? 'desktop-panel' : ''`, "desktop-panel")
 	if _, err := client.evaluate(ctx, `document.querySelector('#desktopListWindows').click(); 'list-windows'`); err != nil {
 		t.Fatal(err)
 	}
 	waitBrowserValue(t, ctx, client, `state.desktopWindowsLoaded ? 'desktop-list-loaded' : ''`, "desktop-list-loaded")
+	if _, err := client.evaluate(ctx, `document.querySelector('[data-browser-mode="browser"]').click(); 'website-mode'`); err != nil {
+		t.Fatal(err)
+	}
+	waitBrowserValue(t, ctx, client, `document.querySelector('#browserOpenForm')&&!document.querySelector('#desktopListWindows')?'website-mode':''`, "website-mode")
 	openExpression := fmt.Sprintf(`(() => {const form=document.querySelector('#browserOpenForm'); form.querySelector('[name="url"]').value=%q; form.querySelector('[name="allow_private"]').checked=true; form.requestSubmit(); return 'submitted';})()`, server.URL)
 	if _, err := client.evaluate(ctx, openExpression); err != nil {
 		t.Fatal(err)

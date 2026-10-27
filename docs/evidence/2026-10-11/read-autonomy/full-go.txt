@@ -1,0 +1,43 @@
+?   	hermetrix-harness/assets	[no test files]
+ok  	hermetrix-harness/cmd/hermetrix	7.404s
+?   	hermetrix-harness/cmd/hermetrix-h1	[no test files]
+ok  	hermetrix-harness/cmd/hermetrix-h2	6.363s
+?   	hermetrix-harness/cmd/hermetrix-lab	[no test files]
+?   	hermetrix-harness/cmd/hermetrix-tailnet	[no test files]
+?   	hermetrix-harness/cmd/hermetrix-worker	[no test files]
+ok  	hermetrix-harness/internal/agent	141.278s
+ok  	hermetrix-harness/internal/agentplatform	29.480s
+?   	hermetrix-harness/internal/agentplatform/fixture	[no test files]
+ok  	hermetrix-harness/internal/agentplatform/piidentity	9.511s
+?   	hermetrix-harness/internal/agentruntime	[no test files]
+ok  	hermetrix-harness/internal/blob	1.666s
+ok  	hermetrix-harness/internal/capabilities	1.857s
+ok  	hermetrix-harness/internal/context	3.032s
+ok  	hermetrix-harness/internal/curator	7.829s
+ok  	hermetrix-harness/internal/discordbridge	53.714s
+ok  	hermetrix-harness/internal/durability	1.763s
+ok  	hermetrix-harness/internal/embedding	4.710s
+ok  	hermetrix-harness/internal/fidelity	38.956s
+ok  	hermetrix-harness/internal/hostile	13.545s
+?   	hermetrix-harness/internal/identity	[no test files]
+ok  	hermetrix-harness/internal/inference	17.103s
+ok  	hermetrix-harness/internal/learning	36.991s
+ok  	hermetrix-harness/internal/localmodel	4.990s
+ok  	hermetrix-harness/internal/mcp	32.610s
+ok  	hermetrix-harness/internal/product	131.895s
+ok  	hermetrix-harness/internal/projectbrain	41.507s
+ok  	hermetrix-harness/internal/providers	46.267s
+ok  	hermetrix-harness/internal/qualification	26.274s
+ok  	hermetrix-harness/internal/runtime	1.801s
+ok  	hermetrix-harness/internal/secrets	2.313s
+ok  	hermetrix-harness/internal/selfimprove	6.716s
+ok  	hermetrix-harness/internal/skills	48.811s
+ok  	hermetrix-harness/internal/store	43.580s
+ok  	hermetrix-harness/internal/taskcoord	78.587s
+ok  	hermetrix-harness/internal/taskengine	64.538s
+ok  	hermetrix-harness/internal/taskeval	8.171s
+ok  	hermetrix-harness/internal/textmatch	1.295s
+ok  	hermetrix-harness/internal/tools	2.322s
+ok  	hermetrix-harness/internal/web	181.575s
+ok  	hermetrix-harness/internal/worker	22.244s
+ok  	hermetrix-harness/scripts	60.390s

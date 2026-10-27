@@ -58,6 +58,18 @@ func TestStrictJSONContentFallback(t *testing.T) {
 	}
 }
 
+func TestRejectChangesThatLeaveSourceIdentical(t *testing.T) {
+	for _, args := range []string{
+		`{"summary":"Fixed","changes":[{"path":"x","content":"old"}]}`,
+		`{"summary":"Fixed","changes":[{"path":"x","edits":[{"old":"old","new":"old"}]}]}`,
+		`{"changes":[{"path":"x","edits":[{"old":"old","new":"new"},{"old":"new","new":"old"}]}]}`,
+	} {
+		if _, err := Run(context.Background(), &fake{arguments: args}, providers.Profile{}, "", Task{Brief: "fix", Files: map[string]string{"x": "old"}}); err == nil {
+			t.Fatal("a no-op became an approvable change")
+		}
+	}
+}
+
 func TestLimitsAndErrorPrivacy(t *testing.T) {
 	task := Task{Brief: "fix", Files: map[string]string{"x": "old"}}
 	f := &fake{err: fmt.Errorf("secret and private source")}
@@ -130,6 +142,59 @@ func TestExactTextEditsProduceReviewedReplacement(t *testing.T) {
 		if _, err := Run(context.Background(), f, providers.Profile{}, "secret", Task{Brief: "fix", Files: map[string]string{"sum.go": "x x"}}); err == nil {
 			t.Fatalf("accepted unsafe text edits: %s", raw)
 		}
+	}
+}
+
+func TestFailedTextEditDiagnosticIdentifiesPathAndMatchCountWithoutSource(t *testing.T) {
+	for _, tc := range []struct {
+		before  string
+		matches string
+	}{
+		{"unrelated private source", "matched 0 times"},
+		{"private snippet private snippet", "matched 2 times"},
+	} {
+		f := &fake{arguments: `{"changes":[{"path":"frontend/services/api.js","edits":[{"old":"private snippet","new":"corrected"}]}]}`}
+		_, err := Run(context.Background(), f, providers.Profile{}, "secret", Task{Brief: "fix", Files: map[string]string{"frontend/services/api.js": tc.before}})
+		var diagnostic *Error
+		if !errors.As(err, &diagnostic) || diagnostic.Code != ErrorInvalidProposal || diagnostic.Phase != PhaseValidatingProposal {
+			t.Fatalf("lost typed error: %v", err)
+		}
+		if !strings.Contains(err.Error(), "frontend/services/api.js") || !strings.Contains(err.Error(), "text edit 1") || !strings.Contains(err.Error(), tc.matches) || !strings.Contains(err.Error(), "complete replacement content") {
+			t.Fatalf("diagnostic is not actionable: %v", err)
+		}
+		if strings.Contains(err.Error(), "private snippet") || strings.Contains(err.Error(), "private source") {
+			t.Fatalf("diagnostic disclosed source: %v", err)
+		}
+	}
+}
+
+func TestWritablePathsKeepSuppliedRegressionFilesReadOnly(t *testing.T) {
+	task := Task{Brief: "repair the service without changing regression tests", Files: map[string]string{"api.js": "old", "api.test.js": "immutable test"}, WritablePaths: []string{"api.js"}}
+	f := &fake{arguments: `{"changes":[{"path":"api.test.js","content":"weakened test"}]}`}
+	if _, err := Run(context.Background(), f, providers.Profile{}, "secret", task); err == nil || !strings.Contains(err.Error(), "outside the frozen writable paths") {
+		t.Fatalf("read-only test file could be changed: %v", err)
+	}
+	f.arguments = `{"changes":[{"path":"api.js","content":"fixed"}]}`
+	result, err := Run(context.Background(), f, providers.Profile{}, "secret", task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateResult(task, result); err != nil {
+		t.Fatal(err)
+	}
+	result.Changes[0].Path, result.Changes[0].BeforeSHA256 = "api.test.js", Hash(task.Files["api.test.js"])
+	result.ProposalID = proposalID(result.InputSHA256, result)
+	if err := ValidateResult(task, result); err == nil {
+		t.Fatal("transported result bypassed frozen writable paths")
+	}
+}
+
+func TestHistoricalFailureOutputWithCredentialIsRejectedBeforeDispatch(t *testing.T) {
+	f := &fake{}
+	_, err := Run(context.Background(), f, providers.Profile{}, "secret-key", Task{Brief: "fix", Files: map[string]string{"api.js": "old"}, FailureEvidence: []FailureEvidence{{CheckID: "test", Output: "failed: secret-key"}}})
+	var diagnostic *Error
+	if !errors.As(err, &diagnostic) || diagnostic.Code != ErrorCredentialPresent || f.calls != 0 {
+		t.Fatalf("credential in failure log escaped the worker boundary: %v calls=%d", err, f.calls)
 	}
 }
 

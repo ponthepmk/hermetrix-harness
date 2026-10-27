@@ -49,6 +49,7 @@ func (r Retriever) Retrieve(ctx context.Context, query string) ([]ctxcompiler.Fr
 	if r.Servers == nil || r.Catalog == nil || strings.TrimSpace(r.ServerName) == "" || strings.TrimSpace(r.Project) == "" {
 		return nil, errors.New("Project Brain needs an explicit server and project binding")
 	}
+	originalQuery := query
 	query = boundedQuery(query)
 	if query == "" {
 		return nil, nil
@@ -113,7 +114,7 @@ func (r Retriever) Retrieve(ctx context.Context, query string) ([]ctxcompiler.Fr
 	// Retry only a genuine no-match with two topic words. This stays read-only,
 	// project-scoped, and bounded to one extra lookup; citations are verified below.
 	if pack.Status == "no_match" && len(pack.Items) == 0 {
-		if focused := focusedQuery(query); focused != "" && focused != query {
+		if focused := fallbackQuery(originalQuery); focused != "" && focused != query {
 			if err := lookup(focused); err != nil {
 				return nil, err
 			}

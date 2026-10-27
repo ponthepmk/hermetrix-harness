@@ -101,7 +101,7 @@ func sourceLikeManifestName(name string) bool {
 	case ".go", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".json", ".yaml", ".yml", ".toml",
 		".md", ".txt", ".py", ".php", ".sql", ".html", ".css", ".scss", ".less", ".sh", ".ps1",
 		".xml", ".proto", ".graphql", ".gql", ".java", ".kt", ".kts", ".rs", ".c", ".h", ".cpp", ".hpp",
-		".cs", ".rb", ".swift", ".dart", ".vue", ".svelte":
+		".cs", ".rb", ".swift", ".dart", ".vue", ".svelte", ".mq4", ".mq5", ".mqh":
 		return true
 	default:
 		return false

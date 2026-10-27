@@ -3,9 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
-func migrateV74(ctx context.Context, tx *sql.Tx) error {
+func migrateV81(ctx context.Context, tx *sql.Tx) error {
+	if err := migrateV74(ctx, tx); err != nil {
+		return fmt.Errorf("apply schema v74: %w", err)
+	}
 	_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS agent_retries (
  session_id TEXT PRIMARY KEY REFERENCES agent_sessions(id) ON DELETE CASCADE,
  source_event_id TEXT NOT NULL DEFAULT '',

@@ -308,7 +308,7 @@ func TestBridgeDoesNotExecuteAfterFailedAcknowledgementOrLargePreview(t *testing
 }
 
 func TestBridgeConfigFailsClosedAndCancellation(t *testing.T) {
-	s, backend, _, cfg, owner := testBridge(t)
+	s, backend, rest, cfg, owner := testBridge(t)
 	bad := cfg
 	bad.UserIDs = []string{"*"}
 	if _, err := s.Configure(context.Background(), bad); err == nil {
@@ -324,7 +324,8 @@ func TestBridgeConfigFailsClosedAndCancellation(t *testing.T) {
 		t.Fatal("foreign principal configured bridge")
 	}
 	backend.block = true
-	s.handleInteraction(context.Background(), cfg, owner, testInteraction("ask", "wait"))
+	ask := testInteraction("ask", "wait")
+	s.handleInteraction(context.Background(), cfg, owner, ask)
 	deadline := time.Now().Add(time.Second)
 	for {
 		_, calls, _ := backend.counts()
@@ -337,12 +338,70 @@ func TestBridgeConfigFailsClosedAndCancellation(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	handleAndWait(s, cfg, owner, testInteraction("cancel", ""))
+	rest.mu.Lock()
+	var terminalReplies int
+	for _, request := range rest.requests {
+		if request["method"] == http.MethodPatch && strings.Contains(request["path"].(string), ask.Token) {
+			terminalReplies++
+			body := request["body"].(map[string]any)
+			if !strings.Contains(body["content"].(string), "cancelled") {
+				t.Errorf("cancellation response=%v", body["content"])
+			}
+		}
+	}
+	rest.mu.Unlock()
+	if terminalReplies != 1 {
+		t.Fatalf("original deferred ask received %d terminal replies after cancel; Discord would stay thinking", terminalReplies)
+	}
+	var terminalState string
+	if err := s.store.DB.QueryRow(`SELECT state FROM discord_bridge_interactions WHERE interaction_id=?`, ask.ID).Scan(&terminalState); err != nil || terminalState != "cancelled" {
+		t.Fatalf("cancelled request state=%s err=%v", terminalState, err)
+	}
+	// A resumed Gateway replay may deliver the cancelled interaction again.
+	handleAndWait(s, cfg, owner, ask)
+	_, asks, _ := backend.counts()
+	if asks != 1 {
+		t.Fatalf("cancelled request was replayed: calls=%d", asks)
+	}
 	if err := s.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	status, err := s.Status(context.Background())
 	if err != nil || status.Config.Enabled || status.ActiveRequests != 0 {
 		t.Fatalf("stop=%+v err=%v", status, err)
+	}
+}
+
+func TestBridgeDeadlineFinishesDeferredResponseWithoutReplayingWork(t *testing.T) {
+	s, backend, rest, cfg, owner := testBridge(t)
+	backend.block = true
+	ask := testInteraction("ask", "wait until deadline")
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	s.handleInteraction(ctx, cfg, owner, ask)
+	s.jobsWG.Wait()
+	var terminalState string
+	if err := s.store.DB.QueryRow(`SELECT state FROM discord_bridge_interactions WHERE interaction_id=?`, ask.ID).Scan(&terminalState); err != nil || terminalState != "timed_out" {
+		t.Fatalf("timed out request state=%s err=%v", terminalState, err)
+	}
+	rest.mu.Lock()
+	terminalReplies := 0
+	for _, request := range rest.requests {
+		if request["method"] == http.MethodPatch && strings.Contains(request["path"].(string), ask.Token) {
+			terminalReplies++
+			if !strings.Contains(request["body"].(map[string]any)["content"].(string), "timed out") {
+				t.Errorf("deadline response=%v", request["body"])
+			}
+		}
+	}
+	rest.mu.Unlock()
+	if terminalReplies != 1 {
+		t.Fatalf("deadline terminal replies=%d", terminalReplies)
+	}
+	handleAndWait(s, cfg, owner, ask)
+	_, asks, _ := backend.counts()
+	if asks != 1 {
+		t.Fatalf("timed-out request was replayed: calls=%d", asks)
 	}
 }
 

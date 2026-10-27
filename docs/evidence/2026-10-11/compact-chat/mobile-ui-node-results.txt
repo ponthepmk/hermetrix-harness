@@ -1,0 +1,700 @@
+TAP version 13
+# Subtest: audit chooses sufficient answer reserve instead of the compact reasoning failure envelope
+ok 1 - audit chooses sufficient answer reserve instead of the compact reasoning failure envelope
+  ---
+  duration_ms: 1.5365
+  ...
+# Subtest: audit does not invent capacity or admission and refuses blocked output budgets
+ok 2 - audit does not invent capacity or admission and refuses blocked output budgets
+  ---
+  duration_ms: 1.2414
+  ...
+# Subtest: Windows text is captured before the loading render clears the input
+ok 3 - Windows text is captured before the loading render clears the input
+  ---
+  duration_ms: 2.9054
+  ...
+# Subtest: double activation creates one pointer receipt and late result cannot replace another window
+ok 4 - double activation creates one pointer receipt and late result cannot replace another window
+  ---
+  duration_ms: 5.5644
+  ...
+# Subtest: denying the exact point cancels its receipt without sending mouse input
+ok 5 - denying the exact point cancels its receipt without sending mouse input
+  ---
+  duration_ms: 1.1422
+  ...
+# Subtest: a stale image error remains visible and releases loading without input
+ok 6 - a stale image error remains visible and releases loading without input
+  ---
+  duration_ms: 1.1599
+  ...
+# Subtest: window inventory requires an explicit choice and never captures the first window
+ok 7 - window inventory requires an explicit choice and never captures the first window
+  ---
+  duration_ms: 1.1649
+  ...
+# Subtest: only local models and admitted context profiles appear in Discord setup
+ok 8 - only local models and admitted context profiles appear in Discord setup
+  ---
+  duration_ms: 4.2916
+  ...
+# Subtest: missing IDs block scope submission and connection before any mutation
+ok 9 - missing IDs block scope submission and connection before any mutation
+  ---
+  duration_ms: 1.3642
+  ...
+# Subtest: wildcards and malformed snowflakes are rejected; duplicate valid IDs normalize
+ok 10 - wildcards and malformed snowflakes are rejected; duplicate valid IDs normalize
+  ---
+  duration_ms: 0.8698
+  ...
+# Subtest: remote providers and unqualified profiles cannot bypass form filtering
+ok 11 - remote providers and unqualified profiles cannot bypass form filtering
+  ---
+  duration_ms: 1.0985
+  ...
+# Subtest: save scope sends only binding fields with enabled false and retains a failed draft
+ok 12 - save scope sends only binding fields with enabled false and retains a failed draft
+  ---
+  duration_ms: 2.1542
+  ...
+# Subtest: blank token preserves existing secret without making a token request
+ok 13 - blank token preserves existing secret without making a token request
+  ---
+  duration_ms: 0.9927
+  ...
+# Subtest: explicit token save clears password before request and never renders token even on error
+ok 14 - explicit token save clears password before request and never renders token even on error
+  ---
+  duration_ms: 1.0546
+  ...
+# Subtest: connect requires saved settings; accepted start still displays connecting until ready
+ok 15 - connect requires saved settings; accepted start still displays connecting until ready
+  ---
+  duration_ms: 1.8473
+  ...
+# Subtest: error and stopped are never presented as connected
+ok 16 - error and stopped are never presented as connected
+  ---
+  duration_ms: 2.9832
+  ...
+# Subtest: disconnect stays available after a status read fails
+ok 17 - disconnect stays available after a status read fails
+  ---
+  duration_ms: 1.1988
+  ...
+# Subtest: invite link uses only validated application ID and zero bot permissions
+ok 18 - invite link uses only validated application ID and zero bot permissions
+  ---
+  duration_ms: 0.6127
+  ...
+# Subtest: a failed status reload preserves scope inputs and does not claim old ready state
+ok 19 - a failed status reload preserves scope inputs and does not claim old ready state
+  ---
+  duration_ms: 0.8354
+  ...
+# Subtest: a late ready polling response cannot overwrite a completed Stop
+ok 20 - a late ready polling response cannot overwrite a completed Stop
+  ---
+  duration_ms: 0.8227
+  ...
+# Subtest: each session restores its own unsent text and attachments
+ok 21 - each session restores its own unsent text and attachments
+  ---
+  duration_ms: 3.7954
+  ...
+# Subtest: selecting another project's session changes Files and new-task project binding too
+ok 22 - selecting another project's session changes Files and new-task project binding too
+  ---
+  duration_ms: 1.7413
+  ...
+# Subtest: late session response cannot replace the more recent selection
+ok 23 - late session response cannot replace the more recent selection
+  ---
+  duration_ms: 1.0304
+  ...
+# Subtest: failed session selection keeps the visible session and its unsent draft
+ok 24 - failed session selection keeps the visible session and its unsent draft
+  ---
+  duration_ms: 1.0936
+  ...
+# Subtest: project welcome and plan drafts survive navigation without leaking into the next project
+ok 25 - project welcome and plan drafts survive navigation without leaking into the next project
+  ---
+  duration_ms: 2.2834
+  ...
+# Subtest: New task starts empty while the previous session draft stays recoverable
+ok 26 - New task starts empty while the previous session draft stays recoverable
+  ---
+  duration_ms: 1.0207
+  ...
+# Subtest: failed send restores the visible text and retains images across subsequent renders
+ok 27 - failed send restores the visible text and retains images across subsequent renders
+  ---
+  duration_ms: 1.2141
+  ...
+# Subtest: successful send clears both attachment state and the rendered attachment chips
+ok 28 - successful send clears both attachment state and the rendered attachment chips
+  ---
+  duration_ms: 1.021
+  ...
+# Subtest: an active turn prevents cross-session and project navigation without starting requests
+ok 29 - an active turn prevents cross-session and project navigation without starting requests
+  ---
+  duration_ms: 1.1376
+  ...
+# Subtest: a draft typed while an earlier turn answers survives its completion
+ok 30 - a draft typed while an earlier turn answers survives its completion
+  ---
+  duration_ms: 1.5527
+  ...
+# Subtest: a navigation started before a turn cannot commit while that other session is streaming
+ok 31 - a navigation started before a turn cannot commit while that other session is streaming
+  ---
+  duration_ms: 1.2132
+  ...
+# Subtest: an upload result remains attached to its original session draft
+ok 32 - an upload result remains attached to its original session draft
+  ---
+  duration_ms: 1.318
+  ...
+# Subtest: creation blocks user navigation until its internal session selection completes
+ok 33 - creation blocks user navigation until its internal session selection completes
+  ---
+  duration_ms: 2.3587
+  ...
+# Subtest: internal selection can bind a newly created session to the explicitly chosen project
+ok 34 - internal selection can bind a newly created session to the explicitly chosen project
+  ---
+  duration_ms: 1.8985
+  ...
+# Subtest: a pre-existing session lookup cannot commit after session creation starts
+ok 35 - a pre-existing session lookup cannot commit after session creation starts
+  ---
+  duration_ms: 2.6858
+  ...
+# Subtest: failed creation releases navigation and preserves the goal
+ok 36 - failed creation releases navigation and preserves the goal
+  ---
+  duration_ms: 1.6431
+  ...
+# Subtest: a delayed Plans request cannot override a subsequent session navigation
+ok 37 - a delayed Plans request cannot override a subsequent session navigation
+  ---
+  duration_ms: 1.6166
+  ...
+# Subtest: background transcript refresh does not cancel the user's pending Plans navigation
+ok 38 - background transcript refresh does not cancel the user's pending Plans navigation
+  ---
+  duration_ms: 2.2678
+  ...
+# Subtest: late file responses cannot overwrite another project's files or ready cache
+ok 39 - late file responses cannot overwrite another project's files or ready cache
+  ---
+  duration_ms: 2.2305
+  ...
+# Subtest: a superseded failure does not evict a newer hydration request
+ok 40 - a superseded failure does not evict a newer hydration request
+  ---
+  duration_ms: 1.9751
+  ...
+# Subtest: surface data commits together and failed hydration can be retried explicitly
+ok 41 - surface data commits together and failed hydration can be retried explicitly
+  ---
+  duration_ms: 1.5087
+  ...
+# Subtest: Office, Insights and Projects fetch the data displayed by their own pages
+ok 42 - Office, Insights and Projects fetch the data displayed by their own pages
+  ---
+  duration_ms: 1.1217
+  ...
+# Subtest: optional startup failure does not blank Chat and null collections are normalized
+ok 43 - optional startup failure does not blank Chat and null collections are normalized
+  ---
+  duration_ms: 2.1884
+  ...
+# Subtest: saved Models default replaces a stale chat-only provider choice at startup
+ok 44 - saved Models default replaces a stale chat-only provider choice at startup
+  ---
+  duration_ms: 1.0084
+  ...
+# Subtest: bootstrap failure leaves an actionable error and preserves the unsent goal
+ok 45 - bootstrap failure leaves an actionable error and preserves the unsent goal
+  ---
+  duration_ms: 2.1776
+  ...
+# Subtest: a settings refresh does not rebuild editor panes behind the overlay
+ok 46 - a settings refresh does not rebuild editor panes behind the overlay
+  ---
+  duration_ms: 1.2859
+  ...
+# Subtest: late bootstrap for a previous project cannot change the current workspace
+ok 47 - late bootstrap for a previous project cannot change the current workspace
+  ---
+  duration_ms: 1.3315
+  ...
+# Subtest: opening two projects rapidly leaves the most recent selection active
+ok 48 - opening two projects rapidly leaves the most recent selection active
+  ---
+  duration_ms: 1.7058
+  ...
+# Subtest: Workspace reuses the selected ready remote session for the current project
+ok 49 - Workspace reuses the selected ready remote session for the current project
+  ---
+  duration_ms: 5.2608
+  ...
+# Subtest: current project session is reused; another project's session is not
+ok 50 - current project session is reused; another project's session is not
+  ---
+  duration_ms: 6.0906
+  ...
+# Subtest: Workspace starts a new conversation instead of appending to an Agent Team child
+ok 51 - Workspace starts a new conversation instead of appending to an Agent Team child
+  ---
+  duration_ms: 4.3822
+  ...
+# Subtest: no ready model means no session or model call
+ok 52 - no ready model means no session or model call
+  ---
+  duration_ms: 4.1701
+  ...
+# Subtest: provider identity is checked again after asynchronous session creation
+ok 53 - provider identity is checked again after asynchronous session creation
+  ---
+  duration_ms: 4.6596
+  ...
+# Subtest: file context stays within the budget and uses the selected lines
+ok 54 - file context stays within the budget and uses the selected lines
+  ---
+  duration_ms: 4.6684
+  ...
+# Subtest: a file from a previous project never enters the new project's prompt
+ok 55 - a file from a previous project never enters the new project's prompt
+  ---
+  duration_ms: 4.2986
+  ...
+# Subtest: failed sends retain the requested text; edit and output prepare drafts without calling a model
+ok 56 - failed sends retain the requested text; edit and output prepare drafts without calling a model
+  ---
+  duration_ms: 3.4616
+  ...
+# Subtest: Plan carries local file context into the durable plan without starting a conversation
+ok 57 - Plan carries local file context into the durable plan without starting a conversation
+  ---
+  duration_ms: 4.1012
+  ...
+# Subtest: local tool events and exact approval receipts are visible during streaming and deduplicated
+ok 58 - local tool events and exact approval receipts are visible during streaming and deduplicated
+  ---
+  duration_ms: 3.5794
+  ...
+# Subtest: approved file writes refresh a clean editor and its optimistic-save hash
+ok 59 - approved file writes refresh a clean editor and its optimistic-save hash
+  ---
+  duration_ms: 0.8298
+  ...
+# Subtest: approved file writes preserve an unsaved draft and retain the old conflict hash
+ok 60 - approved file writes preserve an unsaved draft and retain the old conflict hash
+  ---
+  duration_ms: 0.5628
+  ...
+# Subtest: typing during file reconciliation cannot be overwritten by the late disk read
+ok 61 - typing during file reconciliation cannot be overwritten by the late disk read
+  ---
+  duration_ms: 0.5487
+  ...
+# Subtest: Run and Test share a project execution gate until the launch request completes
+ok 62 - Run and Test share a project execution gate until the launch request completes
+  ---
+  duration_ms: 3.7597
+  ...
+# Subtest: Python commands use the executable actually available on Windows or Unix
+ok 63 - Python commands use the executable actually available on Windows or Unix
+  ---
+  duration_ms: 1.4527
+  ...
+# Subtest: a late poll from the previous debugger cannot replace a restarted session
+ok 64 - a late poll from the previous debugger cannot replace a restarted session
+  ---
+  duration_ms: 0.8257
+  ...
+# Subtest: a poll started before a completed step cannot rewind the same debugger session
+ok 65 - a poll started before a completed step cannot rewind the same debugger session
+  ---
+  duration_ms: 1.0272
+  ...
+# Subtest: an old breakpoint update cannot replace a new debugger session
+ok 66 - an old breakpoint update cannot replace a new debugger session
+  ---
+  duration_ms: 1.8665
+  ...
+# Subtest: delayed locals from an earlier pause do not overwrite the current pause
+ok 67 - delayed locals from an earlier pause do not overwrite the current pause
+  ---
+  duration_ms: 1.1543
+  ...
+# Subtest: delayed source navigation does not move the cursor in another project's editor
+ok 68 - delayed source navigation does not move the cursor in another project's editor
+  ---
+  duration_ms: 1.1629
+  ...
+# Subtest: output and debugger polling pause behind settings and the project picker
+ok 69 - output and debugger polling pause behind settings and the project picker
+  ---
+  duration_ms: 1.4265
+  ...
+# Subtest: format response cannot replace text typed while formatting
+ok 70 - format response cannot replace text typed while formatting
+  ---
+  duration_ms: 1.3457
+  ...
+# Subtest: zero-test completion is explicitly unverified without changing the raw receipt
+ok 71 - zero-test completion is explicitly unverified without changing the raw receipt
+  ---
+  duration_ms: 1.3463
+  ...
+# Subtest: unsaved editor drafts survive a browser reload within the local tab session
+ok 72 - unsaved editor drafts survive a browser reload within the local tab session
+  ---
+  duration_ms: 1.2022
+  ...
+# Subtest: save completion updates the disk baseline without replacing newer typing
+ok 73 - save completion updates the disk baseline without replacing newer typing
+  ---
+  duration_ms: 1.2268
+  ...
+# Subtest: capturing an untouched normalized editor preserves original CRLF bytes
+ok 74 - capturing an untouched normalized editor preserves original CRLF bytes
+  ---
+  duration_ms: 0.8585
+  ...
+# Subtest: save completion for a previous project cannot replace the active project's buffer
+ok 75 - save completion for a previous project cannot replace the active project's buffer
+  ---
+  duration_ms: 0.9089
+  ...
+# Subtest: overlapping requests keep loading until every actual request settles
+ok 76 - overlapping requests keep loading until every actual request settles
+  ---
+  duration_ms: 1.6107
+  ...
+# Subtest: a failed request cannot be hidden by a later successful overlapping request
+ok 77 - a failed request cannot be hidden by a later successful overlapping request
+  ---
+  duration_ms: 0.3466
+  ...
+# Subtest: finishing twice cannot prematurely finish another control's work
+ok 78 - finishing twice cannot prematurely finish another control's work
+  ---
+  duration_ms: 0.1789
+  ...
+# Subtest: an explicit new attempt can recover from a previous failed operation
+ok 79 - an explicit new attempt can recover from a previous failed operation
+  ---
+  duration_ms: 0.203
+  ...
+# Subtest: read and write feedback describes the actual requested operation
+ok 80 - read and write feedback describes the actual requested operation
+  ---
+  duration_ms: 0.4287
+  ...
+# Subtest: a foreground read that never responds times out and releases its loading state
+ok 81 - a foreground read that never responds times out and releases its loading state
+  ---
+  duration_ms: 28.9029
+  ...
+# Subtest: a write is never timed out or retried by the feedback layer
+ok 82 - a write is never timed out or retried by the feedback layer
+  ---
+  duration_ms: 2.96
+  ...
+# Subtest: a read timing out during body transfer reports failure instead of empty success
+ok 83 - a read timing out during body transfer reports failure instead of empty success
+  ---
+  duration_ms: 7.6935
+  ...
+# Subtest: bootstrap reads are bounded even before the first click
+ok 84 - bootstrap reads are bounded even before the first click
+  ---
+  duration_ms: 4.1325
+  ...
+# Subtest: background polling keeps its own lifecycle without a foreground timeout
+ok 85 - background polling keeps its own lifecycle without a foreground timeout
+  ---
+  duration_ms: 3.1597
+  ...
+# Subtest: Workspace project switch updates the global rail while personal Chat keeps its model setup
+ok 86 - Workspace project switch updates the global rail while personal Chat keeps its model setup
+  ---
+  duration_ms: 18.486
+  ...
+# Subtest: a configured model missing credentials retains a direct recovery action in Workspace
+ok 87 - a configured model missing credentials retains a direct recovery action in Workspace
+  ---
+  duration_ms: 0.8861
+  ...
+# Subtest: editing the admission reason does not disable the global New task navigation
+ok 88 - editing the admission reason does not disable the global New task navigation
+  ---
+  duration_ms: 0.6367
+  ...
+# Subtest: completed task does not submit or widen sharing merely by rendering
+ok 89 - completed task does not submit or widen sharing merely by rendering
+  ---
+  duration_ms: 2.7657
+  ...
+# Subtest: only current eligible evidence can enter a preview selection
+ok 90 - only current eligible evidence can enter a preview selection
+  ---
+  duration_ms: 1.9673
+  ...
+# Subtest: preview is read-only and a second explicit action queues exact approval
+ok 91 - preview is read-only and a second explicit action queues exact approval
+  ---
+  duration_ms: 2.0559
+  ...
+# Subtest: ambiguous submit failure probes deterministic candidate before retry
+ok 92 - ambiguous submit failure probes deterministic candidate before retry
+  ---
+  duration_ms: 1.1705
+  ...
+# Subtest: outbox retry and conflict receipts use their actual persisted states
+ok 93 - outbox retry and conflict receipts use their actual persisted states
+  ---
+  duration_ms: 0.7752
+  ...
+# Subtest: sharing policy changes require a separate owner confirmation and exact revision
+ok 94 - sharing policy changes require a separate owner confirmation and exact revision
+  ---
+  duration_ms: 1.9447
+  ...
+# Subtest: default model is ready while an explicit model choice remains respected
+ok 95 - default model is ready while an explicit model choice remains respected
+  ---
+  duration_ms: 1.1699
+  ...
+# Subtest: a qualified 64k main profile is preferred for a new chat without overriding a choice
+ok 96 - a qualified 64k main profile is preferred for a new chat without overriding a choice
+  ---
+  duration_ms: 0.2319
+  ...
+# Subtest: escapeHTML encodes every HTML control character
+ok 97 - escapeHTML encodes every HTML control character
+  ---
+  duration_ms: 0.2221
+  ...
+# Subtest: chat Markdown stays readable without allowing authored HTML
+ok 98 - chat Markdown stays readable without allowing authored HTML
+  ---
+  duration_ms: 0.6978
+  ...
+# Subtest: workspace write previews never expose the file body
+ok 99 - workspace write previews never expose the file body
+  ---
+  duration_ms: 0.3425
+  ...
+# Subtest: timeline pairs receipts by call id without dropping unpaired events
+ok 100 - timeline pairs receipts by call id without dropping unpaired events
+  ---
+  duration_ms: 0.5711
+  ...
+# Subtest: unexpected collection payloads fail closed to an empty list
+ok 101 - unexpected collection payloads fail closed to an empty list
+  ---
+  duration_ms: 0.1016
+  ...
+# Subtest: boundary pause is offered only after active work has settled
+ok 102 - boundary pause is offered only after active work has settled
+  ---
+  duration_ms: 7.9033
+  ...
+# Subtest: refresh fences stale completion evidence when another client advances the task
+ok 103 - refresh fences stale completion evidence when another client advances the task
+  ---
+  duration_ms: 3.6026
+  ...
+# Subtest: technically verified work presents the human acceptance action after restart
+ok 104 - technically verified work presents the human acceptance action after restart
+  ---
+  duration_ms: 3.0893
+  ...
+# Subtest: explicit refresh replaces same-revision evidence and fences the old pending read
+ok 105 - explicit refresh replaces same-revision evidence and fences the old pending read
+  ---
+  duration_ms: 3.4984
+  ...
+# Subtest: failed step names the recovery target until a fresh proposal reaches review
+ok 106 - failed step names the recovery target until a fresh proposal reaches review
+  ---
+  duration_ms: 3.0442
+  ...
+# Subtest: failed mandatory check keeps the plan and rollback guidance honest
+ok 107 - failed mandatory check keeps the plan and rollback guidance honest
+  ---
+  duration_ms: 2.931
+  ...
+# Subtest: task errors tell a person what happened without hiding the recovery step
+ok 108 - task errors tell a person what happened without hiding the recovery step
+  ---
+  duration_ms: 2.8258
+  ...
+# Subtest: chat failures explain the observed cause instead of claiming every error exhausted model steps
+ok 109 - chat failures explain the observed cause instead of claiming every error exhausted model steps
+  ---
+  duration_ms: 3.1185
+  ...
+# Subtest: task failures remain visible after refresh and clear only on the next action
+ok 110 - task failures remain visible after refresh and clear only on the next action
+  ---
+  duration_ms: 3.0628
+  ...
+# Subtest: uncertain Windows action shows fresh observation and reconciles once with an exact receipt
+ok 111 - uncertain Windows action shows fresh observation and reconciles once with an exact receipt
+  ---
+  duration_ms: 16.6447
+  ...
+# Subtest: uncertain browser action offers same-project tab recovery and exact screenshot evidence
+ok 112 - uncertain browser action offers same-project tab recovery and exact screenshot evidence
+  ---
+  duration_ms: 3.5382
+  ...
+# Subtest: TikTok export shows only current creator options with no default and explicit posting choices
+ok 113 - TikTok export shows only current creator options with no default and explicit posting choices
+  ---
+  duration_ms: 3.0409
+  ...
+# Subtest: important article claim asks for a distinct second source and excerpt
+ok 114 - important article claim asks for a distinct second source and excerpt
+  ---
+  duration_ms: 2.7153
+  ...
+# Subtest: task completion shows current criterion and check progress with old evidence marked stale
+ok 115 - task completion shows current criterion and check progress with old evidence marked stale
+  ---
+  duration_ms: 3.2106
+  ...
+# Subtest: task activity keeps old decisions visible without treating them as current
+ok 116 - task activity keeps old decisions visible without treating them as current
+  ---
+  duration_ms: 2.892
+  ...
+# Subtest: answering a Task unknown records an exact clarification and starts a new Goal revision
+ok 117 - answering a Task unknown records an exact clarification and starts a new Goal revision
+  ---
+  duration_ms: 3.4118
+  ...
+# Subtest: clarification draft survives reload in the same tab and expires with its Goal revision
+ok 118 - clarification draft survives reload in the same tab and expires with its Goal revision
+  ---
+  duration_ms: 3.3963
+  ...
+# Subtest: Task shortcut points to unresolved Windows and remote effects before completion
+ok 119 - Task shortcut points to unresolved Windows and remote effects before completion
+  ---
+  duration_ms: 3.3443
+  ...
+# Subtest: context meter distinguishes unknown usage from provider reported input and reserves
+ok 120 - context meter distinguishes unknown usage from provider reported input and reserves
+  ---
+  duration_ms: 4.5949
+  ...
+# Subtest: Skill picker labels actual last-request inclusion separately from suggestions
+ok 121 - Skill picker labels actual last-request inclusion separately from suggestions
+  ---
+  duration_ms: 3.1702
+  ...
+# Subtest: video evidence separates timed speech from sampled frames and escapes recognized text
+ok 122 - video evidence separates timed speech from sampled frames and escapes recognized text
+  ---
+  duration_ms: 3.0213
+  ...
+# Subtest: browser click prepares an exact one-use receipt before dispatch
+ok 123 - browser click prepares an exact one-use receipt before dispatch
+  ---
+  duration_ms: 2.8242
+  ...
+# Subtest: local task excludes remote, disabled and credential-missing providers; second-pass reviewer uses a distinct profile
+ok 124 - local task excludes remote, disabled and credential-missing providers; second-pass reviewer uses a distinct profile
+  ---
+  duration_ms: 2.7599
+  ...
+# Subtest: completed first step offers next step and preserves all authority fields on provider dispatch
+ok 125 - completed first step offers next step and preserves all authority fields on provider dispatch
+  ---
+  duration_ms: 3.7116
+  ...
+# Subtest: initial run reads packet after run revision and sends lease to attempt
+ok 126 - initial run reads packet after run revision and sends lease to attempt
+  ---
+  duration_ms: 3.7679
+  ...
+# Subtest: apply renews and passes run authority instead of relying on implicit ownership
+ok 127 - apply renews and passes run authority instead of relying on implicit ownership
+  ---
+  duration_ms: 3.7545
+  ...
+# Subtest: verify-frozen renews and passes run authority instead of relying on implicit ownership
+ok 128 - verify-frozen renews and passes run authority instead of relying on implicit ownership
+  ---
+  duration_ms: 2.9653
+  ...
+# Subtest: post-review renews and passes run authority instead of relying on implicit ownership
+ok 129 - post-review renews and passes run authority instead of relying on implicit ownership
+  ---
+  duration_ms: 2.8254
+  ...
+# Subtest: expired lease and uncertain effects cannot start work
+ok 130 - expired lease and uncertain effects cannot start work
+  ---
+  duration_ms: 2.9301
+  ...
+# Subtest: expired run recovery is revision-bound and exposed as an explicit action
+ok 131 - expired run recovery is revision-bound and exposed as an explicit action
+  ---
+  duration_ms: 3.4989
+  ...
+# Subtest: a newly reviewed plan can start without inheriting the previous plan's rejected proposal or expired lease
+ok 132 - a newly reviewed plan can start without inheriting the previous plan's rejected proposal or expired lease
+  ---
+  duration_ms: 2.579
+  ...
+# Subtest: failed post-test review offers a fresh attempt on the same approved plan
+ok 133 - failed post-test review offers a fresh attempt on the same approved plan
+  ---
+  duration_ms: 2.5348
+  ...
+# Subtest: lease heartbeat stops when the task surface is closed
+ok 134 - lease heartbeat stops when the task surface is closed
+  ---
+  duration_ms: 2.6675
+  ...
+# Subtest: replacing the task surface immediately moves its heartbeat to the new body
+ok 135 - replacing the task surface immediately moves its heartbeat to the new body
+  ---
+  duration_ms: 2.6363
+  ...
+# Subtest: proposal contents load from immutable artifact and are escaped before approval
+ok 136 - proposal contents load from immutable artifact and are escaped before approval
+  ---
+  duration_ms: 2.9586
+  ...
+# Subtest: decision lab shows immutable evidence and makes the read-only boundary explicit
+ok 137 - decision lab shows immutable evidence and makes the read-only boundary explicit
+  ---
+  duration_ms: 3.5391
+  ...
+# Subtest: read-only recommendation is revision-bound and never dispatches an execution endpoint
+ok 138 - read-only recommendation is revision-bound and never dispatches an execution endpoint
+  ---
+  duration_ms: 3.2123
+  ...
+1..138
+# tests 138
+# suites 0
+# pass 138
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 316.4792

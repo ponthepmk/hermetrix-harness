@@ -311,6 +311,13 @@ body { min-width: 0; background: var(--bg); font-size: var(--text-md); overflow:
 .composer-context { color: #777; font-size: 9px; }
 .composer > button.primary { width: 42px; min-width: 42px; height: 42px; overflow: hidden; padding: 0; border-radius: 50%; font-size: 0; }
 .composer > button.primary::after { content: "↑"; font-size: 20px; font-weight: 500; }
+.chat-turn-controls { grid-column: 1 / -1; min-width: 0; padding: 4px 10px; font-size: 12px; }
+.chat-control-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chat-control-actions button, .chat-queue-item button { min-height: 44px; padding: 6px 12px; }
+.chat-control-actions small { color: var(--muted); }
+.chat-queue-item { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border-top: 1px solid var(--line); padding: 6px 0; }
+.chat-queue-item > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.chat-queue-reason { flex-basis: 100%; color: var(--muted); }
 .chat-welcome img { width: 74px; height: 74px; }
 
 /* The right side is a resizable workspace canvas, not a single inspector tab. */
@@ -1824,21 +1831,20 @@ select option, select optgroup { background: #252526; color: #f1f1f1; }
   .ide-assistant .pane-chat-input, .ide-host .ide-assistant .pane-chat-input { grid-column: 1 / -1; width: 100%; min-width: 0; min-height: 72px; max-height: min(34dvh, 190px); padding: 9px 11px; box-sizing: border-box; font-size: 16px; line-height: 1.45; }
   .ide-assistant-compose-hint { display: block; align-self: center; color: var(--faint); font-size: 11px; }
   .ide-assistant .pane-chat-form > button { min-width: 68px; min-height: 44px; }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) { grid-template-rows: minmax(0, 1fr) !important; }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) > .app-header,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) > .hardware-monitor,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .workspace-toolbar,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .pane-head,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-head,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-context,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-bottom > label,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-status { display: none; }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-usage .token-meter summary { min-height: 34px; }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-usage .token-meter-foot,
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-usage .token-meter-detail { display: none; }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .pane:has(> .pane-body[data-pane-kind="chat"]) { grid-template-rows: minmax(0, 1fr); }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-compose-hint { display: none; }
-  .app-shell:has(.ide-assistant .pane-chat-input:focus) .ide-assistant-dismiss { display: inline-flex !important; grid-column: 1; justify-self: start; min-width: 68px; }
+  .app-shell:has(.ide-assistant.is-composing) { grid-template-rows: minmax(0, 1fr) !important; }
+  .app-shell:has(.ide-assistant.is-composing) > .app-header,
+  .app-shell:has(.ide-assistant.is-composing) > .hardware-monitor,
+  .app-shell:has(.ide-assistant.is-composing) .workspace-toolbar,
+  .app-shell:has(.ide-assistant.is-composing) .pane-head,
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-head,
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-context,
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-bottom > label { display: none; }
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-usage .token-meter summary { min-height: 34px; }
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-usage .token-meter-foot,
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-usage .token-meter-detail { display: none; }
+  .app-shell:has(.ide-assistant.is-composing) .pane:has(> .pane-body[data-pane-kind="chat"]) { grid-template-rows: minmax(0, 1fr); }
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-compose-hint { display: none; }
+  .app-shell:has(.ide-assistant.is-composing) .ide-assistant-dismiss { display: inline-flex !important; grid-column: 1; justify-self: start; min-width: 68px; }
 }
 
 /* Keep primary reading and controls legible on desktop; diagnostics stay behind details. */
@@ -2145,3 +2151,28 @@ select option, select optgroup { background: #252526; color: #f1f1f1; }
 .composer .auto-retry-notice { grid-area: auto; }
 .composer { grid-template-areas: "retry retry" "context context" "attachments attachments" "input send" "controls controls" "tools tools"; }
 .composer .auto-retry-notice { grid-area: retry; }
+/* One project-file permission choice; the whole label is a touch target. */
+.ide-assistant-bottom .ide-assistant-write-mode {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 36px;
+  margin: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ide-assistant-bottom .ide-assistant-write-mode[hidden] { display: none; }
+.ide-assistant-bottom .ide-assistant-write-mode input {
+  width: 1rem;
+  height: 1rem;
+  min-height: 0;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.ide-assistant-targets { margin: 0 10px 4px; padding: 4px 0; max-height: min(16rem,32dvh); overflow-y: auto; font-size: 12px; }
+.ide-assistant-targets[hidden] { display: none; }
+.ide-assistant-targets summary { cursor: pointer; padding: 5px 0; }
+.ide-assistant-targets p,.ide-assistant-targets small { margin: 4px 0; line-height: 1.5; }
+.ide-assistant-targets label { display: grid; gap: 4px; margin: 6px 0; }
+.ide-assistant-targets input,.ide-assistant-targets select { width: 100%; min-height: 34px; }

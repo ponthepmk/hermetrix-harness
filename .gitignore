@@ -40,3 +40,18 @@ tmp-mockup-data/
 /internal/web/.tmp-ui/
 /.hermetrix-gitconfig
 /.hermetrix-pi-release.gitconfig
+/scripts/video-research/.research-jobs/
+/scripts/video-research/__pycache__/
+
+# Local goal pilot state, machine-specific test configuration and MT5 evidence.
+/.hermetrix-goal-pilot/
+.mt5-runs/
+mt5.local.json
+goal.local.json
+
+# Experiment captures include generated projects and machine-local model data.
+# Keep them locally; version the harness, its standing tests and compact
+# validation summaries instead. Previously tracked historical evidence stays
+# tracked; this rule prevents new captures from entering future commits.
+/docs/evidence/*
+!/docs/evidence/README.md

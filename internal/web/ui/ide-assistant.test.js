@@ -26,6 +26,8 @@ function harness(overrides = {}) {
     submitChatText:async text=>{sent.push(text);return overrides.sendOK !== false;},
     openContentPane:id=>panes.push(id),openTasks:async()=>panes.push("tasks"),
   });
+  const appSource = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+  vm.runInContext(appSource.slice(appSource.indexOf("function chatTurnBusy("), appSource.indexOf("function chatControlsHTML(")), context);
   vm.runInContext(source,context);
   return {state,api:context.window.HermetrixAssistant,sent,created,panes,frames};
 }
@@ -41,6 +43,20 @@ test("current project session is reused; another project's session is not",async
   await h.api.action("review");assert.equal(h.created.length,0);assert.equal(h.sent.length,1);
   h.state.sessionDetail.session.project_id="other";await h.api.action("review");assert.equal(h.created.length,1);
   assert.equal(h.created[0].options.stayInWorkspace,true);
+});
+
+test("new project conversations do not gain automatic writes by default",async()=>{
+  const h=harness({state:{sessionDetail:null}});
+  await h.api.action("explain");
+  assert.equal(h.created.length,1);
+  assert.equal(h.created[0].options.automaticWrites,false);
+});
+
+test("selected automatic-write session keeps its frozen file permission",async()=>{
+  const h=harness({state:{sessionDetail:{session:{id:"auto",provider_id:"local",project_id:"p",contract:{workspace_write_approval:{revision:"project-file-writes-v1"}}},events:[]}}});
+  await h.api.action("review");
+  assert.equal(h.created.length,0);
+  assert.equal(h.sent.length,1);
 });
 test("Workspace starts a new conversation instead of appending to an Agent Team child",async()=>{
   const h=harness({state:{sessionDetail:{session:{id:"team-child",provider_id:"remote",project_id:"p",team_child:true},events:[]}}});

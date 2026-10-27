@@ -1,0 +1,171 @@
+{
+  "review": {
+    "verdict": "approve",
+    "rationale": "The current step's obligations are met with direct evidence. sum.js now contains `function add(a, b) { return a + b; }` with the CommonJS export preserved, and only sum.js is shown as changed. The frozen checks all completed with exit code 0: `node --check sum.js` passed, `node --test sum.test.js` executed all four test cases (add 2 3, add -2 3, add 0 0, add 0.5 0.25) with 4 pass / 0 fail, and the sha256 assertion for sum.test.js passed, confirming the test file is byte-identical to the frozen hash. AC1 is satisfied by the four immutable test cases covering positive, negative, zero, and decimal arguments. No security regressions or correctness defects are present.",
+    "findings": [],
+    "usage": {
+      "prompt_tokens": 2049,
+      "completion_tokens": 228,
+      "total_tokens": 2277
+    }
+  },
+  "artifact": {
+    "id": "artifact_6039c13dffd70d2f8c6573efc8438744",
+    "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+    "name": "66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9.post-review.json",
+    "kind": "code_post_review",
+    "mime_type": "application/vnd.hermetrix.code-review+json",
+    "blob_ref": "00b3f8aa2ab6ec9e83477ca43af8193f6d5812626508d13da1781cbeff5b6b8f",
+    "byte_size": 797,
+    "checksum": "00b3f8aa2ab6ec9e83477ca43af8193f6d5812626508d13da1781cbeff5b6b8f",
+    "metadata": {
+      "attempt_id": "attempt_7572b6c864b6bb25965e4f8cacdca94a",
+      "operation_id": "operation_582c35f28f91a7b9bdfd3e84d50cf539",
+      "proposal_id": "66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9",
+      "provider_id": "provider_715d3d90f2972caf9e4385ad7275663c",
+      "provider_revision": "provider-fda79e5e9fabd003",
+      "verdict": "approve",
+      "verification_artifact_id": "artifact_6c115c4a4ea1eeab597a382f3f9216a4"
+    },
+    "created_at": "2026-10-10T10:45:33.3522257Z",
+    "owner_principal_id": "principal_039298dcd79c0314f737e35122dfc18c",
+    "visibility": "private",
+    "export_policy": "deny",
+    "sharing_revision": 1
+  },
+  "rollback_evidence": {
+    "id": "",
+    "name": "",
+    "kind": "",
+    "mime_type": "",
+    "blob_ref": "",
+    "byte_size": 0,
+    "checksum": "",
+    "created_at": "0001-01-01T00:00:00Z",
+    "owner_principal_id": "",
+    "visibility": "",
+    "export_policy": "",
+    "sharing_revision": 0
+  },
+  "proposal": {
+    "id": "66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9",
+    "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+    "step_id": "taskstep_de2d79939200983fa03008fdab3ba848",
+    "attempt_id": "attempt_7572b6c864b6bb25965e4f8cacdca94a",
+    "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+    "packet_hash": "sha256:f12345b648c6ddd9cd570bdc20c3c2fa51909c3025c21a4f97b581bdaeff2411",
+    "provider_id": "provider_83e80036904bd79a2caae0a8e9e99653",
+    "provider_revision": "provider-fda79e5e9fabd003",
+    "artifact_id": "artifact_01568ee21cae62c23d41b879130e626a",
+    "rollback_artifact_id": "artifact_d5dae098bec75eed0527da8891c9c929",
+    "verification_artifact_id": "artifact_6c115c4a4ea1eeab597a382f3f9216a4",
+    "result_hash": "c9c2d0647aaabe63d947cb2cda72552afe0f99af61daa5abe1d239c17a6c9945",
+    "state": "verified",
+    "created_at": "2026-10-10T10:44:59.0195871Z",
+    "updated_at": "2026-10-10T10:45:33.752207Z"
+  },
+  "task": {
+    "id": "task_77b93381818aaf4786a4401a62bdfdb9",
+    "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+    "title": "Bonsai real Task arithmetic acceptance",
+    "objective": "Fix add(a,b) in sum.js to add two numbers instead of subtracting. One small coding step only. Preserve CommonJS exports. Only sum.js may change. Do not modify sum.test.js. Freeze exactly node --test sum.test.js and node --check sum.js as mandatory checks. All four test cases must execute and pass.",
+    "original_request": "User authorized continuing Hermetrix repair and restoring original local Bonsai for isolated real testing.",
+    "state": "verifying",
+    "active_requirement_revision": 1,
+    "active_plan_revision": 1,
+    "revision": 6,
+    "requirement": {
+      "id": "reqrev_c14c3e0ba9a52088fb20e778f296e224",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "revision": 1,
+      "constraints": [
+        "Local-only inference.",
+        "Only sum.js may change.",
+        "Tests are immutable."
+      ],
+      "unknowns": [],
+      "criteria": [
+        {
+          "id": "AC1",
+          "description": "add returns correct sums for positive, negative, zero and decimal arguments, proven by all four existing immutable test cases."
+        }
+      ],
+      "contract": {
+        "outcome": "Fix add(a,b) in sum.js to add two numbers instead of subtracting. One small coding step only. Preserve CommonJS exports. Only sum.js may change. Do not modify sum.test.js. Freeze exactly node --test sum.test.js and node --check sum.js as mandatory checks. All four test cases must execute and pass.",
+        "scope": "sum.js arithmetic",
+        "writable_paths": [
+          "sum.js"
+        ],
+        "verification": "node --test sum.test.js and node --check sum.js; independent profile post-review.",
+        "reviewer_policy": "independent_code_changes",
+        "require_plan_review": true,
+        "require_user_acceptance": true
+      },
+      "actor": "isolated-test-operator",
+      "created_at": "2026-10-10T10:42:49.7951773Z"
+    },
+    "plan": {
+      "id": "planrev_848477e3fe3e4b8b7a8339897b9a2b62",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "revision": 1,
+      "requirement_revision": 1,
+      "reason": "Fix the add(a, b) function in sum.js so it returns a + b instead of a - b. This is a single small coding cycle: select sum.js (and sum.test.js for reference), propose a minimal edit that preserves the CommonJS module.exports, apply only after approval, run the frozen checks node --check sum.js and node --test sum.test.js, and obtain independent review. sum.test.js must remain byte-identical (verified by its observed sha256). All four existing test cases (positive, negative, zero, decimal) must execute and pass.",
+      "actor": "principal_039298dcd79c0314f737e35122dfc18c",
+      "steps": [
+        {
+          "id": "taskstep_de2d79939200983fa03008fdab3ba848",
+          "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+          "plan_revision": 1,
+          "key": "fix-add-subtraction",
+          "title": "Fix add() in sum.js to add instead of subtract",
+          "instructions": "Workspace change: Edit sum.js: replace the subtraction in the add function with addition, preserving the CommonJS module.exports\n\n1) Select sum.js and sum.test.js. 2) Read the current contents of sum.js and locate the add function that currently subtracts. 3) Propose a minimal edit that changes only the add function's expression from a - b to a + b, preserving the CommonJS module.exports and leaving sum.test.js untouched. 4) Apply the edit only after approval. 5) Run node --check sum.js and node --test sum.test.js; all four test cases must execute and pass. 6) Confirm sum.test.js is byte-identical via its sha256. 7) Obtain independent review.",
+          "requirement_ids": [
+            "AC1"
+          ],
+          "checks": [
+            "assert-file-sha256 sum.test.js 7b5accbb2171c620513a4bc615a7d84581acc9eeeeaf38e897f4ee9ebb008134",
+            "node --check sum.js",
+            "node --test sum.test.js"
+          ],
+          "effect_scope": [
+            "provider.propose",
+            "provider.review",
+            "provider.select_files",
+            "workspace.apply",
+            "workspace.run"
+          ],
+          "state": "completed",
+          "revision": 3,
+          "sort_order": 0,
+          "updated_at": "2026-10-10T10:45:33.7182176Z"
+        }
+      ],
+      "review_status": "approved",
+      "review_reason": "Reviewed the synthetic single-file arithmetic plan: immutable four-case regression tests and their exact hash, syntax check, local-only model, distinct review profile, no delivery or user-acceptance writes.",
+      "subject_hash": "2c8747cb79d2775ebee35e30119d827139885fa113cff9aeef90fb9f365f9604",
+      "created_at": "2026-10-10T10:43:55.6476179Z"
+    },
+    "created_at": "2026-10-10T10:42:49.7951773Z",
+    "updated_at": "2026-10-10T10:45:33.7182176Z",
+    "owner_principal_id": "principal_039298dcd79c0314f737e35122dfc18c",
+    "visibility": "private",
+    "export_policy": "deny",
+    "sharing_revision": 1,
+    "egress_policy": "local_only"
+  },
+  "effect": {
+    "id": "",
+    "attempt_id": "",
+    "task_id": "",
+    "run_id": "",
+    "lease_generation": 0,
+    "operation_id": "",
+    "action": "",
+    "target": "",
+    "authority": "",
+    "state": "",
+    "created_at": "0001-01-01T00:00:00Z",
+    "updated_at": "0001-01-01T00:00:00Z"
+  },
+  "rolled_back": false
+}

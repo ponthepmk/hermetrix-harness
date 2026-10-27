@@ -27,6 +27,16 @@ const maxCommandOutput = 2 << 20
 // nothing that did not ask for a longer wait gets one.
 const maxCommandTimeoutSeconds = 600
 
+var ErrVerificationBusy = errors.New("durable verification command capacity is occupied")
+
+const maxVerificationCommands = 2
+
+func (s *Service) VerificationCapacity(ctx context.Context) (bool, error) {
+	var n int
+	err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM background_jobs WHERE kind='command' AND state IN ('queued','running') AND json_extract(payload_json,'$.durable_verification')=1`).Scan(&n)
+	return n < maxVerificationCommands, err
+}
+
 var allowedExecutables = map[string]bool{
 	"go": true, "git": true, "node": true, "npm": true, "python": true, "python3": true, "rg": true, "ls": true,
 }
@@ -59,6 +69,19 @@ func AvailableCommandExecutables() []string {
 }
 
 func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, error) {
+	return s.startCommand(ctx, input, maxCommandTimeoutSeconds, false)
+}
+
+// StartVerificationCommand permits a longer frozen check with durable effect
+// identity and workspace binding. Ordinary interactive commands retain 600s.
+func (s *Service) StartVerificationCommand(ctx context.Context, input CommandInput) (Job, error) {
+	if strings.TrimSpace(input.OperationID) == "" || input.ExpectedRoot == "" {
+		return Job{}, fmt.Errorf("durable verification requires operation ID and frozen project root")
+	}
+	return s.startCommand(ctx, input, 86400, true)
+}
+
+func (s *Service) startCommand(ctx context.Context, input CommandInput, maxTimeout int, durable bool) (Job, error) {
 	input.Actor = strings.TrimSpace(input.Actor)
 	input.OperationID = strings.TrimSpace(input.OperationID)
 	input.Executable = strings.TrimSpace(input.Executable)
@@ -76,8 +99,8 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	if input.TimeoutSeconds == 0 {
 		input.TimeoutSeconds = 30
 	}
-	if input.TimeoutSeconds < 1 || input.TimeoutSeconds > maxCommandTimeoutSeconds {
-		return Job{}, fmt.Errorf("timeout_seconds must be between 1 and %d", maxCommandTimeoutSeconds)
+	if input.TimeoutSeconds < 1 || input.TimeoutSeconds > maxTimeout {
+		return Job{}, fmt.Errorf("timeout_seconds must be between 1 and %d", maxTimeout)
 	}
 	project, err := s.GetProject(ctx, input.ProjectID)
 	if err != nil {
@@ -87,6 +110,11 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	if err != nil {
 		return Job{}, err
 	}
+	root, err = bindProjectRoot(root, input.ExpectedRoot)
+	if err != nil {
+		return Job{}, err
+	}
+	project.RootPath = root
 	workingDir, err := resolveInside(root, input.WorkingDir, true)
 	if err != nil {
 		return Job{}, err
@@ -102,15 +130,29 @@ func (s *Service) StartCommand(ctx context.Context, input CommandInput) (Job, er
 	now := time.Now().UTC()
 	payload := map[string]any{"project_id": project.ID, "actor": input.Actor, "executable": input.Executable,
 		"arguments": input.Arguments, "working_dir": input.WorkingDir, "timeout_seconds": input.TimeoutSeconds,
-		"shell": false, "environment": "minimal"}
+		"shell": false, "environment": "minimal", "project_root": root}
 	if input.OperationID != "" {
 		payload["operation_id"] = input.OperationID
 	}
+	if durable {
+		payload["durable_verification"] = true
+	}
 	payloadJSON, _ := json.Marshal(payload)
 	job := Job{ID: identity.New("job"), Kind: "command", State: "queued", Payload: payload, Result: map[string]any{}, CreatedAt: now}
-	if _, err := s.store.DB.ExecContext(ctx, `INSERT INTO background_jobs(id,kind,state,progress,payload_json,created_at)
-    VALUES(?,'command','queued',0,?,?)`, job.ID, string(payloadJSON), formatTime(now)); err != nil {
+	query := `INSERT INTO background_jobs(id,kind,state,progress,payload_json,created_at) SELECT ?,'command','queued',0,?,?`
+	queryArgs := []any{job.ID, string(payloadJSON), formatTime(now)}
+	if durable {
+		query += ` WHERE (SELECT COUNT(*) FROM background_jobs WHERE kind='command' AND state IN ('queued','running') AND json_extract(payload_json,'$.durable_verification')=1)<?`
+		queryArgs = append(queryArgs, maxVerificationCommands)
+	}
+	result, err := s.store.DB.ExecContext(ctx, query, queryArgs...)
+	if err != nil {
 		return Job{}, err
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return Job{}, err
+	} else if n != 1 {
+		return Job{}, ErrVerificationBusy
 	}
 	jobCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.mu.Lock()
@@ -164,10 +206,15 @@ func (s *Service) runCommand(parent context.Context, job Job, project Project, e
 		s.mu.Unlock()
 		return
 	}
-	jobRuntimeRoot := filepath.Join(s.store.Root, "runtime", "jobs", job.ID)
+	// Child processes may change directory (for example, go -C backend).
+	// TEMP/TMP must keep pointing at this job's directory after that change.
+	jobRuntimeRoot, tempSetupErr := filepath.Abs(filepath.Join(s.store.Root, "runtime", "jobs", job.ID))
 	jobTempDir := filepath.Join(jobRuntimeRoot, "tmp")
-	if err := os.MkdirAll(jobTempDir, 0o700); err != nil {
-		errorMessage := "create isolated command temp directory: " + err.Error()
+	if tempSetupErr == nil {
+		tempSetupErr = os.MkdirAll(jobTempDir, 0o700)
+	}
+	if tempSetupErr != nil {
+		errorMessage := "create isolated command temp directory: " + tempSetupErr.Error()
 		resultJSON, _ := json.Marshal(map[string]any{"exit_code": -1})
 		completed := time.Now().UTC()
 		durability.Exec("mark command temp setup failed").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE background_jobs SET state='failed',progress=1,result_json=?,error=?,

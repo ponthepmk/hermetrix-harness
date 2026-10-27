@@ -9,8 +9,9 @@
   <link rel="icon" type="image/png" href="/assets/brand/hermetrix-logo.png">
   <link rel="apple-touch-icon" href="/assets/brand/hermetrix-logo.png">
   <link rel="stylesheet" href="/style.css?v=folder-picker-v2">
-  <link rel="stylesheet" href="/codex-theme.css?v=code-nowrap">
+  <link rel="stylesheet" href="/codex-theme.css?v=audit-flow-1">
   <link rel="stylesheet" href="/hardware-monitor.css">
+  <link rel="stylesheet" href="/interaction.css?v=audit-flow-1">
 </head>
 <body>
   <!-- Workspaces scope file and task work. Personal Chat opens without one. -->
@@ -41,12 +42,22 @@
         <button id="plansViewButton">แผน</button>
         <button data-view="code">พื้นที่ทำงาน</button>
       </nav>
+      <details class="compact-navigation" id="compactNavigation">
+        <summary aria-label="เลือกหน้าหรือเปิดเมนู"><span id="compactViewLabel">แชต</span><span aria-hidden="true">⌄</span></summary>
+        <div class="compact-navigation-options">
+          <button type="button" data-compact-view="chat">แชต</button>
+          <button type="button" data-compact-view="plans">แผนงาน</button>
+          <button type="button" data-compact-view="code">พื้นที่ทำงาน</button>
+          <button type="button" id="compactSearch">ค้นหา</button>
+          <button type="button" id="compactHardware">สถานะเครื่อง</button>
+        </div>
+      </details>
       <div class="header-right">
-        <button class="command-trigger" id="commandButton" aria-label="Open command palette"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><span>Search or run</span><kbd>⌘K</kbd></button>
+        <button class="command-trigger" id="commandButton" aria-label="ค้นหาหรือสั่งงาน"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><span>ค้นหาหรือสั่งงาน</span><kbd>Ctrl K</kbd></button>
         <button class="ghost compact" id="toggleRail" aria-pressed="false" aria-label="แสดงหรือซ่อนรายการแชต" title="รายการแชต"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#sidebar"></use></svg></button>
         <button class="ghost compact" id="toggleSide" aria-pressed="false" aria-label="Toggle the workbench" title="Workbench"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#workbench"></use></svg></button>
         <button class="ghost compact" id="densityToggle" aria-pressed="false" aria-label="Toggle interface density">Aa</button>
-        <button class="ghost compact" id="refreshButton" aria-label="Refresh" title="Refresh"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#refresh"></use></svg></button>
+        <button class="ghost compact" id="refreshButton" aria-label="โหลดข้อมูลใหม่" title="โหลดข้อมูลใหม่"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#refresh"></use></svg></button>
         <button class="ghost compact" id="openConfig" aria-label="เปิดการตั้งค่า" title="การตั้งค่า"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#settings"></use></svg><b id="proposalBadge" hidden>0</b></button>
       </div>
     </header>
@@ -165,7 +176,7 @@
 
   <dialog id="commandDialog" class="command-dialog">
     <form method="dialog" id="commandForm">
-      <label class="command-search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="commandInput" type="search" autocomplete="off" placeholder="Go to a page, room, or action…"><kbd>esc</kbd></label>
+      <label class="command-search"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/hermetrix-ui.svg#search"></use></svg><input id="commandInput" type="search" aria-label="ค้นหาหน้า แผนงาน หรือคำสั่ง" autocomplete="off" placeholder="ค้นหาหน้า แผนงาน หรือคำสั่ง…"><kbd>esc</kbd></label>
       <div class="command-list" id="commandList" role="listbox" aria-label="Hermetrix commands"></div>
       <footer class="command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>↵</kbd> Open</span><span>Commands never bypass approval</span></footer>
     </form>
@@ -212,15 +223,23 @@
     <div class="voice-actions"><button type="button" class="primary" id="voiceMic">เปิดไมค์</button><button type="button" class="ghost" id="voiceSend" disabled>ส่งข้อความ</button><button type="button" class="ghost" id="voiceTestSound">ทดสอบลำโพง</button><button type="button" class="ghost" id="voiceStopOutput">หยุดเสียงตอบ</button></div>
     <p class="voice-footnote">เป้าหมายงานยังต้องตรวจแผนก่อนเริ่ม และเครื่องมือที่ต้องอนุมัติยังรอการยืนยันบนหน้าจอ · ปิดไมค์ไม่หยุดงานที่เริ่มแล้ว</p>
   </aside>
+  <aside class="ui-activity" id="interactionStatus" data-state="idle" hidden aria-label="สถานะรายการล่าสุด">
+    <span class="ui-activity-mark" aria-hidden="true"></span>
+    <div><strong data-activity-label role="status" aria-live="polite" aria-atomic="true"></strong><span data-activity-detail aria-hidden="true"></span></div>
+    <button type="button" class="icon-button" data-activity-dismiss aria-label="ปิดสถานะรายการ">×</button>
+  </aside>
+  <script src="/interaction.js?v=motion-1" defer></script>
+  <script src="/vendor/rich-text.js" defer></script>
   <script src="/runtime.js" defer></script>
   <script src="/project-brain-candidate.js" defer></script>
   <script src="/conversation-controls.js" defer></script>
   <script src="/auto-retry.js" defer></script>
-  <script src="/app.js?v=code-nowrap" defer></script>
+  <script src="/app.js?v=audit-flow-1" defer></script>
   <script src="/hardware-monitor.js" defer></script>
   <script src="/voice.js" defer></script>
   <script src="/ide-workspace.js" defer></script>
-  <script src="/ide-assistant.js" defer></script>
+  <script src="/ide-assistant.js?v=audit-flow-1" defer></script>
   <script src="/discord-settings.js" defer></script>
+  <script src="/chat-diagrams.js" defer></script>
 </body>
 </html>

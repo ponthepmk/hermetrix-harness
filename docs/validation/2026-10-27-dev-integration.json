@@ -1,0 +1,182 @@
+{
+  "date": "2026-10-27",
+  "scope": "Prepared Harness changes integrated with origin/dev; generated applications stay local",
+  "parents": {
+    "dev": "e0b8f13c7e6ffb1ee629b87d2c9f2fe2db3bcb76",
+    "feature": "bfaa09fdc22d273f64aff8e86d3bd2426dd21c9a"
+  },
+  "qualified_source_tree": "98f0297555e36a8315fea0829270c96d5f7f35c6",
+  "schema": {
+    "merged": 81,
+    "origin_dev": 74,
+    "feature": 80,
+    "actual_dev74_to81_isolated_reopen_pass": true,
+    "schema80_reopen_and_legacy_idempotence_standing_tests_pass": true,
+    "installed_databases_modified": false
+  },
+  "checks": {
+    "go_test_pass_events": 1459,
+    "go_test_fail_events": 0,
+    "go_test_skips": [
+      {
+        "package": "hermetrix-harness/internal/store",
+        "test": "TestAgedInstalledDatabaseMigratesOnCopy"
+      },
+      {
+        "package": "hermetrix-harness/internal/agentplatform/piidentity",
+        "test": "TestLivePiToolDiscovery"
+      },
+      {
+        "package": "hermetrix-harness/internal/mcp",
+        "test": "TestInstalledComfyMCPDiscovery"
+      },
+      {
+        "package": "hermetrix-harness/internal/agent",
+        "test": "TestLiveBonsaiCappedAdmissionAndActualRead"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestInstalledComfyReadinessThroughHermetrixAPI"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestInstalledComfyPreflightThroughHermetrixAPI"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestInstalledComfyJobPersistsAndIngestsOutput"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestChromeBlocksAPrivateSubresourceBeforeItReachesTheServer"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestChromePassiveInspectionReportsLoadedAPIAndClientSource"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestChromeHeldKeyCancellationReleasesWithoutReplaying"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestChromeHeldGameKeyMovesAndReleasesWithExactApproval"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestChromeApprovedClickObservesDelayedSPARouteWithoutReplaying"
+      },
+      {
+        "package": "hermetrix-harness/internal/skills",
+        "test": "TestParseExternalSkillFixture"
+      },
+      {
+        "package": "hermetrix-harness/internal/taskcoord",
+        "test": "TestBonsaiDecisionAgainstLocalServer"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestGoDebuggerBreakpointVariablesAndStepping"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestGoDebuggerStepInAndStop"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestGoDebuggerReportsCompileFailureAndExitCode"
+      },
+      {
+        "package": "hermetrix-harness/internal/agent",
+        "test": "TestRealEmbedderCrossesScripts"
+      },
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestLiveHermetrixBonsaiVideoResearchOwnedWorkflow"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestTailnetPreviewLoginInRealBrowser"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestVideoResearchActualReportAndPointerSubmit"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestResidentWhisperPreservesThaiAndEnglish"
+      },
+      {
+        "package": "hermetrix-harness/internal/web",
+        "test": "TestLiveVoicePartialAndFinalInARealBrowser"
+      }
+    ],
+    "go_test_exit": 0,
+    "go_vet_exit": 0,
+    "go_build_exit": 0,
+    "node_tests_pass": 159,
+    "node_tests_fail": 0,
+    "darwin_arm64_cross_build_exit": 0,
+    "actual_mac_runtime_tested": false
+  },
+  "native_reviews": [
+    {
+      "scope": "core",
+      "verdict": "approve",
+      "findings": 0,
+      "usage": {
+        "prompt_tokens": 8740,
+        "completion_tokens": 232,
+        "total_tokens": 8972
+      }
+    },
+    {
+      "scope": "ui-controls",
+      "verdict": "approve",
+      "findings": 0,
+      "usage": {
+        "prompt_tokens": 10010,
+        "completion_tokens": 218,
+        "total_tokens": 10228
+      }
+    },
+    {
+      "scope": "ui-ide",
+      "verdict": "approve",
+      "findings": 0,
+      "usage": {
+        "prompt_tokens": 8230,
+        "completion_tokens": 280,
+        "total_tokens": 8510
+      }
+    }
+  ],
+  "review_limits": "Same Bonsai Local model through separate reviewer profile; no model diversity. Bounded regions only. One combined UI packet rejected before inference by existing input ceiling, then split into fresh scopes without budget increase.",
+  "provenance": "New product/test semantics authored by Hermetrix/Bonsai. Conflict resolution also copies exact accepted-native and original dev/feature source spans with mechanical gofmt. Protocol-rejected drafts excluded. Native syntax/API/DOM failures were observed and not treated as successful code.",
+  "browser_verification": [
+    "Long replies remain above composer",
+    "Text attachments and unsaved editor context reach local deterministic fixture model",
+    "Latest-turn token progress and shared-session cumulative totals checked separately",
+    "Compact chat390x420,390x640,768,1024,1440; screenshot inspected",
+    "Real pointer/touch sends, queue/stop/steer standing suites",
+    "Explicit project consent creates2actual files without pending approvals",
+    "UI-selected origin executes actual held key through owned browser and terminal receipt"
+  ],
+  "contents": {
+    "generated_projects_added": false,
+    "new_raw_evidence_added": false,
+    "local_databases_added": false,
+    "manifests": [
+      "go.mod",
+      "internal/web/vendor-src/package.json"
+    ],
+    "historical_tracked_evidence": "Preserved; not removed or rewritten"
+  },
+  "publication": {
+    "authorized": true,
+    "target": "refs/heads/dev",
+    "strategy": "Normal fast-forward push of a two-parent integration commit; no force push",
+    "receipt": "Verify final commit against Git remote; the commit identity and push result are reported separately"
+  },
+  "remaining": "Full goal stays ACTIVE. This integration does not complete trusted behavioral execution/promotion, general learning transfer, or the marketplace deployment."
+}

@@ -1,0 +1,25 @@
+{
+  "historical_turn_replayed": false,
+  "brain_called": false,
+  "main_pid": 20260,
+  "task_acceptance": false,
+  "runtime": {
+    "token_unchanged": true,
+    "binary": ".tmp-ui/hermetrix-read-autonomy-20261011.exe",
+    "public_url": "https://desktop-nh66lnq.tail0f7f57.ts.net:18810/",
+    "schema": 76,
+    "binary_sha256": "45F6AB521D3E2FE16087F5DE784DB5C9824399C4FFE47A2352E6A781C61DDCDB",
+    "backup": ".tmp-ui/read-autonomy-before-20261011.db",
+    "pid": 83928
+  },
+  "gateway_pid": 43076,
+  "passed": [
+    "full Go suite",
+    "final agent/MCP packages",
+    "Node 141",
+    "live Chrome HTTPS five sizes",
+    "real Bonsai three reads without approval",
+    "build",
+    "vet"
+  ]
+}

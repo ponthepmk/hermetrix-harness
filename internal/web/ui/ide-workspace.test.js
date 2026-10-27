@@ -153,6 +153,14 @@ test("format response cannot replace text typed while formatting", async () => {
 });
 
 const appSource = fs.readFileSync(`${__dirname}/app.js`, "utf8");
+test("zero-test completion is explicitly unverified without changing the raw receipt", () => {
+  const h = harness();
+  const run = {action:"test", job:{state:"completed", result:{exit_code:0,output:"TAP version 13\n# tests 0\n# pass 0\n"}}};
+  assert.match(h.controller.testOutcome(run), /ไม่พบการทดสอบ/);
+  assert.equal(run.job.result.exit_code, 0);
+  run.job.result.output = "# tests 3\n# pass 3\n";
+  assert.match(h.controller.testOutcome(run), /3 รายการ/);
+});
 function appSection(start, end) {
   const from = appSource.indexOf(start), to = appSource.indexOf(end, from);
   assert.ok(from >= 0 && to > from);
@@ -197,6 +205,14 @@ test("save completion updates the disk baseline without replacing newer typing",
   assert.equal(h.state.projectFile.originalContent, "edit-one");
   assert.equal(h.state.projectFile.sha256, "sha-one");
   assert.equal(h.context.activeCodeEditor.getValue(), "edit-two");
+});
+test("capturing an untouched normalized editor preserves original CRLF bytes", () => {
+  const h = saveHarness();
+  h.state.projectFile.content = h.state.projectFile.originalContent = "const ready=true;\r\n";
+  h.setBuffer("const ready=true;\n");
+  h.context.activeCodeEditor.changed = false;
+  h.context.captureCodeDraft();
+  assert.equal(h.state.projectFile.content, "const ready=true;\r\n");
 });
 
 test("save completion for a previous project cannot replace the active project's buffer", async () => {

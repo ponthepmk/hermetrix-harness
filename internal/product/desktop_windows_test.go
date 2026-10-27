@@ -48,6 +48,7 @@ $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Hermetrix native fixture'
 $form.Width = 300
 $form.Height = 160
+$form.TopMost = $true
 $button = New-Object System.Windows.Forms.Button
 $button.Name = 'fixtureButton'
 $button.Text = 'Apply fixture'
@@ -55,7 +56,8 @@ $button.Width = 130
 $button.Height = 40
 $button.Left = 20
 $button.Top = 20
-$button.Add_Click({ $form.Text = 'Hermetrix native fixture clicked' })
+$script:fixtureClicks = 0
+$button.Add_Click({ $script:fixtureClicks++; $form.Text = 'Hermetrix native fixture clicked ' + $script:fixtureClicks })
 $form.Controls.Add($button)
 $input = New-Object System.Windows.Forms.TextBox
 $input.Name = 'fixtureInput'
@@ -136,6 +138,28 @@ $form.Show()
 	if editRef == 0 {
 		t.Fatalf("fixture input missing: %+v", observation.Elements)
 	}
+	// The pointer path must cause an actual native button click and persist both images.
+	button := observation.Elements[ref-1]
+	point := &DesktopPoint{X: button.Bounds.X - observation.Window.Bounds.X + button.Bounds.Width/2, Y: button.Bounds.Y - observation.Window.Bounds.Y + button.Bounds.Height/2}
+	if _, err := service.PrepareDesktopAction(ctx, DesktopActionInput{Handle: handle, ProcessID: processID, Action: "invoke", Point: &DesktopPoint{X: -1, Y: 0}, ObservationHash: observation.ObservationHash}); err == nil {
+		t.Fatal("outside-image point accepted")
+	}
+	pointer, err := service.PrepareDesktopAction(ctx, DesktopActionInput{Handle: handle, ProcessID: processID, Action: "invoke", Point: point, ObservationHash: observation.ObservationHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointerResult, err := service.ConfirmDesktopAction(ctx, pointer.ID, pointer.SubjectHash, "", "tester")
+	if err != nil || pointerResult.State != "completed" || pointerResult.Observation == nil || !strings.Contains(pointerResult.Observation.Window.Title, "clicked") {
+		t.Fatalf("physical pointer did not change fixture: %+v err=%v", pointerResult, err)
+	}
+	persisted, err := service.GetDesktopAction(ctx, pointer.ID)
+	if err != nil || persisted.Observation == nil || persisted.ScreenshotBeforeID == "" || persisted.ScreenshotAfterID == "" {
+		t.Fatalf("native screenshots did not survive readback: %+v %v", persisted, err)
+	}
+	if _, err := service.ConfirmDesktopAction(ctx, pointer.ID, pointer.SubjectHash, "", "tester"); err == nil {
+		t.Fatal("physical pointer replayed")
+	}
+	observation = *pointerResult.Observation
 	edit := DesktopActionInput{Handle: handle, ProcessID: processID, Action: "set_value", ElementRef: editRef,
 		Text: "Reviewed text", ObservationHash: observation.ObservationHash}
 	editPrepared, err := service.PrepareDesktopAction(ctx, edit)

@@ -1,0 +1,4 @@
+:root { color-scheme: dark; font: 14px/1.5 system-ui, sans-serif; color: #d9e6e3; background: #161b20; }
+body { margin: 0; padding: 12px; overflow: auto; }
+#diagramRoot { min-height: 120px; }
+svg { display: block; margin: auto; width: 100%; min-width: 300px; height: auto; }

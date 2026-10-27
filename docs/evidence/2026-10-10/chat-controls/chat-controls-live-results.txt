@@ -1,0 +1,10 @@
+=== RUN   TestChatStopQueueSteerInRealBrowser
+=== RUN   TestChatStopQueueSteerInRealBrowser/Chat
+    ui_chat_controls_e2e_test.go:184: Stop→Queue→Steer acceptance session=session_05b7a6d75ebc372105e4c4c4dd064956 mode=Bonsai local
+=== RUN   TestChatStopQueueSteerInRealBrowser/Workspace
+    ui_chat_controls_e2e_test.go:184: Stop→Queue→Steer acceptance session=session_b3c2edd29222d470f1ea673bb2070050 mode=Bonsai local
+--- PASS: TestChatStopQueueSteerInRealBrowser (14.65s)
+    --- PASS: TestChatStopQueueSteerInRealBrowser/Chat (8.24s)
+    --- PASS: TestChatStopQueueSteerInRealBrowser/Workspace (6.41s)
+PASS
+ok  	hermetrix-harness/internal/web	20.517s

@@ -198,7 +198,7 @@ func TestShellHasOneViewSwitchAndDraggableZones(t *testing.T) {
 // nothing checked that an id someone put in the document was ever selected.
 func TestEveryCockpitElementIDIsWiredToBehaviour(t *testing.T) {
 	index := mustUIFile(t, "ui/index.html")
-	javascript := mustUIFile(t, "ui/app.js") + mustUIFile(t, "ui/voice.js") + mustUIFile(t, "ui/hardware-monitor.js")
+	javascript := mustUIFile(t, "ui/app.js") + mustUIFile(t, "ui/voice.js") + mustUIFile(t, "ui/hardware-monitor.js") + mustUIFile(t, "ui/interaction.js")
 	// Presentation-only ids belong here with the reason they need no handler.
 	presentationOnly := map[string]string{
 		"sessionSetupTitle": "accessible name referenced by the model-settings dialog's aria-labelledby",

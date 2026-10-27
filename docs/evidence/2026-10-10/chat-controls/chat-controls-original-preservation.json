@@ -1,0 +1,46 @@
+{
+  "durable_tasks": {
+    "before": {
+      "rows": 7,
+      "hash": "4c0bdad0a1048c79bb11e226707088f1537004a83676c04b6045ac7566e8eb29"
+    },
+    "after": {
+      "rows": 7,
+      "hash": "4c0bdad0a1048c79bb11e226707088f1537004a83676c04b6045ac7566e8eb29"
+    },
+    "unchanged": true
+  },
+  "task_steps": {
+    "before": {
+      "rows": 58,
+      "hash": "e4554a350a5bb73eb5623875497bd616273938dd8a1bfb55b14c4dee1a77bc2c"
+    },
+    "after": {
+      "rows": 58,
+      "hash": "e4554a350a5bb73eb5623875497bd616273938dd8a1bfb55b14c4dee1a77bc2c"
+    },
+    "unchanged": true
+  },
+  "task_user_acceptances": {
+    "before": {
+      "rows": 1,
+      "hash": "78b702eef27eaac78c2d52030f3d06b72b478117fe1fda9045567247f58424d7"
+    },
+    "after": {
+      "rows": 1,
+      "hash": "78b702eef27eaac78c2d52030f3d06b72b478117fe1fda9045567247f58424d7"
+    },
+    "unchanged": true
+  },
+  "task_effect_intents": {
+    "before": {
+      "rows": 108,
+      "hash": "8637031883e85f75db7d8e9e73c53bb4b153891b6cb0d6a3c0aa665005374de3"
+    },
+    "after": {
+      "rows": 108,
+      "hash": "8637031883e85f75db7d8e9e73c53bb4b153891b6cb0d6a3c0aa665005374de3"
+    },
+    "unchanged": true
+  }
+}

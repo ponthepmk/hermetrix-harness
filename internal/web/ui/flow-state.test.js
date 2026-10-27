@@ -34,7 +34,7 @@ function harness(overrides = {}) {
     return [];
   };
   const context = vm.createContext({
-    state, asList, Map, Set, CONFIG_PAGE_IDS:[], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id", console,
+    state, asList, Map, Set, codeOpenGeneration:0, CONFIG_PAGE_IDS:[], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id", console,
     $:selector=>selector === "#chatInput" ? input : selector === "#startPrompt" ? start : selector === "#zones" ? {classList:{contains:()=>true}} : null,
     document:{activeElement:null, querySelectorAll:()=>[]}, $$:()=>[],
     api:async (...args)=>{calls.push(args[0]); return overrides.api ? overrides.api(args[0], defaultAPI) : defaultAPI(...args);},
@@ -172,6 +172,16 @@ test("an active turn prevents cross-session and project navigation without start
   assert.equal(calls.length, 0);
   assert.equal(state.currentProject.id, "a");
   assert.equal(state.sessionDetail.session.id, "a1");
+});
+
+test("a draft typed while an earlier turn answers survives its completion", async () => {
+  const response = deferred();
+  const {context,state,input} = harness({fetch:()=>response.promise});
+  input().value="first sent";
+  const sending=context.sendTurn({preventDefault(){}});
+  input().value="next draft";state.draftMessage="next draft";
+  response.resolve({ok:true});await sending;
+  assert.equal(input().value,"next draft");assert.equal(state.draftMessage,"next draft");
 });
 
 test("a navigation started before a turn cannot commit while that other session is streaming", async () => {

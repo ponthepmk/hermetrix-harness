@@ -26,10 +26,11 @@ const pageTextCeiling = 24 << 10
 // gate this tool promises belongs where the promise is made.
 var browserActions = map[string]bool{
 	"open": true, "navigate": true, "back": true, "read": true,
-	"click": true, "type": true, "capture": true, "inspect": true, "audit": true, "source": true, "close": true,
+	"click": true, "type": true, "key": true, "capture": true, "inspect": true, "audit": true, "source": true, "close": true,
 }
 
 type browserArgs struct {
+	DurationMS      int    `json:"duration_ms"`
 	Action          string `json:"action"`
 	TabID           string `json:"tab_id"`
 	URL             string `json:"url"`
@@ -48,7 +49,7 @@ func (s *Service) enrichBrowserApproval(ctx context.Context, session Session, ca
 		return plan, err
 	}
 	args.Action = strings.TrimSpace(args.Action)
-	if args.Action != "click" && args.Action != "type" {
+	if args.Action != "click" && args.Action != "type" && args.Action != "key" {
 		return plan, nil
 	}
 	if s.browser == nil {
@@ -132,6 +133,14 @@ func (s *Service) executeBrowserTool(ctx context.Context, session Session, call 
 	// could read as loopback to the gate and as a relative path to OpenPage,
 	// two parsers reaching different answers about one string.
 	args.URL = toolruntime.NormalizeBrowserURL(args.URL)
+	if args.DurationMS < 0 || args.DurationMS > 3000 || (args.Action != "key" && args.DurationMS != 0) {
+		receipt.Error = "duration_ms is only for key and must be 0..3000"
+		return finish()
+	}
+	if args.Action == "key" && definition.Revision != "v6" {
+		receipt.Error = "browser key is absent from this frozen version; start a new session"
+		return finish()
+	}
 	if !browserActions[args.Action] {
 		receipt.Error = fmt.Sprintf("unsupported browser action %q", args.Action)
 		return finish()
@@ -163,10 +172,10 @@ func (s *Service) executeBrowserTool(ctx context.Context, session Session, call 
 			return finish()
 		}
 		request := BrowserActRequest{ProjectID: session.ProjectID, Action: args.Action, URL: args.URL, Ref: args.Ref,
-			Text: args.Text, ObservationHash: args.ObservationHash, Actor: "agent:" + session.ID}
-		if args.Action == "click" || args.Action == "type" {
+			Text: args.Text, DurationMS: args.DurationMS, ObservationHash: args.ObservationHash, Actor: "agent:" + session.ID}
+		if args.Action == "click" || args.Action == "type" || args.Action == "key" {
 			if !viaApproval {
-				receipt.Error = "browser click and type require exact human approval"
+				receipt.Error = "browser click, type and key require exact human approval"
 				return finish()
 			}
 			preparer, ok := s.browser.(BrowserActionPreparer)

@@ -40,6 +40,7 @@ type FileEntry struct {
 	Symlink    bool      `json:"symlink"`
 	Bytes      int64     `json:"bytes"`
 	ModifiedAt time.Time `json:"modified_at"`
+	Absent     bool      `json:"absent,omitempty"`
 }
 
 type FileDocument struct {
@@ -104,9 +105,11 @@ func (e *MutationCommittedReceiptFailed) Error() string {
 func (e *MutationCommittedReceiptFailed) Unwrap() error { return e.Cause }
 
 type FileRollbackResult struct {
-	Path  string `json:"path"`
-	State string `json:"state"`
-	Error string `json:"error,omitempty"`
+	Path        string `json:"path"`
+	State       string `json:"state"`
+	Error       string `json:"error,omitempty"`
+	OperationID string `json:"operation_id,omitempty"`
+	ArtifactID  string `json:"artifact_id,omitempty"`
 }
 
 type BatchWriteResult struct {
@@ -194,6 +197,7 @@ type OpenBrowserTabInput struct {
 }
 
 type BrowserActionInput struct {
+	DurationMS      int    `json:"duration_ms,omitempty"`
 	Action          string `json:"action"`
 	URL             string `json:"url,omitempty"`
 	Ref             int    `json:"ref,omitempty"`
@@ -422,6 +426,7 @@ type Job struct {
 
 type CommandInput struct {
 	ProjectID      string   `json:"project_id"`
+	ExpectedRoot   string   `json:"expected_root,omitempty"`
 	OperationID    string   `json:"operation_id,omitempty"`
 	Actor          string   `json:"actor"`
 	Executable     string   `json:"executable"`

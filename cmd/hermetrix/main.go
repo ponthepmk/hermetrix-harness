@@ -99,6 +99,7 @@ func runServe(args []string) {
 	providerAPIKeyEnv := flags.String("provider-api-key-env", "HERMETRIX_PROVIDER_API_KEY", "environment variable holding the provider credential")
 	providerContext := flags.Int("provider-context", 131072, "declared provider context window")
 	providerMaxOutput := flags.Int("provider-max-output", 8192, "maximum output tokens for the startup provider")
+	reviewerProviderID := flags.String("reviewer-provider-id", "", "exact provider profile ID for background learning reviews; empty selects the first enabled profile")
 	// Semantic retrieval is opt-in. An embedding model is a second model to run,
 	// and with none configured every path that would use one falls back to the
 	// lexical scorer it used before -- a supported configuration, not a degraded
@@ -242,11 +243,15 @@ func runServe(args []string) {
 	// Point the learner at a provider once one exists. Reviews queue from the
 	// first turn, so the learning service is built before any provider is, and
 	// the startup reviewer can only acknowledge a procedure someone else wrote.
-	if reviewProvider, reviewErr := providerService.FirstEnabled(ctx); reviewErr == nil {
+	if reviewProvider, reviewErr := backgroundReviewProvider(ctx, providerService, *reviewerProviderID); reviewErr == nil {
 		learningService.WithReviewer(learning.NewModelReviewer(providerService, reviewProvider.ID))
 		logger.Info("review worker ready", "reviewer", learningService.ReviewerRevision(),
 			"provider", reviewProvider.Name, "model", reviewProvider.Model)
 	} else {
+		if *reviewerProviderID != "" {
+			logger.Error("configured background reviewer is unavailable; refusing a provider fallback", "error", reviewErr)
+			os.Exit(2)
+		}
 		logger.Warn("no enabled provider; reviews cannot propose Skills from evidence",
 			"reviewer", learningService.ReviewerRevision())
 	}
@@ -257,7 +262,7 @@ func runServe(args []string) {
 	}
 	toolRegistry.SetCatalog(capabilityCatalog)
 	agentService := agent.NewService(dataStore, providerService, compiler, estimator, gate, toolRegistry, skillService).
-		WithLearning(learningService).WithRuntime(productService, productService)
+		WithLearning(learningService).WithRuntime(productService, productService).WithDesktop(productService)
 	if *brainServer != "" {
 		retriever := &projectbrain.Retriever{Servers: mcpService,
 			Catalog: capabilityCatalog, ServerName: *brainServer, Project: *brainProject}
@@ -295,6 +300,10 @@ func runServe(args []string) {
 			os.Getenv(*embedAPIKeyEnv), *embedDimensions))
 		logger.Info("semantic retrieval enabled", "model", *embedModel, "endpoint", *embedBaseURL)
 	}
+	if recoverErr := agentService.RecoverMessageQueue(ctx); recoverErr != nil {
+		logger.Error("recover message queue", "error", recoverErr)
+		os.Exit(1)
+	}
 	if recovered, recoverErr := agentService.RecoverInterruptedApprovals(ctx); recoverErr != nil {
 		logger.Error("recover interrupted tool approvals", "error", recoverErr)
 		os.Exit(1)
@@ -311,9 +320,14 @@ func runServe(args []string) {
 		logger.Error("recover automatic continuations", "error", err)
 		os.Exit(1)
 	}
+	if recoverErr := agentService.RecoverTurnControls(ctx); recoverErr != nil {
+		logger.Error("recover turn controls", "error", recoverErr)
+		os.Exit(1)
+	}
 	go agentService.StartAutoRetries(ctx, func(err error) {
 		logger.Warn("automatic continuation failed; scheduled again in five minutes", "error", err)
 	})
+	go agentService.RunMessageQueue(ctx)
 	if recovered, recoverErr := learningService.RecoverInterrupted(ctx); recoverErr != nil {
 		logger.Error("recover interrupted learning reviews", "error", recoverErr)
 		os.Exit(1)
@@ -325,6 +339,10 @@ func runServe(args []string) {
 		os.Exit(1)
 	} else if recovered > 0 {
 		logger.Warn("paused interrupted durable tasks for effect reconciliation", "count", recovered)
+	}
+	if err := taskService.RecoverGoals(ctx); err != nil {
+		logger.Error("recover interrupted goal dispatches", "error", err)
+		return
 	}
 	discordService, err := discordbridge.NewService(ctx, dataStore, vault, discordbridge.NewAgentAdapter(agentService, providerService, productService))
 	if err != nil {
@@ -361,6 +379,10 @@ func runServe(args []string) {
 	server := &http.Server{Addr: *listen, Handler: webServer.Handler(),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute,
 		IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
+	goalCtx, stopGoals := context.WithCancel(ctx)
+	goalsDone := make(chan struct{})
+	go func() { defer close(goalsDone); taskCoordinator.ServeGoals(goalCtx) }()
+	defer func() { stopGoals(); <-goalsDone }()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -446,6 +468,20 @@ func runServe(args []string) {
 		logger.Error("serve", "error", err)
 		os.Exit(1)
 	}
+}
+
+func backgroundReviewProvider(ctx context.Context, service *providers.Service, id string) (providers.Profile, error) {
+	if id == "" {
+		return service.FirstEnabled(ctx)
+	}
+	profile, err := service.Get(ctx, id)
+	if err != nil {
+		return providers.Profile{}, err
+	}
+	if !profile.Enabled || !profile.CredentialReady {
+		return providers.Profile{}, fmt.Errorf("configured reviewer profile is disabled or missing credentials")
+	}
+	return profile, nil
 }
 
 func requireSecureListener(address string, authenticated, tls bool) error {

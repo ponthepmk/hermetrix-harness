@@ -152,6 +152,10 @@ func (webTeamAgent) DecideApproval(_ context.Context, _ string, _ agent.Approval
 }
 
 func testHandler(t *testing.T) http.Handler {
+	return testConfiguredServer(t).Handler()
+}
+
+func testConfiguredServer(t *testing.T) *Server {
 	t.Helper()
 	dataStore, err := store.Open(context.Background(), t.TempDir())
 	if err != nil {
@@ -195,7 +199,7 @@ func testHandler(t *testing.T) http.Handler {
 	return New(skillService, learningService, curatorService, compiler, estimator,
 		localmodel.NewProber(), providerService, agentService, dataStore, logger).WithMCP(mcpService, capabilityCatalog).
 		WithFidelity(fidelityService).WithQualification(qualificationService).WithProduct(productService).
-		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).WithSocialVault(vault).Handler()
+		WithTaskEngine(taskService).WithTaskCoordinator(taskCoordinator).WithDiscord(discordService).WithSocialVault(vault)
 }
 
 func TestDurableTaskAPIExposesEvidenceGatedLifecycle(t *testing.T) {
@@ -749,7 +753,7 @@ func TestEndToEndAgentSearchDescribeAndCallRealMCPServer(t *testing.T) {
 		// Raised to 11 when skill_manage joined the waist.
 		// Raised to 12 when workspace.run joined the waist.
 		// Raised to 13 when browser joined the waist.
-		if len(request.Tools) > 13 {
+		if len(request.Tools) > 14 {
 			t.Errorf("direct tool prompt grew with the catalog: %d tools", len(request.Tools))
 		}
 		for _, tool := range request.Tools {
@@ -910,7 +914,7 @@ func TestHTTPSkillReplayCapabilityReviewAndFidelityEvidence(t *testing.T) {
 	// so the HTTP surface has to be able to record one -- without this route an
 	// operator could never promote an improvement through the API at all.
 	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/behavioral-eval", http.MethodPost,
-		map[string]any{"tasks": 5, "baseline_passed": 5, "candidate_passed": 5}, http.StatusCreated)
+		map[string]any{"tasks": 5, "baseline_passed": 5, "candidate_passed": 5, "result": json.RawMessage(`{"cases":[{"case_id":"A","baseline_passed":true,"candidate_passed":true},{"case_id":"B","baseline_passed":true,"candidate_passed":true},{"case_id":"C","baseline_passed":true,"candidate_passed":true},{"case_id":"D","baseline_passed":true,"candidate_passed":true},{"case_id":"E","baseline_passed":true,"candidate_passed":true}]}`)}, http.StatusCreated)
 	requestJSON(t, harness.URL+"/api/candidates/"+updated.ID+"/promote", http.MethodPost,
 		map[string]any{"actor": "user", "expected_revision": updated.Revision}, http.StatusOK)
 	casesResponse, err := http.Get(harness.URL + "/api/fidelity/cases")

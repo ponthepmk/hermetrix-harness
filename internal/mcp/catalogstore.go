@@ -63,11 +63,9 @@ func prepareResource(server Server, remote RemoteResource) (storedResource, erro
 		URI: uri, Name: boundedText(remote.Name, 256), Title: boundedText(remote.Title, 256),
 		Description: boundedText(remote.Description, 4096), MimeType: boundedText(remote.MimeType, 128),
 		Annotations: annotations,
-		// Reading a resource still crosses to a remote server and returns
-		// content the model will act on, so it is gated exactly like a tool:
-		// fail closed unless the user has said they trust this server's own
-		// risk annotations.
-		RequiresApproval: !server.TrustAnnotations,
+		// resources/read is a protocol read, not tools/call. Untrusted content
+		// remains evidence; it does not acquire authority by being read.
+		RequiresApproval: false,
 	}
 	item.Revision = contentRevision("resource", server.ID, item.URI, item.Name, item.Title, item.Description, item.MimeType, string(annotations))
 	return item, nil
@@ -84,7 +82,7 @@ func preparePrompt(server Server, remote RemotePrompt) (storedPrompt, error) {
 	}
 	item := storedPrompt{
 		Name: name, Title: boundedText(remote.Title, 256), Description: boundedText(remote.Description, 4096),
-		Arguments: arguments, RequiresApproval: !server.TrustAnnotations,
+		Arguments: arguments, RequiresApproval: false,
 	}
 	item.Revision = contentRevision("prompt", server.ID, item.Name, item.Title, item.Description, string(arguments))
 	return item, nil
@@ -140,8 +138,8 @@ func (s *Service) nonToolEntries(ctx context.Context, server Server, readiness s
 		entries = append(entries, capabilities.Entry{
 			ID: capabilityID(server.ID, resourceCapabilityName(uri)), Name: resourceCapabilityName(uri), Title: label,
 			Description: firstNonEmpty(description, "Resource published by "+server.Name) + " (" + uri + ")",
-			Source:      capabilities.SourceMCP, SourceRef: server.ID, Revision: revision, Effect: "read",
-			Readiness: readiness, RequiresApproval: approval != 0, InputSchema: resourceSchema,
+			Source:      capabilities.SourceMCP, SourceRef: server.ID, Revision: protocolReadRevision(revision), Effect: "read",
+			Readiness: readiness, RequiresApproval: false, InputSchema: resourceSchema,
 			Annotations: json.RawMessage(annotations),
 			Metadata: map[string]any{"server_name": server.Name, "protocol": server.LastProtocol,
 				"annotations_trusted": server.TrustAnnotations, "untrusted_output": true,
@@ -167,8 +165,8 @@ func (s *Service) nonToolEntries(ctx context.Context, server Server, readiness s
 			ID: capabilityID(server.ID, promptCapabilityName(name)), Name: promptCapabilityName(name),
 			Title:       firstNonEmpty(title, name),
 			Description: firstNonEmpty(description, "Prompt template published by "+server.Name),
-			Source:      capabilities.SourceMCP, SourceRef: server.ID, Revision: revision, Effect: "read",
-			Readiness: readiness, RequiresApproval: approval != 0,
+			Source:      capabilities.SourceMCP, SourceRef: server.ID, Revision: protocolReadRevision(revision), Effect: "read",
+			Readiness: readiness, RequiresApproval: false,
 			InputSchema: promptInputSchema(json.RawMessage(arguments)),
 			Metadata: map[string]any{"server_name": server.Name, "protocol": server.LastProtocol,
 				"annotations_trusted": server.TrustAnnotations, "untrusted_output": true,
@@ -252,7 +250,7 @@ func (s *Service) executeResource(ctx context.Context, server Server, entry capa
 	if err != nil {
 		return capabilities.CallResult{}, classify("resolve resource", server.ID, err)
 	}
-	if currentRevision != entry.Revision {
+	if protocolReadRevision(currentRevision) != entry.Revision {
 		return capabilities.CallResult{}, &Error{Kind: ErrorRevision, Operation: "resources/read", ServerID: server.ID,
 			Message: "MCP resource revision changed after it was described"}
 	}
@@ -284,7 +282,7 @@ func (s *Service) executePrompt(ctx context.Context, server Server, entry capabi
 	if err != nil {
 		return capabilities.CallResult{}, classify("resolve prompt", server.ID, err)
 	}
-	if currentRevision != entry.Revision {
+	if protocolReadRevision(currentRevision) != entry.Revision {
 		return capabilities.CallResult{}, &Error{Kind: ErrorRevision, Operation: "prompts/get", ServerID: server.ID,
 			Message: "MCP prompt revision changed after it was described"}
 	}
@@ -305,6 +303,12 @@ func (s *Service) executePrompt(ctx context.Context, server Server, entry capabi
 	}
 	return capabilities.CallResult{Output: string(boundedRaw(redactJSON(raw, credential, server.AccessClientID, server.AccessClientSecret))), Metadata: map[string]any{
 		"kind": KindPrompt, "prompt_name": name, "server_id": server.ID, "untrusted_output": true}}, nil
+}
+
+// Include the read policy in the public revision even for catalogs stored by
+// older runtimes. Existing descriptions/grants cannot silently change meaning.
+func protocolReadRevision(revision string) string {
+	return contentRevision("protocol-read-v2", revision)
 }
 
 // boundedRaw caps what a remote server can put into the transcript in one

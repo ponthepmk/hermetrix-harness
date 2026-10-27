@@ -1,131 +1,3037 @@
 {
   "version": 1,
-  "updated": "2026-09-28",
+  "updated": "2026-10-27",
   "docs_root": "docs/",
   "files": [
-    {"path":"docs/NEXT_SESSION.md","role":"module","summary":"Current source/runtime handoff, Project Brain acceptance and remaining scope."},
-    {"path":"docs/SPEC-SUMMARY.md","role":"feature","summary":"Thai-language map of the product specification, current implementation claims, target contracts, and open release gates."},
-    {"path":"docs/FILE_MAP.json","role":"config","summary":"Selective navigation index for current features; not an exhaustive source inventory."},
-    {"path":"docs/reviews/2026-09-28-live-skill-mcp-token-audit.md","role":"feature","summary":"Observed Preview Skill/Pi MCP calls, token ledger, CMS Task actions, source fixes and remaining blockers."},
-    {"path":"docs/redesign/2026-09-26-goal-driven-workbench-v2-master-plan.md","role":"feature","summary":"Review-ready full v2 implementation plan, phased work, user journeys, acceptance gates and desktop/video/content/publishing scope."},
-    {"path":"docs/redesign/2026-09-26-goal-driven-workbench-v2-extension-plan.md","role":"feature","summary":"Supporting requirements and evidence for Windows control, video, research, Comfy MCP and approval-gated Facebook/TikTok publishing."},
-    {"path":"docs/redesign/2026-09-26-goal-driven-workbench-v2-implementation-audit.md","role":"feature","summary":"Observed v2 baseline and current J1-J6 implementation evidence, with explicit remaining gates."},
-    {"path":"docs/SOCIAL_PUBLISHING.md","role":"feature","summary":"Nontechnical Facebook/TikTok account setup, per-item approval, draft handoff and remote status workflow."},
-    {"path":"internal/web/social.go","role":"module","summary":"Official API account identity checks and encrypted vault-backed social connection registry."},
-    {"path":"internal/web/social_publish.go","role":"module","summary":"Exact content export intents and separate approval bound to draft, destination and settings."},
-    {"path":"internal/web/social_dispatch.go","role":"module","summary":"Facebook Feed/Reel and TikTok Direct/draft adapters with durable no-replay state and remote status."},
-    {"path":"internal/store/social.go","role":"module","summary":"Schema 57-59 and 62-63 social identity, durable export, retry, and exact TikTok disclosure/interaction settings; credentials stay in the vault."},
-    {"path":"docs/PROJECT_BRAIN_OPERATIONS.md","role":"feature","summary":"Simple URLs, launch steps, scoped credentials and candidate admission for the live Pi services."},
-    {"path":"docs/reviews/2026-09-25-o-soul-public-web-review.md","role":"feature","summary":"Anonymous O-SOUL website case study with confirmed route/API evidence, accessibility finding and security-hardening observation."},
-    {"path":"docs/project-brain-rollout-review.md","role":"feature","summary":"Post-rollout Pi and Hermetrix architecture reality, test receipts, bugs fixed and remaining limits."},
-    {"path":"docs/project-brain-verified-planning-flow.md","role":"feature","summary":"Immutable live evidence receipt for Platform Project versus board project ID binding."},
-    {"path":"internal/projectbrain/retrieval.go","role":"module","summary":"Scoped version-bound Project Brain retrieval and bounded natural-query retry into Hermetrix context."},
-    {"path":"internal/capabilities/catalog.go","role":"module","summary":"Capability catalog including preserved trusted MCP metadata across copies."},
-    {"path":"docs/h1-agent-platform-readonly-integration-proposal.md","role":"feature","summary":"Approved fixture-only H1 scope, safety boundary, mapping and acceptance plan."},
-    {"path":"cmd/hermetrix-h1/main.go","role":"module","summary":"Isolated H1 acceptance demo, workspace receipt and local fixture composition."},
-    {"path":"internal/agentplatform/","role":"module","summary":"Signed managed-envelope validation, trusted binding, atomic task projection, read-only observation, outbox and safety guards."},
-    {"path":"internal/agentplatform/fixture/receiver.go","role":"module","summary":"Independent durable local fixture receiver with digest dedup and highest-contiguous ACK."},
-    {"path":"internal/store/agent_platform.go","role":"module","summary":"Schema 49 additive H1 binding, assignment, stream and outbox records."},
-    {"path":"internal/store/agent_platform_test.go","role":"test","summary":"v48-to-v49 preservation, foreign-key and idempotent reopen coverage."},
-    {"path":"internal/taskengine/create_tx.go","role":"module","summary":"Caller-owned transaction extraction used to atomically bind a new Task Engine task to an external assignment."},
-    {"path":"README.md","role":"module","summary":"Project overview, setup, build/run instructions and feature-document links."},
-    {"path":"docs/IDE-WORKSPACE.md","role":"feature","summary":"IDE usage, local AI behavior, tested outcomes and editor/tooling limitations."},
-    {"path":"docs/DEBUGGER.md","role":"feature","summary":"Delve/Node setup, debugger HTTP contract, process scope and verified controls."},
-    {"path":"docs/DISCORD-REMOTE.md","role":"feature","summary":"Discord bot setup, slash commands, data egress, allowlists and live-verification limits."},
-    {"path":"docs/DECISION-ENGINE.md","role":"feature","summary":"Rule baseline, Bonsai shadow API, persisted metrics, validation and admission boundary."},
-    {"path":"docs/ARCHITECTURE.md","role":"module","summary":"Existing runtime architecture and broader system capabilities; read feature docs for newer IDE/Discord details."},
-    {"path":"docs/HANDOVER.md","role":"module","summary":"Historical 2026-09-08 handoff; consult NEXT_SESSION for current implementation state."},
-    {"path":"docs/DECISIONS.md","role":"module","summary":"Existing architectural decisions and project conventions."},
-    {"path":"docs/decisions/ADR-001-bounded-decision-engine.md","role":"module","summary":"Why next-action decisions derive from durable task state and remain execution-free until evaluated."},
-    {"path":"docs/decisions/ADR-002-local-decision-shadow.md","role":"module","summary":"Why Bonsai runs local-only in a persisted, non-executing shadow evaluation path."},
-    {"path":"docs/redesign/2026-09-20-task-first-ux.md","role":"feature","summary":"Task-first navigation, setup and planning UX redesign context."},
-    {"path":"docs/specs/2026-09-19-hermetrix-master-project-specification.md","role":"feature","summary":"Master project specification; planned scope is not itself execution evidence."},
-    {"path":"docs/specs/2026-09-19-local-multimodal-privacy-implementation.md","role":"feature","summary":"Local multimodal, inference, planner/worker and privacy implementation specification."},
-    {"path":"docs/handoffs/2026-09-19-sol-implementation.md","role":"module","summary":"Earlier implementation handoff for the local multimodal/privacy work."},
-    {"path":"go.mod","role":"config","summary":"Go version and pinned module dependencies."},
-    {"path":"cmd/hermetrix/main.go","role":"module","summary":"Application composition, runtime services, CLI and web server startup."},
-    {"path":"internal/store/store.go","role":"module","summary":"SQLite schema, durable records and storage lifecycle."},
-    {"path":"internal/store/goal_contract.go","role":"module","summary":"Schema 50 Goal Contract and user acceptance persistence."},
-    {"path":"internal/store/plan_review.go","role":"module","summary":"Schema 51 exact plan review receipts."},
-    {"path":"internal/store/desktop.go","role":"module","summary":"Schema 52 durable native desktop action state and interrupted-dispatch recovery."},
-    {"path":"internal/store/browser_actions.go","role":"module","summary":"Schema 65 one-use managed-browser mutation receipts and screenshot-backed manual reconciliation."},
-    {"path":"internal/blob/store.go","role":"module","summary":"Content-addressed blob storage with bounded streaming writes and verified seekable reads."},
-    {"path":"internal/agent/service.go","role":"module","summary":"Session/turn orchestration, model/tool streaming and exact tool-approval execution."},
-    {"path":"internal/providers/service.go","role":"module","summary":"Provider registry, model configuration and capability/readiness integration."},
-    {"path":"internal/secrets/vault.go","role":"module","summary":"Local secret storage boundary used by provider and Discord credentials."},
-    {"path":"internal/secrets/format_windows.go","role":"module","summary":"Windows credential protection implementation for vault data."},
-    {"path":"internal/taskcoord/service.go","role":"module","summary":"Provider-assisted durable planning and bounded proposal coordination."},
-    {"path":"internal/taskcoord/decision.go","role":"module","summary":"Local Bonsai DecisionEngine, strict candidate selection and persisted shadow comparison."},
-    {"path":"internal/taskcoord/decision_test.go","role":"test","summary":"Local/remote/stale/invalid decision gates, immutable metrics and opt-in real Bonsai E2E coverage."},
-    {"path":"internal/taskengine/service.go","role":"module","summary":"Durable task requirements, plans and state transitions."},
-    {"path":"internal/taskengine/completion.go","role":"module","summary":"Authoritative current-revision Task completion report shared by API, transition and next-action projection."},
-    {"path":"internal/taskengine/activity.go","role":"feature","summary":"Bounded Task evidence and decision timeline across validation, checkpoint, plan-review and acceptance revisions."},
-    {"path":"internal/taskengine/acceptance.go","role":"module","summary":"Version-bound user acceptance receipt for Task completion."},
-    {"path":"internal/taskengine/plan_review.go","role":"module","summary":"Exact plan hash approval/rejection and execution gate."},
-    {"path":"internal/taskengine/decision.go","role":"module","summary":"Bounded CompactState, CandidateAction, pluggable DecisionEngine and deterministic next-action baseline."},
-    {"path":"internal/taskengine/decision_evaluation.go","role":"module","summary":"Immutable shadow-decision receipts, history lookup and admission metrics."},
-    {"path":"internal/taskengine/decision_test.go","role":"test","summary":"Revision, policy, reconciliation, evidence freshness and finish-gate coverage for next-action decisions."},
-    {"path":"internal/product/workbench.go","role":"module","summary":"Project file access, bounded content, optimistic writes and workbench operations."},
-    {"path":"internal/product/ide.go","role":"module","summary":"IDE runtime capability detection and Go formatting preview."},
-    {"path":"internal/product/commands.go","role":"module","summary":"Bounded background command jobs, output, cancellation and execution receipts."},
-    {"path":"internal/product/terminal.go","role":"module","summary":"Interactive terminal lifecycle, bounded output and input/resize routing."},
-    {"path":"internal/product/terminal_windows.go","role":"module","summary":"Native Windows ConPTY transport and process lifetime management."},
-    {"path":"internal/product/debugger.go","role":"module","summary":"Project-scoped Go/JavaScript debugger session lifecycle and controls."},
-    {"path":"internal/product/debugger_dap.go","role":"module","summary":"Delve DAP transport and Go debugger operations."},
-    {"path":"internal/product/debugger_protocol.go","role":"module","summary":"Node Inspector protocol, pause events and debugger request handling."},
-    {"path":"internal/product/browser_inspect.go","role":"feature","summary":"Passive managed-browser DOM, script, form, route and observed-network inspection with URL redaction."},
-    {"path":"internal/product/browser_actions.go","role":"feature","summary":"Task-bound exact browser click/type preparation, one-use receipts and same-site reconciliation."},
-    {"path":"internal/product/video.go","role":"feature","summary":"Bounded validated video import, metadata preflight and seekable artifact access."},
-    {"path":"internal/product/video_frames.go","role":"feature","summary":"Bounded timestamped visual frame sampling from validated video artifacts."},
-    {"path":"internal/product/video_transcript.go","role":"feature","summary":"Local FFmpeg and Whisper speech transcription with bounded temporary audio, timed evidence, model hash and cancellable durable media jobs."},
-    {"path":"internal/product/video_transcript_test.go","role":"test","summary":"Timed transcript validation and real local Whisper speech-video integration when the installed runtime is available."},
-    {"path":"internal/product/desktop_windows.go","role":"feature","summary":"Native Windows window and UI Automation observation with screenshot artifacts and handle/PID binding."},
-    {"path":"internal/product/desktop_actions_windows.go","role":"feature","summary":"Task-bound native input receipts with exact prepare/confirm and fresh-screenshot manual reconciliation; no automatic replay."},
-    {"path":"internal/product/desktop_actions.go","role":"module","summary":"Native desktop action request and receipt types."},
-    {"path":"internal/product/desktop_probe_windows.ps1","role":"module","summary":"Bounded UI Automation and window screenshot helper used by the Windows product adapter."},
-    {"path":"internal/product/desktop_windows_test.go","role":"test","summary":"Actual Windows enumeration, bound observation and changed-process rejection."},
-    {"path":"internal/product/browser_security.go","role":"feature","summary":"Evidence-based security signals derived from the current browser tab without endpoint probes."},
-    {"path":"internal/product/browser_source.go","role":"feature","summary":"Bounded client source excerpts and path hints from already observed script responses."},
-    {"path":"internal/product/browser_inspect_test.go","role":"test","summary":"URL-redaction checks and real Chrome inspection/audit of observed API, response headers and page errors."},
-    {"path":"internal/product/browser_security_test.go","role":"test","summary":"Audit evidence prerequisites and sensitive-header/URL redaction coverage."},
-    {"path":"internal/product/browser_source_test.go","role":"test","summary":"Source observation gate and literal path extraction coverage."},
-    {"path":"internal/product/debugger_test.go","role":"test","summary":"Real debugger integration and boundary tests for temporary projects."},
-    {"path":"internal/product/debugger_dap_test.go","role":"test","summary":"Real Go/Delve controls, launch failures and paused-state coverage."},
-    {"path":"internal/product/terminal_windows_test.go","role":"test","summary":"Actual Windows terminal input, prompt, resize, interrupt and cleanup coverage."},
-    {"path":"internal/discordbridge/service.go","role":"module","summary":"Discord configuration, owner scope, runtime state, vault token and lifecycle."},
-    {"path":"internal/discordbridge/gateway.go","role":"module","summary":"Outbound Discord Gateway connection, heartbeat and reconnection handling."},
-    {"path":"internal/discordbridge/rest.go","role":"module","summary":"Discord REST registration, interaction replies and request boundaries."},
-    {"path":"internal/discordbridge/interactions.go","role":"module","summary":"Slash-command allowlists, session binding, replay control and exact approvals."},
-    {"path":"internal/discordbridge/agent.go","role":"module","summary":"Discord-to-agent adapter restricted to the configured local provider/project."},
-    {"path":"internal/discordbridge/service_test.go","role":"test","summary":"Local Discord protocol fixtures for lifecycle, authorization and interaction behavior."},
-    {"path":"internal/discordbridge/agent_test.go","role":"test","summary":"Real agent/provider-fixture integration for Discord commands and approvals."},
-    {"path":"internal/web/server.go","role":"module","summary":"Embedded UI, API registration, response security policy and service wiring."},
-    {"path":"internal/web/ide.go","role":"module","summary":"Authenticated IDE capability and formatting endpoints."},
-    {"path":"internal/web/debugger.go","role":"module","summary":"Authenticated project debugger HTTP endpoints."},
-    {"path":"internal/web/discord.go","role":"module","summary":"Discord settings/status, token save and explicit start/stop HTTP endpoints."},
-    {"path":"internal/web/discord_test.go","role":"test","summary":"Discord HTTP boundary, secret handling and status/configuration verification."},
-    {"path":"internal/web/ui/index.html","role":"module","summary":"Application shell, settings sections and local UI script entry points."},
-    {"path":"internal/web/ui/app.js","role":"module","summary":"Task-first navigation, project/session drafts, panes, editor lifecycle and shared chat pipeline."},
-    {"path":"internal/web/ui/style.css","role":"module","summary":"Base design tokens, components and workbench layout rules."},
-    {"path":"internal/web/ui/codex-theme.css","role":"module","summary":"Current desktop/mobile presentation, IDE pane arrangement and settings styling."},
-    {"path":"internal/web/ui/ide-workspace.js","role":"feature","summary":"Format/Run/Test/Debug UI controller, output diagnostics and asynchronous state guards."},
-    {"path":"internal/web/ui/ide-assistant.js","role":"feature","summary":"Local-only coding chat, bounded editor context, streamed timeline and approval reconciliation."},
-    {"path":"internal/web/ui/discord-settings.js","role":"feature","summary":"Guided Discord setup, separate token save, validated scopes and truthful status polling."},
-    {"path":"internal/web/ui/ide-workspace.test.js","role":"test","summary":"IDE command/debug races, state ownership and asynchronous editor behavior."},
-    {"path":"internal/web/ui/ide-assistant.test.js","role":"test","summary":"Local AI provider/context boundaries, failed drafts and dirty-file reconciliation."},
-    {"path":"internal/web/ui/discord-settings.test.js","role":"test","summary":"Discord form validation, secret clearing, scope retention and stale-poll rejection."},
-    {"path":"internal/web/ui_browser_e2e_test.go","role":"test","summary":"Real Chrome goal/planning/IDE/terminal/keyboard and responsive navigation regressions."},
-    {"path":"internal/web/video_test.go","role":"test","summary":"Real generated MP4 import, HTTP byte-range seeking and corrupt media rejection."},
-    {"path":"internal/web/ui_browser_inspect_e2e_test.go","role":"test","summary":"Real Chrome Browser-pane Inspect workflow and desktop/mobile evidence screenshots."},
-    {"path":"internal/web/ui_ide_actions_e2e_test.go","role":"test","summary":"Real browser Format/Run/Test/Debug flow and actual paused program values."},
-    {"path":"internal/web/ui_discord_e2e_test.go","role":"test","summary":"Real Chrome Discord setup without credentials, external navigation or connection."},
-    {"path":"internal/web/ui_csp_test.go","role":"test","summary":"Response-specific editor style nonces and artifact CSP isolation."},
-    {"path":"internal/web/vendor-src/ide-entry.js","role":"module","summary":"CodeMirror/xterm adapter, CSP styles, undoable replacement and debugger markers."},
-    {"path":"internal/web/vendor-src/formatter-entry.js","role":"module","summary":"Pinned standalone Prettier language plugins and path-based buffer formatting."},
-    {"path":"internal/web/vendor-src/formatter.test.mjs","role":"test","summary":"Shipped formatter bundle output, idempotence and invalid-input checks."},
-    {"path":"internal/web/vendor-src/build.mjs","role":"infra","summary":"Rebuilds separate embedded IDE and lazy formatter bundles using esbuild."},
-    {"path":"internal/web/vendor-src/package-lock.json","role":"config","summary":"Exact editor, terminal, formatter and build dependency versions."},
-    {"path":"internal/web/ui/vendor/THIRD_PARTY_NOTICES.md","role":"module","summary":"Embedded IDE and formatter dependency license notices."},
-    {"path":"docs/redesign/2026-09-28-workflow-interface-reliability-plan.md","role":"feature","summary":"Evidence-based plan and acceptance gates for Chat, Workspace, Team, Task, Browser, Models, capabilities, and Settings reliability."}
+    {
+      "path": "cmd/hermetrix-goal/main_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "cmd/hermetrix-goal/main.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "cmd/hermetrix-h1/main.go",
+      "role": "module",
+      "summary": "Isolated H1 acceptance demo, workspace receipt and local fixture composition."
+    },
+    {
+      "path": "cmd/hermetrix-lab/main.go",
+      "role": "module",
+      "summary": "Separate optional supervisor: core checks, real Hermetrix proposal and paired fresh-session trials, durable reports; no promotion or serving integration."
+    },
+    {
+      "summary": "Loopback TLS gateway to the existing preview without a second data store or worker.",
+      "path": "cmd/hermetrix-tailnet/main.go",
+      "role": "infra"
+    },
+    {
+      "path": "cmd/hermetrix/main.go",
+      "role": "module",
+      "summary": "Application composition, runtime services, CLI and web server startup."
+    },
+    {
+      "path": "cmd/hermetrix/reviewer_provider_test.go",
+      "role": "test",
+      "summary": "Explicit background provider selection refuses missing/disabled profiles instead of silently choosing another."
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "role": "module",
+      "summary": "Existing runtime architecture and broader system capabilities; read feature docs for newer IDE/Discord details."
+    },
+    {
+      "path": "docs/DEBUGGER.md",
+      "role": "feature",
+      "summary": "Delve/Node setup, debugger HTTP contract, process scope and verified controls."
+    },
+    {
+      "path": "docs/DECISION-ENGINE.md",
+      "role": "feature",
+      "summary": "Rule baseline, Bonsai shadow API, persisted metrics, validation and admission boundary."
+    },
+    {
+      "path": "docs/DECISIONS.md",
+      "role": "module",
+      "summary": "Existing architectural decisions and project conventions."
+    },
+    {
+      "path": "docs/decisions/ADR-001-bounded-decision-engine.md",
+      "role": "module",
+      "summary": "Why next-action decisions derive from durable task state and remain execution-free until evaluated."
+    },
+    {
+      "path": "docs/decisions/ADR-002-local-decision-shadow.md",
+      "role": "module",
+      "summary": "Why Bonsai runs local-only in a persisted, non-executing shadow evaluation path."
+    },
+    {
+      "path": "docs/decisions/ADR-003-task-source-discovery.md",
+      "role": "feature",
+      "summary": "Decision to use fresh ranked metadata and bounded hashes rather than an unqualified stale source cache/index."
+    },
+    {
+      "path": "docs/DISCORD-REMOTE.md",
+      "role": "feature",
+      "summary": "Discord bot setup, slash commands, data egress, allowlists and live-verification limits."
+    },
+    {
+      "path": "docs/FILE_MAP.json",
+      "role": "config",
+      "summary": "Selective navigation index for current features; not an exhaustive source inventory."
+    },
+    {
+      "path": "docs/frontend/DESIGN.md",
+      "role": "config",
+      "summary": "Workbench tokens, motion/feedback, responsive and late-data navigation contract derived from verified UI behavior."
+    },
+    {
+      "path": "docs/GOAL-RUNNER.md",
+      "role": "feature",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "docs/h1-agent-platform-readonly-integration-proposal.md",
+      "role": "feature",
+      "summary": "Approved fixture-only H1 scope, safety boundary, mapping and acceptance plan."
+    },
+    {
+      "path": "docs/handoffs/2026-09-19-sol-implementation.md",
+      "role": "module",
+      "summary": "Earlier implementation handoff for the local multimodal/privacy work."
+    },
+    {
+      "path": "docs/handoffs/2026-10-23-next-session-before-marketplace.md",
+      "role": "feature",
+      "summary": "Preserved historical handoff before current self-improving Hermetrix and full marketplace orchestration objective."
+    },
+    {
+      "path": "docs/handoffs/2026-10-25-hermetrix-worker-packets.md",
+      "role": "feature",
+      "summary": "Prepared full-goal packets; H1B arithmetic stage dispatched/applied26Oct, while immutable runs, scope, project/deployment capabilities remain pending."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-automatic-context-curation-results.md",
+      "role": "feature",
+      "summary": "Native-authored B3 curation, exact request sizing, frozen authority/boundary contracts and 864069byte owned Goal qualification; candidate67 not applied."
+    },
+    {
+      "summary": "B6 native review17/apply67, actual full tests1315 and fresh real-model Go outcome; limitations and next learning gates.",
+      "role": "handoff",
+      "path": "docs/handoffs/2026-10-26-b6-native-apply-results.md"
+    },
+    {
+      "summary": "A2 native applied9files,actual tests/build/hash proof and supervised failure lessons; A3/B integration and full goal remain.",
+      "path": "docs/handoffs/2026-10-26-bounded-edits-results.md",
+      "role": "feature"
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-bounded-file-views-contract.md",
+      "role": "feature",
+      "summary": "Source-grounded supervisor design for host-frozen views and existing exact-edit replies, worker foundation then native coordinator/live qualification."
+    },
+    {
+      "role": "feature",
+      "summary": "A1 native applied7files,actual checks and limits; A2/A3/coordinator/live qualification still pending.",
+      "path": "docs/handoffs/2026-10-26-bounded-file-views-results.md"
+    },
+    {
+      "role": "feature",
+      "path": "docs/handoffs/2026-10-26-bounded-review-integration-results.md",
+      "summary": "Native-authored candidate34 bounded review integration, raw JSON-escape credential red/green, hidden fullsource tests, full qualification and B3/B5 remaining."
+    },
+    {
+      "role": "feature",
+      "path": "docs/handoffs/2026-10-26-bounded-transport-candidate-results.md",
+      "summary": "A3 native-applied36files,26newtests,7packages/race/reviews/sourcehashes and actual local model; B/full goal still pending."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-coordinator-bounded-context-contract.md",
+      "role": "feature",
+      "summary": "Source-grounded B durable input/v2 envelope, automatic host views, bounded reviewer, full native-Go acceptance contract."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-coordinator-bounded-context-progress.md",
+      "role": "feature",
+      "summary": "B unapplied11file candidate with29parsercases/projection tests; input-loader draft excluded; integration/full goal pending."
+    },
+    {
+      "role": "feature",
+      "summary": "Native21file candidate integrates canonical snapshot/envelope2 and six coordinator consumers; actual DB failure/no replay, rollback regressions, qualification and remaining large-Go/reviewer gates.",
+      "path": "docs/handoffs/2026-10-26-durable-proposal-input-results.md"
+    },
+    {
+      "role": "feature",
+      "summary": "Immutable pre-execution run, provenance, replay, ownership and promotion acceptance contract.",
+      "path": "docs/handoffs/2026-10-26-h1a-evaluation-run-contract.md"
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-h1b-live-worker-results.md",
+      "summary": "Actual Hermetrix-authored paired-evaluation repair, native9file apply, red/green evidence, model repair limits and remaining provenance/scope work.",
+      "role": "feature"
+    },
+    {
+      "role": "feature",
+      "summary": "H1B2 aggregate/historical evidence gate acceptance and compatibility boundary.",
+      "path": "docs/handoffs/2026-10-26-h1b2-evidence-gate-contract.md"
+    },
+    {
+      "role": "feature",
+      "summary": "Applied H1B2 native5files; actual full1328pass20skips, cost19generation+1review and limitations.",
+      "path": "docs/handoffs/2026-10-26-h1b2-evidence-gate-results.md"
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-native-large-go-goal-results.md",
+      "role": "feature",
+      "summary": "Actual local-model selection/proposal/apply/Go test/separate-profile review on 480099byte native Go fixture, durable reopen without replay and remaining full-goal gates."
+    },
+    {
+      "path": "docs/HANDOVER.md",
+      "role": "module",
+      "summary": "Historical 2026-09-08 handoff; consult NEXT_SESSION for current implementation state."
+    },
+    {
+      "path": "docs/IDE-WORKSPACE.md",
+      "role": "feature",
+      "summary": "IDE usage, local AI behavior, tested outcomes and editor/tooling limitations."
+    },
+    {
+      "path": "docs/MAIN-REPAIR-PLAN.md",
+      "role": "feature",
+      "summary": "Requested seven-stage core repair plan: Delivery recovery, model/Task evidence, durable Stop/Queue/Steer, actual desktop/Discord and preview-first integration with data-preserving acceptance."
+    },
+    {
+      "path": "docs/NEXT_SESSION.md",
+      "role": "handoff",
+      "summary": "Current full active goal, H1A7b applied checkpoint, native authority constraints and H1A8 trusted host runner next."
+    },
+    {
+      "path": "docs/PROJECT_BRAIN_OPERATIONS.md",
+      "role": "feature",
+      "summary": "Simple URLs, launch steps, scoped credentials and candidate admission for the live Pi services."
+    },
+    {
+      "path": "docs/project-brain-rollout-review.md",
+      "role": "feature",
+      "summary": "Post-rollout Pi and Hermetrix architecture reality, test receipts, bugs fixed and remaining limits."
+    },
+    {
+      "path": "docs/project-brain-verified-planning-flow.md",
+      "role": "feature",
+      "summary": "Immutable live evidence receipt for Platform Project versus board project ID binding."
+    },
+    {
+      "path": "docs/redesign/2026-09-20-task-first-ux.md",
+      "role": "feature",
+      "summary": "Task-first navigation, setup and planning UX redesign context."
+    },
+    {
+      "path": "docs/redesign/2026-09-26-goal-driven-workbench-v2-extension-plan.md",
+      "role": "feature",
+      "summary": "Supporting requirements and evidence for Windows control, video, research, Comfy MCP and approval-gated Facebook/TikTok publishing."
+    },
+    {
+      "path": "docs/redesign/2026-09-26-goal-driven-workbench-v2-implementation-audit.md",
+      "role": "feature",
+      "summary": "Observed v2 baseline and current J1-J6 implementation evidence, with explicit remaining gates."
+    },
+    {
+      "path": "docs/redesign/2026-09-26-goal-driven-workbench-v2-master-plan.md",
+      "role": "feature",
+      "summary": "Review-ready full v2 implementation plan, phased work, user journeys, acceptance gates and desktop/video/content/publishing scope."
+    },
+    {
+      "path": "docs/redesign/2026-09-28-workflow-interface-reliability-plan.md",
+      "role": "feature",
+      "summary": "Evidence-based plan and acceptance gates for Chat, Workspace, Team, Task, Browser, Models, capabilities, and Settings reliability."
+    },
+    {
+      "path": "docs/redesign/2026-10-23-goal-execution-plan.md",
+      "role": "feature",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "docs/redesign/2026-10-25-harness2-comparison-and-improvement-plan.md",
+      "role": "feature",
+      "summary": "Thai Harness2 comparison and phased plan; upstream revalidated26Oct, editor/executor roles and total cost, current evaluation/scope gaps, large-file prerequisite, first-batch acceptance and dated historical test evidence."
+    },
+    {
+      "path": "docs/redesign/2026-10-25-hermetrix-marketplace-execution-contract.md",
+      "role": "feature",
+      "summary": "Full active-goal requirements, Codex supervision boundary, Hermetrix implementation DAG, marketplace domains, Compose/Kubernetes and live acceptance contract."
+    },
+    {
+      "path": "docs/reviews/2026-09-25-o-soul-public-web-review.md",
+      "role": "feature",
+      "summary": "Anonymous O-SOUL website case study with confirmed route/API evidence, accessibility finding and security-hardening observation."
+    },
+    {
+      "path": "docs/reviews/2026-09-28-live-skill-mcp-token-audit.md",
+      "role": "feature",
+      "summary": "Observed Preview Skill/Pi MCP calls, token ledger, CMS Task actions, source fixes and remaining blockers."
+    },
+    {
+      "path": "docs/reviews/2026-10-01-easiiot-harness-pilot.md",
+      "role": "feature",
+      "summary": "Real Easiiot coding/recovery, scoped Skill reuse, local launch, completed isolated Docker/telemetry/backup and live frontend/API refresh evidence."
+    },
+    {
+      "path": "docs/reviews/2026-10-02-codex-flow-comparison.md",
+      "role": "feature",
+      "summary": "Codex flow comparison, real Bonsai/browser write approval, reproduced weak checks/CRLF auto-save/zero-test findings and staged improvement acceptance."
+    },
+    {
+      "path": "docs/reviews/2026-10-02-desktop-control.md",
+      "role": "feature",
+      "summary": "Actual Paint physical clicks, approval/replay/restart and responsive proof; model wire fixture explicitly distinguished from unavailable Bonsai/vision execution."
+    },
+    {
+      "path": "docs/reviews/2026-10-02-discord-remote-audit.md",
+      "role": "feature",
+      "summary": "Discord runtime status, Hermes comparison, reproduced deferred-response cancellation fix and full Gateway/real-agent authority tests."
+    },
+    {
+      "path": "docs/reviews/2026-10-02-hermetrix-delivery-supervised-trial.md",
+      "role": "feature",
+      "summary": "Real supervised Delivery build, model/manual distinction, local Docker/four-role/outage/restart proof, learning scope and remaining human acceptance."
+    },
+    {
+      "path": "docs/reviews/2026-10-02-ui-motion-and-flow.md",
+      "role": "feature",
+      "summary": "Modern workbench, honest loading/error feedback, reproduced navigation/evidence/form fixes and real desktop/mobile QA."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-audit-flow-repair.md",
+      "role": "feature",
+      "summary": "Five audit workflow repairs, core regression evidence and preserved runtime rollout."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-chat-composer-responsive.md",
+      "role": "feature",
+      "summary": "Bottom Chat token meter, horizontal tools row, bounded responsive draft height, native Send/keyboard regressions and preserved main data."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-chat-send-and-height.md",
+      "role": "feature",
+      "summary": "Actual pointer/touch Send and compact-height causal corrections, live Qwen responses from Workspace/Chat, and data-preserving main18801 rollout."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-delivery-operations-v2.md",
+      "role": "feature",
+      "summary": "Deployed sibling Delivery operations v2, exact four-role UI/server/data-preservation evidence and production boundaries; earlier Harness acceptance/model state preserved."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-main-startup.md",
+      "role": "feature",
+      "summary": "Self-improvement paused at user request; actual 18801 background restoration, explicit offline reviewer, real Qwen chat and preserved Task data evidence."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-self-improvement-lab.md",
+      "role": "feature",
+      "summary": "Real Qwen planning self-improvement trial retained current version; exact coverage/token/core evidence, unchanged Tasks/Skill versions and limits of the experiment."
+    },
+    {
+      "path": "docs/reviews/2026-10-03-workspace-tabs.md",
+      "role": "feature",
+      "summary": "Persistent workspace tabs with horizontal overflow, separate add chooser, draft/keyboard/responsive browser proof and schema74 data-preserving rollout on main18801."
+    },
+    {
+      "path": "docs/reviews/2026-10-10-bonsai-chat-controls.md",
+      "role": "feature",
+      "summary": "Bonsai local restoration, real Chat/Workspace Stop Queue Steer and Task pilot, schema76 migration preservation and remaining release gates."
+    },
+    {
+      "path": "docs/reviews/2026-10-10-hermetrix-plan-review.md",
+      "role": "feature",
+      "summary": "Independent Hermetrix improvement scope, MCP-only knowledge boundary, offline Delivery startup repair and real data-preservation receipts."
+    },
+    {
+      "path": "docs/reviews/2026-10-10-project-brain-audit.md",
+      "role": "feature",
+      "summary": "Independent Pi Project Brain current audit, scoped live MCP probes, index recovery and knowledge-service improvement backlog."
+    },
+    {
+      "path": "docs/reviews/2026-10-11-read-autonomy-and-approval-batches.md",
+      "summary": "Read-only approval policy, ordered ordinary tool batches, personal MCP access, real Bonsai and live HTTPS verification.",
+      "role": "feature"
+    },
+    {
+      "role": "feature",
+      "path": "docs/reviews/2026-10-11-readable-replies-and-diagrams.md",
+      "summary": "Single conversation title, readable Markdown, isolated Mermaid images and real Bonsai/live browser evidence."
+    },
+    {
+      "summary": "User mobile/tablet Chat evidence, compact navigation/composer and bounded mixed approval recovery.",
+      "path": "docs/reviews/2026-10-11-responsive-chat-and-tool-repair.md",
+      "role": "feature"
+    },
+    {
+      "path": "docs/reviews/2026-10-12-real-game-workflow.md",
+      "role": "feature",
+      "summary": "Pending Hermetrix-authored 3D story game, real keyboard fix/proof, protected runtime restore and explicit model-start review rejection."
+    },
+    {
+      "path": "docs/reviews/2026-10-13-project-file-autonomy.md",
+      "role": "feature",
+      "summary": "Owner-consented automatic project file edits, actual UI/file receipts, deployed runtime and honest incomplete game/native-test status."
+    },
+    {
+      "path": "docs/reviews/2026-10-13-project-workflow-and-reasoning.md",
+      "role": "feature",
+      "summary": "Owner-selected browser/window workflow, real Bonsai read/write/run proof, reasoning/calibration fixes and precise deployment rejection state."
+    },
+    {
+      "path": "docs/reviews/2026-10-13-research-handoff.md",
+      "role": "feature",
+      "summary": "Preserved prior research/runtime handoff; historical policy and deployment boundaries."
+    },
+    {
+      "path": "docs/reviews/2026-10-13-youtube-research.md",
+      "role": "feature",
+      "summary": "Actual research causal fixes, model/evidence qualification and denied activation boundary."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-agent-verification-bootstrap.md",
+      "role": "feature",
+      "summary": "Agent race timeout diagnosis, both fixture call paths, isolation/migration coverage, measured bootstrap and package outcomes."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-browser-profile-cleanup.md",
+      "role": "feature",
+      "summary": "Transient Crashpad profile cleanup reproduction, scoped production fix, actual OS/browser evidence and platform boundaries."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-async-verification.md",
+      "role": "feature",
+      "summary": "Schema78 async verification receipts, actual over-120-second Node proof, no replay, source/runtime boundary and remaining live acceptance."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-atomic-completion.md",
+      "role": "feature",
+      "summary": "False metadata completion and stranded claim reproductions, transaction fix, actual receipt binding and fixture CPU profile."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-browser-qualification.md",
+      "role": "feature",
+      "summary": "Reproduced mobile plan-review layout race, frame synchronization, native input/cancel authority, screenshots and whole-suite qualification."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-file-creation.md",
+      "role": "feature",
+      "summary": "New source creation and canonical-root evidence; retained rollback quarantine, tests and pending real model/EA acceptance."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-repository-context.md",
+      "role": "feature",
+      "summary": "Repository discovery reproduction, 4096-source timing/allocation receipts, actual coding acceptance and scale limits."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-runner.md",
+      "role": "feature",
+      "summary": "Goal runner receipts, full-suite caveats, isolated pilot, rejected activation and pending model/EA acceptance."
+    },
+    {
+      "path": "docs/reviews/2026-10-23-goal-snapshot-fence.md",
+      "role": "feature",
+      "summary": "Stale completion and concurrent Stop reproductions, source fixes, real process acceptance, full-race failures and dependency limits."
+    },
+    {
+      "path": "docs/SELF-IMPROVEMENT.md",
+      "role": "feature",
+      "summary": "Bounded planning self-improvement lab, frozen coverage/core gates, local operator commands and explicit limits before autonomous code upgrades."
+    },
+    {
+      "path": "docs/SOCIAL_PUBLISHING.md",
+      "role": "feature",
+      "summary": "Nontechnical Facebook/TikTok account setup, per-item approval, draft handoff and remote status workflow."
+    },
+    {
+      "path": "docs/SPEC-SUMMARY.md",
+      "role": "feature",
+      "summary": "Thai-language map of the product specification, current implementation claims, target contracts, and open release gates."
+    },
+    {
+      "path": "docs/specs/2026-09-19-hermetrix-master-project-specification.md",
+      "role": "feature",
+      "summary": "Master project specification; planned scope is not itself execution evidence."
+    },
+    {
+      "path": "docs/specs/2026-09-19-local-multimodal-privacy-implementation.md",
+      "role": "feature",
+      "summary": "Local multimodal, inference, planner/worker and privacy implementation specification."
+    },
+    {
+      "path": "go.mod",
+      "role": "config",
+      "summary": "Go version and pinned module dependencies."
+    },
+    {
+      "path": "internal/agent/chat_controls_test.go",
+      "role": "test",
+      "summary": "Stream/pending approval stop, FIFO, idempotency, scope drift, interrupted queue and owned-command reconciliation."
+    },
+    {
+      "path": "internal/agent/chat_reasoning_live_test.go",
+      "role": "test",
+      "summary": "Opt-in read-only actual Bonsai check of capped admission after95% history, using temporary data without live-instance deployment."
+    },
+    {
+      "path": "internal/agent/chat_reasoning_test.go",
+      "role": "test",
+      "summary": "Actual reasoning wire, capped admission after heavy legacy samples, useful tool-output calibration and unchanged authority."
+    },
+    {
+      "path": "internal/agent/chat_reasoning.go",
+      "role": "module",
+      "summary": "Owner-consented reasoning options and frozen contract updates; wire support alone does not prove a hard cap."
+    },
+    {
+      "path": "internal/agent/desktop_image.go",
+      "role": "module",
+      "summary": "Only current-turn latest approved view materializes owned bounded pixels; newer failed/input/observe results invalidate older frames."
+    },
+    {
+      "path": "internal/agent/desktoptool_test.go",
+      "role": "test",
+      "summary": "Real HTTP/SSE image wire fixture, exact frozen native approve/deny/no-replay and unapproved/text-only/stale-image rejection."
+    },
+    {
+      "path": "internal/agent/desktoptool.go",
+      "role": "module",
+      "summary": "Native desktop chat tool with frozen one-use input approvals and separately approved qualified model bitmap sharing."
+    },
+    {
+      "path": "internal/agent/evidence_tools_test.go",
+      "role": "test",
+      "summary": "Spill recovery, frozen calibration, audit admission/progress/budget and terminal report regressions."
+    },
+    {
+      "path": "internal/agent/evidence_tools.go",
+      "role": "module",
+      "summary": "Session-scoped paged evidence reader and evidence-bound typed audit report."
+    },
+    {
+      "path": "internal/agent/message_queue.go",
+      "role": "module",
+      "summary": "Durable revision-bound chat queue and steer, normal turn leases, cancellation and no-replay recovery."
+    },
+    {
+      "role": "test",
+      "summary": "Agent workflows; native H1B2 frozen Skill-session setup supplies paired evidence, old session still keeps its version.",
+      "path": "internal/agent/service_test.go"
+    },
+    {
+      "path": "internal/agent/service.go",
+      "role": "module",
+      "summary": "Session/turn orchestration, model/tool streaming and exact tool-approval execution."
+    },
+    {
+      "path": "internal/agent/skill_scope_test.go",
+      "role": "test",
+      "summary": "Matching, other and personal session catalogs plus stale frozen search/body/preload denial."
+    },
+    {
+      "path": "internal/agent/skill_scope.go",
+      "role": "module",
+      "summary": "Exact workspace Skill eligibility and narrowing of older catalogs at compile/read boundaries."
+    },
+    {
+      "path": "internal/agent/store_fixture_test.go",
+      "role": "test",
+      "summary": "Pristine migrated image per test process with independent real stores/principals, cold-schema isolation checks and bootstrap benchmark."
+    },
+    {
+      "summary": "Ordered mixed approval batches, one-use grants, two real writes with separate approvals, automatic read batches and personal MCP discovery.",
+      "path": "internal/agent/tool_batch_repair_test.go",
+      "role": "test"
+    },
+    {
+      "path": "internal/agent/turn_control.go",
+      "role": "module",
+      "summary": "Owner-bound durable turn stops, runtime/job termination proofs and conservative restart reconciliation."
+    },
+    {
+      "path": "internal/agent/video_report_handoff_test.go",
+      "role": "test",
+      "summary": "No premature, failed, mismatched, cross-turn or incomplete video report handoffs."
+    },
+    {
+      "path": "internal/agent/video_report_handoff.go",
+      "role": "module",
+      "summary": "Same-turn correlated completed video job/report guidance retains untrusted evidence without new authority."
+    },
+    {
+      "path": "internal/agent/workflow_targets_test.go",
+      "role": "test",
+      "summary": "Selected browser/native actions complete; unselected targets pause and executed receipts cannot replay."
+    },
+    {
+      "path": "internal/agent/workflow_targets.go",
+      "role": "module",
+      "summary": "Frozen project origins and exact windows use persisted one-use effect approvals without repeated owner pauses."
+    },
+    {
+      "path": "internal/agent/workspace_write_approval_test.go",
+      "role": "test",
+      "summary": "Actual two-file autonomous flow, root/hash/traversal/Stop guards and one-use receipt proof."
+    },
+    {
+      "path": "internal/agent/workspace_write_approval.go",
+      "role": "module",
+      "summary": "Frozen project/root/owner file consent with exact persisted per-write decisions and receipts."
+    },
+    {
+      "path": "internal/agentplatform/",
+      "role": "module",
+      "summary": "Signed managed-envelope validation, trusted binding, atomic task projection, read-only observation, outbox and safety guards."
+    },
+    {
+      "path": "internal/agentplatform/fixture/receiver.go",
+      "role": "module",
+      "summary": "Independent durable local fixture receiver with digest dedup and highest-contiguous ACK."
+    },
+    {
+      "path": "internal/agentruntime/browser_keys.go",
+      "role": "module",
+      "summary": "Shared bounded game/navigation key whitelist and native key/code mapping."
+    },
+    {
+      "path": "internal/agentruntime/desktop.go",
+      "role": "module",
+      "summary": "Shared native desktop observation/action/point/evidence types without agent-product dependency cycle."
+    },
+    {
+      "path": "internal/blob/store.go",
+      "role": "module",
+      "summary": "Content-addressed blob storage with bounded streaming writes and verified seekable reads."
+    },
+    {
+      "path": "internal/capabilities/catalog.go",
+      "role": "module",
+      "summary": "Capability catalog including preserved trusted MCP metadata across copies."
+    },
+    {
+      "path": "internal/context/video_handoff_test.go",
+      "role": "test",
+      "summary": "Small report retention stays inside hard envelope and preserves untrusted-data classification."
+    },
+    {
+      "path": "internal/discordbridge/agent_test.go",
+      "role": "test",
+      "summary": "Real agent/provider-fixture integration for Discord commands and approvals."
+    },
+    {
+      "path": "internal/discordbridge/agent.go",
+      "role": "module",
+      "summary": "Discord-to-agent adapter restricted to the configured local provider/project."
+    },
+    {
+      "path": "internal/discordbridge/gateway_agent_test.go",
+      "role": "test",
+      "summary": "Complete Gateway -> real agent -> exact write approval/denial -> ephemeral REST receipts, with replay protection."
+    },
+    {
+      "path": "internal/discordbridge/gateway.go",
+      "role": "module",
+      "summary": "Outbound Discord Gateway connection, heartbeat and reconnection handling."
+    },
+    {
+      "path": "internal/discordbridge/interactions.go",
+      "role": "module",
+      "summary": "Slash-command allowlists, session binding, replay control and exact approvals."
+    },
+    {
+      "path": "internal/discordbridge/rest.go",
+      "role": "module",
+      "summary": "Discord REST registration, interaction replies and request boundaries."
+    },
+    {
+      "path": "internal/discordbridge/service_test.go",
+      "role": "test",
+      "summary": "Local Discord protocol fixtures for lifecycle, authorization and interaction behavior."
+    },
+    {
+      "path": "internal/discordbridge/service.go",
+      "role": "module",
+      "summary": "Discord configuration, owner scope, runtime state, vault token and lifecycle."
+    },
+    {
+      "path": "internal/learning/source_scope_test.go",
+      "role": "test",
+      "summary": "Known project ownership, archived/unknown Task refusal and cross-scope existing Skill target rejection."
+    },
+    {
+      "path": "internal/learning/source_scope.go",
+      "role": "module",
+      "summary": "Derive learning scope from known Task/session project on host, with active-project and same-target-scope checks."
+    },
+    {
+      "path": "internal/mcp/read_autonomy_test.go",
+      "summary": "Protocol read autonomy, legacy catalog approval flags, stale revisions and hostile annotation prevention via the real registry.",
+      "role": "test"
+    },
+    {
+      "path": "internal/product/browser_actions.go",
+      "role": "feature",
+      "summary": "Task-bound exact browser click/type preparation, one-use receipts and same-site reconciliation."
+    },
+    {
+      "path": "internal/product/browser_inspect_test.go",
+      "role": "test",
+      "summary": "URL-redaction checks and real Chrome inspection/audit of observed API, response headers and page errors."
+    },
+    {
+      "path": "internal/product/browser_inspect.go",
+      "role": "feature",
+      "summary": "Passive managed-browser DOM, script, form, route and observed-network inspection with URL redaction."
+    },
+    {
+      "path": "internal/product/browser_keyboard_cancel_test.go",
+      "role": "test",
+      "summary": "Actual cancellation release, uncertain receipt and blocked subsequent input."
+    },
+    {
+      "path": "internal/product/browser_keyboard_game_test.go",
+      "role": "test",
+      "summary": "Actual Chrome movement, exact held-duration approval and one-use keyboard regression."
+    },
+    {
+      "path": "internal/product/browser_keyboard.go",
+      "role": "module",
+      "summary": "Bounded Chrome key holds with cancellation release and no keyDown replay."
+    },
+    {
+      "path": "internal/product/browser_profile_other.go",
+      "role": "module",
+      "summary": "Non-Windows Chrome cleanup error behavior without filesystem retry."
+    },
+    {
+      "path": "internal/product/browser_profile_test.go",
+      "role": "test",
+      "summary": "Actual Chrome profile disappearance after Close and preservation of root/user/outside/nested data."
+    },
+    {
+      "path": "internal/product/browser_profile_windows_test.go",
+      "role": "test",
+      "summary": "Actual Windows file lock reproduction and cleanup after handle release."
+    },
+    {
+      "path": "internal/product/browser_profile_windows.go",
+      "role": "module",
+      "summary": "Windows access-denied/sharing-violation classification for Chrome teardown."
+    },
+    {
+      "path": "internal/product/browser_profile.go",
+      "role": "module",
+      "summary": "Generated Chrome profile scope/identity checks, bounded transient cleanup retries and retained-error logging."
+    },
+    {
+      "path": "internal/product/browser_security_test.go",
+      "role": "test",
+      "summary": "Audit evidence prerequisites and sensitive-header/URL redaction coverage."
+    },
+    {
+      "path": "internal/product/browser_security.go",
+      "role": "feature",
+      "summary": "Evidence-based security signals derived from the current browser tab without endpoint probes."
+    },
+    {
+      "path": "internal/product/browser_settle_test.go",
+      "role": "test",
+      "summary": "Real Chrome delayed route settling after approved clicks and no approval replay."
+    },
+    {
+      "path": "internal/product/browser_source_test.go",
+      "role": "test",
+      "summary": "Source observation gate and literal path extraction coverage."
+    },
+    {
+      "path": "internal/product/browser_source.go",
+      "role": "feature",
+      "summary": "Bounded client source excerpts and path hints from already observed script responses."
+    },
+    {
+      "path": "internal/product/command_relative_root_test.go",
+      "role": "test",
+      "summary": "Actual Go -C regression for command temp isolation with relative harness data roots."
+    },
+    {
+      "path": "internal/product/commands.go",
+      "role": "module",
+      "summary": "Bounded background command jobs, output, cancellation and execution receipts."
+    },
+    {
+      "path": "internal/product/create_snapshot_test.go",
+      "role": "test",
+      "summary": "Real absent-file publication/concurrency, multi-file receipt failure, quarantine recovery and redirected-root rejection."
+    },
+    {
+      "path": "internal/product/create_snapshot.go",
+      "role": "module",
+      "summary": "Bounded source manifest and exact absent-leaf snapshots; canonical-root binding, existing parent and secret filters."
+    },
+    {
+      "path": "internal/product/debugger_dap_test.go",
+      "role": "test",
+      "summary": "Real Go/Delve controls, launch failures and paused-state coverage."
+    },
+    {
+      "path": "internal/product/debugger_dap.go",
+      "role": "module",
+      "summary": "Delve DAP transport and Go debugger operations."
+    },
+    {
+      "path": "internal/product/debugger_protocol.go",
+      "role": "module",
+      "summary": "Node Inspector protocol, pause events and debugger request handling."
+    },
+    {
+      "path": "internal/product/debugger_test.go",
+      "role": "test",
+      "summary": "Real debugger integration and boundary tests for temporary projects."
+    },
+    {
+      "path": "internal/product/debugger.go",
+      "role": "module",
+      "summary": "Project-scoped Go/JavaScript debugger session lifecycle and controls."
+    },
+    {
+      "path": "internal/product/desktop_actions_windows.go",
+      "role": "feature",
+      "summary": "Task-bound native input receipts with exact prepare/confirm and fresh-screenshot manual reconciliation; no automatic replay."
+    },
+    {
+      "path": "internal/product/desktop_actions.go",
+      "role": "module",
+      "summary": "Native desktop action request and receipt types."
+    },
+    {
+      "path": "internal/product/desktop_pointer_windows.go",
+      "role": "module",
+      "summary": "Physical single left click with selected PID/window/bounds/occlusion, DPI/virtual-screen mapping and no-dispatch distinction."
+    },
+    {
+      "path": "internal/product/desktop_probe_windows.ps1",
+      "role": "module",
+      "summary": "Bounded UI Automation and window screenshot helper used by the Windows product adapter."
+    },
+    {
+      "path": "internal/product/desktop_windows_test.go",
+      "role": "test",
+      "summary": "Actual Windows enumeration, bound observation and changed-process rejection."
+    },
+    {
+      "path": "internal/product/desktop_windows.go",
+      "role": "feature",
+      "summary": "Native Windows window and UI Automation observation with screenshot artifacts and handle/PID binding."
+    },
+    {
+      "path": "internal/product/ide.go",
+      "role": "module",
+      "summary": "IDE runtime capability detection and Go formatting preview."
+    },
+    {
+      "path": "internal/product/manifest_scale_test.go",
+      "role": "test",
+      "summary": "Late-source reproduction, filtered/ranked discovery, fresh changes, read-growth bounds and preserved legacy/ranked filesystem benchmarks."
+    },
+    {
+      "path": "internal/product/restore_absence.go",
+      "role": "module",
+      "summary": "Exact created-file rollback into retained quarantine; operation receipts and verified absence recovery."
+    },
+    {
+      "path": "internal/product/root_guard.go",
+      "role": "module",
+      "summary": "Canonical project root identities and per-project mutation guards; captured-root binding for file and command effects."
+    },
+    {
+      "path": "internal/product/snapshot_guard_test.go",
+      "role": "test",
+      "summary": "Snapshot guards exclude single/batch writes and root updates, retain absence and reject newer bytes."
+    },
+    {
+      "path": "internal/product/snapshot_guard.go",
+      "role": "feature",
+      "summary": "Canonical-root and known-output snapshot capture/guards for short evidence commits."
+    },
+    {
+      "path": "internal/product/task_manifest.go",
+      "role": "module",
+      "summary": "Fresh task-ranked path discovery with exact writable pins, bounded heap/stat work and canonical-root batch hash budgets."
+    },
+    {
+      "path": "internal/product/terminal_windows_test.go",
+      "role": "test",
+      "summary": "Actual Windows terminal input, prompt, resize, interrupt and cleanup coverage."
+    },
+    {
+      "path": "internal/product/terminal_windows.go",
+      "role": "module",
+      "summary": "Native Windows ConPTY transport and process lifetime management."
+    },
+    {
+      "path": "internal/product/terminal.go",
+      "role": "module",
+      "summary": "Interactive terminal lifecycle, bounded output and input/resize routing."
+    },
+    {
+      "path": "internal/product/verification_command_test.go",
+      "role": "test",
+      "summary": "Atomic two-slot durable command publication, long check authorization and unchanged interactive timeout."
+    },
+    {
+      "path": "internal/product/video_frames.go",
+      "role": "feature",
+      "summary": "Bounded timestamped visual frame sampling from validated video artifacts."
+    },
+    {
+      "path": "internal/product/video_research_live_test.go",
+      "role": "test",
+      "summary": "Opt-in actual-model natural-client owned video workflow; final handoff retest pending Bonsai restoration."
+    },
+    {
+      "path": "internal/product/video_transcript_test.go",
+      "role": "test",
+      "summary": "Timed transcript validation and real local Whisper speech-video integration when the installed runtime is available."
+    },
+    {
+      "path": "internal/product/video_transcript.go",
+      "role": "feature",
+      "summary": "Local FFmpeg and Whisper speech transcription with bounded temporary audio, timed evidence, model hash and cancellable durable media jobs."
+    },
+    {
+      "path": "internal/product/video.go",
+      "role": "feature",
+      "summary": "Bounded validated video import, metadata preflight and seekable artifact access."
+    },
+    {
+      "path": "internal/product/workbench.go",
+      "role": "module",
+      "summary": "Project file access, bounded content, optimistic writes and workbench operations."
+    },
+    {
+      "path": "internal/projectbrain/retrieval.go",
+      "role": "module",
+      "summary": "Scoped version-bound Pi retrieval with one original-request technical-term fallback."
+    },
+    {
+      "path": "internal/providers/chat_reasoning.go",
+      "role": "module",
+      "summary": "Capability/wire probing; runtime reasoning-cap enforcement still needs conformance qualification."
+    },
+    {
+      "path": "internal/providers/proposal_preset.go",
+      "role": "module",
+      "summary": "Deterministic immutable larger code-proposal contract derived within actual provider context/output budgets."
+    },
+    {
+      "path": "internal/providers/request_estimate.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/providers/review_preset_test.go",
+      "role": "test",
+      "summary": "Actual adapter wire cap/reasoning and immutable historical-preset regression."
+    },
+    {
+      "path": "internal/providers/review_preset.go",
+      "role": "module",
+      "summary": "Dedicated bounded structured-review preset with disabled reasoning, preserving historical debug preset."
+    },
+    {
+      "path": "internal/providers/runtime_idle_test.go",
+      "role": "test",
+      "summary": "Rejects busy, empty, malformed and duplicate-slot runtime responses."
+    },
+    {
+      "path": "internal/providers/runtime_idle.go",
+      "role": "module",
+      "summary": "Proves all local runtime slots idle before releasing cancellation quarantine."
+    },
+    {
+      "path": "internal/providers/service.go",
+      "role": "module",
+      "summary": "Provider registry, model configuration and capability/readiness integration."
+    },
+    {
+      "path": "internal/secrets/format_windows.go",
+      "role": "module",
+      "summary": "Windows credential protection implementation for vault data."
+    },
+    {
+      "path": "internal/secrets/vault.go",
+      "role": "module",
+      "summary": "Local secret storage boundary used by provider and Discord credentials."
+    },
+    {
+      "path": "internal/selfimprove/client_test.go",
+      "role": "test",
+      "summary": "Fresh personal session and final receipt, unsafe project/redirect/approval rejection and literal loopback control boundary."
+    },
+    {
+      "path": "internal/selfimprove/client.go",
+      "role": "module",
+      "summary": "Loopback-only normal Harness API client, fresh personal chats without project/tool authority, explicit remote/context controls and no retry after uncertain responses."
+    },
+    {
+      "path": "internal/selfimprove/compare_test.go",
+      "role": "test",
+      "summary": "Coverage gains cannot hide per-requirement regressions; incomplete, changed, forged, equal and expensive observations retain the original version."
+    },
+    {
+      "path": "internal/selfimprove/compare.go",
+      "role": "module",
+      "summary": "Recompute paired scores, reject individual regressions, reused histories, stale provider/catalog, no gain and token overhead; preserve original core fingerprints."
+    },
+    {
+      "path": "internal/selfimprove/core_test.go",
+      "role": "test",
+      "summary": "Actual-test evidence anchors, package identity, protected implementation/test fingerprints and empty/skipped frontend rejection."
+    },
+    {
+      "path": "internal/selfimprove/core.go",
+      "role": "module",
+      "summary": "Original core/test byte fingerprints and actual Go/required-Chrome/frontend checks, with named passing anchors and zero/skip evidence rejection."
+    },
+    {
+      "path": "internal/selfimprove/suite.go",
+      "role": "module",
+      "summary": "Fixed development/held-out planning cases, role capability and invariant coverage with strict JSON and least-privilege action validation."
+    },
+    {
+      "role": "test",
+      "summary": "Host-frozen H1B2 oracle5aggregate inputs,5historical stored passes and valid paired result; immutable evidence hash.",
+      "path": "internal/skills/behavioral_evidence_cases.json"
+    },
+    {
+      "role": "test",
+      "summary": "Native DATA-driven real SQLite/promotion regression tests:5aggregate5historical1positive; red/green and actual full suite passed.",
+      "path": "internal/skills/behavioral_evidence_data_test.go"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_duplicate_live_test.go",
+      "summary": "Hermetrix-authored DB-backed paired-evidence duplicate acceptance; reproduced failure on unchanged production.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_gain_live_test.go",
+      "summary": "Hermetrix-authored DB-backed paired-evidence gain acceptance; reproduced failure on unchanged production.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_incomplete_live_test.go",
+      "summary": "Hermetrix-authored DB-backed paired-evidence incomplete acceptance; reproduced failure on unchanged production.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_loss_live_test.go",
+      "summary": "Hermetrix-authored DB-backed paired-evidence loss acceptance; reproduced failure on unchanged production.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_malformed_live_test.go",
+      "summary": "Hermetrix-authored DB-backed paired-evidence malformed acceptance; reproduced failure on unchanged production.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_missing_boolean_live_test.go",
+      "summary": "Hermetrix-authored DB-backed paired-evidence missing_boolean acceptance; reproduced failure on unchanged production.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired_parser_test.go",
+      "summary": "Hermetrix-authored14negative and3positive parser fixtures; explicit false and all4derived counts asserted.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_paired.go",
+      "summary": "Hermetrix-authored validation and counts for paired cases, required booleans, unique IDs and exact case count.",
+      "role": "module"
+    },
+    {
+      "role": "module",
+      "summary": "Native H1B2 aggregate telemetry is inconclusive without pairs; promotion revalidates stored paired schema/counts/verdict. H1A start identity pending.",
+      "path": "internal/skills/behavioral.go"
+    },
+    {
+      "role": "test",
+      "summary": "Skill lifecycle tests; native H1B2 positive helper now supplies paired evidence while retaining promotion assertions.",
+      "path": "internal/skills/service_test.go"
+    },
+    {
+      "path": "internal/store/agent_platform_test.go",
+      "role": "test",
+      "summary": "v48-to-v49 preservation, foreign-key and idempotent reopen coverage."
+    },
+    {
+      "path": "internal/store/agent_platform.go",
+      "role": "module",
+      "summary": "Schema 49 additive H1 binding, assignment, stream and outbox records."
+    },
+    {
+      "path": "internal/store/browser_actions.go",
+      "role": "module",
+      "summary": "Schema 65 one-use managed-browser mutation receipts and screenshot-backed manual reconciliation."
+    },
+    {
+      "path": "internal/store/chat_controls_test.go",
+      "role": "test",
+      "summary": "Both local schema75 preview layouts migrate to76 without duplicate columns."
+    },
+    {
+      "path": "internal/store/chat_controls.go",
+      "role": "module",
+      "summary": "Schema75 chat control/queue tables and schema76 persisted owned-job stop receipts."
+    },
+    {
+      "path": "internal/store/desktop_evidence.go",
+      "role": "module",
+      "summary": "Additive idempotent schema74 before/after screenshot IDs and observation evidence on desktop receipts."
+    },
+    {
+      "path": "internal/store/desktop.go",
+      "role": "module",
+      "summary": "Schema 52 durable native desktop action state and interrupted-dispatch recovery."
+    },
+    {
+      "path": "internal/store/goal_contract.go",
+      "role": "module",
+      "summary": "Schema 50 Goal Contract and user acceptance persistence."
+    },
+    {
+      "path": "internal/store/goal_runs.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/store/goal_verification.go",
+      "role": "module",
+      "summary": "Schema78 durable goal verification checkpoints and poll schedule."
+    },
+    {
+      "path": "internal/store/plan_review.go",
+      "role": "module",
+      "summary": "Schema 51 exact plan review receipts."
+    },
+    {
+      "path": "internal/store/social.go",
+      "role": "module",
+      "summary": "Schema 57-59 and 62-63 social identity, durable export, retry, and exact TikTok disclosure/interaction settings; credentials stay in the vault."
+    },
+    {
+      "path": "internal/store/store.go",
+      "role": "module",
+      "summary": "SQLite schema, durable records and storage lifecycle."
+    },
+    {
+      "path": "internal/taskcoord/create_goal_test.go",
+      "role": "test",
+      "summary": "Real Node create/fail/rollback/replan/completion workflow, stale owner writes and changed-root effect rejection."
+    },
+    {
+      "path": "internal/taskcoord/decision_test.go",
+      "role": "test",
+      "summary": "Local/remote/stale/invalid decision gates, immutable metrics and opt-in real Bonsai E2E coverage."
+    },
+    {
+      "path": "internal/taskcoord/decision.go",
+      "role": "module",
+      "summary": "Local Bonsai DecisionEngine, strict candidate selection and persisted shadow comparison."
+    },
+    {
+      "path": "internal/taskcoord/file_assertions_test.go",
+      "role": "test",
+      "summary": "Actual negative hash/contains/path/arithmetic/EOL fixtures fail rather than merely print evidence."
+    },
+    {
+      "path": "internal/taskcoord/file_assertions.go",
+      "role": "module",
+      "summary": "Host-owned SHA/contains assertions with observed file/path binding and fixed executable programs."
+    },
+    {
+      "path": "internal/taskcoord/goal_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/taskcoord/goal_verification_test.go",
+      "role": "test",
+      "summary": "Real Node long-run, polling, lost acknowledgement, bounded queue, cancellation, migration and reopen acceptance."
+    },
+    {
+      "path": "internal/taskcoord/goal_verification.go",
+      "role": "module",
+      "summary": "Async goal checks reuse exact managed jobs, release workers, bound concurrency, preserve budgets and cancel owned processes."
+    },
+    {
+      "path": "internal/taskcoord/goal.go",
+      "role": "module",
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required."
+    },
+    {
+      "path": "internal/taskcoord/proposal_anchor_cases_v2.json",
+      "role": "test",
+      "summary": "Independent6term3score frozen Unicode/quoted/identifier/limit cases; expected semantics preserved from V1."
+    },
+    {
+      "path": "internal/taskcoord/proposal_anchor_cases.json",
+      "role": "test",
+      "summary": "Original immutable anchor DATA before schema-only WantError migration."
+    },
+    {
+      "path": "internal/taskcoord/proposal_anchor_matrix_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_budget.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_build_views.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_bundle_fixture.json",
+      "role": "test",
+      "summary": "Host DATA29 format/count/strictness cases for legacy/v2 proposal parser, not semantic task validation."
+    },
+    {
+      "path": "internal/taskcoord/proposal_bundle_size_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_bundle_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_bundle.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_curation_cases.json",
+      "role": "test",
+      "summary": "8independently frozen whole/large/mixed/optional-ref/budget/scope/error cases for curation and input/result isolation."
+    },
+    {
+      "path": "internal/taskcoord/proposal_curation_contract_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_curation.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_file_views.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_go_regions.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_goal_assert_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_goal_changes_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_goal_fixture.json",
+      "role": "test",
+      "summary": "864069byte native-owned JS Goal DATA from existing immutable Node acceptance, with exact before/after and hidden prefix."
+    },
+    {
+      "path": "internal/taskcoord/proposal_goal_owned_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_goal_plan_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_goal_transport_v2_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_input_data_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_input_fixture_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "role": "test",
+      "summary": "Host-frozen actual worker API Task/Result DATA for native-authored owned-artifact unit fixtures, not a model benchmark.",
+      "path": "internal/taskcoord/proposal_input_fixture.json"
+    },
+    {
+      "path": "internal/taskcoord/proposal_input_metadata_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_input_persist_failure_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_input_roundtrip_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_input.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_knowledge_fit.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_line_boundary_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_line_cases.json",
+      "role": "test",
+      "summary": "10independent UTF8/CRLF/literal/identifier/tie/radius/region-count byte-range oracles."
+    },
+    {
+      "path": "internal/taskcoord/proposal_line_regions.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_load_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_load.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_narrowed_boundary_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_quoted_anchors.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_raw_regions.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_region_cases_v2.json",
+      "role": "test",
+      "summary": "7frozen Go parser/declaration cases including469kUnicode prefix and explicit/ambiguous/package-only ranges."
+    },
+    {
+      "path": "internal/taskcoord/proposal_region_cases.json",
+      "role": "test",
+      "summary": "Original immutable Go source and independently computed UTF8 region DATA before schema-only migration."
+    },
+    {
+      "path": "internal/taskcoord/proposal_region_matrix_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_region_views.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_regions.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_source_fit.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_source_paths.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_terms.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_view_boundary_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/proposal_view_cases.json",
+      "role": "test",
+      "summary": "12raw region/aggregate-budget/path/UTF8 oracles, including nested malformed intervals that must fail before merging/narrowing."
+    },
+    {
+      "path": "internal/taskcoord/proposal_view_limit.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/repository_context_test.go",
+      "role": "test",
+      "summary": "Actual 2200-long-path Node coding lifecycle through provider preflight, partial context receipts and mandatory pin retention."
+    },
+    {
+      "path": "internal/taskcoord/repository_context.go",
+      "role": "module",
+      "summary": "Linear provider-preset/body fitting before source hashing; ranked planner/selector context and artifact receipts."
+    },
+    {
+      "path": "internal/taskcoord/review_context_after_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/review_context_fixture_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/review_context_hidden_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/review_context_projection_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/review_context.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/review_failure.go",
+      "role": "module",
+      "summary": "Observed reviewer rejections bind to active requirements and artifact hashes; bounded findings feed correction and replanning."
+    },
+    {
+      "path": "internal/taskcoord/review_snapshot_test.go",
+      "role": "test",
+      "summary": "Real Node and barrier regressions for source/root/other-output drift during verification/review and final Goal completion."
+    },
+    {
+      "path": "internal/taskcoord/review_snapshot.go",
+      "role": "feature",
+      "summary": "Final Goal source snapshot fence independent of separate Task review completion."
+    },
+    {
+      "path": "internal/taskcoord/service_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/service.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/taskcoord/step_criteria.go",
+      "role": "module",
+      "summary": "Reviewer receives current-step criteria; final Task still retains every original criterion."
+    },
+    {
+      "path": "internal/taskcoord/test_discovery.go",
+      "role": "module",
+      "summary": "Known Go/Node/Python zero-test output fails mandatory verification while preserving raw job exit/status."
+    },
+    {
+      "path": "internal/taskengine/acceptance.go",
+      "role": "module",
+      "summary": "Version-bound user acceptance receipt for Task completion."
+    },
+    {
+      "path": "internal/taskengine/activity.go",
+      "role": "feature",
+      "summary": "Bounded Task evidence and decision timeline across validation, checkpoint, plan-review and acceptance revisions."
+    },
+    {
+      "path": "internal/taskengine/completion.go",
+      "role": "module",
+      "summary": "Authoritative current-revision Task completion report shared by API, transition and next-action projection."
+    },
+    {
+      "path": "internal/taskengine/create_tx.go",
+      "role": "module",
+      "summary": "Caller-owned transaction extraction used to atomically bind a new Task Engine task to an external assignment."
+    },
+    {
+      "path": "internal/taskengine/decision_evaluation.go",
+      "role": "module",
+      "summary": "Immutable shadow-decision receipts, history lookup and admission metrics."
+    },
+    {
+      "path": "internal/taskengine/decision_test.go",
+      "role": "test",
+      "summary": "Revision, policy, reconciliation, evidence freshness and finish-gate coverage for next-action decisions."
+    },
+    {
+      "path": "internal/taskengine/decision.go",
+      "role": "module",
+      "summary": "Bounded CompactState, CandidateAction, pluggable DecisionEngine and deterministic next-action baseline."
+    },
+    {
+      "path": "internal/taskengine/goal_commit_test.go",
+      "role": "test",
+      "summary": "Real SQLite forced-order regressions for atomic Goal evidence/Stop/requirement commits and released claims."
+    },
+    {
+      "path": "internal/taskengine/goal_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/taskengine/goal_verification.go",
+      "role": "module",
+      "summary": "Owner/action-claim guarded verification checkpoints, effect scope and free poll scheduling."
+    },
+    {
+      "path": "internal/taskengine/goal.go",
+      "role": "module",
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required."
+    },
+    {
+      "path": "internal/taskengine/pause_test.go",
+      "role": "test",
+      "summary": "Pause authority, completed-proof retention, revision continuation and unsafe boundary refusal."
+    },
+    {
+      "path": "internal/taskengine/pause.go",
+      "role": "module",
+      "summary": "Idle-boundary pause bound to current lease/revision, with active/uncertain/open-proposal refusal."
+    },
+    {
+      "path": "internal/taskengine/plan_review.go",
+      "role": "module",
+      "summary": "Exact plan hash approval/rejection and execution gate."
+    },
+    {
+      "path": "internal/taskengine/review_failure.go",
+      "role": "module",
+      "summary": "Observed reviewer rejections bind to active requirements and artifact hashes; bounded findings feed correction and replanning."
+    },
+    {
+      "path": "internal/taskengine/service.go",
+      "role": "module",
+      "summary": "Durable task requirements, plans and state transitions."
+    },
+    {
+      "path": "internal/tools/desktop.go",
+      "role": "module",
+      "summary": "Fail-closed desktop approval routing: read-only list/observe versus exact mouse/text/view effects."
+    },
+    {
+      "path": "internal/web/chat_controls.go",
+      "role": "module",
+      "summary": "Owner-bound stop, reconcile, durable queue/cancel and local runtime idle-confirmation endpoints."
+    },
+    {
+      "path": "internal/web/chat_reasoning.go",
+      "role": "module",
+      "summary": "Owner-scoped idle reasoning reconfiguration API without automatic action resubmission."
+    },
+    {
+      "path": "internal/web/debugger.go",
+      "role": "module",
+      "summary": "Authenticated project debugger HTTP endpoints."
+    },
+    {
+      "role": "test",
+      "path": "internal/web/diagram_security_test.go",
+      "summary": "Diagram-only framing exception and unchanged general CSP/framing guards."
+    },
+    {
+      "path": "internal/web/discord_test.go",
+      "role": "test",
+      "summary": "Discord HTTP boundary, secret handling and status/configuration verification."
+    },
+    {
+      "path": "internal/web/discord.go",
+      "role": "module",
+      "summary": "Discord settings/status, token save and explicit start/stop HTTP endpoints."
+    },
+    {
+      "path": "internal/web/goals_test.go",
+      "role": "test",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/web/goals.go",
+      "role": "module",
+      "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
+    },
+    {
+      "path": "internal/web/ide.go",
+      "role": "module",
+      "summary": "Authenticated IDE capability and formatting endpoints."
+    },
+    {
+      "summary": "Gateway login, rejection boundaries, credential stripping, streaming and disconnect propagation.",
+      "path": "internal/web/loopback_proxy_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Authenticated proxy reusing exact Host/Origin boundaries, session cookies and live streaming.",
+      "path": "internal/web/loopback_proxy.go",
+      "role": "module"
+    },
+    {
+      "role": "test",
+      "summary": "HTTP workflow tests; native H1B2 replay/capability/fidelity setup sends paired JSON and actual promotion succeeds.",
+      "path": "internal/web/server_test.go"
+    },
+    {
+      "path": "internal/web/server.go",
+      "role": "module",
+      "summary": "Embedded UI, API registration, response security policy and service wiring."
+    },
+    {
+      "path": "internal/web/social_dispatch.go",
+      "role": "module",
+      "summary": "Facebook Feed/Reel and TikTok Direct/draft adapters with durable no-replay state and remote status."
+    },
+    {
+      "path": "internal/web/social_publish.go",
+      "role": "module",
+      "summary": "Exact content export intents and separate approval bound to draft, destination and settings."
+    },
+    {
+      "path": "internal/web/social.go",
+      "role": "module",
+      "summary": "Official API account identity checks and encrypted vault-backed social connection registry."
+    },
+    {
+      "path": "internal/web/task_pause.go",
+      "role": "module",
+      "summary": "Task Run idle pause endpoint; does not imply active-chat Stop or cancellation."
+    },
+    {
+      "path": "internal/web/ui_browser_e2e_test.go",
+      "role": "test",
+      "summary": "Real Chrome goal/planning/IDE/terminal/navigation checks, synchronized viewport input, pending-plan cancellation and failure-only screenshot diagnostics."
+    },
+    {
+      "path": "internal/web/ui_browser_inspect_e2e_test.go",
+      "role": "test",
+      "summary": "Real Chrome Browser-pane Inspect workflow and desktop/mobile evidence screenshots."
+    },
+    {
+      "path": "internal/web/ui_chat_controls_e2e_test.go",
+      "role": "test",
+      "summary": "Real Chrome Chat and Workspace Stop Queue Steer/draft/responsive acceptance with optional local Bonsai and persistent preview modes."
+    },
+    {
+      "summary": "Real responsive reading, disclosures, drawer and long-draft checks with optional live HTTPS acceptance.",
+      "path": "internal/web/ui_compact_chat_e2e_test.go",
+      "role": "test"
+    },
+    {
+      "path": "internal/web/ui_csp_test.go",
+      "role": "test",
+      "summary": "Response-specific editor style nonces and artifact CSP isolation."
+    },
+    {
+      "path": "internal/web/ui_discord_e2e_test.go",
+      "role": "test",
+      "summary": "Real Chrome Discord setup without credentials, external navigation or connection."
+    },
+    {
+      "path": "internal/web/ui_ide_actions_e2e_test.go",
+      "role": "test",
+      "summary": "Real browser Format/Run/Test/Debug flow and actual paused program values."
+    },
+    {
+      "path": "internal/web/ui_project_write_approval_e2e_test.go",
+      "role": "test",
+      "summary": "Real Chrome checkbox, new consent/manual sessions, actual two-file output and mobile/desktop controls."
+    },
+    {
+      "path": "internal/web/ui_send_pointer_e2e_test.go",
+      "role": "test",
+      "summary": "Native pointer/touch regression for stable Send, status-hit testing, full compact height, real streamed fixture replies, retained error drafts and sibling Chat composer."
+    },
+    {
+      "summary": "Opt-in actual HTTPS tailnet browser login, project hydration, assets and session-cookie acceptance.",
+      "path": "internal/web/ui_tailnet_e2e_test.go",
+      "role": "test"
+    },
+    {
+      "path": "internal/web/ui_video_research_e2e_test.go",
+      "role": "test",
+      "summary": "Opt-in actual Chrome report/images and real pointer form recovery at390/1440."
+    },
+    {
+      "path": "internal/web/ui_workflow_targets_e2e_test.go",
+      "role": "test",
+      "summary": "Actual responsive UI selects origin and completes held-key movement with exact browser receipts."
+    },
+    {
+      "path": "internal/web/ui/app.js",
+      "role": "module",
+      "summary": "Task-first navigation, project/session drafts, panes, editor lifecycle and shared chat pipeline."
+    },
+    {
+      "path": "internal/web/ui/audit-flow.test.js",
+      "role": "test",
+      "summary": "Audit answer-reserve selection without fabricating provider qualification."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/ui/chat-diagrams.js",
+      "summary": "Isolated diagram hydration, bounded SVG image cache, native expansion dialog and fallback."
+    },
+    {
+      "path": "internal/web/ui/codex-theme.css",
+      "role": "module",
+      "summary": "Current desktop/mobile presentation, IDE pane arrangement and settings styling."
+    },
+    {
+      "path": "internal/web/ui/desktop.test.js",
+      "role": "test",
+      "summary": "Loading text preservation, duplicate pointer activation, late-window fence, deny/stale recovery and explicit-window choice."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/ui/diagram.css",
+      "summary": "Local isolated diagram viewer styling."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/ui/diagram.html",
+      "summary": "Opaque sandbox diagram viewer; no parent or API access."
+    },
+    {
+      "path": "internal/web/ui/discord-settings.js",
+      "role": "feature",
+      "summary": "Guided Discord setup, separate token save, validated scopes and truthful status polling."
+    },
+    {
+      "path": "internal/web/ui/discord-settings.test.js",
+      "role": "test",
+      "summary": "Discord form validation, secret clearing, scope retention and stale-poll rejection."
+    },
+    {
+      "path": "internal/web/ui/ide-assistant.js",
+      "role": "feature",
+      "summary": "Local-only coding chat, bounded editor context, streamed timeline and approval reconciliation."
+    },
+    {
+      "path": "internal/web/ui/ide-assistant.test.js",
+      "role": "test",
+      "summary": "Local AI provider/context boundaries, failed drafts and dirty-file reconciliation."
+    },
+    {
+      "path": "internal/web/ui/ide-workspace.js",
+      "role": "feature",
+      "summary": "Format/Run/Test/Debug UI controller, output diagnostics and asynchronous state guards."
+    },
+    {
+      "path": "internal/web/ui/ide-workspace.test.js",
+      "role": "test",
+      "summary": "IDE command/debug races, state ownership and asynchronous editor behavior."
+    },
+    {
+      "path": "internal/web/ui/index.html",
+      "role": "module",
+      "summary": "Application shell, settings sections and local UI script entry points."
+    },
+    {
+      "path": "internal/web/ui/interaction.css",
+      "role": "module",
+      "summary": "Shared slate/mint finish, loading/motion, focus and responsive Task/Plans presentation."
+    },
+    {
+      "path": "internal/web/ui/interaction.js",
+      "role": "module",
+      "summary": "Actual foreground request ledger, press feedback, pending-control guard and bootstrap operation status."
+    },
+    {
+      "path": "internal/web/ui/interaction.test.js",
+      "role": "test",
+      "summary": "Overlapping requests, failure recovery and bounded reads without mutation replay."
+    },
+    {
+      "role": "test",
+      "path": "internal/web/ui/rich-text.test.js",
+      "summary": "Semantic structure, URL/HTML safety, table alignment and escaped diagram source."
+    },
+    {
+      "path": "internal/web/ui/style.css",
+      "role": "module",
+      "summary": "Base design tokens, components and workbench layout rules."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/ui/vendor/diagram-frame.js",
+      "summary": "Generated lazy isolated Mermaid bundle."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/ui/vendor/rich-text.js",
+      "summary": "Generated local Markdown bundle."
+    },
+    {
+      "path": "internal/web/ui/vendor/THIRD_PARTY_NOTICES.md",
+      "role": "module",
+      "summary": "Embedded IDE and formatter dependency license notices."
+    },
+    {
+      "path": "internal/web/vendor-src/build.mjs",
+      "role": "infra",
+      "summary": "Rebuilds separate embedded IDE and lazy formatter bundles using esbuild."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/vendor-src/diagram-frame-entry.js",
+      "summary": "Strict locally bundled Mermaid renderer with source/size restrictions."
+    },
+    {
+      "path": "internal/web/vendor-src/formatter-entry.js",
+      "role": "module",
+      "summary": "Pinned standalone Prettier language plugins and path-based buffer formatting."
+    },
+    {
+      "path": "internal/web/vendor-src/formatter.test.mjs",
+      "role": "test",
+      "summary": "Shipped formatter bundle output, idempotence and invalid-input checks."
+    },
+    {
+      "path": "internal/web/vendor-src/ide-entry.js",
+      "role": "module",
+      "summary": "CodeMirror/xterm adapter, CSP styles, undoable replacement and debugger markers."
+    },
+    {
+      "path": "internal/web/vendor-src/package-lock.json",
+      "role": "config",
+      "summary": "Exact editor, terminal, formatter and build dependency versions."
+    },
+    {
+      "role": "feature",
+      "path": "internal/web/vendor-src/rich-text-entry.js",
+      "summary": "Safe Markdown rendering, tables, code and diagram placeholders."
+    },
+    {
+      "path": "internal/web/video_test.go",
+      "role": "test",
+      "summary": "Real generated MP4 import, HTTP byte-range seeking and corrupt media rejection."
+    },
+    {
+      "path": "internal/worker/create_test.go",
+      "role": "test",
+      "summary": "Explicit absent-file proposal validation, full-content creation, existing-empty distinction and scope checks."
+    },
+    {
+      "path": "internal/worker/file_view_sets.go",
+      "role": "module",
+      "summary": "Shared bounded view-set count, integrity, duplicate and overlap checks."
+    },
+    {
+      "role": "test",
+      "summary": "UTF8,CRLF,empty and numeric boundary controls for bounded views.",
+      "path": "internal/worker/file_views_bounds_test.go"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_content_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_intervals_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_limits_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_positive_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_scope_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_text_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_view_overlap_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Hermetrix-authored frozen bounded-edit acceptance cases with real constructor/API controls; part of reviewed native9file A2 bundle.",
+      "path": "internal/worker/file_views_edits_view_tamper_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Pure exact-edit materialization against globally unique original matches inside authorized views.",
+      "path": "internal/worker/file_views_edits.go",
+      "role": "module"
+    },
+    {
+      "role": "test",
+      "summary": "Independent full-source hash,absent and invalidUTF8 rejection controls.",
+      "path": "internal/worker/file_views_hash_test.go"
+    },
+    {
+      "role": "test",
+      "summary": "Frozen numeric-byte fixture exhausts81endpoint pairs:15valid,66invalid.",
+      "path": "internal/worker/file_views_matrix_test.go"
+    },
+    {
+      "role": "test",
+      "summary": "Canonical relative path positive controls and13negative paths for bounded views.",
+      "path": "internal/worker/file_views_paths_test.go"
+    },
+    {
+      "role": "test",
+      "summary": "Every view field,expected path and stale/changed full snapshot tampering rejected.",
+      "path": "internal/worker/file_views_tamper_test.go"
+    },
+    {
+      "role": "test",
+      "summary": "Bounded-view creation and independent validation positive controls including Unicode and empty source.",
+      "path": "internal/worker/file_views_test.go"
+    },
+    {
+      "role": "module",
+      "summary": "Host-frozen file-view construction and independent path/hash/UTF8/CRLF validation; no authority granted.",
+      "path": "internal/worker/file_views.go"
+    },
+    {
+      "path": "internal/worker/models.go",
+      "role": "module",
+      "summary": "Worker contracts with optional host FileViews and retained Change.Edits; legacy omitempty identity preserved."
+    },
+    {
+      "path": "internal/worker/partial_worker_absent_guard_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_absent_guard_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_binding_guard_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_binding_guard_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_content_guard_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_content_guard_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_credential_guard_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_credential_guard_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_dispatch_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_dispatch_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_fixture_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_fixture_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_happy_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_happy_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_hash_guard_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_hash_guard_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_hidden_proof_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_hidden_proof_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_missing_proof_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_missing_proof_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_outside_proof_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_outside_proof_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_progress_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_progress_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_proof_proof_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_proof_proof_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_reply_fixture.json",
+      "role": "test",
+      "summary": "Host-frozen DATA: four actual JSON reply objects with positive and partial-authority rejection cases."
+    },
+    {
+      "path": "internal/worker/partial_worker_reply_reject_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_reply_reject_test.go"
+    },
+    {
+      "path": "internal/worker/partial_worker_strategy_proof_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: partial_worker_strategy_proof_test.go"
+    },
+    {
+      "path": "internal/worker/proposal_estimate.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/proposal_request_fixture.json",
+      "role": "test",
+      "summary": "Host DATA captured from actual pre-refactor whole/partial/absent worker request constructors; independent request golden."
+    },
+    {
+      "path": "internal/worker/proposal_request_golden_test.go",
+      "role": "test",
+      "summary": "Whole request and estimator golden regression using unchanged original fixture."
+    },
+    {
+      "path": "internal/worker/proposal_request.go",
+      "role": "module",
+      "summary": "Build bounded proposal requests with actual writable schema and compact equivalent tool description."
+    },
+    {
+      "path": "internal/worker/proposal.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/result_aggregate_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: result_aggregate_limits_test.go"
+    },
+    {
+      "path": "internal/worker/result_content_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: result_content_limits_test.go"
+    },
+    {
+      "path": "internal/worker/result_encoded_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: result_encoded_limits_test.go"
+    },
+    {
+      "path": "internal/worker/result_metadata_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: result_metadata_limits_test.go"
+    },
+    {
+      "path": "internal/worker/result_proof_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: result_proof_limits_test.go"
+    },
+    {
+      "path": "internal/worker/result_resources.go",
+      "role": "module",
+      "summary": "Persisted result source, metadata, count, proof and encoded-size guards before identity hashing."
+    },
+    {
+      "path": "internal/worker/review_credential_encoded_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_credentials.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_file_views.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "role": "test",
+      "path": "internal/worker/review_input_cases.json",
+      "summary": "Host DATA matrix38partial/full review cases,9positive29negative; native tests assert actual dispatch counters."
+    },
+    {
+      "role": "test",
+      "path": "internal/worker/review_input_fixture.json",
+      "summary": "Host-frozen actual BuildReviewFiles DATA used by native-authored partial endpoint tests; synthetic unit evidence only."
+    },
+    {
+      "path": "internal/worker/review_partial_fixture_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_partial_matrix_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_partial_utf8_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_region_fixture.json",
+      "role": "test",
+      "summary": "Host DATA oracle for original offsets, empty view, UTF8 byte delta and new CRLF across hidden boundary."
+    },
+    {
+      "path": "internal/worker/review_resources.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_view_builder_forged_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_view_builder_legacy_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_view_builder_regions_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_view_builder_state_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_view_builder_test.go",
+      "role": "test",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_view_builder.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review_views.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/review.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/scoped_result.go",
+      "role": "module",
+      "summary": "Persisted identity/scope validation and independent full-content derivation from frozen views and edits."
+    },
+    {
+      "path": "internal/worker/task_canonical_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: task_canonical_limits_test.go"
+    },
+    {
+      "path": "internal/worker/task_freeze.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/task_resources.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/task_snapshot_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: task_snapshot_test.go"
+    },
+    {
+      "path": "internal/worker/task_snapshot.go",
+      "role": "module",
+      "summary": "Independent full canonical task snapshot and bounded provider wire with actual serialized size guards."
+    },
+    {
+      "path": "internal/worker/task_source_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: task_source_limits_test.go"
+    },
+    {
+      "path": "internal/worker/task_source_resources.go",
+      "role": "module",
+      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+    },
+    {
+      "path": "internal/worker/task_views_legacy_empty_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: task_views_legacy_empty_test.go"
+    },
+    {
+      "path": "internal/worker/task_views_legacy_fixture.json",
+      "role": "test",
+      "summary": "Host DATA frozen from four pre-A3 native worker boundary observations; fixed wire/input/proposal/preimage goldens, not implementation code."
+    },
+    {
+      "path": "internal/worker/task_views_legacy_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: task_views_legacy_test.go"
+    },
+    {
+      "path": "internal/worker/task_wire_budget.go",
+      "role": "module",
+      "summary": "Conservative overflow-safe raw wire lower-bound accounting for all task fields."
+    },
+    {
+      "path": "internal/worker/task_wire_limits_test.go",
+      "role": "test",
+      "summary": "Hermetrix-authored standing A3 boundary/regression fixture or test: task_wire_limits_test.go"
+    },
+    {
+      "path": "README.md",
+      "role": "module",
+      "summary": "Project overview, setup, build/run instructions and feature-document links."
+    },
+    {
+      "path": "scripts/launcher_windows_test.go",
+      "role": "test",
+      "summary": "Isolated real Windows launcher processes: detached/reuse, paths with spaces, ownership/workspace/data/reviewer mismatch, startup exit/timeout cleanup and foreign-port preservation."
+    },
+    {
+      "path": "scripts/mt5/cli.mjs",
+      "role": "module",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/mt5/README.md",
+      "role": "feature",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/mt5/runner.mjs",
+      "role": "module",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/mt5/runner.test.mjs",
+      "role": "test",
+      "summary": "Bounded MT5 source/log/report workflow; real native terminal acceptance remains pending."
+    },
+    {
+      "path": "scripts/start-delivery-harness.ps1",
+      "role": "config",
+      "summary": "Reuse/rebuild only owned18804 runtime with explicit local reviewer and active-effect/port identity checks; original18801 retained."
+    },
+    {
+      "path": "scripts/start-delivery-model.ps1",
+      "role": "config",
+      "summary": "Prepared single existing Bonsai8088 launcher with port reuse/refusal and bounded healthy startup; syntax checked, execution awaiting owner confirmation after policy rejection."
+    },
+    {
+      "path": "scripts/start-desktop-harness.ps1",
+      "role": "config",
+      "summary": "Build/start or reuse owned isolated18806 desktop runtime; retains original18801 and Delivery data/services."
+    },
+    {
+      "path": "scripts/start-easiiot-harness.ps1",
+      "role": "config",
+      "summary": "Background Easiiot launcher with optional foreground mode, identity/readiness/logs, explicit reviewer and offline warning without a mandatory Bonsai startup gate."
+    },
+    {
+      "summary": "Private tailnet gateway launcher with protected credentials, exact process reuse and route conflict checks.",
+      "path": "scripts/start-tailnet-preview.ps1",
+      "role": "infra"
+    },
+    {
+      "path": "scripts/start-video-research.ps1",
+      "role": "infra",
+      "summary": "Prepared local model/service setup refuses stale runtime without stopping it."
+    },
+    {
+      "path": "scripts/verify-easiiot-runtime.ps1",
+      "role": "test",
+      "summary": "Reproduce the real baseline refresh failure and fixed-source pass in fresh Docker stacks with identical frontend/checks and SHA-bound receipts."
+    },
+    {
+      "path": "scripts/video-research/cli.mjs",
+      "role": "module",
+      "summary": "Literal-argument owned Python child for existing workspace.run."
+    },
+    {
+      "path": "scripts/video-research/cli.py",
+      "role": "module",
+      "summary": "Finite foreground research command, lock, terminal receipt and actual report artifact."
+    },
+    {
+      "path": "scripts/video-research/download_models.py",
+      "role": "infra",
+      "summary": "Pinned official model downloads with size and hash verification."
+    },
+    {
+      "path": "scripts/video-research/pipeline.py",
+      "role": "module",
+      "summary": "Actual public video/audio/frame inference with provenance validation and durable progress."
+    },
+    {
+      "path": "scripts/video-research/public_web.py",
+      "role": "module",
+      "summary": "DNS-pinned public source reads and filtered evidence search."
+    },
+    {
+      "path": "scripts/video-research/README.md",
+      "role": "feature",
+      "summary": "Owned YouTube speech/frame/web research workflow and runtime limits."
+    },
+    {
+      "path": "scripts/video-research/report.py",
+      "role": "module",
+      "summary": "Bounded reports bind actual speech ranges and read public source IDs."
+    },
+    {
+      "path": "scripts/video-research/requirements.txt",
+      "role": "config",
+      "summary": "Isolated Whisper/video dependencies including verified PyAV compatibility pin."
+    },
+    {
+      "path": "scripts/video-research/server.py",
+      "role": "infra",
+      "summary": "Loopback HTTP/MCP optional research dashboard and scoped tool endpoints."
+    },
+    {
+      "path": "scripts/video-research/SETUP.md",
+      "role": "feature",
+      "summary": "Detailed local research models, setup and unresolved activation/resource limits."
+    },
+    {
+      "path": "scripts/video-research/test_research.py",
+      "role": "test",
+      "summary": "Research provenance, media URL, public-network, stream and actual HTTP/MCP boundaries."
+    },
+    {
+      "path": "scripts/video-research/web/app.js",
+      "role": "feature",
+      "summary": "Actual queued-job progress, visible failure and safe evidence rendering."
+    },
+    {
+      "path": "scripts/video-research/web/index.html",
+      "role": "feature",
+      "summary": "Public video research form and evidence report surface."
+    },
+    {
+      "path": "scripts/video-research/web/style.css",
+      "role": "feature",
+      "summary": "Responsive local research dashboard with progress/focus/motion states."
+    },
+    {
+      "path": "internal/worker/proposal_schema_fresh_test.go",
+      "role": "test",
+      "summary": "Native regression for independent mutable schema maps per request."
+    },
+    {
+      "path": "internal/worker/proposal_schema_scope.go",
+      "role": "module",
+      "summary": "Fresh task-specific proposal schema constraining allowed path enum and change count."
+    },
+    {
+      "path": "internal/worker/proposal_schema_guard_test.go",
+      "role": "test",
+      "summary": "Native mock provider regression preserving duplicate and readonly path rejection."
+    },
+    {
+      "path": "internal/skills/behavioral_run_binding_cases.json",
+      "role": "data",
+      "summary": "Frozen34binding oracles and oversize manifest fixture; H1A implementation still unapplied drafts."
+    },
+    {
+      "path": "internal/worker/proposal_schema_scope_matrix_test.go",
+      "role": "test",
+      "summary": "Native frozen scope matrix; single, readonly subset, sorted legacy, absent Unicode and upper32."
+    },
+    {
+      "path": "internal/worker/proposal_schema_golden_test.go",
+      "role": "test",
+      "summary": "Decorates expected original golden requests only for intentional schema and description fields."
+    },
+    {
+      "path": "internal/worker/proposal_schema_scope_cases.json",
+      "role": "data",
+      "summary": "Frozen six scope cases, three golden scope expectations and short tool description DATA."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-request-schema-scope-contract.md",
+      "role": "document",
+      "summary": "Scope schema contract and explicit description/token-budget amendment."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-h1e1-request-schema-results.md",
+      "role": "document",
+      "summary": "H1E1 native apply, actual1337pass suite, costs, limitations and H1A next steps."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-h1a-prepared-run-design.md",
+      "role": "document",
+      "summary": "Transaction ownership/base/scope/manifest and trustedrunner boundaries before prepare/get implementation."
+    },
+    {
+      "path": "internal/skills/behavioral_run_manifest_cases.json",
+      "role": "data",
+      "summary": "Frozen25manifest cases5positive20negative, H1A2unapplied validation candidates."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-h1a2-foundation-candidate-results.md",
+      "role": "document",
+      "summary": "Native7foundation candidates tested69events, not reviewed/applied; rawfailures/cost/nextauthoritywork."
+    },
+    {
+      "path": "internal/skills/behavioral_run_record_cases.json",
+      "role": "data",
+      "summary": "Frozen14canonicaldecoder/31lifecycle cases; hostv1ordering correctionpreserved; H1A3candidateonly."
+    },
+    {
+      "path": "docs/handoffs/2026-10-26-h1a3-prepared-run-candidate-results.md",
+      "role": "document",
+      "summary": "23nativecandidate sources,301affectedpass4skips,actualSQLite/replay/reopen/scopeproof;NOTreviewed/applied orfulllearning."
+    },
+    {
+      "summary": "Paused H1A4 checkpoint: four focused boundary tests, scanner assertion gap and 27 candidates not reviewed or applied.",
+      "path": "docs/handoffs/2026-10-26-h1a4-boundary-candidate-results.md",
+      "role": "handoff"
+    },
+    {
+      "summary": "Owned prepared-run metadata: models; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_models.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: behavioral eval runs; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/store/behavioral_eval_runs.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: validation; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_validation.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: binding matrix test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_binding_matrix_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: manifest matrix test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_manifest_matrix_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: migration test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_migration_test.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: scope; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_scope.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: decode; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_decode.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: state; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_state.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: immutable test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_immutable_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: record matrix test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_record_matrix_test.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: scan; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_scan.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: base; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_base.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: prepare; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_prepare.go"
+    },
+    {
+      "summary": "Owned prepared-run metadata: get; no execution or promotion authority.",
+      "role": "module",
+      "path": "internal/skills/behavioral_run_get.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: prepare test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_prepare_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: reopen test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_reopen_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: scope fixture test",
+      "role": "test",
+      "path": "internal/agent/behavioral_run_scope_fixture_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: scope integration test",
+      "role": "test",
+      "path": "internal/agent/behavioral_run_scope_integration_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: base test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_base_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: foreign base test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_foreign_base_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: cross scope test",
+      "role": "test",
+      "path": "internal/agent/behavioral_run_cross_scope_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: stale base test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_stale_base_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: concurrent test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_concurrent_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: inactive scope test",
+      "role": "test",
+      "path": "internal/agent/behavioral_run_inactive_scope_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: scan test",
+      "role": "test",
+      "path": "internal/skills/behavioral_run_scan_test.go"
+    },
+    {
+      "summary": "Native prepared-run regression coverage: missing scope test",
+      "role": "test",
+      "path": "internal/agent/behavioral_run_missing_scope_test.go"
+    },
+    {
+      "summary": "Prepared metadata schema79 native apply28/review6 and actual post-root tests; trusted runner and full goal remain pending.",
+      "role": "handoff",
+      "path": "docs/handoffs/2026-10-27-h1a5-prepared-run-apply-results.md"
+    },
+    {
+      "path": "internal/skills/behavioral_run_current.go",
+      "summary": "Owned one-time claim: current; native authored and post-qualified.",
+      "role": "module"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim.go",
+      "summary": "Owned one-time claim: claim; native authored and post-qualified.",
+      "role": "module"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_edit_test.go",
+      "summary": "Owned one-time claim: claim edit test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_base_test.go",
+      "summary": "Owned one-time claim: claim base test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_reopen_test.go",
+      "summary": "Owned one-time claim: claim reopen test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_concurrent_test.go",
+      "summary": "Owned one-time claim: claim concurrent test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_replay_test.go",
+      "summary": "Owned one-time claim: claim replay test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_binding_matrix_test.go",
+      "summary": "Owned one-time claim: claim binding matrix test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/agent/behavioral_run_claim_fixture_test.go",
+      "summary": "Owned one-time claim: claim fixture test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/agent/behavioral_run_claim_owned_scope_loop_test.go",
+      "summary": "Owned one-time claim: claim owned scope loop test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_owner_test.go",
+      "summary": "Owned one-time claim: claim owner test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_terminal_test.go",
+      "summary": "Owned one-time claim: claim terminal test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_format_test.go",
+      "summary": "Owned one-time claim: claim format test; native authored and post-qualified.",
+      "role": "test"
+    },
+    {
+      "path": "internal/skills/behavioral_run_claim_binding_cases.json",
+      "summary": "Frozen16 binding mismatches covering15fields and CaseIDs order; host-authored oracle unchanged.",
+      "role": "test"
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-h1a6-dispatch-contract.md",
+      "summary": "Claim-before-effect contract, metadata-only authority and required host runner/completion continuation.",
+      "role": "handoff"
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-h1a6-claim-apply-results.md",
+      "summary": "Native claim13 apply/review4, post-root1365events and full-goal limitations.",
+      "role": "handoff"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_hash.go",
+      "role": "module"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start.go",
+      "role": "module"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_replay.go",
+      "role": "module"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_race_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_changes_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_id_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_owner_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_legacy_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_reopen_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskcoord/goal_start_replay_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskcoord/goal_start_config_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_create_error_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_integrity_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_utf8_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Native named Goal start: immutable effective input, owned historical replay, concurrency/reopen/encoding and lifecycle proof; host runner wiring remains required.",
+      "path": "internal/taskengine/goal_start_unicode_test.go",
+      "role": "test"
+    },
+    {
+      "summary": "Preallocated durable Goal identity acceptance contract and encoding reproduction.",
+      "path": "docs/handoffs/2026-10-27-h1a7-goal-start-contract.md",
+      "role": "contract"
+    },
+    {
+      "summary": "Applied17 native Goal start files, final1385-pass qualification, real local fixture replay and remaining trusted-runner work.",
+      "path": "docs/handoffs/2026-10-27-h1a7b-goal-start-apply-results.md",
+      "role": "handoff"
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-h1a8-host-coding-operation-contract.md",
+      "role": "feature",
+      "summary": "Durable host operation request, atomic Task binding, original-input replay and actual Goal execution acceptance contract."
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-h1a8-host-coding-operation-progress.md",
+      "role": "feature",
+      "summary": "Native host-operation candidate32 functional proof, migration regression diagnosis and remaining qualification/live-model work."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_default_cases.json",
+      "role": "config",
+      "summary": "Frozen five-field default and explicit-limit DATA oracle for host operation canonicalization."
+    },
+    {
+      "summary": "Actual host planner5120-versus3072 failure, immutable output-fitting design and small-profile/wire/coordinator acceptance.",
+      "role": "feature",
+      "path": "docs/handoffs/2026-10-27-h1a8-planner-output-fit-contract.md"
+    },
+    {
+      "path": "internal/projectbrain/query_fallback.go",
+      "role": "module",
+      "summary": "Bounded mixed-script Latin identifier extraction and case-insensitive query deduplication."
+    },
+    {
+      "path": "internal/projectbrain/query_fallback_test.go",
+      "role": "test",
+      "summary": "Frozen fallback query matrix and input/output bounds."
+    },
+    {
+      "path": "internal/projectbrain/query_fallback_retrieval_test.go",
+      "role": "test",
+      "summary": "Original-request fallback integration and foreign-project rejection."
+    },
+    {
+      "path": "internal/projectbrain/query_fallback_cases.json",
+      "role": "config",
+      "summary": "Frozen generic query fallback oracle, independent of live lesson holdout."
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-project-brain-measurement-results.md",
+      "role": "feature",
+      "summary": "Measured three-arm Bonsai Project Brain pilot, applied retrieval fix, costs and remaining Thai limitation."
+    },
+    {
+      "path": "internal/providers/planner_preset.go",
+      "role": "module",
+      "summary": "Planner preset output fitting preserves local profile limits and immutable dispatch binding."
+    },
+    {
+      "path": "internal/providers/planner_preset_contract_test.go",
+      "role": "test",
+      "summary": "Planner preset output fitting preserves local profile limits and immutable dispatch binding."
+    },
+    {
+      "path": "internal/providers/planner_preset_wire_test.go",
+      "role": "test",
+      "summary": "Planner preset output fitting preserves local profile limits and immutable dispatch binding."
+    },
+    {
+      "path": "internal/store/coding_goal_operations.go",
+      "role": "module",
+      "summary": "Schema80 durable coding operation storage and preserved migration history."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_advance.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_assert_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_canonical_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_completion_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_concurrent_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_conflict_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_create.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_envelope_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_fixture_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_get.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_goal.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_identity.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_immutable_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_input.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_migration_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_models.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_owner_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_pending_fixture_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_pending_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_planner_budget_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_profile_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_reopen_fixture_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_reopen_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_resolve.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_rollback_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_scan.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_start.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_store.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_strings.go",
+      "role": "module",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "internal/taskcoord/coding_operation_utf8_test.go",
+      "role": "test",
+      "summary": "Durable coding operation lifecycle, identity, replay, ownership and recovery."
+    },
+    {
+      "path": "docs/evidence/README.md",
+      "role": "feature",
+      "summary": "Local-only evidence and generated-project policy; portable validation summary location."
+    },
+    {
+      "path": "docs/validation/2026-10-27-project-brain-pilot.json",
+      "role": "config",
+      "summary": "Portable three-arm Bonsai metrics, cost, scope and actual post-apply verification."
+    },
+    {
+      "path": "docs/validation/2026-10-27-harness-checkpoint.json",
+      "role": "config",
+      "summary": "Portable schema80 host and Project Brain checkpoint without generated project captures."
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-harness-git-checkpoint.md",
+      "role": "feature",
+      "summary": "Separated Harness commits, staged-snapshot validation and local-only generated project policy."
+    },
+    {
+      "path": "docs/handoffs/2026-10-27-dev-integration.md",
+      "role": "module",
+      "summary": "Dev integration behavior, schema81 bridge, native provenance and validation limits."
+    },
+    {
+      "path": "docs/validation/2026-10-27-dev-integration.json",
+      "role": "config",
+      "summary": "Portable final merge checks, explicit skipped integrations and publication contract."
+    },
+    {
+      "path": "internal/store/agent_retries.go",
+      "role": "module",
+      "summary": "Schema81 joins idempotent desktop observation columns with dev retry/approval tables."
+    },
+    {
+      "path": "internal/store/agent_retry_merge_v81_test.go",
+      "role": "test",
+      "summary": "Idempotent legacy migration and schema80 reopen preserve sentinel data and retry tables."
+    },
+    {
+      "path": "internal/agent/notebook.go",
+      "role": "module",
+      "summary": "Turn notebook and receipt-based fallback summaries."
+    },
+    {
+      "path": "internal/agent/retry.go",
+      "role": "module",
+      "summary": "Durable automatic continuation and approval-mode state."
+    },
+    {
+      "path": "internal/web/ui/conversation-controls.js",
+      "role": "module",
+      "summary": "Chat commands and approval controls within compact composer disclosure."
+    },
+    {
+      "path": "internal/web/ui/auto-retry.js",
+      "role": "module",
+      "summary": "Automatic continuation status and explicit pause controls."
+    }
   ]
 }

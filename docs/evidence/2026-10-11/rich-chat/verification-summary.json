@@ -1,0 +1,19 @@
+{
+  "binary_sha256": "5e56d9518892f2dbe9142c2a4b8c47b1bdae8819f117c3a96629e4bf776780cb",
+  "dependencies": {
+    "mermaid": "12.1.0",
+    "katex_override": "0.18.2",
+    "markdown_it": "15.0.2"
+  },
+  "backup": ".tmp-ui/rich-chat-before-20261011.db",
+  "pid": 55372,
+  "live_browser": "passed real Bonsai reply and original user session, 5 sizes and expansion dialog",
+  "full_go": "passed",
+  "final_web": "passed after diagram sizing and viewer changes",
+  "schema": 76,
+  "main18804": "unchanged",
+  "url": "https://desktop-nh66lnq.tail0f7f57.ts.net:18810/",
+  "node_pass": 141,
+  "token": "unchanged",
+  "final_targeted": "passed final fixture diagram/cache/dialog/queue and security checks"
+}

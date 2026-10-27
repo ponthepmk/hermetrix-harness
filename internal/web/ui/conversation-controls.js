@@ -29,7 +29,9 @@
     tools.innerHTML = '<label>Approve <select data-approval-mode aria-label="โหมดอนุมัติเครื่องมือในแชต"><option value="ask_all">Ask all</option><option value="auto">Auto approve</option></select></label><button type="button" data-character hidden aria-label="แสดงหรือซ่อนตัวละคร">ตัวละคร</button><button type="button" data-scroll-bottom aria-label="เลื่อนไปข้อความล่าสุด">↓</button><small>Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่</small>';
     const menu = document.createElement('div');
     menu.className = 'slash-menu'; menu.hidden = true; menu.setAttribute('role', 'listbox'); menu.setAttribute('aria-label', 'คำสั่งแชต');
-    form.insertBefore(tools, input); form.insertBefore(menu, input);
+    const footer = form.querySelector('.composer-tool-options');
+if(footer){footer.append(tools);}else{form.insertBefore(tools,input);}
+    form.insertBefore(menu, input);
     tools.querySelector('select').value = mode;
     tools.querySelector('select').addEventListener('change', event => { setMode(event.target.value); input.focus(); });
     tools.querySelector('[data-scroll-bottom]').addEventListener('click', () => { const log = form.closest('.chat-stage, .ide-assistant')?.querySelector('.message-list, .ide-assistant-log'); if (log) log.scrollTo({top: log.scrollHeight, behavior: 'smooth'}); input.focus(); });

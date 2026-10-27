@@ -1,0 +1,287 @@
+{
+  "proposal": {
+    "id": "66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9",
+    "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+    "step_id": "taskstep_de2d79939200983fa03008fdab3ba848",
+    "attempt_id": "attempt_7572b6c864b6bb25965e4f8cacdca94a",
+    "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+    "packet_hash": "sha256:f12345b648c6ddd9cd570bdc20c3c2fa51909c3025c21a4f97b581bdaeff2411",
+    "provider_id": "provider_83e80036904bd79a2caae0a8e9e99653",
+    "provider_revision": "provider-fda79e5e9fabd003",
+    "artifact_id": "artifact_01568ee21cae62c23d41b879130e626a",
+    "rollback_artifact_id": "artifact_d5dae098bec75eed0527da8891c9c929",
+    "verification_artifact_id": "artifact_6c115c4a4ea1eeab597a382f3f9216a4",
+    "result_hash": "c9c2d0647aaabe63d947cb2cda72552afe0f99af61daa5abe1d239c17a6c9945",
+    "state": "awaiting_post_review",
+    "created_at": "2026-10-10T10:44:59.0195871Z",
+    "updated_at": "2026-10-10T10:45:28.3319611Z"
+  },
+  "jobs": [
+    {
+      "id": "job_55e8905e293c3b1392f4140aabc42597",
+      "kind": "command",
+      "state": "completed",
+      "progress": 1,
+      "payload": {
+        "actor": "principal_039298dcd79c0314f737e35122dfc18c",
+        "arguments": [
+          "-e",
+          "const fs=require('node:fs'),assert=require('node:assert/strict');const data=fs.readFileSync(\"sum.test.js\");assert.equal(require('node:crypto').createHash('sha256').update(data).digest('hex'),\"7b5accbb2171c620513a4bc615a7d84581acc9eeeeaf38e897f4ee9ebb008134\",'file bytes changed');console.log('File assertion passed');"
+        ],
+        "environment": "minimal",
+        "executable": "node",
+        "operation_id": "operation_f744edddab369ef79edc8f2f98e2bd92",
+        "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+        "shell": false,
+        "timeout_seconds": 120,
+        "working_dir": "."
+      },
+      "result": {
+        "artifact_id": "artifact_82a04c1d9b8c14aa06ed66c21af49ce2",
+        "duration_ms": 87,
+        "exit_code": 0,
+        "output": "File assertion passed\n",
+        "process_group_terminated_on_cancel": true,
+        "sandbox": {
+          "enforced": false,
+          "kind": "unavailable",
+          "network_isolated": false,
+          "write_scope": "process-hardening-only"
+        },
+        "truncated": false
+      },
+      "cancel_requested": false,
+      "created_at": "2026-10-10T10:45:26.9107365Z",
+      "started_at": "2026-10-10T10:45:27.0038932Z",
+      "completed_at": "2026-10-10T10:45:27.2528634Z"
+    },
+    {
+      "id": "job_83c26272fc8da6bddf440f96976c7180",
+      "kind": "command",
+      "state": "completed",
+      "progress": 1,
+      "payload": {
+        "actor": "principal_039298dcd79c0314f737e35122dfc18c",
+        "arguments": [
+          "--check",
+          "sum.js"
+        ],
+        "environment": "minimal",
+        "executable": "node",
+        "operation_id": "operation_11052fd8c8007ea93724c4150d17b08b",
+        "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+        "shell": false,
+        "timeout_seconds": 120,
+        "working_dir": "."
+      },
+      "result": {
+        "artifact_id": "artifact_3c145642254992e2cdcc8cc65c1f87f5",
+        "duration_ms": 79,
+        "exit_code": 0,
+        "output": "",
+        "process_group_terminated_on_cancel": true,
+        "sandbox": {
+          "enforced": false,
+          "kind": "unavailable",
+          "network_isolated": false,
+          "write_scope": "process-hardening-only"
+        },
+        "truncated": false
+      },
+      "cancel_requested": false,
+      "created_at": "2026-10-10T10:45:27.42574Z",
+      "started_at": "2026-10-10T10:45:27.4504556Z",
+      "completed_at": "2026-10-10T10:45:27.6009388Z"
+    },
+    {
+      "id": "job_05c9c74d4e2198f083e3232ce95589ae",
+      "kind": "command",
+      "state": "completed",
+      "progress": 1,
+      "payload": {
+        "actor": "principal_039298dcd79c0314f737e35122dfc18c",
+        "arguments": [
+          "--test",
+          "sum.test.js"
+        ],
+        "environment": "minimal",
+        "executable": "node",
+        "operation_id": "operation_9c6aa5892e80ea89f4290c8d24380d9e",
+        "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+        "shell": false,
+        "timeout_seconds": 120,
+        "working_dir": "."
+      },
+      "result": {
+        "artifact_id": "artifact_f7147ab6406970cc70f120d8bb3b092e",
+        "duration_ms": 166,
+        "exit_code": 0,
+        "output": "TAP version 13\n# Subtest: add 2 3\nok 1 - add 2 3\n  ---\n  duration_ms: 1.4618\n  ...\n# Subtest: add -2 3\nok 2 - add -2 3\n  ---\n  duration_ms: 0.1515\n  ...\n# Subtest: add 0 0\nok 3 - add 0 0\n  ---\n  duration_ms: 0.111\n  ...\n# Subtest: add 0.5 0.25\nok 4 - add 0.5 0.25\n  ---\n  duration_ms: 0.0942\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 4\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 66.2632\n",
+        "process_group_terminated_on_cancel": true,
+        "sandbox": {
+          "enforced": false,
+          "kind": "unavailable",
+          "network_isolated": false,
+          "write_scope": "process-hardening-only"
+        },
+        "truncated": false
+      },
+      "cancel_requested": false,
+      "created_at": "2026-10-10T10:45:27.7891651Z",
+      "started_at": "2026-10-10T10:45:27.8229514Z",
+      "completed_at": "2026-10-10T10:45:28.1442877Z"
+    }
+  ],
+  "validations": [
+    {
+      "id": "validation_c9e8b32f225be1c390d7a76c7a2ecafe",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "step_id": "taskstep_de2d79939200983fa03008fdab3ba848",
+      "check_id": "assert-file-sha256 sum.test.js 7b5accbb2171c620513a4bc615a7d84581acc9eeeeaf38e897f4ee9ebb008134",
+      "subject_revision": "step:taskstep_de2d79939200983fa03008fdab3ba848:r2",
+      "status": "pass",
+      "expected": "exit code 0 and nonempty discovery for test commands",
+      "actual": "state=completed exit_code=0",
+      "evidence_refs": [
+        "artifact:artifact_82a04c1d9b8c14aa06ed66c21af49ce2",
+        "job:job_55e8905e293c3b1392f4140aabc42597"
+      ],
+      "confidence": 0,
+      "created_at": "2026-10-10T10:45:27.3163008Z"
+    },
+    {
+      "id": "validation_5d8baf39e1dafc7188fa137d86f5fac5",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "step_id": "taskstep_de2d79939200983fa03008fdab3ba848",
+      "check_id": "node --check sum.js",
+      "subject_revision": "step:taskstep_de2d79939200983fa03008fdab3ba848:r2",
+      "status": "pass",
+      "expected": "exit code 0 and nonempty discovery for test commands",
+      "actual": "state=completed exit_code=0",
+      "evidence_refs": [
+        "artifact:artifact_3c145642254992e2cdcc8cc65c1f87f5",
+        "job:job_83c26272fc8da6bddf440f96976c7180"
+      ],
+      "confidence": 0,
+      "created_at": "2026-10-10T10:45:27.667796Z"
+    },
+    {
+      "id": "validation_b1b41a27fa57aa095692ed5cdd4e6ba9",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "step_id": "taskstep_de2d79939200983fa03008fdab3ba848",
+      "check_id": "node --test sum.test.js",
+      "subject_revision": "step:taskstep_de2d79939200983fa03008fdab3ba848:r2",
+      "status": "pass",
+      "expected": "exit code 0 and nonempty discovery for test commands",
+      "actual": "state=completed exit_code=0",
+      "evidence_refs": [
+        "artifact:artifact_f7147ab6406970cc70f120d8bb3b092e",
+        "job:job_05c9c74d4e2198f083e3232ce95589ae"
+      ],
+      "confidence": 0,
+      "created_at": "2026-10-10T10:45:28.2193658Z"
+    }
+  ],
+  "effects": [
+    {
+      "id": "effect_188114b33cec5dad3ee47fcf48340788",
+      "attempt_id": "attempt_7572b6c864b6bb25965e4f8cacdca94a",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "run_id": "taskrun_ae981885cfbb844725eb36607800a100",
+      "lease_generation": 1,
+      "operation_id": "operation_f744edddab369ef79edc8f2f98e2bd92",
+      "action": "workspace.run",
+      "target": "node -e const fs=require('node:fs'),assert=require('node:assert/strict');const data=fs.readFileSync(\"sum.test.js\");assert.equal(require('node:crypto').createHash('sha256').update(data).digest('hex'),\"7b5accbb2171c620513a4bc615a7d84581acc9eeeeaf38e897f4ee9ebb008134\",'file bytes changed');console.log('File assertion passed');",
+      "authority": "review:66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9",
+      "state": "observed",
+      "receipt": {
+        "evidence_refs": [
+          "job:job_55e8905e293c3b1392f4140aabc42597",
+          "artifact:artifact_82a04c1d9b8c14aa06ed66c21af49ce2"
+        ],
+        "job_id": "job_55e8905e293c3b1392f4140aabc42597",
+        "status": "completed"
+      },
+      "created_at": "2026-10-10T10:45:26.8735055Z",
+      "updated_at": "2026-10-10T10:45:27.2757539Z"
+    },
+    {
+      "id": "effect_03cb4e6a14fa0782040f450595d3db40",
+      "attempt_id": "attempt_7572b6c864b6bb25965e4f8cacdca94a",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "run_id": "taskrun_ae981885cfbb844725eb36607800a100",
+      "lease_generation": 1,
+      "operation_id": "operation_11052fd8c8007ea93724c4150d17b08b",
+      "action": "workspace.run",
+      "target": "node --check sum.js",
+      "authority": "review:66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9",
+      "state": "observed",
+      "receipt": {
+        "evidence_refs": [
+          "job:job_83c26272fc8da6bddf440f96976c7180",
+          "artifact:artifact_3c145642254992e2cdcc8cc65c1f87f5"
+        ],
+        "job_id": "job_83c26272fc8da6bddf440f96976c7180",
+        "status": "completed"
+      },
+      "created_at": "2026-10-10T10:45:27.3527063Z",
+      "updated_at": "2026-10-10T10:45:27.6368238Z"
+    },
+    {
+      "id": "effect_2c6a86cf2b742d265ccd51e1ca9c3360",
+      "attempt_id": "attempt_7572b6c864b6bb25965e4f8cacdca94a",
+      "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+      "run_id": "taskrun_ae981885cfbb844725eb36607800a100",
+      "lease_generation": 1,
+      "operation_id": "operation_9c6aa5892e80ea89f4290c8d24380d9e",
+      "action": "workspace.run",
+      "target": "node --test sum.test.js",
+      "authority": "review:66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9",
+      "state": "observed",
+      "receipt": {
+        "evidence_refs": [
+          "job:job_05c9c74d4e2198f083e3232ce95589ae",
+          "artifact:artifact_f7147ab6406970cc70f120d8bb3b092e"
+        ],
+        "job_id": "job_05c9c74d4e2198f083e3232ce95589ae",
+        "status": "completed"
+      },
+      "created_at": "2026-10-10T10:45:27.7114467Z",
+      "updated_at": "2026-10-10T10:45:28.1804936Z"
+    }
+  ],
+  "evidence": {
+    "id": "artifact_6c115c4a4ea1eeab597a382f3f9216a4",
+    "project_id": "project_9ffc136f19866407e2c80c1a34a8f1c7",
+    "name": "66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9.verification.json",
+    "kind": "code_verification_bundle",
+    "mime_type": "application/vnd.hermetrix.code-verification+json",
+    "blob_ref": "065c2534caa4b88d96bb101bd39ed1f903848b01d0b4e393cda4f6a745a1b3e8",
+    "byte_size": 6021,
+    "checksum": "065c2534caa4b88d96bb101bd39ed1f903848b01d0b4e393cda4f6a745a1b3e8",
+    "metadata": {
+      "packet_hash": "sha256:f12345b648c6ddd9cd570bdc20c3c2fa51909c3025c21a4f97b581bdaeff2411",
+      "proposal_id": "66cb99b206dff41ffe7ad1fbc50953ba6fa2e9f4ecd0d66b04100ab3da0fd0b9"
+    },
+    "created_at": "2026-10-10T10:45:28.2947532Z",
+    "owner_principal_id": "principal_039298dcd79c0314f737e35122dfc18c",
+    "visibility": "private",
+    "export_policy": "deny",
+    "sharing_revision": 1
+  },
+  "rollback_evidence": {
+    "id": "",
+    "name": "",
+    "kind": "",
+    "mime_type": "",
+    "blob_ref": "",
+    "byte_size": 0,
+    "checksum": "",
+    "created_at": "0001-01-01T00:00:00Z",
+    "owner_principal_id": "",
+    "visibility": "",
+    "export_policy": "",
+    "sharing_revision": 0
+  },
+  "rolled_back": false
+}

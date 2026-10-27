@@ -10,7 +10,6 @@ import (
 	"hermetrix-harness/internal/providers"
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
-	"hermetrix-harness/internal/store"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -118,7 +117,7 @@ func TestSkillManageIsInTheDirectWaist(t *testing.T) {
 // state a model is in when it has read nothing yet.
 func skillManageFixture(t *testing.T) (*Service, Session) {
 	t.Helper()
-	dataStore, err := store.Open(context.Background(), t.TempDir())
+	dataStore, err := openAgentFixtureStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}

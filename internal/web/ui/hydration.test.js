@@ -22,7 +22,7 @@ function harness(api) {
     state:{currentProject:project, projects:[project], selectedProject:"a", projectPath:"", projectFiles:[], workspaceFiles:[],
       teams:[], terminals:[], browserTabs:[], sessions:[], qualifications:[], providers:[], skills:[],
       activeTab:"chat", view:"chat", startDraft:"Keep this unsent goal", panes:["files","editor"]},
-    api, asList, Map, Set, console, CONFIG_PAGE_IDS:["maintenance","projects","office","insights"], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id",
+    api, asList, Map, Set, codeOpenGeneration:0, console, CONFIG_PAGE_IDS:["maintenance","projects","office","insights"], DEFAULT_PROVIDER_SETTING:"ui.default_provider_id",
     $:()=>({classList:{contains:()=>true},setAttribute(){},removeAttribute(){}}),
     HermetrixRuntime:{preferredProvider:providers=>providers[0]},
     localStorage:{getItem:()=>null}, selectDraftProvider:id=>{context.state.draftProviderID=id;},

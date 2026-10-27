@@ -10,6 +10,20 @@ Hermetrix is a local-first, provider-flexible agent harness built around three h
 
 For a Thai-language overview of the product contract, implemented scope, and pending release gates, see [the specification summary](docs/SPEC-SUMMARY.md). This is a reference document; the application does not need it to run.
 
+The optional [Video Research project](scripts/video-research/README.md) supports
+public YouTube transcription, sampled-frame vision and source-linked Thai
+research reports with local Whisper/Qwen models. Its foreground CLI works through
+the normal workspace.run job lifecycle; HTTP/MCP activation and verification
+status are documented in [the research review](docs/reviews/2026-10-13-youtube-research.md).
+
+The optional [self-improvement planning lab](docs/SELF-IMPROVEMENT.md) runs as a separate supervisor. It lets Hermetrix propose a checklist, compares paired planning outcomes, checks the original core before and after, and retains the current version unless measured gates pass. It never installs a candidate automatically.
+
+The [durable coding goal runner](docs/GOAL-RUNNER.md) connects planning, actual
+file edits, frozen-command checks, rollback and separate review through a
+server-owned bounded loop. It includes CLI/API control and an optional
+[MT5 compile/backtest adapter](scripts/mt5/README.md). Automated process/evidence
+checks pass; live model, real MT5 and installed-release qualification remain open.
+
 The implementation is original. The product requirements were informed by the research in [`../Hermetrix-research`](../Hermetrix-research/README.md), but no Aetox source code, assets, or branding are copied because the inspected Aetox snapshot is proprietary source-available.
 
 The name reflects the architecture: a **hermetic core** for bounded local authority plus a **matrix** of versioned skills, tools, context and model capabilities. Product-owned identity files and their usage contract live in [assets/brand](assets/brand/README.md).
@@ -222,6 +236,8 @@ hermetrix serve --workspace PATH --project-brain-server "Project Brain" --projec
 ```
 
 The two Project Brain options must be given together. This binding applies only to the local project registered from `--workspace`; another local project cannot inherit its Pi scope. Each user turn may read at most three active, sourced, medium/high-confidence passages using Second Brain's `get_context`. Hermetrix checks each citation with version-bound `read_passage`, labels it as external reference data, and sends it through the existing Context Compiler. A missing Pi or rejected citation contributes no knowledge and does not fail the local turn; the chat shows a warning. No Project Brain read grants write, promotion, or tool-dispatch authority. Configure a separate explicit binding when using another workspace or Pi project.
+
+After a genuine search miss, Hermetrix makes at most one additional lookup using technical terms from the original request, including terms after a long introduction and Latin identifiers within Thai text. It prefers up to two distinct identifiers containing underscores, otherwise up to two topic words; project scope and citation checks stay the same. This fallback adds no model call. For a Thai-only question that does not match, include the relevant API or component name: automatic translation is not provided. See the [measured retrieval and Bonsai results](docs/handoffs/2026-10-27-project-brain-measurement-results.md) for the tested scope and token costs.
 
 The Models screen exposes a behavioral qualification suite. Remote gateway metadata can test tools, cancellation, recall and latency, but it cannot certify local allocation. `Certified 64k` requires a verified loaded-runtime probe; missing or failed evidence produces an explicit decision report rather than changing the selected profile silently.
 

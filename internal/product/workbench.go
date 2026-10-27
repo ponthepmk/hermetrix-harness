@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,28 +26,63 @@ func (s *Service) ReadProjectFile(ctx context.Context, projectID, relative strin
 	if err != nil {
 		return FileDocument{}, err
 	}
+	return readProjectFileAtRoot(root, relative)
+}
+
+func readProjectFileAtRoot(root, relative string) (FileDocument, error) {
+	return readProjectFileAtRootBounded(root, relative, maxWorkbenchFileBytes)
+}
+
+func readProjectFileAtRootBounded(root, relative string, limit int) (FileDocument, error) {
+	if limit < 1 || limit > maxWorkbenchFileBytes {
+		return FileDocument{}, fmt.Errorf("file read limit is invalid")
+	}
 	path, clean, err := regularProjectFile(root, relative)
 	if err != nil {
 		return FileDocument{}, err
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return FileDocument{}, err
 	}
-	if len(data) > maxWorkbenchFileBytes {
-		return FileDocument{}, fmt.Errorf("workbench editor supports files up to 2 MiB")
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return FileDocument{}, err
+	}
+	// Size is only a capped allocation hint. A file may grow after stat;
+	// actual reads still stop at the host limit plus one sentinel byte.
+	data := make([]byte, int(min(info.Size(), int64(limit)))+1)
+	n, readErr := io.ReadFull(file, data)
+	data = data[:n]
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return FileDocument{Bytes: n}, readErr
+	}
+	if readErr == nil && n <= limit {
+		tail, tailErr := io.ReadAll(io.LimitReader(file, int64(limit+1-n)))
+		data = append(data, tail...)
+		if tailErr != nil {
+			return FileDocument{Bytes: len(data)}, tailErr
+		}
+	}
+	if len(data) > limit {
+		if limit == maxWorkbenchFileBytes {
+			return FileDocument{Bytes: len(data)}, fmt.Errorf("workbench editor supports files up to 2 MiB")
+		}
+		return FileDocument{Bytes: len(data)}, fmt.Errorf("workbench editor file exceeds bounded read limit")
 	}
 	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
-		return FileDocument{}, fmt.Errorf("workbench editor supports UTF-8 text files only")
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return FileDocument{}, err
+		return FileDocument{Bytes: len(data)}, fmt.Errorf("workbench editor supports UTF-8 text files only")
 	}
 	return fileDocument(clean, data, info), nil
 }
 
 func (s *Service) WriteProjectFile(ctx context.Context, projectID string, input WriteFileInput) (WriteFileResult, error) {
+	unlockRoot, err := s.guardProjectRoot(ctx, projectID, "")
+	if err != nil {
+		return WriteFileResult{}, err
+	}
+	defer unlockRoot()
 	input.Actor = strings.TrimSpace(input.Actor)
 	if input.Actor == "" || len(input.Content) > maxWorkbenchFileBytes || !utf8.ValidString(input.Content) || strings.IndexByte(input.Content, 0) >= 0 {
 		return WriteFileResult{}, fmt.Errorf("actor and UTF-8 content up to 2 MiB are required")
@@ -75,7 +111,7 @@ func (s *Service) WriteProjectFile(ctx context.Context, projectID string, input 
 	if canonical, canonicalErr := filepath.EvalSymlinks(root); canonicalErr == nil {
 		lockRoot = canonical
 	}
-	release, err := s.pathLocks.acquire(ctx, lockRoot+"\x00"+filepath.ToSlash(clean))
+	release, err := s.pathLocks.acquire(ctx, manifestPathKey(lockRoot+"\x00"+filepath.ToSlash(clean)))
 	if err != nil {
 		return WriteFileResult{}, err
 	}
@@ -139,12 +175,9 @@ func (s *Service) writeProjectFileLocked(ctx context.Context, project Project, r
 		return WriteFileResult{}, err
 	}
 	tempPath := temp.Name()
-	committed := false
 	defer func() {
 		_ = temp.Close()
-		if !committed {
-			_ = os.Remove(tempPath)
-		}
+		_ = os.Remove(tempPath) // a committed absent-file link leaves this owned name
 	}()
 	if err := temp.Chmod(mode); err != nil {
 		abandon("temporary file permission failed")
@@ -177,11 +210,15 @@ func (s *Service) writeProjectFileLocked(ctx context.Context, project Project, r
 	if err = s.transitionFileMutation(ctx, intent.OperationID, mutationPlanned, mutationDispatched, "", ""); err != nil {
 		return WriteFileResult{}, err
 	}
-	if err := os.Rename(tempPath, path); err != nil {
+	if beforeSHA == "absent" {
+		err = os.Link(tempPath, path)
+	} else {
+		err = os.Rename(tempPath, path)
+	}
+	if err != nil {
 		_ = s.transitionFileMutation(context.WithoutCancel(ctx), intent.OperationID, mutationDispatched, mutationAbandoned, "", "atomic replacement failed")
 		return WriteFileResult{}, err
 	}
-	committed = true
 	info, err := os.Stat(path)
 	if err != nil {
 		return WriteFileResult{}, err
@@ -210,6 +247,17 @@ func (s *Service) writeProjectFileLocked(ctx context.Context, project Project, r
 // canonical path lock. It validates all preimages before the first mutation and
 // keeps the locks through reverse-order rollback.
 func (s *Service) WriteProjectFiles(ctx context.Context, projectID string, inputs []WriteFileInput) (BatchWriteResult, error) {
+	return s.WriteProjectFilesAtRoot(ctx, projectID, "", inputs)
+}
+
+// WriteProjectFilesAtRoot serializes project-root changes with a proposal's
+// entire mutation/rollback cycle. Empty expectedRoot preserves legacy callers.
+func (s *Service) WriteProjectFilesAtRoot(ctx context.Context, projectID, expectedRoot string, inputs []WriteFileInput) (BatchWriteResult, error) {
+	unlock, err := s.guardProjectRoot(ctx, projectID, expectedRoot)
+	if err != nil {
+		return BatchWriteResult{}, err
+	}
+	defer unlock()
 	if len(inputs) == 0 {
 		return BatchWriteResult{}, fmt.Errorf("at least one file write is required")
 	}
@@ -218,6 +266,10 @@ func (s *Service) WriteProjectFiles(ctx context.Context, projectID string, input
 		return BatchWriteResult{}, err
 	}
 	root, err := requireRoot(project)
+	if err != nil {
+		return BatchWriteResult{}, err
+	}
+	root, err = bindProjectRoot(root, expectedRoot)
 	if err != nil {
 		return BatchWriteResult{}, err
 	}
@@ -241,7 +293,7 @@ func (s *Service) WriteProjectFiles(ctx context.Context, projectID string, input
 		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return BatchWriteResult{}, fmt.Errorf("file path must stay inside the project root")
 		}
-		key := lockRoot + "\x00" + filepath.ToSlash(clean)
+		key := manifestPathKey(lockRoot + "\x00" + filepath.ToSlash(clean))
 		if seen[key] {
 			return BatchWriteResult{}, fmt.Errorf("file batch contains duplicate path %s", filepath.ToSlash(clean))
 		}
@@ -267,11 +319,11 @@ func (s *Service) WriteProjectFiles(ctx context.Context, projectID string, input
 	}()
 	preimages := make(map[string]FileDocument, len(items))
 	for _, item := range items {
-		document, readErr := s.ReadProjectFile(ctx, projectID, item.clean)
+		document, readErr := snapshotProjectFileAtRoot(root, item.clean)
 		if readErr != nil {
 			return BatchWriteResult{}, readErr
 		}
-		if !validSHA256(item.input.ExpectedSHA256) || document.SHA256 != item.input.ExpectedSHA256 {
+		if (!validSHA256(item.input.ExpectedSHA256) && item.input.ExpectedSHA256 != "absent") || document.SHA256 != item.input.ExpectedSHA256 {
 			return BatchWriteResult{}, &PreimageChangedError{Path: filepath.ToSlash(item.clean),
 				ExpectedSHA256: item.input.ExpectedSHA256, CurrentSHA256: document.SHA256}
 		}
@@ -293,11 +345,17 @@ func (s *Service) WriteProjectFiles(ctx context.Context, projectID string, input
 			applied := result.Receipts[index]
 			original := preimages[applied.Document.Path]
 			rollback := FileRollbackResult{Path: applied.Document.Path, State: "failed"}
-			current, readErr := s.ReadProjectFile(cleanupCtx, projectID, applied.Document.Path)
+			current, readErr := readProjectFileAtRoot(root, applied.Document.Path)
 			if readErr != nil {
 				rollback.Error = readErr.Error()
 			} else if current.SHA256 != applied.Document.SHA256 {
 				rollback.State, rollback.Error = "conflict", "file changed after apply"
+			} else if original.SHA256 == "absent" {
+				var restoreErr error
+				rollback, restoreErr = s.restoreProjectFileAbsenceLocked(cleanupCtx, project, root, filepath.FromSlash(applied.Document.Path), current.SHA256, item.input.Actor+":rollback")
+				if restoreErr != nil {
+					rollback.Error = restoreErr.Error()
+				}
 			} else {
 				_, restoreErr := s.writeProjectFileLocked(cleanupCtx, project, root, filepath.FromSlash(applied.Document.Path), WriteFileInput{
 					Path: applied.Document.Path, Content: original.Content, ExpectedSHA256: current.SHA256,

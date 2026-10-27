@@ -1,0 +1,137 @@
+[
+  {
+    "WantError": false,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": 0,
+    "Expected": [
+      [
+        7,
+        25
+      ]
+    ],
+    "Source": "alpha\r\nไทย anchor\r\ntail\r\n",
+    "Name": "utf8-crlf-byte-offsets"
+  },
+  {
+    "WantError": false,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": 1,
+    "Expected": [
+      [
+        0,
+        31
+      ]
+    ],
+    "Source": "alpha\r\nไทย anchor\r\ntail\r\n",
+    "Name": "radius-one-preserves-crlf"
+  },
+  {
+    "WantError": false,
+    "Terms": [
+      "add"
+    ],
+    "Radius": 0,
+    "Expected": [
+      [
+        8,
+        12
+      ]
+    ],
+    "Source": "address\nadd\nx\n",
+    "Name": "identifier-boundary"
+  },
+  {
+    "WantError": false,
+    "Terms": [
+      "noise",
+      "return a - b"
+    ],
+    "Radius": 0,
+    "Expected": [
+      [
+        6,
+        19
+      ]
+    ],
+    "Source": "noise\nreturn a - b\nnoise\n",
+    "Name": "literal-over-common-word"
+  },
+  {
+    "WantError": true,
+    "Terms": [
+      "missing"
+    ],
+    "Radius": 0,
+    "Expected": [],
+    "Source": "nothing",
+    "Name": "no-source-anchor"
+  },
+  {
+    "WantError": true,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": -1,
+    "Expected": [],
+    "Source": "anchor",
+    "Name": "negative-radius"
+  },
+  {
+    "WantError": true,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": 33,
+    "Expected": [],
+    "Source": "anchor",
+    "Name": "radius-over-cap"
+  },
+  {
+    "WantError": false,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": 0,
+    "Expected": [
+      [
+        0,
+        7
+      ],
+      [
+        12,
+        19
+      ]
+    ],
+    "Source": "anchor\nmiss\nanchor\n",
+    "Name": "all-tied-anchors"
+  },
+  {
+    "WantError": false,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": 1,
+    "Expected": [
+      [
+        0,
+        20
+      ]
+    ],
+    "Source": "x\nanchor\nx\nanchor\nx\n",
+    "Name": "overlapping-windows-merge"
+  },
+  {
+    "WantError": true,
+    "Terms": [
+      "anchor"
+    ],
+    "Radius": 0,
+    "Expected": [],
+    "Source": "anchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\nanchor\nmiss\n",
+    "Name": "thirty-three-disjoint-anchors"
+  }
+]

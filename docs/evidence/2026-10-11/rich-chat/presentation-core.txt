@@ -1,0 +1,10 @@
+=== RUN   TestPromptTellsTheModelWhichSkillsAreAvailable
+--- PASS: TestPromptTellsTheModelWhichSkillsAreAvailable (0.19s)
+=== RUN   TestCalibrationLearnsFromThePromptNotTheBudget
+--- PASS: TestCalibrationLearnsFromThePromptNotTheBudget (0.20s)
+=== RUN   TestOrdinaryChatRepairsMixedApprovalBatchWithoutDispatch
+--- PASS: TestOrdinaryChatRepairsMixedApprovalBatchWithoutDispatch (0.23s)
+=== RUN   TestOrdinaryChatRepairsAfterApprovalWithoutReplayingEffect
+--- PASS: TestOrdinaryChatRepairsAfterApprovalWithoutReplayingEffect (0.36s)
+PASS
+ok  	hermetrix-harness/internal/agent	3.117s

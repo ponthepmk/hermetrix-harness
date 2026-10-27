@@ -1,7 +1,5 @@
-// Package taskcoord connects the durable task state machine to bounded,
-// proposal-only model workers. It may read explicitly selected project files
-// and persist a proposal artifact, but it never writes source files or claims
-// that a proposal passed review or tests.
+// Package taskcoord connects the durable task state machine to bounded model
+// workers, scoped file mutation, managed checks and evidence-bound review.
 package taskcoord
 
 import (
@@ -47,6 +45,9 @@ type Service struct {
 // A multi-file proposal needs enough output for a complete structured call.
 // The selected immutable preset is bound to the attempt before dispatch.
 func (s *Service) codeProposalPreset(ctx context.Context, profile providers.Profile) (inference.Preset, error) {
+	if profile.MaxOutputTokens > 8192 {
+		return s.providers.ResolveCodeProposalPreset(ctx, profile)
+	}
 	for _, id := range []string{"worker-max", "worker-large", "worker-medium"} {
 		if preset, err := s.providers.ResolveTaskPreset(ctx, profile, id, 1); err == nil {
 			return preset, nil
@@ -109,6 +110,7 @@ type VerifyOutput struct {
 }
 
 type verificationBundle struct {
+	Snapshot   product.ProjectSnapshot `json:"source_snapshot"`
 	ProposalID string                  `json:"proposal_id"`
 	Checks     []CommandCheck          `json:"checks"`
 	Jobs       []product.Job           `json:"jobs"`
@@ -191,12 +193,12 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 	if err := validateTaskEgress(task, profile); err != nil {
 		return AutoPlanOutput{}, err
 	}
-	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "planner", 1)
+	preset, err := s.providers.ResolvePlannerPreset(ctx, profile, "planner", 1)
 	if err != nil {
 		return AutoPlanOutput{}, err
 	}
 	if task.Plan.ReviewStatus == "rejected" {
-		if expanded, expandErr := s.providers.ResolveTaskPreset(ctx, profile, "planner-large", 1); expandErr == nil {
+		if expanded, expandErr := s.providers.ResolvePlannerPreset(ctx, profile, "planner-large", 1); expandErr == nil {
 			preset = expanded
 		}
 	}
@@ -205,10 +207,15 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		criteria = append(criteria, criterion.ID+": "+criterion.Description)
 	}
 	planTask := worker.PlanTask{TaskID: task.ID, Objective: task.Objective, OriginalRequest: task.OriginalRequest,
-		Constraints: task.Requirement.Constraints, Unknowns: task.Requirement.Unknowns, Criteria: criteria,
+		Constraints: task.Requirement.Constraints, Unknowns: task.Requirement.Unknowns, Criteria: criteria, WritablePaths: task.Requirement.Contract.WritablePaths,
 		ExperiencePreview:  task.Requirement.Contract.ExperiencePreview,
 		AllowedExecutables: product.AvailableCommandExecutables(),
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 8192)}
+	implementationPreset, err := s.codeProposalPreset(ctx, profile)
+	if err != nil {
+		return AutoPlanOutput{}, err
+	}
+	planTask.ImplementationOutputTokenLimit = implementationPreset.GenerationCap
 	if task.Plan.ReviewStatus == "rejected" {
 		feedback, feedbackErr := s.tasks.RejectedPlanFeedback(ctx, task.ID, task.ActivePlanRevision)
 		if feedbackErr != nil {
@@ -226,26 +233,8 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		if err != nil {
 			return AutoPlanOutput{}, fmt.Errorf("check project Git capability: %w", err)
 		}
-		manifest, manifestErr := s.products.ProjectFileManifest(ctx, task.ProjectID, 512)
-		if manifestErr != nil {
-			return AutoPlanOutput{}, fmt.Errorf("build planner repository manifest: %w", manifestErr)
-		}
-		for index, item := range manifest {
-			planTask.RepositoryFiles = append(planTask.RepositoryFiles, worker.PlanFile{Path: item.Path, Bytes: item.Bytes})
-			encoded, marshalErr := json.Marshal(planTask)
-			if marshalErr != nil {
-				return AutoPlanOutput{}, marshalErr
-			}
-			if len(encoded) > 48*1024 {
-				planTask.RepositoryFiles = planTask.RepositoryFiles[:len(planTask.RepositoryFiles)-1]
-				planTask.RepositoryFilesTruncated = true
-				break
-			}
-			if index == len(manifest)-1 && len(manifest) == 512 {
-				planTask.RepositoryFilesTruncated = true
-			}
-		}
 	}
+
 	if escalation, escalationErr := s.tasks.PendingEscalation(ctx, task.ID); escalationErr != nil {
 		return AutoPlanOutput{}, escalationErr
 	} else if escalation != nil {
@@ -253,6 +242,24 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 			NormalizedSignature: escalation.NormalizedSignature, FailureIDs: escalation.FailureIDs,
 			EvidenceRefs: escalation.EvidenceRefs, PriorChangeRefs: escalation.PriorChangeRefs,
 			DiffArtifactID: escalation.DiffArtifactID}
+		packet, packetErr := s.tasks.BuildNextStepPacket(ctx, task.ID)
+		if packetErr != nil {
+			return AutoPlanOutput{}, packetErr
+		}
+		planTask.FailureEvidence, err = s.proposalFailureEvidence(ctx, packet)
+		if err != nil {
+			return AutoPlanOutput{}, err
+		}
+		if err = s.appendReviewFailureEvidence(ctx, task.ID, task.ProjectID, &planTask.FailureEvidence); err != nil {
+			return AutoPlanOutput{}, err
+		}
+	}
+	var repositoryContext map[string]any
+	if task.ProjectID != "" {
+		repositoryContext, err = s.plannerRepositoryContext(ctx, task, &planTask, preset.ContextMax)
+		if err != nil {
+			return AutoPlanOutput{}, fmt.Errorf("build planner repository context: %w", err)
+		}
 	}
 	encodedInput, _ := json.Marshal(planTask)
 	if len(encodedInput) > 60*1024 && len(planTask.ProjectBrainRefs) > 0 {
@@ -307,7 +314,7 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 		MIMEType: "application/vnd.hermetrix.task-plan+json", Content: string(planBody),
 		Metadata: map[string]any{"task_id": task.ID, "requirement_revision": task.ActiveRequirementRevision,
 			"task_revision": task.Revision, "plan_revision": task.ActivePlanRevision + 1, "planning_packet_hash": worker.Hash(string(encodedInput)),
-			"project_brain_refs": knowledgeRefIdentities(planTask.ProjectBrainRefs),
+			"project_brain_refs": knowledgeRefIdentities(planTask.ProjectBrainRefs), "repository_context": repositoryContext,
 			"allowed_file_scope": []string{}, "allowed_effect_scope": allowedEffects, "provider_id": profile.ID,
 			"provider_revision": profile.Revision, "runtime_fingerprint_id": profile.RuntimeFingerprintID,
 			"preset_id": preset.ID, "preset_revision": preset.Revision, "generation_budget": preset.GenerationCap,
@@ -407,20 +414,10 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	if err := s.tasks.BindAttemptInference(ctx, attempt.ID, "worker", preset.ID, preset.Revision, profile.RuntimeFingerprintID); err != nil {
 		return SelectFilesOutput{}, err
 	}
-	manifest, err := s.products.ProjectFileManifest(ctx, packet.ProjectID, 2000)
+	selectionInput := worker.FileSelectionTask{TaskID: packet.TaskID, Objective: packet.Objective, StepTitle: packet.Step.Title, StepInstructions: packet.Step.Instructions, AcceptanceCriteria: stepCriteria(packet), Constraints: packet.Requirement.Constraints, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 4096)}
+	repositoryContext, err := s.selectionRepositoryContext(ctx, packet.ProjectID, packet.Requirement.Contract.WritablePaths, packet.Step.Checks, &selectionInput, preset.ContextMax)
 	if err != nil {
 		return SelectFilesOutput{}, err
-	}
-	if len(manifest) == 0 {
-		return SelectFilesOutput{}, fmt.Errorf("project has no eligible source files")
-	}
-	candidates := make([]worker.FileCandidate, 0, len(manifest))
-	for _, item := range manifest {
-		candidates = append(candidates, worker.FileCandidate{Path: item.Path, Bytes: item.Bytes})
-	}
-	criteria := make([]string, 0, len(packet.Requirement.Criteria))
-	for _, criterion := range packet.Requirement.Criteria {
-		criteria = append(criteria, criterion.ID+": "+criterion.Description)
 	}
 	effect, err := s.tasks.PlanEffect(ctx, input.Authority, attempt.ID, selectionEffect, profile.ID+":"+profile.Model, "task-packet:"+packet.CanonicalPacketHash)
 	if err != nil {
@@ -429,12 +426,7 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	dispatched := false
 	dispatchCtx := inference.WithOwner(ctx, inference.Owner{Kind: "task", ID: packet.TaskID, Source: "file_selector", Priority: inference.PriorityTask,
 		PresetID: preset.ID, PresetRevision: preset.Revision, PresetRole: preset.Role, RuntimeFingerprintID: profile.RuntimeFingerprintID})
-	result, selectErr := worker.SelectFilesWithProviderService(dispatchCtx, s.providers, profile, worker.FileSelectionTask{
-		TaskID: packet.TaskID, Objective: packet.Objective, StepTitle: packet.Step.Title,
-		StepInstructions: packet.Step.Instructions, AcceptanceCriteria: criteria,
-		Constraints: packet.Requirement.Constraints, Candidates: candidates,
-		MaxOutputTokens: minPositive(profile.MaxOutputTokens, 4096),
-	}, worker.Options{BeforeProviderRequest: func() error {
+	result, selectErr := worker.SelectFilesWithProviderService(dispatchCtx, s.providers, profile, selectionInput, worker.Options{BeforeProviderRequest: func() error {
 		if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
 			return bindingErr
 		}
@@ -456,7 +448,7 @@ func (s *Service) SelectFiles(ctx context.Context, input SelectFilesInput) (Sele
 	artifact, err := s.products.CreateArtifact(ctx, product.ArtifactInput{ProjectID: packet.ProjectID,
 		Name: attempt.ID + ".file-selection.json", Kind: "task_file_selection",
 		MIMEType: "application/vnd.hermetrix.file-selection+json", Content: string(body),
-		Metadata: map[string]any{"task_id": packet.TaskID, "step_id": packet.Step.ID, "attempt_id": attempt.ID,
+		Metadata: map[string]any{"repository_context": repositoryContext, "task_id": packet.TaskID, "step_id": packet.Step.ID, "attempt_id": attempt.ID,
 			"packet_hash": packet.CanonicalPacketHash, "provider_id": profile.ID, "provider_revision": profile.Revision,
 			"operation_id": effect.OperationID},
 	})
@@ -516,21 +508,15 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		if (effect.State == taskengine.EffectObserved || effect.State == taskengine.EffectReconciled) && effect.Receipt["status"] == "proposed_unverified" {
 			artifactID, _ := effect.Receipt["artifact_id"].(string)
 			proposalID, _ := effect.Receipt["proposal_id"].(string)
-			artifact, body, loadErr := s.products.GetArtifact(ctx, artifactID)
-			if loadErr != nil {
-				return ProposalOutput{Effect: effect}, fmt.Errorf("load persisted proposal artifact: %w", loadErr)
-			}
-			var result worker.Result
-			decoder := json.NewDecoder(bytes.NewReader(body))
-			decoder.DisallowUnknownFields()
-			if loadErr = decoder.Decode(&result); loadErr != nil || decoder.Decode(new(any)) != io.EOF || result.ProposalID != proposalID {
-				return ProposalOutput{Artifact: artifact, Effect: effect}, fmt.Errorf("persisted proposal artifact is invalid")
-			}
 			proposal, loadErr := s.tasks.GetCodeProposal(ctx, proposalID)
-			if loadErr != nil || proposal.ArtifactID != artifact.ID || proposal.AttemptID != attempt.ID {
-				return ProposalOutput{Result: result, Artifact: artifact, Effect: effect}, fmt.Errorf("persisted proposal registry binding is invalid")
+			if loadErr != nil || proposal.ArtifactID != artifactID || proposal.AttemptID != attempt.ID {
+				return ProposalOutput{Effect: effect}, fmt.Errorf("load persisted proposal registry: %w", loadErr)
 			}
-			return ProposalOutput{Result: result, Artifact: artifact, Effect: effect, Proposal: proposal}, nil
+			loaded, loadErr := s.loadProposalBundle(ctx, proposal)
+			if loadErr != nil {
+				return ProposalOutput{Effect: effect}, fmt.Errorf("load proposal bundle: %w", loadErr)
+			}
+			return ProposalOutput{Result: loaded.Bundle.Result, Artifact: loaded.Artifact, Effect: effect, Proposal: proposal}, nil
 		}
 		return ProposalOutput{Effect: effect}, fmt.Errorf("proposal already has durable state %s; inspect or reconcile it rather than replaying the provider call", effect.State)
 	}
@@ -549,22 +535,37 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		return ProposalOutput{}, err
 	}
 	files := make(map[string]string, len(input.Files))
+	projectRoot, err := s.products.ProjectRootIdentity(ctx, input.Packet.ProjectID)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
+	absentFiles := []string{}
 	seen := map[string]bool{}
 	for _, requested := range input.Files {
 		clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(requested)))
 		if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || seen[clean] {
 			return ProposalOutput{}, fmt.Errorf("proposal file list contains an invalid or duplicate path")
 		}
-		document, readErr := s.products.ReadProjectFile(ctx, input.Packet.ProjectID, clean)
+		document, readErr := s.products.SnapshotProjectFileAtRoot(ctx, input.Packet.ProjectID, projectRoot, clean)
 		if readErr != nil {
 			return ProposalOutput{}, readErr
+		}
+		if document.SHA256 == "absent" {
+			allowed := false
+			for _, path := range input.Packet.Requirement.Contract.WritablePaths {
+				allowed = allowed || path == clean
+			}
+			if !allowed {
+				return ProposalOutput{}, fmt.Errorf("creating %q requires an explicit frozen writable path", clean)
+			}
+			absentFiles = append(absentFiles, clean)
 		}
 		files[document.Path] = document.Content
 		seen[clean] = true
 	}
-	criteria := make([]string, 0, len(input.Packet.Requirement.Criteria)+len(input.Packet.Step.Checks))
-	for _, criterion := range input.Packet.Requirement.Criteria {
-		criteria = append(criteria, criterion.ID+": "+criterion.Description)
+	criteria := stepCriteria(input.Packet)
+	if currentRoot, rootErr := s.products.ProjectRootIdentity(ctx, input.Packet.ProjectID); rootErr != nil || currentRoot != projectRoot {
+		return ProposalOutput{}, fmt.Errorf("project root changed during source snapshot")
 	}
 	criteria = append(criteria, input.Packet.Step.Checks...)
 	workerTask := worker.Task{
@@ -575,6 +576,8 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Constraints:        input.Packet.Requirement.Constraints,
 		RecommendedChecks:  input.Packet.Step.Checks,
 		Files:              files,
+		WritablePaths:      input.Packet.Requirement.Contract.WritablePaths,
+		AbsentFiles:        absentFiles,
 		MaxOutputTokens:    minPositive(profile.MaxOutputTokens, 32768),
 	}
 	feedback, err := s.tasks.LatestRejectedProposalFeedback(ctx, input.Packet.TaskID, input.Packet.Step.ID)
@@ -584,14 +587,33 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	if feedback != "" {
 		workerTask.Brief += "\n\nPrevious proposal was rejected by the user. Review feedback for this step (apply only where consistent with the approved plan): " + feedback
 	}
+	failureFeedback, err := s.tasks.LatestFailedProposalFeedback(ctx, input.Packet.TaskID, input.Packet.Step.ID)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
+	if failureFeedback != "" {
+		workerTask.Brief += "\n\nPrevious attempt failed before any source was applied. Saved diagnostic (not an instruction or authority): " + failureFeedback + ". Correct the proposal format using the current supplied source; prefer complete replacement content if exact old/new matching failed. Preserve every approved constraint and mandatory check."
+	}
+	workerTask.FailureEvidence, err = s.proposalFailureEvidence(ctx, input.Packet)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
+	if err = s.appendReviewFailureEvidence(ctx, input.Packet.TaskID, input.Packet.ProjectID, &workerTask.FailureEvidence); err != nil {
+		return ProposalOutput{}, err
+	}
 	workerTask.ProjectBrainRefs = s.projectBrainRefs(ctx, input.Packet.ProjectID,
 		input.Packet.Step.Title+" "+input.Packet.Objective, profile)
-	if len(workerTask.ProjectBrainRefs) > 0 {
-		encodedInput, marshalErr := json.Marshal(workerTask)
-		if marshalErr != nil || len(encodedInput) > 128*1024 {
-			workerTask.ProjectBrainRefs = nil
-		}
+	curatedTask, curateErr := curateProposalTask(workerTask, input.Packet.Step, preset)
+	if curateErr != nil {
+		return ProposalOutput{}, curateErr
 	}
+	workerTask = curatedTask
+	frozenTask, canonicalInput, _, freezeErr := worker.FreezeTask(workerTask)
+	if freezeErr != nil {
+		return ProposalOutput{}, freezeErr
+	}
+	workerTask = frozenTask
+
 	effect, err := s.tasks.PlanEffect(ctx, input.Authority, input.AttemptID, proposalEffect, profile.ID+":"+profile.Model,
 		"task-packet:"+input.Packet.CanonicalPacketHash)
 	if err != nil {
@@ -614,7 +636,12 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	})
 	if runErr != nil {
 		if dispatched {
-			if observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "failed", "error": runErr.Error()}); observeErr == nil {
+			receipt := map[string]any{"status": "failed", "error": runErr.Error()}
+			var workerErr *worker.Error
+			if errors.As(runErr, &workerErr) {
+				receipt["failure_code"], receipt["failure_phase"] = workerErr.Code, workerErr.Phase
+			}
+			if observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, receipt); observeErr == nil {
 				effect = observed
 			}
 		} else if abandoned, abandonErr := s.tasks.AbandonEffect(ctx, effect.OperationID, "proposal rejected before provider dispatch"); abandonErr == nil {
@@ -628,7 +655,35 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		}
 		return ProposalOutput{Effect: effect}, err
 	}
-	encoded, err := json.Marshal(result)
+	inputArtifact, err := s.products.CreateArtifact(ctx, product.ArtifactInput{
+		ProjectID: input.Packet.ProjectID,
+		Name:      result.ProposalID + ".input.json",
+		Kind:      "code_proposal_input",
+		MIMEType:  "application/json",
+		Content:   string(canonicalInput),
+		Metadata: map[string]any{
+			"task_id":             input.Packet.TaskID,
+			"step_id":             input.Packet.Step.ID,
+			"attempt_id":          input.AttemptID,
+			"packet_hash":         input.Packet.CanonicalPacketHash,
+			"proposal_id":         result.ProposalID,
+			"project_root":        projectRoot,
+			"source_operation_id": effect.OperationID,
+		},
+	})
+	if err != nil {
+		observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "input_persist_failed"})
+		if observeErr == nil {
+			effect = observed
+		}
+		return ProposalOutput{Effect: effect}, err
+	}
+
+	encoded, err := json.Marshal(proposalBundle{
+		Version:         2,
+		InputArtifactID: inputArtifact.ID,
+		Result:          result,
+	})
 	if err != nil {
 		return ProposalOutput{Effect: effect}, err
 	}
@@ -640,7 +695,8 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		Content:   string(encoded),
 		Metadata: map[string]any{
 			"task_id": input.Packet.TaskID, "step_id": input.Packet.Step.ID, "attempt_id": input.AttemptID,
-			"packet_hash": input.Packet.CanonicalPacketHash, "provider_id": profile.ID,
+			"project_root": projectRoot,
+			"packet_hash":  input.Packet.CanonicalPacketHash, "provider_id": profile.ID,
 			"project_brain_refs": knowledgeRefIdentities(workerTask.ProjectBrainRefs),
 			"provider_revision":  profile.Revision, "status": result.Status, "operation_id": effect.OperationID,
 		},
@@ -683,22 +739,41 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	if proposal.State != taskengine.ProposalApproved {
 		return ApplyOutput{}, fmt.Errorf("proposal cannot apply from state %s", proposal.State)
 	}
-	artifact, body, err := s.products.GetArtifact(ctx, proposal.ArtifactID)
+	loaded, err := s.loadProposalBundle(ctx, proposal)
 	if err != nil {
 		return ApplyOutput{}, err
 	}
-	if artifact.Checksum != proposal.ResultHash {
-		return ApplyOutput{}, fmt.Errorf("proposal artifact hash no longer matches its review binding")
+	artifact := loaded.Artifact
+	result := loaded.Bundle.Result
+
+	frozenRoot, _ := artifact.Metadata["project_root"].(string)
+	if frozenRoot != "" {
+		if currentRoot, rootErr := s.products.ProjectRootIdentity(ctx, proposal.ProjectID); rootErr != nil || currentRoot != frozenRoot {
+			return ApplyOutput{}, fmt.Errorf("proposal project root changed since source snapshot")
+		}
 	}
-	var result worker.Result
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&result); err != nil || decoder.Decode(new(any)) != io.EOF || result.ProposalID != proposal.ID {
-		return ApplyOutput{}, fmt.Errorf("proposal artifact is invalid")
+	task, err := s.tasks.Get(ctx, proposal.TaskID)
+	if err != nil {
+		return ApplyOutput{}, err
+	}
+	for _, change := range result.Changes {
+		allowed := len(task.Requirement.Contract.WritablePaths) == 0
+		if change.BeforeSHA256 == "absent" && len(task.Requirement.Contract.WritablePaths) == 0 {
+			return ApplyOutput{}, fmt.Errorf("new files require explicit frozen writable paths")
+		}
+		if change.BeforeSHA256 == "absent" && frozenRoot == "" {
+			return ApplyOutput{}, fmt.Errorf("creation proposal requires a frozen project root")
+		}
+		for _, path := range task.Requirement.Contract.WritablePaths {
+			allowed = allowed || path == change.Path
+		}
+		if !allowed {
+			return ApplyOutput{}, fmt.Errorf("proposal path %q is outside the frozen writable paths", change.Path)
+		}
 	}
 	preimages := make(map[string]product.FileDocument, len(result.Changes))
 	for _, change := range result.Changes {
-		document, readErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, change.Path)
+		document, readErr := s.products.SnapshotProjectFileAtRoot(ctx, proposal.ProjectID, frozenRoot, change.Path)
 		if readErr != nil {
 			return ApplyOutput{}, readErr
 		}
@@ -714,7 +789,7 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	rollbackArtifact, err := s.products.CreateArtifact(ctx, product.ArtifactInput{
 		ProjectID: proposal.ProjectID, Name: proposal.ID + ".rollback.json", Kind: "code_proposal_rollback",
 		MIMEType: "application/vnd.hermetrix.rollback+json", Content: string(rollbackBody),
-		Metadata: map[string]any{"proposal_id": proposal.ID, "packet_hash": proposal.PacketHash},
+		Metadata: map[string]any{"proposal_id": proposal.ID, "packet_hash": proposal.PacketHash, "project_root": frozenRoot},
 	})
 	if err != nil {
 		return ApplyOutput{}, err
@@ -739,7 +814,7 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 			Path: change.Path, Content: change.Content, ExpectedSHA256: change.BeforeSHA256, Actor: actor,
 		})
 	}
-	batch, writeErr := s.products.WriteProjectFiles(ctx, proposal.ProjectID, writeInputs)
+	batch, writeErr := s.products.WriteProjectFilesAtRoot(ctx, proposal.ProjectID, frozenRoot, writeInputs)
 	receipts := batch.Receipts
 	if writeErr != nil {
 		status := "apply_failed_before_write"
@@ -769,18 +844,69 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	return ApplyOutput{Proposal: proposal, Effect: effect, Receipts: receipts, RollbackArtifact: rollbackArtifact}, err
 }
 
-func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string, checks []CommandCheck) (VerifyOutput, error) {
+func (s *Service) proposalFailureEvidence(ctx context.Context, packet taskengine.StepPacket) ([]worker.FailureEvidence, error) {
+	allowedChecks := map[string]bool{}
+	for _, check := range packet.Step.Checks {
+		allowedChecks[check] = true
+	}
+	seen := map[string]bool{}
+	result := []worker.FailureEvidence{}
+	for i := len(packet.ValidationEvidence) - 1; i >= 0 && len(result) < 3; i-- {
+		validation := packet.ValidationEvidence[i]
+		if validation.Status != taskengine.ValidationFail || !allowedChecks[validation.CheckID] || seen[validation.CheckID] {
+			continue
+		}
+		seen[validation.CheckID] = true
+		evidence := worker.FailureEvidence{ValidationID: validation.ID, CheckID: validation.CheckID, SubjectRevision: validation.SubjectRevision, Actual: validation.Actual}
+		for _, ref := range validation.EvidenceRefs {
+			if !strings.HasPrefix(ref, "artifact:") {
+				continue
+			}
+			artifact, body, err := s.products.GetArtifact(ctx, strings.TrimPrefix(ref, "artifact:"))
+			if err != nil {
+				return nil, err
+			}
+			if artifact.ProjectID != packet.ProjectID || artifact.Kind != "terminal_log" {
+				continue
+			}
+			output := []rune(string(body))
+			if len(output) > 2000 {
+				output, evidence.Truncated = output[len(output)-2000:], true
+			}
+			evidence.ArtifactID, evidence.ArtifactSHA256, evidence.Output = artifact.ID, artifact.Checksum, string(output)
+			break
+		}
+		result = append(result, evidence)
+	}
+	return result, nil
+}
+
+type verificationContext struct {
+	snapshot product.ProjectSnapshot
+	proposal taskengine.CodeProposal
+	task     taskengine.Task
+	step     taskengine.Step
+	root     string
+}
+
+func (s *Service) prepareVerification(ctx context.Context, proposalID, actor string, checks []CommandCheck) (verificationContext, error) {
 	actor = strings.TrimSpace(actor)
 	proposal, err := s.tasks.GetCodeProposal(ctx, proposalID)
 	if err != nil {
-		return VerifyOutput{}, err
+		return verificationContext{}, err
 	}
 	if actor == "" || proposal.State != taskengine.ProposalApplied {
-		return VerifyOutput{}, fmt.Errorf("verified apply requires an actor and an applied proposal")
+		return verificationContext{}, fmt.Errorf("verified apply requires an actor and an applied proposal")
 	}
+	loaded, err := s.loadProposalBundle(ctx, proposal)
+	if err != nil {
+		return verificationContext{}, err
+	}
+	proposalArtifact := loaded.Artifact
+	frozenRoot, _ := proposalArtifact.Metadata["project_root"].(string)
 	task, err := s.tasks.Get(ctx, proposal.TaskID)
 	if err != nil {
-		return VerifyOutput{}, err
+		return verificationContext{}, err
 	}
 	var step taskengine.Step
 	for _, candidate := range task.Plan.Steps {
@@ -790,7 +916,7 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 		}
 	}
 	if step.ID == "" || step.State != taskengine.StepRunning {
-		return VerifyOutput{}, fmt.Errorf("proposal step is not running")
+		return verificationContext{}, fmt.Errorf("proposal step is not running")
 	}
 	want, got := append([]string(nil), step.Checks...), make([]string, 0, len(checks))
 	seen := map[string]bool{}
@@ -801,16 +927,16 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 	}
 	for _, check := range checks {
 		if strings.TrimSpace(check.ID) == "" || seen[check.ID] {
-			return VerifyOutput{}, fmt.Errorf("verification checks require unique ids")
+			return verificationContext{}, fmt.Errorf("verification checks require unique ids")
 		}
 		checkRequirements := map[string]bool{}
 		for _, requirementID := range check.RequirementIDs {
 			requirementID = strings.TrimSpace(requirementID)
 			if _, ok := requirementByID[requirementID]; !ok {
-				return VerifyOutput{}, fmt.Errorf("verification check %s references unknown acceptance criterion %q", check.ID, requirementID)
+				return verificationContext{}, fmt.Errorf("verification check %s references unknown acceptance criterion %q", check.ID, requirementID)
 			}
 			if requirementID == "" || checkRequirements[requirementID] {
-				return VerifyOutput{}, fmt.Errorf("verification check %s has duplicate or empty acceptance criterion ids", check.ID)
+				return verificationContext{}, fmt.Errorf("verification check %s has duplicate or empty acceptance criterion ids", check.ID)
 			}
 			checkRequirements[requirementID], coveredRequirements[requirementID] = true, true
 		}
@@ -819,7 +945,7 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 	sort.Strings(want)
 	sort.Strings(got)
 	if strings.Join(want, "\x00") != strings.Join(got, "\x00") || len(want) == 0 {
-		return VerifyOutput{}, fmt.Errorf("verification commands must cover every frozen step check exactly once")
+		return verificationContext{}, fmt.Errorf("verification commands must cover every frozen step check exactly once")
 	}
 	finalStep := true
 	for _, candidate := range task.Plan.Steps {
@@ -831,12 +957,54 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 	if finalStep {
 		for _, criterion := range task.Requirement.Criteria {
 			if !coveredRequirements[criterion.ID] {
-				return VerifyOutput{}, fmt.Errorf("final-step verification does not cover acceptance criterion %s", criterion.ID)
+				return verificationContext{}, fmt.Errorf("final-step verification does not cover acceptance criterion %s", criterion.ID)
 			}
 		}
 	}
+	changes := loaded.Bundle.Result
+	paths := append([]string(nil), task.Requirement.Contract.WritablePaths...)
+	pathSeen := map[string]bool{}
+	for _, path := range paths {
+		pathSeen[path] = true
+	}
+	for _, change := range changes.Changes {
+		if !pathSeen[change.Path] {
+			paths = append(paths, change.Path)
+			pathSeen[change.Path] = true
+		}
+	}
+	snapshot, err := s.products.CaptureProjectSnapshot(ctx, proposal.ProjectID, frozenRoot, paths)
+	if err != nil {
+		return verificationContext{}, err
+	}
+	for _, change := range changes.Changes {
+		if snapshot.Hashes[change.Path] != worker.Hash(change.Content) {
+			return verificationContext{}, fmt.Errorf("verification source for %s drifted after apply", change.Path)
+		}
+	}
+	return verificationContext{proposal: proposal, task: task, step: step, root: snapshot.Root, snapshot: snapshot}, nil
+}
+
+func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string, checks []CommandCheck) (VerifyOutput, error) {
+	async, err := s.tasks.HasGoalVerification(ctx, proposalID)
+	if err != nil {
+		return VerifyOutput{}, err
+	}
+	if async {
+		return VerifyOutput{}, fmt.Errorf("proposal has durable goal verification; inspect its existing jobs instead of starting checks again")
+	}
+	prepared, err := s.prepareVerification(ctx, proposalID, actor, checks)
+	if err != nil {
+		return VerifyOutput{}, err
+	}
+	proposal, task, step, frozenRoot := prepared.proposal, prepared.task, prepared.step, prepared.root
 	output := VerifyOutput{}
 	for _, check := range checks {
+		unlock, scopeErr := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, prepared.snapshot)
+		if scopeErr != nil {
+			return output, scopeErr
+		}
+		unlock()
 		effect, planErr := s.tasks.PlanEffect(ctx, authority, proposal.AttemptID, "workspace.run", check.Executable+" "+strings.Join(check.Arguments, " "), "review:"+proposal.ID)
 		if planErr != nil {
 			return output, planErr
@@ -845,7 +1013,7 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 		if err != nil {
 			return output, err
 		}
-		job, startErr := s.products.StartCommand(ctx, product.CommandInput{ProjectID: proposal.ProjectID, Actor: actor,
+		job, startErr := s.products.StartCommand(ctx, product.CommandInput{ProjectID: proposal.ProjectID, ExpectedRoot: frozenRoot, Actor: actor,
 			OperationID: effect.OperationID, Executable: check.Executable, Arguments: check.Arguments,
 			WorkingDir: check.WorkingDir, TimeoutSeconds: check.TimeoutSeconds})
 		if startErr != nil {
@@ -861,14 +1029,24 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 		if job.State == "completed" {
 			status = taskengine.ValidationPass
 		}
+		actual := fmt.Sprintf("state=%s exit_code=%v", job.State, job.Result["exit_code"])
+		if text, _ := job.Result["output"].(string); emptyTestDiscovery(check.Executable, check.Arguments, text) {
+			status = taskengine.ValidationFail
+			actual += "; no tests discovered: this does not verify acceptance"
+		}
 		refs := []string{"job:" + job.ID}
 		if artifactID, ok := job.Result["artifact_id"].(string); ok && artifactID != "" {
 			refs = append(refs, "artifact:"+artifactID)
 		}
 		effect, _ = s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": job.State, "job_id": job.ID, "evidence_refs": refs})
+		unlock, scopeErr = s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, prepared.snapshot)
+		if scopeErr != nil {
+			return output, fmt.Errorf("verification source snapshot changed: %w", scopeErr)
+		}
+		unlock()
 		validation, validationErr := s.tasks.RecordValidation(ctx, taskengine.Validation{TaskID: task.ID, StepID: step.ID,
 			CheckID: check.ID, SubjectRevision: taskengine.StepSubjectRevision(step), Status: status,
-			Expected: "exit code 0", Actual: fmt.Sprintf("state=%s exit_code=%v", job.State, job.Result["exit_code"]), EvidenceRefs: refs})
+			Expected: "exit code 0 and nonempty discovery for test commands", Actual: actual, EvidenceRefs: refs})
 		if validationErr != nil {
 			return output, validationErr
 		}
@@ -877,7 +1055,16 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 			return s.failVerification(ctx, proposal, output, fmt.Errorf("mandatory check %s failed", check.ID))
 		}
 	}
-	bundleBody, err := json.Marshal(verificationBundle{ProposalID: proposal.ID, Checks: checks, Jobs: output.Jobs, Evidence: output.Validations})
+	return s.finishVerification(ctx, proposal, checks, output, prepared.snapshot)
+}
+
+func (s *Service) finishVerification(ctx context.Context, proposal taskengine.CodeProposal, checks []CommandCheck, output VerifyOutput, snapshot product.ProjectSnapshot) (VerifyOutput, error) {
+	unlock, err := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, snapshot)
+	if err != nil {
+		return output, err
+	}
+	defer unlock()
+	bundleBody, err := json.Marshal(verificationBundle{ProposalID: proposal.ID, Checks: checks, Jobs: output.Jobs, Evidence: output.Validations, Snapshot: snapshot})
 	if err != nil {
 		return output, err
 	}
@@ -899,13 +1086,21 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 // argv, and shell control syntax is rejected. Requirement mappings come from
 // the immutable step revision rather than being invented by a client.
 func (s *Service) VerifyFrozen(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string) (VerifyOutput, error) {
-	proposal, err := s.tasks.GetCodeProposal(ctx, proposalID)
+	checks, err := s.frozenChecks(ctx, proposalID, 120)
 	if err != nil {
 		return VerifyOutput{}, err
 	}
+	return s.Verify(ctx, authority, proposalID, actor, checks)
+}
+
+func (s *Service) frozenChecks(ctx context.Context, proposalID string, timeout int) ([]CommandCheck, error) {
+	proposal, err := s.tasks.GetCodeProposal(ctx, proposalID)
+	if err != nil {
+		return nil, err
+	}
 	task, err := s.tasks.Get(ctx, proposal.TaskID)
 	if err != nil {
-		return VerifyOutput{}, err
+		return nil, err
 	}
 	var step taskengine.Step
 	for _, candidate := range task.Plan.Steps {
@@ -915,21 +1110,27 @@ func (s *Service) VerifyFrozen(ctx context.Context, authority taskengine.RunAuth
 		}
 	}
 	if step.ID == "" || len(step.Checks) == 0 {
-		return VerifyOutput{}, fmt.Errorf("proposal step has no frozen verification commands")
+		return nil, fmt.Errorf("proposal step has no frozen verification commands")
 	}
 	if len(step.RequirementIDs) == 0 {
-		return VerifyOutput{}, fmt.Errorf("proposal step has no frozen acceptance-criterion mapping")
+		return nil, fmt.Errorf("proposal step has no frozen acceptance-criterion mapping")
 	}
 	checks := make([]CommandCheck, 0, len(step.Checks))
 	for _, command := range step.Checks {
 		argv, parseErr := parseFrozenCommand(command)
 		if parseErr != nil {
-			return VerifyOutput{}, fmt.Errorf("frozen check %q is not directly executable: %w", command, parseErr)
+			return nil, fmt.Errorf("frozen check %q is not directly executable: %w", command, parseErr)
+		}
+		if assertionCommand(argv) {
+			argv, parseErr = compileFileAssertion(argv)
+			if parseErr != nil {
+				return nil, parseErr
+			}
 		}
 		checks = append(checks, CommandCheck{ID: command, RequirementIDs: append([]string(nil), step.RequirementIDs...),
-			Executable: argv[0], Arguments: argv[1:], WorkingDir: ".", TimeoutSeconds: 120})
+			Executable: argv[0], Arguments: argv[1:], WorkingDir: ".", TimeoutSeconds: timeout})
 	}
-	return s.Verify(ctx, authority, proposalID, actor, checks)
+	return checks, nil
 }
 
 func parseFrozenCommand(command string) ([]string, error) {
@@ -1040,15 +1241,22 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	if err = json.Unmarshal(bundleBody, &bundle); err != nil || bundle.ProposalID != proposal.ID {
 		return ReviewOutput{}, fmt.Errorf("verification bundle is invalid")
 	}
-	_, proposalBody, err := s.products.GetArtifact(ctx, proposal.ArtifactID)
+	loaded, err := s.loadProposalBundle(ctx, proposal)
 	if err != nil {
 		return ReviewOutput{}, err
 	}
-	var changeSet worker.Result
-	if err = json.Unmarshal(proposalBody, &changeSet); err != nil {
-		return ReviewOutput{}, fmt.Errorf("proposal artifact is invalid")
-	}
+	changeSet := loaded.Bundle.Result
+
 	files := make(map[string]string, len(changeSet.Changes))
+	releaseSource, err := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, bundle.Snapshot)
+	if err != nil {
+		return ReviewOutput{}, fmt.Errorf("review source snapshot changed: %w", err)
+	}
+	defer func() {
+		if releaseSource != nil {
+			releaseSource()
+		}
+	}()
 	for _, change := range changeSet.Changes {
 		document, readErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, change.Path)
 		if readErr != nil || document.SHA256 != worker.Hash(change.Content) {
@@ -1068,15 +1276,36 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	} else if !errors.Is(savedErr, sql.ErrNoRows) {
 		return ReviewOutput{}, savedErr
 	}
-	criteria := make([]string, 0, len(task.Requirement.Criteria))
-	for _, criterion := range task.Requirement.Criteria {
-		criteria = append(criteria, criterion.ID+": "+criterion.Description)
-	}
+	releaseSource()
+	releaseSource = nil
+	criteria := stepCriteria(taskengine.StepPacket{Step: step, Requirement: task.Requirement})
 	testEvidence := make([]string, 0, len(bundle.Evidence))
 	for _, evidence := range bundle.Evidence {
 		testEvidence = append(testEvidence, evidence.CheckID+": "+evidence.Actual+" ["+strings.Join(evidence.EvidenceRefs, ", ")+"]")
+		for _, ref := range evidence.EvidenceRefs {
+			if !strings.HasPrefix(ref, "artifact:") {
+				continue
+			}
+			artifact, body, err := s.products.GetArtifact(ctx, strings.TrimPrefix(ref, "artifact:"))
+			if err != nil {
+				return ReviewOutput{}, err
+			}
+			if artifact.ProjectID != proposal.ProjectID || artifact.Kind != "terminal_log" {
+				continue
+			}
+			output := []rune(string(body))
+			if len(output) > 2000 {
+				output = append([]rune("[output tail truncated]\n"), output[len(output)-2000:]...)
+			}
+			testEvidence = append(testEvidence, fmt.Sprintf("Saved actual output for %s (artifact %s, sha256 %s):\n%s", evidence.CheckID, artifact.ID, artifact.Checksum, string(output)))
+			break
+		}
 	}
-	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "worker-debug", 1)
+	preset, err := s.providers.ResolveCodeReviewPreset(ctx, profile)
+	if err != nil {
+		return ReviewOutput{}, err
+	}
+	files, partialFiles, err := proposalReviewFiles(s, profile, loaded.InputTask, changeSet, files)
 	if err != nil {
 		return ReviewOutput{}, err
 	}
@@ -1090,7 +1319,7 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	review, reviewErr := worker.ReviewWithProviderService(dispatchCtx, s.providers, profile, worker.ReviewTask{TaskID: task.ID,
 		ProposalID: proposal.ID, Objective: task.Objective, StepTitle: step.Title, StepInstructions: step.Instructions,
 		StepChecks: step.Checks, AcceptanceCriteria: criteria, Constraints: task.Requirement.Constraints,
-		Files: files, TestEvidence: testEvidence, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}, worker.Options{
+		Files: files, PartialFiles: partialFiles, TestEvidence: testEvidence, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}, worker.Options{
 		BeforeProviderRequest: func() error {
 			if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
 				return bindingErr
@@ -1119,6 +1348,18 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	})
 	if err != nil {
 		return ReviewOutput{Review: review, Effect: effect}, err
+	}
+	releaseSource, err = s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, bundle.Snapshot)
+	if err != nil {
+		effect, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "review_snapshot_stale", "accepted": false, "artifact_id": reviewArtifact.ID, "verification_artifact_id": bundleArtifact.ID})
+		if observeErr != nil {
+			return ReviewOutput{Review: review, Artifact: reviewArtifact, Effect: effect}, observeErr
+		}
+		return ReviewOutput{Review: review, Artifact: reviewArtifact, Effect: effect}, fmt.Errorf("review source snapshot changed before acceptance: %w", err)
+	}
+	if review.Verdict == "reject" {
+		releaseSource()
+		releaseSource = nil
 	}
 	verdict := taskengine.ProposalApproved
 	if review.Verdict == "reject" {
@@ -1235,6 +1476,15 @@ func (s *Service) finalizeApprovedReview(ctx context.Context, authority taskengi
 	}
 	_ = s.tasks.ClearReviewerRequired(ctx, proposal.ID)
 	if task.State == taskengine.StateVerifying {
+		report, reportErr := s.tasks.EvaluateCompletion(ctx, task.ID, task.Revision)
+		if reportErr != nil {
+			return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task}, reportErr
+		}
+		// Technical verification succeeded. Waiting for the human's exact-evidence
+		// acceptance is an ordinary next action, not a failed reviewer operation.
+		if report.AwaitingUserAcceptance {
+			return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task}, nil
+		}
 		if task, err = s.tasks.CompleteTask(ctx, task.ID, task.Revision); err != nil {
 			return ReviewOutput{Review: review, Artifact: reviewArtifact, Proposal: proposal, Task: task}, err
 		}
@@ -1380,13 +1630,16 @@ func (s *Service) ReconcileProviderArtifact(ctx context.Context, operationID str
 		if artifact.Kind != "code_proposal" {
 			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("proposal effect points to artifact kind %s", artifact.Kind)
 		}
-		var proposalResult worker.Result
-		if err = json.Unmarshal(body, &proposalResult); err != nil || proposalResult.ProposalID == "" || proposalResult.Status != "proposed_unverified" {
-			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("proposal artifact is invalid")
+		decoded, decodeErr := decodeProposalBundle(body)
+		if decodeErr != nil {
+			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("decode proposal bundle: %w", decodeErr)
 		}
-		proposal, proposalErr := s.tasks.GetCodeProposal(ctx, proposalResult.ProposalID)
+		proposal, proposalErr := s.tasks.GetCodeProposal(ctx, decoded.Result.ProposalID)
 		if proposalErr != nil || proposal.ArtifactID != artifact.ID || proposal.AttemptID != effect.AttemptID {
 			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("proposal artifact has no matching durable proposal registry entry")
+		}
+		if _, err := s.loadProposalBundle(ctx, proposal); err != nil {
+			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("load proposal bundle: %w", err)
 		}
 		receipt["status"], receipt["proposal_id"] = "proposed_unverified", proposal.ID
 	}
@@ -1479,13 +1732,15 @@ func (s *Service) failVerification(ctx context.Context, proposal taskengine.Code
 }
 
 type rollbackFileReceipt struct {
-	Path                  string `json:"path"`
-	ExpectedAppliedSHA256 string `json:"expected_applied_sha256"`
-	OriginalSHA256        string `json:"original_sha256"`
-	BeforeSHA256          string `json:"before_sha256,omitempty"`
-	AfterSHA256           string `json:"after_sha256,omitempty"`
-	Status                string `json:"status"`
-	Error                 string `json:"error,omitempty"`
+	Path                   string `json:"path"`
+	ExpectedAppliedSHA256  string `json:"expected_applied_sha256"`
+	OriginalSHA256         string `json:"original_sha256"`
+	BeforeSHA256           string `json:"before_sha256,omitempty"`
+	AfterSHA256            string `json:"after_sha256,omitempty"`
+	Status                 string `json:"status"`
+	Error                  string `json:"error,omitempty"`
+	RestorationArtifactID  string `json:"restoration_artifact_id,omitempty"`
+	RestorationOperationID string `json:"restoration_operation_id,omitempty"`
 }
 
 type rollbackReceipt struct {
@@ -1519,14 +1774,14 @@ func (s *Service) rollbackProposal(ctx context.Context, proposal taskengine.Code
 		}
 		return rollbackOutcome{Restored: receipt.Restored, Artifact: artifact}
 	}
+	loaded, loadErr := s.loadProposalBundle(ctx, proposal)
+	if loadErr != nil {
+		receipt.Error = fmt.Sprintf("failed to load proposal bundle: %v", loadErr)
+		return finish()
+	}
 	expectedApplied := map[string]string{}
-	if _, proposalBody, err := s.products.GetArtifact(ctx, proposal.ArtifactID); err == nil {
-		var result worker.Result
-		if json.Unmarshal(proposalBody, &result) == nil {
-			for _, change := range result.Changes {
-				expectedApplied[change.Path] = worker.Hash(change.Content)
-			}
-		}
+	for _, change := range loaded.Bundle.Result.Changes {
+		expectedApplied[change.Path] = worker.Hash(change.Content)
 	}
 	if proposal.RollbackArtifactID == "" {
 		receipt.Error = "rollback preimage artifact is missing"
@@ -1543,6 +1798,13 @@ func (s *Service) rollbackProposal(ctx context.Context, proposal taskengine.Code
 		receipt.Error = "rollback preimage artifact has no valid files"
 		return finish()
 	}
+	frozenRoot, _ := artifact.Metadata["project_root"].(string)
+	if frozenRoot != "" {
+		if currentRoot, rootErr := s.products.ProjectRootIdentity(ctx, proposal.ProjectID); rootErr != nil || currentRoot != frozenRoot {
+			receipt.Error = "project root changed; inspect original scope before rollback"
+			return finish()
+		}
+	}
 	paths := make([]string, 0, len(originals))
 	for path := range originals {
 		paths = append(paths, path)
@@ -1552,7 +1814,7 @@ func (s *Service) rollbackProposal(ctx context.Context, proposal taskengine.Code
 	for _, path := range paths {
 		original := originals[path]
 		file := rollbackFileReceipt{Path: path, ExpectedAppliedSHA256: expectedApplied[path], OriginalSHA256: original.SHA256}
-		current, readErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, path)
+		current, readErr := s.products.SnapshotProjectFileAtRoot(ctx, proposal.ProjectID, frozenRoot, path)
 		if readErr != nil {
 			file.Status, file.Error = "not_restored", readErr.Error()
 		} else {
@@ -1564,10 +1826,20 @@ func (s *Service) rollbackProposal(ctx context.Context, proposal taskengine.Code
 				file.Status, file.AfterSHA256 = "already_original", current.SHA256
 			case current.SHA256 != expectedApplied[path]:
 				file.Status, file.Error = "changed_since_apply", "file no longer matches the applied proposal"
+			case original.SHA256 == "absent":
+				removed, removeErr := s.products.RestoreProjectFileAbsenceAtRoot(ctx, proposal.ProjectID, frozenRoot, path, current.SHA256, "verification-rollback")
+				file.RestorationArtifactID, file.RestorationOperationID = removed.ArtifactID, removed.OperationID
+				if removeErr != nil {
+					file.Status, file.Error = "not_restored", removeErr.Error()
+				} else if removed.State != "restored" {
+					file.Status, file.Error = "not_restored", "absence rollback lacks a verified receipt"
+				} else {
+					file.Status, file.AfterSHA256 = "restored", "absent"
+				}
 			default:
-				_, writeErr := s.products.WriteProjectFile(ctx, proposal.ProjectID, product.WriteFileInput{
+				_, writeErr := s.products.WriteProjectFilesAtRoot(ctx, proposal.ProjectID, frozenRoot, []product.WriteFileInput{{
 					Path: path, Content: original.Content, ExpectedSHA256: current.SHA256, Actor: "verification-rollback",
-				})
+				}})
 				if writeErr != nil {
 					file.Status, file.Error = "not_restored", writeErr.Error()
 				} else if after, afterErr := s.products.ReadProjectFile(ctx, proposal.ProjectID, path); afterErr != nil {

@@ -233,6 +233,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/providers", s.saveProvider)
 	mux.HandleFunc("PUT /api/providers/{id}/credential", s.setProviderCredential)
 	mux.HandleFunc("POST /api/providers/{id}/test", s.testProvider)
+	mux.HandleFunc("POST /api/providers/{id}/confirm-idle", s.confirmProviderIdle)
+	mux.HandleFunc("POST /api/sessions/{id}/reasoning", s.setSessionReasoning)
 	mux.HandleFunc("POST /api/providers/{id}/runtime-qualification", s.runProviderQualification)
 	mux.HandleFunc("POST /api/providers/{id}/measure-overhead", s.measureProviderOverhead)
 	mux.HandleFunc("GET /api/mcp/servers", s.listMCPServers)
@@ -268,6 +270,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/auto-retry/pause", s.pauseSessionAutoRetry)
 	mux.HandleFunc("POST /api/sessions/{id}/approval-mode", s.setSessionApprovalMode)
 	mux.HandleFunc("POST /api/sessions/{id}/turns", s.runTurn)
+	mux.HandleFunc("POST /api/sessions/{id}/stop", s.stopSessionTurn)
+	mux.HandleFunc("POST /api/sessions/{id}/stop/reconcile", s.reconcileSessionStop)
+	mux.HandleFunc("POST /api/sessions/{id}/queue", s.queueSessionMessage)
+	mux.HandleFunc("DELETE /api/sessions/{id}/queue/{message}", s.cancelSessionMessage)
 	mux.HandleFunc("GET /api/voice/capabilities", s.voiceCapabilities)
 	mux.HandleFunc("GET /api/voice/devices", s.voiceDevices)
 	mux.HandleFunc("POST /api/voice/native/stream", s.streamNativeVoice)
@@ -313,6 +319,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/decision/admission", s.setDecisionAdmission)
 	mux.HandleFunc("GET /api/tasks/{id}/execution", s.getTaskExecution)
 	mux.HandleFunc("POST /api/tasks/{id}/auto-plan", s.autoPlanTask)
+	mux.HandleFunc("POST /api/tasks/{id}/goals", s.startTaskGoal)
+	mux.HandleFunc("GET /api/tasks/{id}/goals", s.listTaskGoals)
+	mux.HandleFunc("GET /api/goals/{id}", s.getGoal)
+	mux.HandleFunc("POST /api/goals/{id}/stop", s.stopGoal)
+	mux.HandleFunc("POST /api/goals/{id}/resume", s.resumeGoal)
 	mux.HandleFunc("POST /api/tasks/{id}/planning-decision", s.classifyTaskPlanning)
 	mux.HandleFunc("POST /api/tasks/{id}/runs", s.beginTaskRun)
 	mux.HandleFunc("POST /api/tasks/{id}/recover-expired-run", s.recoverExpiredTaskRun)
@@ -321,6 +332,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/retry-failed-proposal", s.retryFailedTaskProposal)
 	mux.HandleFunc("POST /api/tasks/{id}/retry-rejected-proposal", s.retryRejectedTaskProposal)
 	mux.HandleFunc("POST /api/task-runs/{id}/lease", s.renewTaskRunLease)
+	mux.HandleFunc("POST /api/task-runs/{id}/pause", s.pauseIdleTaskRun)
 	mux.HandleFunc("POST /api/task-runs/{id}/attempts", s.beginTaskAttempt)
 	mux.HandleFunc("POST /api/task-attempts/{id}/effects", s.planTaskEffect)
 	mux.HandleFunc("POST /api/task-attempts/{id}/select-files", s.selectTaskFiles)
@@ -1827,6 +1839,12 @@ func spa(next http.Handler, assets fs.FS) http.Handler {
 		}
 		if _, err := fs.Stat(assets, name); err != nil {
 			name = "index.html"
+		}
+		if name == "diagram.html" {
+			// Only this bundled viewer can be framed. Its opaque sandbox cannot
+			// access the parent, credentials, APIs, forms or external resources.
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts")
 		}
 		if name == "index.html" {
 			page, err := fs.ReadFile(assets, name)

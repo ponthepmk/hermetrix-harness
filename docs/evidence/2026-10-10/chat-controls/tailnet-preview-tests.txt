@@ -1,0 +1,11 @@
+=== RUN   TestAuthenticatedLoopbackProxyBoundariesAndLogin
+--- PASS: TestAuthenticatedLoopbackProxyBoundariesAndLogin (0.00s)
+=== RUN   TestAuthenticatedLoopbackProxyStreamsAndPropagatesDisconnect
+--- PASS: TestAuthenticatedLoopbackProxyStreamsAndPropagatesDisconnect (0.00s)
+=== RUN   TestAuthenticatedLoopbackProxyRejectsRemoteUpstream
+--- PASS: TestAuthenticatedLoopbackProxyRejectsRemoteUpstream (0.00s)
+=== RUN   TestTailnetPreviewLoginInRealBrowser
+    ui_tailnet_e2e_test.go:65: HTTPS certificate trusted; existing login prompt, project hydration, assets and session cookie passed
+--- PASS: TestTailnetPreviewLoginInRealBrowser (1.39s)
+PASS
+ok  	hermetrix-harness/internal/web	4.553s

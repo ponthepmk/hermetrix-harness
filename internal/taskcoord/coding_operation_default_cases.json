@@ -1,0 +1,27 @@
+[
+  {
+    "default": 100,
+    "explicit": 12,
+    "field": "MaxActions"
+  },
+  {
+    "default": 8,
+    "explicit": 4,
+    "field": "MaxAttempts"
+  },
+  {
+    "default": 3,
+    "explicit": 2,
+    "field": "MaxPlans"
+  },
+  {
+    "default": 3600,
+    "explicit": 90,
+    "field": "MaxSeconds"
+  },
+  {
+    "default": 120,
+    "explicit": 30,
+    "field": "VerificationTimeoutSeconds"
+  }
+]

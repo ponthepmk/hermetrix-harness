@@ -90,6 +90,9 @@ jobs:
       - name: test control-center runtime behavior
         run: node --test internal/web/ui/runtime.test.js
 
+      - name: test MT5 evidence adapter
+        run: node --test scripts/mt5/runner.test.mjs
+
       - name: hydrate the cockpit in Chrome
         env:
           HERMETRIX_REQUIRE_BROWSER_E2E: "1"

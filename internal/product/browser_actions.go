@@ -19,6 +19,7 @@ func (s *Service) PrepareBrowserAction(ctx context.Context, tabID string, input 
 		return BrowserActionReceipt{}, fmt.Errorf("only browser click, type and key require preparation")
 	}
 	if input.Ref < 1 || input.ObservationHash == "" || strings.TrimSpace(input.Actor) == "" || len(input.Text) > 64<<10 ||
+		input.DurationMS < 0 || input.DurationMS > 3000 || (input.Action != "key" && input.DurationMS != 0) ||
 		(input.Action == "click" && input.Text != "") || (input.Action == "key" && !supportedBrowserKey(input.Text)) {
 		return BrowserActionReceipt{}, fmt.Errorf("browser action requires an exact element, observation and actor")
 	}
@@ -77,7 +78,7 @@ func (s *Service) PrepareBrowserAction(ctx context.Context, tabID string, input 
 	if target.IsPassword {
 		return BrowserActionReceipt{}, fmt.Errorf("password fields are unavailable to managed browser actions")
 	}
-	textDigest := sha256.Sum256([]byte(input.Text))
+	textDigest := sha256.Sum256([]byte(browserActionBoundText(input)))
 	textHash := hex.EncodeToString(textDigest[:])
 	subject, _ := json.Marshal(struct {
 		Owner, Task, Tab, Action string
@@ -98,6 +99,15 @@ func (s *Service) PrepareBrowserAction(ctx context.Context, tabID string, input 
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,'prepared',?,?)`, item.ID, ownerID, item.TaskID, tabID, item.Action, item.ElementRef,
 		string(targetJSON), textHash, item.ObservationHash, item.SubjectHash, item.ScreenshotBeforeID, formatTime(now), formatTime(item.ExpiresAt))
 	return item, err
+}
+
+// Keep legacy tap/text hashes unchanged. A held key binds its duration into the
+// existing exact text digest, without a migration or replayable mutable field.
+func browserActionBoundText(input BrowserActionInput) string {
+	if input.Action == "key" && input.DurationMS != 0 {
+		return fmt.Sprintf("held-key:%d:%s", input.DurationMS, input.Text)
+	}
+	return input.Text
 }
 
 func (s *Service) GetBrowserActionReceipt(ctx context.Context, id string) (BrowserActionReceipt, error) {

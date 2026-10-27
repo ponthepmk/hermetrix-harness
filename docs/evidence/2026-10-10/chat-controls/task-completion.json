@@ -1,0 +1,97 @@
+{
+  "task_id": "task_77b93381818aaf4786a4401a62bdfdb9",
+  "task_revision": 6,
+  "can_complete": false,
+  "completed": false,
+  "subject_hash": "1aff2e94ae5f9cefe5e6e82cc980e12a37d4c65a2dd70f7fdd652ba4b31c8220",
+  "awaiting_user_acceptance": true,
+  "gates": [
+    {
+      "id": "state",
+      "label": "Task state",
+      "status": "pass"
+    },
+    {
+      "id": "plan",
+      "label": "Current plan",
+      "status": "pass"
+    },
+    {
+      "id": "plan_review",
+      "label": "Plan review",
+      "status": "pass"
+    },
+    {
+      "id": "effects",
+      "label": "Pending or uncertain actions",
+      "status": "pass"
+    },
+    {
+      "id": "desktop_effects",
+      "label": "Windows actions",
+      "status": "pass"
+    },
+    {
+      "id": "browser_effects",
+      "label": "Browser actions",
+      "status": "pass"
+    },
+    {
+      "id": "review",
+      "label": "Change review",
+      "status": "pass"
+    },
+    {
+      "id": "step:taskstep_de2d79939200983fa03008fdab3ba848",
+      "label": "Fix add() in sum.js to add instead of subtract",
+      "status": "pass"
+    },
+    {
+      "id": "check:taskstep_de2d79939200983fa03008fdab3ba848:assert-file-sha256 sum.test.js 7b5accbb2171c620513a4bc615a7d84581acc9eeeeaf38e897f4ee9ebb008134",
+      "label": "assert-file-sha256 sum.test.js 7b5accbb2171c620513a4bc615a7d84581acc9eeeeaf38e897f4ee9ebb008134",
+      "status": "pass",
+      "evidence_refs": [
+        "artifact:artifact_82a04c1d9b8c14aa06ed66c21af49ce2",
+        "job:job_55e8905e293c3b1392f4140aabc42597"
+      ],
+      "validation_id": "validation_c9e8b32f225be1c390d7a76c7a2ecafe"
+    },
+    {
+      "id": "check:taskstep_de2d79939200983fa03008fdab3ba848:node --check sum.js",
+      "label": "node --check sum.js",
+      "status": "pass",
+      "evidence_refs": [
+        "artifact:artifact_3c145642254992e2cdcc8cc65c1f87f5",
+        "job:job_83c26272fc8da6bddf440f96976c7180"
+      ],
+      "validation_id": "validation_5d8baf39e1dafc7188fa137d86f5fac5"
+    },
+    {
+      "id": "check:taskstep_de2d79939200983fa03008fdab3ba848:node --test sum.test.js",
+      "label": "node --test sum.test.js",
+      "status": "pass",
+      "evidence_refs": [
+        "artifact:artifact_f7147ab6406970cc70f120d8bb3b092e",
+        "job:job_05c9c74d4e2198f083e3232ce95589ae"
+      ],
+      "validation_id": "validation_b1b41a27fa57aa095692ed5cdd4e6ba9"
+    },
+    {
+      "id": "criterion:AC1",
+      "label": "add returns correct sums for positive, negative, zero and decimal arguments, proven by all four existing immutable test cases.",
+      "status": "pass",
+      "evidence_refs": [
+        "artifact:artifact_6039c13dffd70d2f8c6573efc8438744",
+        "artifact:artifact_f7147ab6406970cc70f120d8bb3b092e",
+        "job:job_05c9c74d4e2198f083e3232ce95589ae"
+      ],
+      "validation_id": "validation_c42702242cc7b64b67a90626ac0d3ac2"
+    },
+    {
+      "id": "user_acceptance",
+      "label": "User acceptance",
+      "status": "blocked",
+      "reason": "User acceptance is required for the current evidence"
+    }
+  ]
+}

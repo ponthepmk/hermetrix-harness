@@ -29,9 +29,9 @@ printf 'test functions:        %s\n' "$test_functions"
 printf 'packages:              %s\n' "$test_packages"
 
 direct_tool_files=(internal/tools/registry.go internal/tools/definitions_runtime.go)
-direct_tools=$(grep -hE '^\t\t\{Name: "' "${direct_tool_files[@]}" | wc -l | tr -d ' ')
+direct_tools=$(grep -hE '^[[:blank:]]+\{Name: "' "${direct_tool_files[@]}" | wc -l | tr -d ' ')
 printf 'direct primitives:     %s\n' "$direct_tools"
-grep -h -oE '^\t\t\{Name: "[a-z_.]+"' "${direct_tool_files[@]}" |
+grep -h -oE '^[[:blank:]]+\{Name: "[a-z_.]+"' "${direct_tool_files[@]}" |
   sed 's/.*"\(.*\)"/                       \1/' || true
 
 printf 'context profiles:\n'

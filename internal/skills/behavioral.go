@@ -11,20 +11,10 @@ import (
 	"hermetrix-harness/internal/identity"
 )
 
-// The Phase 8 gate reads: the promotion API refuses a candidate whose
-// behavioral evaluation state is not_run or inconclusive, and a test proves the
-// refusal.
-//
-// Until now Promote checked five things -- candidate state, revision, the
-// check set, deterministic replay, and capability review -- and none of them
-// answered whether an agent following the new version still does the work. The
-// audit recorded replay as "lifecycle gate จริง แต่ไม่ใช่ agent/tool behavioral
-// eval": replay compares lexical fixtures, which catches a Skill whose wording
-// drifted, not one whose procedure got worse.
-//
-// This is the missing gate, bound the same way replay is: to an exact candidate
-// revision and content hash, so an evaluation cannot be inherited by a later
-// edit of the same candidate.
+// Phase 8 gate: promotion refuses a candidate whose behavioral evaluation is
+// not_run or inconclusive. Replay compares lexical fixtures; this gate checks
+// whether the agent still does the work, bound to an exact candidate revision
+// and content hash so results cannot be inherited by a later edit.
 const behavioralRunnerRevision = "hermetrix-behavioral-eval-v1"
 
 // Evaluation states. Anything that is not EvalPassed blocks promotion.
@@ -101,9 +91,20 @@ func (s *Service) RecordBehavioralEval(ctx context.Context, input BehavioralEval
 		Tasks: input.Tasks, BaselinePassed: input.BaselinePassed, CandidatePassed: input.CandidatePassed,
 		FalseSuccessDelta: input.FalseSuccessDelta, Result: input.Result, Error: input.Error,
 		StartedAt: now, CompletedAt: &now}
-	eval.Regressions = input.BaselinePassed - input.CandidatePassed
-	if eval.Regressions < 0 {
-		eval.Regressions = 0
+	if len(input.Result) > 0 {
+		tasks, baselinePassed, candidatePassed, regressions, err := parseBehavioralPaired(input.Result, input.Tasks)
+		if err != nil {
+			return BehavioralEval{}, err
+		}
+		eval.Tasks = tasks
+		eval.BaselinePassed = baselinePassed
+		eval.CandidatePassed = candidatePassed
+		eval.Regressions = regressions
+	} else {
+		eval.Regressions = input.BaselinePassed - input.CandidatePassed
+		if eval.Regressions < 0 {
+			eval.Regressions = 0
+		}
 	}
 	eval.State = behavioralVerdict(eval)
 	result := eval.Result
@@ -125,7 +126,9 @@ func (s *Service) RecordBehavioralEval(ctx context.Context, input BehavioralEval
 
 // behavioralVerdict is deliberately conservative in both directions a run can
 // be uninformative: a provider that kept failing, and a sample too small to
-// separate a real regression from noise. Neither is a pass.
+// separate a real regression from noise. Neither is a pass. A no-Result input
+// remains accepted as aggregate telemetry, but a record that would otherwise
+// pass must be inconclusive when it has no paired result to validate.
 func behavioralVerdict(eval BehavioralEval) string {
 	switch {
 	case eval.Error != "":
@@ -138,6 +141,9 @@ func behavioralVerdict(eval BehavioralEval) string {
 		return EvalFailed
 	case eval.Regressions > 0:
 		return EvalFailed
+	case len(eval.Result) == 0:
+		// Aggregate-only telemetry cannot prove the candidate did the work.
+		return EvalInconclusive
 	default:
 		return EvalPassed
 	}
@@ -187,6 +193,22 @@ func (s *Service) requireCurrentBehavioralEval(ctx context.Context, candidate Ca
 	if eval.State != EvalPassed || eval.CandidateHash != candidate.CandidateHash ||
 		eval.CandidateRevision != candidate.Revision {
 		return fmt.Errorf("%w: state %s", ErrBehavioralEvalRequired, eval.State)
+	}
+	if len(eval.Result) == 0 {
+		return fmt.Errorf("%w: stored evaluation has no paired result to validate", ErrBehavioralEvalRequired)
+	}
+	tasks, baselinePassed, candidatePassed, regressions, err := parseBehavioralPaired(eval.Result, eval.Tasks)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBehavioralEvalRequired, err)
+	}
+	if tasks != eval.Tasks || baselinePassed != eval.BaselinePassed ||
+		candidatePassed != eval.CandidatePassed || regressions != eval.Regressions {
+		return fmt.Errorf("%w: stored counts do not match paired result (stored %d/%d/%d/%d, derived %d/%d/%d/%d)",
+			ErrBehavioralEvalRequired, eval.Tasks, eval.BaselinePassed, eval.CandidatePassed, eval.Regressions,
+			tasks, baselinePassed, candidatePassed, regressions)
+	}
+	if behavioralVerdict(eval) != EvalPassed {
+		return fmt.Errorf("%w: stored evaluation verdict is %s", ErrBehavioralEvalRequired, behavioralVerdict(eval))
 	}
 	return nil
 }

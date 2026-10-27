@@ -1,0 +1,15 @@
+# H1A7 durable Goal start contract — 2026-10-27
+
+Previous goal turn: no progress; it answered a status request and revalidated evidence without changing product state. This turn begins native implementation of the next safe prerequisite.
+
+Observed cause: taskengine.CreateGoal allocates a fresh random ID inside the request. An active Goal can be dispatched by ServeGoals before a lost response is reconciled. Retrying cannot name the previously created Goal. Host evaluation runner needs a preallocated, durably recorded identity before requesting an effect.
+
+Acceptance: optional GoalID on taskcoord.StartGoalInput reaches taskengine.CreateGoalAtID. A trim-exact valid UTF-8 ID of at most 160 bytes names one immutable start request. Hash the task ID, original requested task revision, normalized actor and resolved frozen GoalConfig with its hash field cleared. The service computes the hash; caller-provided hash never supplies authority. Store it in config_json with omitempty, no schema change. Replay compares the original request to the stored marker and recomputed stored config, returns current owned historical Goal unchanged even after task/Goal progress or termination. A different task/actor/original revision/config conflicts with a zero return record. Foreign/unknown ownership gives no record or authority. A racing insert must reconcile the same ID, never generate another. Legacy no-ID callers retain random IDs and no marker. No provider dispatch is added by creation.
+
+Verify with real SQLite and existing taskcoord fixtures: concurrent creation, changed input, malformed ID, foreign owner, exact replay after real Goal actions/completion and budget consumption, SQLite/service reopen, existing optional wire route, legacy behavior and stored config tamper. The fixture model is not evidence of Bonsai task quality. A later native-model lifecycle probe must be labeled narrowly. No HTTP activation or installed app changes.
+
+The host must persist GoalID before calling StartGoal; this API prerequisite alone does not implement trusted evaluation execution/completion/promotion, demonstrate autonomous learning, or finish marketplace and actual Kubernetes requirements. Bonsai authors product and standing tests; Codex designs, supervises, reviews and verifies. Budgets and local-only choice stay unchanged.
+
+## Encoding acceptance added after reproduction
+
+The initial15-file cohort passed1377 events but did not reject invalid UTF8 identity strings. JSON Marshal replaces malformed bytes, so distinct raw strings can alias. Six unchanged negative subtests reproduced acceptance of invalid actor/root/provider IDs/revisions while valid Thai and ignored invalid caller marker passed. The first native guard returned empty digest with nil error and still failed all six. Final native guard returns a nonnil validation error before hashing actual identity fields, preserves canonical bytes for valid strings, and still ignores caller marker. See H1A7b-utf8-reproduction.log and H1A7b-functional-v2.log. Final cohort17 files, with full root qualification repeated; earlier15-file results remain historical evidence only.

@@ -184,6 +184,9 @@ func (s *Service) OpenBrowserTab(ctx context.Context, input OpenBrowserTabInput)
 
 func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserActionInput) (resultTab BrowserTab, actionErr error) {
 	input.Actor, input.Action = strings.TrimSpace(input.Actor), strings.TrimSpace(input.Action)
+	if input.DurationMS < 0 || input.DurationMS > 3000 || (input.Action != "key" && input.DurationMS != 0) {
+		return BrowserTab{}, fmt.Errorf("browser key duration must be between 0 and 3000 milliseconds")
+	}
 	if input.Actor == "" {
 		return BrowserTab{}, fmt.Errorf("browser actor is required")
 	}
@@ -210,7 +213,7 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 			receipt.SubjectHash != input.SubjectHash || time.Now().UTC().After(receipt.ExpiresAt) {
 			return BrowserTab{}, fmt.Errorf("browser approval is missing, stale, expired or already used")
 		}
-		textSum := sha256.Sum256([]byte(input.Text))
+		textSum := sha256.Sum256([]byte(browserActionBoundText(input)))
 		var storedTextHash string
 		if err := s.store.DB.QueryRowContext(ctx, `SELECT text_hash FROM browser_action_receipts WHERE id=?`, receipt.ID).Scan(&storedTextHash); err != nil || storedTextHash != hex.EncodeToString(textSum[:]) {
 			return BrowserTab{}, fmt.Errorf("browser text changed after review")
@@ -293,7 +296,9 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		if _, err := runtimeTab.client.evaluate(ctx, expression); err != nil {
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
-		time.Sleep(200 * time.Millisecond)
+		if err := waitForBrowserActionSettled(ctx, runtimeTab.client); err != nil {
+			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
+		}
 	case "type":
 		if len(input.Text) > 64<<10 {
 			return BrowserTab{}, fmt.Errorf("browser text exceeds 64 KiB")
@@ -307,7 +312,7 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
 	case "key":
-		code, valid := browserKeyCode(input.Text)
+		_, valid := browserKeyCode(input.Text)
 		if !valid {
 			return BrowserTab{}, fmt.Errorf("unsupported browser key %q", input.Text)
 		}
@@ -315,25 +320,16 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 		if err != nil {
 			return BrowserTab{}, err
 		}
-		focus := fmt.Sprintf(`(() => { const el=document.querySelector(%s); if(!el) throw new Error("element ref is stale"); el.focus(); return true })()`, jsString(selector))
+		focus := fmt.Sprintf(`(() => { const el=document.querySelector(%s); if(!el) throw new Error("element ref is stale"); el.focus(); if(document.activeElement!==el) throw new Error("reviewed key target is not focusable"); return true })()`, jsString(selector))
 		if _, err := runtimeTab.client.evaluate(ctx, focus); err != nil {
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
-		args := map[string]any{"key": input.Text, "code": input.Text, "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code}
-		args["type"] = "rawKeyDown"
-		if input.Text == "Enter" {
-			args["type"] = "keyDown"
-			args["text"] = "\r"
-			args["unmodifiedText"] = "\r"
-		}
-		if err := runtimeTab.client.call(ctx, "Input.dispatchKeyEvent", args, nil); err != nil {
+		if err := dispatchBrowserKey(ctx, runtimeTab.client, input); err != nil {
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
-		args["type"] = "keyUp"
-		if err := runtimeTab.client.call(ctx, "Input.dispatchKeyEvent", args, nil); err != nil {
+		if err := waitForBrowserActionSettled(ctx, runtimeTab.client); err != nil {
 			return BrowserTab{}, s.handleBrowserActionError(ctx, runtimeTab, err)
 		}
-		time.Sleep(200 * time.Millisecond)
 	case "capture":
 	case "close":
 		return s.closeBrowserTabLocked(ctx, runtimeTab)
@@ -369,19 +365,8 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 }
 
 func browserKeyCode(key string) (int, bool) {
-	switch key {
-	case "Tab":
-		return 9, true
-	case "Enter":
-		return 13, true
-	case "Escape":
-		return 27, true
-	case "ArrowUp":
-		return 38, true
-	case "ArrowDown":
-		return 40, true
-	}
-	return 0, false
+	_, _, code, ok := agentruntime.BrowserKey(key)
+	return code, ok
 }
 
 func supportedBrowserKey(key string) bool {
@@ -428,7 +413,7 @@ func (s *Service) GetBrowserTab(ctx context.Context, id string) (BrowserTab, err
 func (s *Service) refreshBrowserTab(ctx context.Context, runtimeTab *browserTabRuntime, capture bool) error {
 	expression := `(() => {
 const clean=s=>(s||"").replace(/\s+/g," ").trim();
-const nodes=[...document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"]')].slice(0,200);
+const nodes=[...document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"],canvas[tabindex],[role="application"]')].slice(0,200);
 const elements=nodes.map((el,i)=>{const ref=i+1;el.setAttribute('data-hermetrix-ref',String(ref));const secret=el.matches('input[type="password"],[autocomplete="current-password"],[autocomplete="new-password"]');const r=el.getBoundingClientRect(),css=getComputedStyle(el),visible=r.width>=5&&r.height>=5&&r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight&&css.visibility!=='hidden'&&css.display!=='none';const pct=(n,total)=>Math.round(n/total*10000)/100;const left=visible?Math.max(0,r.left):0,top=visible?Math.max(0,r.top):0,width=visible?Math.max(0,Math.min(innerWidth,r.right)-left):0,height=visible?Math.max(0,Math.min(innerHeight,r.bottom)-top):0;return {ref,tag:el.tagName.toLowerCase(),role:el.getAttribute('role')||'',text:secret?'':clean(el.innerText||el.getAttribute('aria-label')||el.getAttribute('placeholder')),placeholder:secret?'':el.getAttribute('placeholder')||'',selector:'[data-hermetrix-ref="'+ref+'"]',is_password:secret,value:secret?'':String(el.value||''),x_pct:width?pct(left,innerWidth):0,y_pct:height?pct(top,innerHeight):0,width_pct:width?pct(width,innerWidth):0,height_pct:height?pct(height,innerHeight):0}});
 const links=[...document.querySelectorAll('a[href]')].slice(0,200).map(a=>({text:clean(a.innerText||a.getAttribute('aria-label')),url:a.href}));
 return JSON.stringify({title:document.title||'',url:location.href,text:clean(document.body?.innerText||'').slice(0,262144),links,elements});
@@ -598,11 +583,11 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 		"--disable-default-apps", "--disable-sync", "--metrics-recording-only", "about:blank")
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		_ = os.RemoveAll(profile)
+		s.cleanupBrowserProfile(profile)
 		return nil, err
 	}
 	if err := command.Start(); err != nil {
-		_ = os.RemoveAll(profile)
+		s.cleanupBrowserProfile(profile)
 		return nil, err
 	}
 	devToolsURL := make(chan string, 1)
@@ -644,7 +629,7 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 			debugURL = devToolsURLFromProfile(profile)
 		case processErr := <-processDone:
 			stderrText := <-stderrDone
-			_ = os.RemoveAll(profile)
+			s.cleanupBrowserProfile(profile)
 			if stderrText != "" {
 				return nil, fmt.Errorf("Chrome exited before DevTools became ready: %v: %s", processErr, stderrText)
 			}
@@ -652,12 +637,12 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 		case <-ctx.Done():
 			_ = command.Process.Kill()
 			<-processDone
-			_ = os.RemoveAll(profile)
+			s.cleanupBrowserProfile(profile)
 			return nil, ctx.Err()
 		case <-timeout.C:
 			_ = command.Process.Kill()
 			<-processDone
-			_ = os.RemoveAll(profile)
+			s.cleanupBrowserProfile(profile)
 			return nil, fmt.Errorf("Chrome DevTools did not become ready within 10 seconds")
 		}
 	}
@@ -672,7 +657,7 @@ func (s *Service) ensureBrowser(ctx context.Context) (*browserRuntime, error) {
 	s.mu.Unlock()
 	_ = command.Process.Kill()
 	<-processDone
-	_ = os.RemoveAll(profile)
+	s.cleanupBrowserProfile(profile)
 	return existing, nil
 }
 
@@ -711,7 +696,7 @@ func (s *Service) closeBrowser() {
 		if browser.done != nil {
 			<-browser.done
 		}
-		_ = os.RemoveAll(browser.profile)
+		s.cleanupBrowserProfile(browser.profile)
 	}
 }
 
@@ -1185,6 +1170,36 @@ func (c *cdpClient) evaluate(ctx context.Context, expression string) (string, er
 		encoded, _ := json.Marshal(value)
 		return string(encoded), nil
 	}
+}
+
+// A SPA click may return before its route/DOM update. Observe a bounded quiet
+// interval, then still require a fresh model read before its next input. Never
+// repeat the click when settling fails after dispatch.
+func waitForBrowserActionSettled(ctx context.Context, client *cdpClient) error {
+	started := time.Now()
+	stableSince := started
+	previous := ""
+	for time.Since(started) < 2*time.Second {
+		current, err := client.evaluate(ctx, `JSON.stringify({url:location.href,state:document.readyState,text:(document.body?.innerText||'').slice(0,4096)})`)
+		if isBrowserPolicyError(err) {
+			return err
+		}
+		if err == nil {
+			if current != previous {
+				previous = current
+				stableSince = time.Now()
+			}
+			if time.Since(started) >= 500*time.Millisecond && time.Since(stableSince) >= 250*time.Millisecond {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return ctx.Err()
 }
 
 func waitForPageReady(ctx context.Context, client *cdpClient) error {

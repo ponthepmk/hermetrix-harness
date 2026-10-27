@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -94,5 +95,24 @@ func TestIndependentReviewRejectsApprovalWithFindings(t *testing.T) {
 		Objective: "fix", AcceptanceCriteria: []string{"AC-1"}, Files: map[string]string{"a.go": "x"}, TestEvidence: []string{"test passed"}}, Options{})
 	if err == nil {
 		t.Fatal("approval with unresolved findings was accepted")
+	}
+}
+
+func TestReviewRejectsOversizedVerdictEvenWhenGatewayIgnoresSchema(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	body, _ := json.Marshal(map[string]any{"verdict": "approve", "rationale": strings.Repeat("x", 2001), "findings": []string{}})
+	service := providers.NewService(db, reviewAdapter{completion: providers.Completion{Content: string(body)}})
+	profile, err := service.Save(ctx, providers.SaveInput{Name: "reviewer", BaseURL: "https://review.example/v1", Model: "review", ContextWindow: 32768, MaxOutputTokens: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ReviewWithProviderService(ctx, service, profile, ReviewTask{TaskID: "task", ProposalID: "proposal", Objective: "fix", AcceptanceCriteria: []string{"AC1"}, Files: map[string]string{"api.js": "fixed"}, TestEvidence: []string{"test passed"}}, Options{})
+	if err == nil {
+		t.Fatal("gateway bypassed bounded review result")
 	}
 }

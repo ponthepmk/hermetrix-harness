@@ -1,0 +1,26 @@
+{
+  "url": "https://desktop-nh66lnq.tail0f7f57.ts.net:18810/",
+  "health": {
+    "expected_schema": 76,
+    "ok": true,
+    "schema": 76,
+    "service": "hermetrix-harness"
+  },
+  "serve": {
+    "TCP": {
+      "18810": {
+        "TCPForward": "127.0.0.1:18811"
+      }
+    }
+  },
+  "gateway_pid": 43076,
+  "gateway_binary_sha256": "113ec60af4371199e83bbd1cd996d3eea3c25ba3eeeaa84a5ca43212706b5da7",
+  "authentication": "existing token login; Secure HttpOnly SameSiteStrict cookie; private ACL protected token file",
+  "remote_check": "Raspberry Pi curl HTTPS health passed",
+  "browser_check": "Chrome trusted certificate, login, project hydration, assets and cookie passed",
+  "negative_checks": "anonymous API401; cross-origin mutation403; untrusted host421",
+  "stream_check": "flush and disconnect propagation passed",
+  "main_instance": "18804 untouched",
+  "autostart": "not configured for gateway",
+  "certificate_renewal": "rerun launcher; running gateway requires restart after certificate rotation"
+}

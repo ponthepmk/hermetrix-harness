@@ -1,0 +1,2 @@
+ok  	hermetrix-harness/internal/agent	88.740s
+ok  	hermetrix-harness/internal/mcp	7.724s
