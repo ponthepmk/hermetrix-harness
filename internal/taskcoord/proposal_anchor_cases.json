@@ -1,0 +1,74 @@
+{
+  "scores": [
+    {
+      "expected": 0,
+      "terms": [
+        "add"
+      ],
+      "name": "identifier-boundary",
+      "text": "address"
+    },
+    {
+      "expected": 50,
+      "terms": [
+        "return a-b"
+      ],
+      "name": "literal-code-anchor",
+      "text": "return a-b"
+    },
+    {
+      "expected": 1,
+      "terms": [
+        "กำไรบัญชี"
+      ],
+      "name": "thai-combining-marks",
+      "text": "กำไรบัญชี"
+    }
+  ],
+  "terms": [
+    {
+      "expected": [
+        "add",
+        "return",
+        "กำไรบัญชี"
+      ],
+      "name": "unicode-quoted-unquoted-dedup",
+      "want_error": false,
+      "text": "`add` ADD add กำไรบัญชี `return` the for FIX implementation"
+    },
+    {
+      "expected": [],
+      "name": "quoted-whitespace",
+      "want_error": false,
+      "text": "`   `"
+    },
+    {
+      "expected": [],
+      "name": "ordinary-stopwords",
+      "want_error": false,
+      "text": "the for FIX implementation"
+    },
+    {
+      "expected": [
+        "return"
+      ],
+      "name": "explicit-stopword",
+      "want_error": false,
+      "text": "`return` return"
+    },
+    {
+      "expected": [
+        "add"
+      ],
+      "name": "trimmed-quoted-dedup",
+      "want_error": false,
+      "text": "` add ` ADD add"
+    },
+    {
+      "expected": [],
+      "name": "over-term-limit",
+      "want_error": true,
+      "text": "anchor000 anchor001 anchor002 anchor003 anchor004 anchor005 anchor006 anchor007 anchor008 anchor009 anchor010 anchor011 anchor012 anchor013 anchor014 anchor015 anchor016 anchor017 anchor018 anchor019 anchor020 anchor021 anchor022 anchor023 anchor024 anchor025 anchor026 anchor027 anchor028 anchor029 anchor030 anchor031 anchor032 anchor033 anchor034 anchor035 anchor036 anchor037 anchor038 anchor039 anchor040 anchor041 anchor042 anchor043 anchor044 anchor045 anchor046 anchor047 anchor048 anchor049 anchor050 anchor051 anchor052 anchor053 anchor054 anchor055 anchor056 anchor057 anchor058 anchor059 anchor060 anchor061 anchor062 anchor063 anchor064 anchor065 anchor066 anchor067 anchor068 anchor069 anchor070 anchor071 anchor072 anchor073 anchor074 anchor075 anchor076 anchor077 anchor078 anchor079 anchor080 anchor081 anchor082 anchor083 anchor084 anchor085 anchor086 anchor087 anchor088 anchor089 anchor090 anchor091 anchor092 anchor093 anchor094 anchor095 anchor096 anchor097 anchor098 anchor099 anchor100 anchor101 anchor102 anchor103 anchor104 anchor105 anchor106 anchor107 anchor108 anchor109 anchor110 anchor111 anchor112 anchor113 anchor114 anchor115 anchor116 anchor117 anchor118 anchor119 anchor120 anchor121 anchor122 anchor123 anchor124 anchor125 anchor126 anchor127 anchor128"
+    }
+  ]
+}

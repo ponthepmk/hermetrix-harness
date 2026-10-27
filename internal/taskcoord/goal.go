@@ -12,6 +12,7 @@ import (
 )
 
 type StartGoalInput struct {
+	GoalID                     string `json:"goal_id,omitempty"`
 	VerificationTimeoutSeconds int    `json:"verification_timeout_seconds"`
 	TaskID                     string `json:"task_id"`
 	ExpectedTaskRevision       int    `json:"expected_task_revision"`
@@ -74,11 +75,15 @@ func (s *Service) StartGoal(ctx context.Context, in StartGoalInput) (taskengine.
 	if in.VerificationTimeoutSeconds < 1 || in.VerificationTimeoutSeconds > 86400 {
 		return taskengine.GoalRun{}, fmt.Errorf("verification_timeout_seconds must be 1–86400")
 	}
-	return s.tasks.CreateGoal(ctx, in.TaskID, in.ExpectedTaskRevision, in.Actor, taskengine.GoalConfig{
+	config := taskengine.GoalConfig{
 		VerificationTimeoutSeconds: in.VerificationTimeoutSeconds,
 		ProjectRoot:                projectRoot,
 		ProviderID:                 writer.ID, ProviderRevision: writer.Revision, ReviewerProviderID: reviewer.ID, ReviewerProviderRevision: reviewer.Revision,
-		ApplyChanges: in.ApplyChanges, MaxActions: in.MaxActions, MaxAttempts: in.MaxAttempts, MaxPlans: in.MaxPlans, MaxSeconds: in.MaxSeconds})
+		ApplyChanges: in.ApplyChanges, MaxActions: in.MaxActions, MaxAttempts: in.MaxAttempts, MaxPlans: in.MaxPlans, MaxSeconds: in.MaxSeconds}
+	if in.GoalID != "" {
+		return s.tasks.CreateGoalAtID(ctx, in.GoalID, in.TaskID, in.ExpectedTaskRevision, in.Actor, config)
+	}
+	return s.tasks.CreateGoal(ctx, in.TaskID, in.ExpectedTaskRevision, in.Actor, config)
 }
 
 // ServeGoals owns two bounded workers. A database claim prevents concurrent

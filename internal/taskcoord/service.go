@@ -193,12 +193,12 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 	if err := validateTaskEgress(task, profile); err != nil {
 		return AutoPlanOutput{}, err
 	}
-	preset, err := s.providers.ResolveTaskPreset(ctx, profile, "planner", 1)
+	preset, err := s.providers.ResolvePlannerPreset(ctx, profile, "planner", 1)
 	if err != nil {
 		return AutoPlanOutput{}, err
 	}
 	if task.Plan.ReviewStatus == "rejected" {
-		if expanded, expandErr := s.providers.ResolveTaskPreset(ctx, profile, "planner-large", 1); expandErr == nil {
+		if expanded, expandErr := s.providers.ResolvePlannerPreset(ctx, profile, "planner-large", 1); expandErr == nil {
 			preset = expanded
 		}
 	}
@@ -508,21 +508,15 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		if (effect.State == taskengine.EffectObserved || effect.State == taskengine.EffectReconciled) && effect.Receipt["status"] == "proposed_unverified" {
 			artifactID, _ := effect.Receipt["artifact_id"].(string)
 			proposalID, _ := effect.Receipt["proposal_id"].(string)
-			artifact, body, loadErr := s.products.GetArtifact(ctx, artifactID)
-			if loadErr != nil {
-				return ProposalOutput{Effect: effect}, fmt.Errorf("load persisted proposal artifact: %w", loadErr)
-			}
-			var result worker.Result
-			decoder := json.NewDecoder(bytes.NewReader(body))
-			decoder.DisallowUnknownFields()
-			if loadErr = decoder.Decode(&result); loadErr != nil || decoder.Decode(new(any)) != io.EOF || result.ProposalID != proposalID {
-				return ProposalOutput{Artifact: artifact, Effect: effect}, fmt.Errorf("persisted proposal artifact is invalid")
-			}
 			proposal, loadErr := s.tasks.GetCodeProposal(ctx, proposalID)
-			if loadErr != nil || proposal.ArtifactID != artifact.ID || proposal.AttemptID != attempt.ID {
-				return ProposalOutput{Result: result, Artifact: artifact, Effect: effect}, fmt.Errorf("persisted proposal registry binding is invalid")
+			if loadErr != nil || proposal.ArtifactID != artifactID || proposal.AttemptID != attempt.ID {
+				return ProposalOutput{Effect: effect}, fmt.Errorf("load persisted proposal registry: %w", loadErr)
 			}
-			return ProposalOutput{Result: result, Artifact: artifact, Effect: effect, Proposal: proposal}, nil
+			loaded, loadErr := s.loadProposalBundle(ctx, proposal)
+			if loadErr != nil {
+				return ProposalOutput{Effect: effect}, fmt.Errorf("load proposal bundle: %w", loadErr)
+			}
+			return ProposalOutput{Result: loaded.Bundle.Result, Artifact: loaded.Artifact, Effect: effect, Proposal: proposal}, nil
 		}
 		return ProposalOutput{Effect: effect}, fmt.Errorf("proposal already has durable state %s; inspect or reconcile it rather than replaying the provider call", effect.State)
 	}
@@ -609,12 +603,17 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	}
 	workerTask.ProjectBrainRefs = s.projectBrainRefs(ctx, input.Packet.ProjectID,
 		input.Packet.Step.Title+" "+input.Packet.Objective, profile)
-	if len(workerTask.ProjectBrainRefs) > 0 {
-		encodedInput, marshalErr := json.Marshal(workerTask)
-		if marshalErr != nil || len(encodedInput) > 128*1024 {
-			workerTask.ProjectBrainRefs = nil
-		}
+	curatedTask, curateErr := curateProposalTask(workerTask, input.Packet.Step, preset)
+	if curateErr != nil {
+		return ProposalOutput{}, curateErr
 	}
+	workerTask = curatedTask
+	frozenTask, canonicalInput, _, freezeErr := worker.FreezeTask(workerTask)
+	if freezeErr != nil {
+		return ProposalOutput{}, freezeErr
+	}
+	workerTask = frozenTask
+
 	effect, err := s.tasks.PlanEffect(ctx, input.Authority, input.AttemptID, proposalEffect, profile.ID+":"+profile.Model,
 		"task-packet:"+input.Packet.CanonicalPacketHash)
 	if err != nil {
@@ -656,7 +655,35 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 		}
 		return ProposalOutput{Effect: effect}, err
 	}
-	encoded, err := json.Marshal(result)
+	inputArtifact, err := s.products.CreateArtifact(ctx, product.ArtifactInput{
+		ProjectID: input.Packet.ProjectID,
+		Name:      result.ProposalID + ".input.json",
+		Kind:      "code_proposal_input",
+		MIMEType:  "application/json",
+		Content:   string(canonicalInput),
+		Metadata: map[string]any{
+			"task_id":             input.Packet.TaskID,
+			"step_id":             input.Packet.Step.ID,
+			"attempt_id":          input.AttemptID,
+			"packet_hash":         input.Packet.CanonicalPacketHash,
+			"proposal_id":         result.ProposalID,
+			"project_root":        projectRoot,
+			"source_operation_id": effect.OperationID,
+		},
+	})
+	if err != nil {
+		observed, observeErr := s.tasks.ObserveEffect(ctx, effect.OperationID, map[string]any{"status": "input_persist_failed"})
+		if observeErr == nil {
+			effect = observed
+		}
+		return ProposalOutput{Effect: effect}, err
+	}
+
+	encoded, err := json.Marshal(proposalBundle{
+		Version:         2,
+		InputArtifactID: inputArtifact.ID,
+		Result:          result,
+	})
 	if err != nil {
 		return ProposalOutput{Effect: effect}, err
 	}
@@ -712,24 +739,18 @@ func (s *Service) Apply(ctx context.Context, authority taskengine.RunAuthority, 
 	if proposal.State != taskengine.ProposalApproved {
 		return ApplyOutput{}, fmt.Errorf("proposal cannot apply from state %s", proposal.State)
 	}
-	artifact, body, err := s.products.GetArtifact(ctx, proposal.ArtifactID)
+	loaded, err := s.loadProposalBundle(ctx, proposal)
 	if err != nil {
 		return ApplyOutput{}, err
 	}
-	if artifact.Checksum != proposal.ResultHash {
-		return ApplyOutput{}, fmt.Errorf("proposal artifact hash no longer matches its review binding")
-	}
+	artifact := loaded.Artifact
+	result := loaded.Bundle.Result
+
 	frozenRoot, _ := artifact.Metadata["project_root"].(string)
 	if frozenRoot != "" {
 		if currentRoot, rootErr := s.products.ProjectRootIdentity(ctx, proposal.ProjectID); rootErr != nil || currentRoot != frozenRoot {
 			return ApplyOutput{}, fmt.Errorf("proposal project root changed since source snapshot")
 		}
-	}
-	var result worker.Result
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&result); err != nil || decoder.Decode(new(any)) != io.EOF || result.ProposalID != proposal.ID {
-		return ApplyOutput{}, fmt.Errorf("proposal artifact is invalid")
 	}
 	task, err := s.tasks.Get(ctx, proposal.TaskID)
 	if err != nil {
@@ -877,13 +898,11 @@ func (s *Service) prepareVerification(ctx context.Context, proposalID, actor str
 	if actor == "" || proposal.State != taskengine.ProposalApplied {
 		return verificationContext{}, fmt.Errorf("verified apply requires an actor and an applied proposal")
 	}
-	proposalArtifact, _, err := s.products.GetArtifact(ctx, proposal.ArtifactID)
+	loaded, err := s.loadProposalBundle(ctx, proposal)
 	if err != nil {
 		return verificationContext{}, err
 	}
-	if proposalArtifact.ProjectID != proposal.ProjectID || proposalArtifact.Kind != "code_proposal" {
-		return verificationContext{}, fmt.Errorf("verification proposal artifact binding is invalid")
-	}
+	proposalArtifact := loaded.Artifact
 	frozenRoot, _ := proposalArtifact.Metadata["project_root"].(string)
 	task, err := s.tasks.Get(ctx, proposal.TaskID)
 	if err != nil {
@@ -942,14 +961,7 @@ func (s *Service) prepareVerification(ctx context.Context, proposalID, actor str
 			}
 		}
 	}
-	var changes worker.Result
-	_, proposalBody, err := s.products.GetArtifact(ctx, proposal.ArtifactID)
-	if err != nil {
-		return verificationContext{}, err
-	}
-	if err = json.Unmarshal(proposalBody, &changes); err != nil {
-		return verificationContext{}, err
-	}
+	changes := loaded.Bundle.Result
 	paths := append([]string(nil), task.Requirement.Contract.WritablePaths...)
 	pathSeen := map[string]bool{}
 	for _, path := range paths {
@@ -1229,14 +1241,12 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	if err = json.Unmarshal(bundleBody, &bundle); err != nil || bundle.ProposalID != proposal.ID {
 		return ReviewOutput{}, fmt.Errorf("verification bundle is invalid")
 	}
-	_, proposalBody, err := s.products.GetArtifact(ctx, proposal.ArtifactID)
+	loaded, err := s.loadProposalBundle(ctx, proposal)
 	if err != nil {
 		return ReviewOutput{}, err
 	}
-	var changeSet worker.Result
-	if err = json.Unmarshal(proposalBody, &changeSet); err != nil {
-		return ReviewOutput{}, fmt.Errorf("proposal artifact is invalid")
-	}
+	changeSet := loaded.Bundle.Result
+
 	files := make(map[string]string, len(changeSet.Changes))
 	releaseSource, err := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, bundle.Snapshot)
 	if err != nil {
@@ -1295,6 +1305,10 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	if err != nil {
 		return ReviewOutput{}, err
 	}
+	files, partialFiles, err := proposalReviewFiles(s, profile, loaded.InputTask, changeSet, files)
+	if err != nil {
+		return ReviewOutput{}, err
+	}
 	effect, err := s.tasks.PlanEffect(ctx, authority, proposal.AttemptID, "provider.review", profile.ID+":"+profile.Model, "verification:"+bundleArtifact.ID)
 	if err != nil {
 		return ReviewOutput{}, err
@@ -1305,7 +1319,7 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 	review, reviewErr := worker.ReviewWithProviderService(dispatchCtx, s.providers, profile, worker.ReviewTask{TaskID: task.ID,
 		ProposalID: proposal.ID, Objective: task.Objective, StepTitle: step.Title, StepInstructions: step.Instructions,
 		StepChecks: step.Checks, AcceptanceCriteria: criteria, Constraints: task.Requirement.Constraints,
-		Files: files, TestEvidence: testEvidence, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}, worker.Options{
+		Files: files, PartialFiles: partialFiles, TestEvidence: testEvidence, MaxOutputTokens: minPositive(profile.MaxOutputTokens, 8192)}, worker.Options{
 		BeforeProviderRequest: func() error {
 			if bindingErr := s.validateProviderBinding(ctx, profile); bindingErr != nil {
 				return bindingErr
@@ -1616,13 +1630,16 @@ func (s *Service) ReconcileProviderArtifact(ctx context.Context, operationID str
 		if artifact.Kind != "code_proposal" {
 			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("proposal effect points to artifact kind %s", artifact.Kind)
 		}
-		var proposalResult worker.Result
-		if err = json.Unmarshal(body, &proposalResult); err != nil || proposalResult.ProposalID == "" || proposalResult.Status != "proposed_unverified" {
-			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("proposal artifact is invalid")
+		decoded, decodeErr := decodeProposalBundle(body)
+		if decodeErr != nil {
+			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("decode proposal bundle: %w", decodeErr)
 		}
-		proposal, proposalErr := s.tasks.GetCodeProposal(ctx, proposalResult.ProposalID)
+		proposal, proposalErr := s.tasks.GetCodeProposal(ctx, decoded.Result.ProposalID)
 		if proposalErr != nil || proposal.ArtifactID != artifact.ID || proposal.AttemptID != effect.AttemptID {
 			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("proposal artifact has no matching durable proposal registry entry")
+		}
+		if _, err := s.loadProposalBundle(ctx, proposal); err != nil {
+			return ReconcileOutput{Effect: effect, Artifact: &artifact}, fmt.Errorf("load proposal bundle: %w", err)
 		}
 		receipt["status"], receipt["proposal_id"] = "proposed_unverified", proposal.ID
 	}
@@ -1757,14 +1774,14 @@ func (s *Service) rollbackProposal(ctx context.Context, proposal taskengine.Code
 		}
 		return rollbackOutcome{Restored: receipt.Restored, Artifact: artifact}
 	}
+	loaded, loadErr := s.loadProposalBundle(ctx, proposal)
+	if loadErr != nil {
+		receipt.Error = fmt.Sprintf("failed to load proposal bundle: %v", loadErr)
+		return finish()
+	}
 	expectedApplied := map[string]string{}
-	if _, proposalBody, err := s.products.GetArtifact(ctx, proposal.ArtifactID); err == nil {
-		var result worker.Result
-		if json.Unmarshal(proposalBody, &result) == nil {
-			for _, change := range result.Changes {
-				expectedApplied[change.Path] = worker.Hash(change.Content)
-			}
-		}
+	for _, change := range loaded.Bundle.Result.Changes {
+		expectedApplied[change.Path] = worker.Hash(change.Content)
 	}
 	if proposal.RollbackArtifactID == "" {
 		receipt.Error = "rollback preimage artifact is missing"

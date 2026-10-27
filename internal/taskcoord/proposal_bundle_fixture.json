@@ -1,0 +1,234 @@
+[
+  {
+    "name": "legacy_whole",
+    "body": "{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+    "want_error": false,
+    "expected_version": 1,
+    "expected_input": "",
+    "expected_changes": 1
+  },
+  {
+    "name": "v2_whole",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": false,
+    "expected_version": 2,
+    "expected_input": "artifact_fixture",
+    "expected_changes": 1
+  },
+  {
+    "name": "v2_retained_edits",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"edits\":[{\"old\":\"before\",\"new\":\"after\"}]}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": false,
+    "expected_version": 2,
+    "expected_input": "artifact_fixture",
+    "expected_changes": 1
+  },
+  {
+    "name": "bad_version_0",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":0,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_version_1",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":1,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_version_3",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":3,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_version_null",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":null,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_version_2",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":\"2\",\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_version_2.5",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2.5,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_version_True",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":true,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "missing_version_envelope",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "missing_input_ref",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "blank_input_ref",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"  \"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "unknown_v2_top",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\",\"unexpected\":true}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "unknown_v2_result",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"unexpected\":true},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "unknown_v2_change",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"unexpected\":true}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "unknown_v1_top",
+    "body": "{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"unexpected\":true}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "unknown_v1_change",
+    "body": "{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"unexpected\":true}]}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "legacy_retained_edits",
+    "body": "{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"edits\":[{\"old\":\"before\",\"new\":\"after\"}]}]}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "bad_status",
+    "body": "{\"result\":{\"status\":\"completed\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "empty_proposal_id",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "change_count_0",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "change_count_32",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": false,
+    "expected_version": 2,
+    "expected_input": "artifact_fixture",
+    "expected_changes": 32
+  },
+  {
+    "name": "change_count_33",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "empty",
+    "body": "",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "spaces",
+    "body": "   ",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "null",
+    "body": "null",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "array",
+    "body": "[]",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  },
+  {
+    "name": "trailing",
+    "body": "{\"result\":{\"status\":\"proposed_unverified\",\"task_id\":\"task-fixture\",\"input_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"proposal_id\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"changes\":[{\"content\":\"after\",\"path\":\"x.go\",\"strategy\":\"replace_file\",\"before_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]},\"version\":2,\"input_artifact_id\":\"artifact_fixture\"} {}",
+    "want_error": true,
+    "expected_version": 0,
+    "expected_input": "",
+    "expected_changes": 0
+  }
+]

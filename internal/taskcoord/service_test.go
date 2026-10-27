@@ -107,6 +107,7 @@ func TestRollbackReceiptProvesRestoredBytesAndRefusesLaterEdits(t *testing.T) {
 	}
 	proposalID := "proposal-rollback-proof"
 	proposalBody, _ := json.Marshal(worker.Result{ProposalID: proposalID,
+		Status:  "proposed_unverified",
 		Changes: []worker.Change{{Path: "README.md", BeforeSHA256: original.SHA256, Content: "Status: new\n"}}})
 	proposalArtifact, err := products.CreateArtifact(ctx, product.ArtifactInput{ProjectID: project.ID,
 		Name: "proposal.json", Kind: "code_proposal", MIMEType: "application/json", Content: string(proposalBody)})
@@ -125,7 +126,7 @@ func TestRollbackReceiptProvesRestoredBytesAndRefusesLaterEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	proposal := taskengine.CodeProposal{ID: proposalID, ProjectID: project.ID,
-		ArtifactID: proposalArtifact.ID, RollbackArtifactID: preimage.ID}
+		ArtifactID: proposalArtifact.ID, RollbackArtifactID: preimage.ID, ResultHash: proposalArtifact.Checksum}
 	coordinator := &Service{products: products}
 	outcome := coordinator.rollbackProposal(ctx, proposal)
 	if !outcome.Restored || outcome.Artifact.Kind != "code_rollback_receipt" {

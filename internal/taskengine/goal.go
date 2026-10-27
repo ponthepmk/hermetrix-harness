@@ -23,6 +23,7 @@ const (
 // GoalConfig is frozen consent, not model-generated authority. Limits are
 // cumulative across pauses and resumes. A new requirement needs a new run.
 type GoalConfig struct {
+	StartInputSHA256           string `json:"start_input_sha256,omitempty"`
 	VerificationTimeoutSeconds int    `json:"verification_timeout_seconds"`
 	ProjectRoot                string `json:"project_root,omitempty"`
 	ProviderID                 string `json:"provider_id"`
@@ -66,7 +67,7 @@ type GoalAction struct {
 	CompletedAt  *time.Time     `json:"completed_at,omitempty"`
 }
 
-func (s *Service) CreateGoal(ctx context.Context, taskID string, expectedRevision int, actor string, config GoalConfig) (GoalRun, error) {
+func (s *Service) createGoalAtID(ctx context.Context, goalID string, taskID string, expectedRevision int, actor string, config GoalConfig) (GoalRun, error) {
 	actor = strings.TrimSpace(actor)
 	if actor == "" || len([]rune(actor)) > 200 || config.ProviderID == "" || config.ProviderRevision == "" ||
 		config.ReviewerProviderID == "" || config.ReviewerProviderRevision == "" || config.ProviderID == config.ReviewerProviderID {
@@ -90,7 +91,7 @@ func (s *Service) CreateGoal(ctx context.Context, taskID string, expectedRevisio
 		return GoalRun{}, fmt.Errorf("automatic apply requires explicit writable_paths in the goal contract")
 	}
 	now := time.Now().UTC()
-	goal := GoalRun{ID: identity.New("goal"), TaskID: taskID, RequirementRevision: task.ActiveRequirementRevision,
+	goal := GoalRun{ID: goalID, TaskID: taskID, RequirementRevision: task.ActiveRequirementRevision,
 		ExpectedTaskRevision: expectedRevision, Actor: actor, Config: config, State: GoalActive,
 		Deadline: now.Add(time.Duration(config.MaxSeconds) * time.Second), CreatedAt: now, UpdatedAt: now}
 	encoded, err := json.Marshal(config)

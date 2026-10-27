@@ -1,0 +1,203 @@
+[
+  {
+    "WantError": false,
+    "Limit": 10,
+    "Expected": [
+      [
+        0,
+        10
+      ]
+    ],
+    "Source": "Aไทย\r\nB",
+    "Name": "touching-regions-merge",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "End": 1,
+        "Start": 0,
+        "Score": 1
+      },
+      {
+        "End": 10,
+        "Start": 1,
+        "Score": 1
+      }
+    ]
+  },
+  {
+    "WantError": false,
+    "Limit": 2,
+    "Expected": [
+      [
+        0,
+        1
+      ],
+      [
+        12,
+        13
+      ]
+    ],
+    "Source": "Aไทย\r\nB",
+    "Name": "disjoint-regions-preserved",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "End": 1,
+        "Start": 0,
+        "Score": 1
+      },
+      {
+        "End": 13,
+        "Start": 12,
+        "Score": 1
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 1,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "aggregate-not-per-view-limit",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 1
+      },
+      {
+        "Start": 12,
+        "End": 13
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "split-utf8-endpoint",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 2,
+        "End": 3
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "nested-reversed-must-not-disappear",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 13
+      },
+      {
+        "Start": 4,
+        "End": 2
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "nested-empty-must-not-disappear",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 13
+      },
+      {
+        "Start": 4,
+        "End": 4
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "negative-endpoint",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": -1,
+        "End": 1
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "past-source-end",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 14
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "noncanonical-path",
+    "Path": "../file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 1
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 20,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "empty-region-set",
+    "Path": "file.go",
+    "Regions": []
+  },
+  {
+    "WantError": true,
+    "Limit": 0,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "zero-budget",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 1
+      }
+    ]
+  },
+  {
+    "WantError": true,
+    "Limit": 131073,
+    "Expected": [],
+    "Source": "Aไทย\r\nB",
+    "Name": "budget-over-ceiling",
+    "Path": "file.go",
+    "Regions": [
+      {
+        "Start": 0,
+        "End": 1
+      }
+    ]
+  }
+]
