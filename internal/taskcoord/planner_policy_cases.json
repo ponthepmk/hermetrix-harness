@@ -1,0 +1,102 @@
+[
+  {
+    "Name": "qualified_local64",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 65536,
+    "Output": 8192,
+    "Evidence": "runtime_probe",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": true
+  },
+  {
+    "Name": "qualified_local16",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 16384,
+    "Output": 3072,
+    "Evidence": "runtime_probe",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": false
+  },
+  {
+    "Name": "declared_local64",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 65536,
+    "Output": 8192,
+    "Evidence": "declared",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": false
+  },
+  {
+    "Name": "missing_runtime_binding",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 65536,
+    "Output": 8192,
+    "Evidence": "runtime_probe",
+    "Fingerprint": "",
+    "Rejected": false,
+    "WantLarge": false
+  },
+  {
+    "Name": "remote_unchanged",
+    "URL": "https://planning.example/v1",
+    "Context": 131072,
+    "Output": 8192,
+    "Evidence": "runtime_probe",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": false
+  },
+  {
+    "Name": "rejected_remote_existing_fallback",
+    "URL": "https://planning.example/v1",
+    "Context": 131072,
+    "Output": 8192,
+    "Evidence": "declared",
+    "Fingerprint": "",
+    "Rejected": true,
+    "WantLarge": true
+  },
+  {
+    "Name": "small_output_unchanged",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 65536,
+    "Output": 3072,
+    "Evidence": "runtime_probe",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": false
+  },
+  {
+    "Name": "qualified_evidence",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 65536,
+    "Output": 8192,
+    "Evidence": "qualified",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": true
+  },
+  {
+    "Name": "below64k_unchanged",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 64512,
+    "Output": 8192,
+    "Evidence": "runtime_probe",
+    "Fingerprint": "runtime-fixture",
+    "Rejected": false,
+    "WantLarge": false
+  },
+  {
+    "Name": "rejected_small_existing_fallback",
+    "URL": "http://127.0.0.1:8088/v1",
+    "Context": 16384,
+    "Output": 3072,
+    "Evidence": "declared",
+    "Fingerprint": "",
+    "Rejected": true,
+    "WantLarge": true
+  }
+]

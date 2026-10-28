@@ -193,14 +193,9 @@ func (s *Service) AutoPlan(ctx context.Context, input AutoPlanInput) (AutoPlanOu
 	if err := validateTaskEgress(task, profile); err != nil {
 		return AutoPlanOutput{}, err
 	}
-	preset, err := s.providers.ResolvePlannerPreset(ctx, profile, "planner", 1)
+	preset, err := s.selectPlannerPreset(ctx, profile, task.Plan.ReviewStatus == "rejected")
 	if err != nil {
 		return AutoPlanOutput{}, err
-	}
-	if task.Plan.ReviewStatus == "rejected" {
-		if expanded, expandErr := s.providers.ResolvePlannerPreset(ctx, profile, "planner-large", 1); expandErr == nil {
-			preset = expanded
-		}
 	}
 	criteria := make([]string, 0, len(task.Requirement.Criteria))
 	for _, criterion := range task.Requirement.Criteria {
