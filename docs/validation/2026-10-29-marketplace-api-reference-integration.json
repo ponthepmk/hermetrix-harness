@@ -1,0 +1,680 @@
+{
+  "date": "2026-10-29",
+  "status": "api_health_foundation_integrated_and_independently_qualified_after_disclosed_mechanical_normalization",
+  "primary_documentation_trial": {
+    "goal_id": "goal_mc64_api_primary_docs_20261028_v1",
+    "state": "budget_exhausted",
+    "deadline": "2026-10-28T16:53:16.0057013Z",
+    "actions": 30,
+    "attempts": 4,
+    "plans": 2,
+    "actual_calls": 10,
+    "prompt_tokens": 58070,
+    "completion_tokens": 12289,
+    "rollback_count": 4,
+    "retained_source_files": {},
+    "all_responses_complete": true,
+    "full_readonly_guide_in_actual_worker": true,
+    "operator_prepared_docs_not_autonomous_retrieval": true,
+    "full_marketplace_complete": false,
+    "calls": [
+      {
+        "path": "001.response.json",
+        "sha256": "d66f23b4d8f3d15326eab1f2de3c89aef57b6f7997236cb6ae2e23dca5113fd5",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 4559,
+          "completion_tokens": 628,
+          "total_tokens": 5187
+        },
+        "error": ""
+      },
+      {
+        "path": "002.response.json",
+        "sha256": "347bc1e5afc599fba4c3ab30cffb04bd6e6babafa5a47e75edd4755bbd6fa901",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1511,
+          "completion_tokens": 131,
+          "total_tokens": 1642
+        },
+        "error": ""
+      },
+      {
+        "path": "003.response.json",
+        "sha256": "65bf8abe7e45f13f840f46ef65e1854f44af7058581a9cad36e0d48a1ce87fb1",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 9774,
+          "completion_tokens": 2629,
+          "total_tokens": 12403
+        },
+        "error": ""
+      },
+      {
+        "path": "004.response.json",
+        "sha256": "561557fec53ec7fbf9430ba744e81425f3878bcc6803aede7b6a3ae7417a0b10",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1511,
+          "completion_tokens": 128,
+          "total_tokens": 1639
+        },
+        "error": ""
+      },
+      {
+        "path": "005.response.json",
+        "sha256": "ba14c937ebcb1125cf389ad0f6cdefda02b9d946c7dc6fa120bd1b32ece277f3",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 9695,
+          "completion_tokens": 2643,
+          "total_tokens": 12338
+        },
+        "error": ""
+      },
+      {
+        "path": "006.response.json",
+        "sha256": "abd576e09b9a646ff724b2bf9ef8406c0ca38c1faf4a1c5e4b2e93e5dd46710c",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 8675,
+          "completion_tokens": 650,
+          "total_tokens": 9325
+        },
+        "error": ""
+      },
+      {
+        "path": "007.response.json",
+        "sha256": "b2ebcb8a15f19b60de74828772d9e9ba22567464074c1a702641a25e1071be8b",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1487,
+          "completion_tokens": 145,
+          "total_tokens": 1632
+        },
+        "error": ""
+      },
+      {
+        "path": "008.response.json",
+        "sha256": "7071c08ef3d7a7cc063cbb1806b4be2b654125f4404b34aaa736fd85fd855cc9",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 9674,
+          "completion_tokens": 2601,
+          "total_tokens": 12275
+        },
+        "error": ""
+      },
+      {
+        "path": "009.response.json",
+        "sha256": "286977a05a22416901d4c5716bdad708cda3ee7c3ca01fbaf20f98b4dc7bdc13",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1487,
+          "completion_tokens": 115,
+          "total_tokens": 1602
+        },
+        "error": ""
+      },
+      {
+        "path": "010.response.json",
+        "sha256": "43186d01113a592c9c23dbdbaa84f72d38f0be83bc9eba069798e3a22c5599c4",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 9697,
+          "completion_tokens": 2619,
+          "total_tokens": 12316
+        },
+        "error": ""
+      }
+    ]
+  },
+  "prototype": {
+    "native_authoring_calls": 13,
+    "ancestry": [
+      {
+        "stem": "main-v1",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/main-v1.task.json",
+          "sha256": "29b1215f129c356ea2cad65d0a7a327d6afff1d41c92e3aae5aeca13a80ca773",
+          "bytes": 24105
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/main-v1.proposal.json",
+          "sha256": "9fb8e00369fae2a64b8b0d2a5488aa621db579d7ba42c575c0de4e2b64ec6767",
+          "bytes": 7415
+        },
+        "usage": {
+          "prompt_tokens": 6316,
+          "completion_tokens": 1004,
+          "total_tokens": 7320
+        }
+      },
+      {
+        "stem": "config-v2",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/config-v2.task.json",
+          "sha256": "99166b1f35409c1bbc08a439ec20ee76e467355bad0d27f1614a25dfac891c5a",
+          "bytes": 5273
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/config-v2.proposal.json",
+          "sha256": "92a142bf29e80cd67e6d45458b9e95eec923ea65783df5c65a32f1c776a146a9",
+          "bytes": 5398
+        },
+        "usage": {
+          "prompt_tokens": 1341,
+          "completion_tokens": 466,
+          "total_tokens": 1807
+        }
+      },
+      {
+        "stem": "signal-v3",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/signal-v3.task.json",
+          "sha256": "6855f55bffc1fd098ba3c48b55ebc909111aea99a435a5c427b07c2c41fed076",
+          "bytes": 5351
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/signal-v3.proposal.json",
+          "sha256": "4e586dbce64682d23842afef5b5f5e37549b8fce30446f2f76c952ba457370ab",
+          "bytes": 5244
+        },
+        "usage": {
+          "prompt_tokens": 1431,
+          "completion_tokens": 409,
+          "total_tokens": 1840
+        }
+      },
+      {
+        "stem": "adapter-v4",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/adapter-v4.task.json",
+          "sha256": "8ab9a8325cd482f9ee00b00386c894232060b31f443bb4495e87cc333b613cc1",
+          "bytes": 5648
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/adapter-v4.proposal.json",
+          "sha256": "5a0ab086cab29c0851d43b8bef1d3a452df1dd4c5210c8159841ed159cc7d2c5",
+          "bytes": 5223
+        },
+        "usage": {
+          "prompt_tokens": 1306,
+          "completion_tokens": 245,
+          "total_tokens": 1551
+        }
+      },
+      {
+        "stem": "http-v5",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/http-v5.task.json",
+          "sha256": "e9d03faecdc8c665c16b2ad391b1bea5038363f7a66f683131f4d763b1c540ff",
+          "bytes": 7328
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/http-v5.proposal.json",
+          "sha256": "04a872219e23f530834907f0f7dc6f26e0a85f400ab950c89a68bc80999fcb99",
+          "bytes": 6333
+        },
+        "usage": {
+          "prompt_tokens": 1686,
+          "completion_tokens": 541,
+          "total_tokens": 2227
+        }
+      },
+      {
+        "stem": "notfound-v6",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/notfound-v6.task.json",
+          "sha256": "a5b6ec11bbfd2d4028a89c40373230fadd48fe98d5d9a67855a39ef0eda6f005",
+          "bytes": 5201
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/notfound-v6.proposal.json",
+          "sha256": "5c39ae80f856afb3bd89054bc5e39f8d7c833d2233ccaa971a0ea931fd0ae7cc",
+          "bytes": 5884
+        },
+        "usage": {
+          "prompt_tokens": 1302,
+          "completion_tokens": 447,
+          "total_tokens": 1749
+        }
+      },
+      {
+        "stem": "root-v7",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/root-v7.task.json",
+          "sha256": "e8342de3b22cb2d3fe9cdda73c95df70fd5d9d4ff2a3f6e59ba864e22f4db8e2",
+          "bytes": 4911
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/root-v7.proposal.json",
+          "sha256": "3d313485c70db9bfe8bde1bef6c756739843cd05db9ac23362d7270e0911b529",
+          "bytes": 5026
+        },
+        "usage": {
+          "prompt_tokens": 1201,
+          "completion_tokens": 265,
+          "total_tokens": 1466
+        }
+      },
+      {
+        "stem": "timeout-v8",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/timeout-v8.task.json",
+          "sha256": "b853ba30b039a998e82c46dfbbbe18909dcc23b78a9dbea68bdda5eaf35cec0c",
+          "bytes": 4946
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/timeout-v8.proposal.json",
+          "sha256": "5ca4ffa4da27b52efa4d4c6ad0e20d2ae193d137795617a1b9d28afccdcc935b",
+          "bytes": 5090
+        },
+        "usage": {
+          "prompt_tokens": 1219,
+          "completion_tokens": 282,
+          "total_tokens": 1501
+        }
+      },
+      {
+        "stem": "deadline-v9",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v9.task.json",
+          "sha256": "a887f0b1793eb4ffe3cef3c1d692371d484097c4923ab2e85991e650b4e634d9",
+          "bytes": 9594
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v9.proposal.json",
+          "sha256": "9e730089ad5d8e1a8f16c814b8e10a1311f772c7ed613bbdaa428c1dadb51649",
+          "bytes": 3265
+        },
+        "usage": {
+          "prompt_tokens": 3631,
+          "completion_tokens": 907,
+          "total_tokens": 4538
+        }
+      },
+      {
+        "stem": "deadline-v10",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v10.task.json",
+          "sha256": "5b6a6105e684518e694fd44fb633910370d31af9f18abf1e61c037c57239c7b9",
+          "bytes": 3987
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v10.proposal.json",
+          "sha256": "973aaf4cd7385a5bd4bd1f99eb6491a915cdef258ab28a3b7b93eda92c24f825",
+          "bytes": 4592
+        },
+        "usage": {
+          "prompt_tokens": 2075,
+          "completion_tokens": 1209,
+          "total_tokens": 3284
+        }
+      },
+      {
+        "stem": "deadline-v11",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v11.task.json",
+          "sha256": "613d555972270a8e878aea20899babefd2534db39b48b8a9d6d1e2dfd845e7cf",
+          "bytes": 3372
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v11.proposal.json",
+          "sha256": "e12dfe4788aa0e7c77c8a785b2f89101fd4715e319b2e4fdf081472989a96077",
+          "bytes": 3461
+        },
+        "usage": {
+          "prompt_tokens": 1175,
+          "completion_tokens": 214,
+          "total_tokens": 1389
+        }
+      },
+      {
+        "stem": "deadline-v12",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v12.task.json",
+          "sha256": "74574a44f03aac978eea1bdbd26f7b21c1057562ac1bfee06eafb6a29f03fdb9",
+          "bytes": 3969
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/deadline-v12.proposal.json",
+          "sha256": "453a98f4b7c9fceec143770897bb38754168c07205dd3537e9dc6e5178b85264",
+          "bytes": 4330
+        },
+        "usage": {
+          "prompt_tokens": 1336,
+          "completion_tokens": 477,
+          "total_tokens": 1813
+        }
+      },
+      {
+        "stem": "shutdown-v13",
+        "task": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/shutdown-v13.task.json",
+          "sha256": "289d8fb286e5ac5d4ffe68e407ae8baa6da55f5c3528576c26450ffc8ceb040e",
+          "bytes": 7789
+        },
+        "proposal": {
+          "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/shutdown-v13.proposal.json",
+          "sha256": "e597aaaf1387aa2cf046f8b163d396f51880033b380c156b2f1f12cb96b74e13",
+          "bytes": 7124
+        },
+        "usage": {
+          "prompt_tokens": 1844,
+          "completion_tokens": 745,
+          "total_tokens": 2589
+        }
+      }
+    ],
+    "qa": {
+      "test_exit": 0,
+      "vet_exit": 0,
+      "build_exit": 0,
+      "test_events": {
+        "pass": 7,
+        "fail": 0,
+        "skip": 0
+      },
+      "source_hashes": {
+        "draft-api/cmd/server/main.go": "cc6a2292197e2bf3616aeef8dfd08fa19d8b70e6bc2604ea35f918487f67c920",
+        "draft-api/cmd/server/main_test.go": "0388303a2682d210e179d702827dc34bcfa01cd0adfe781a51bc974acf1f1ad6",
+        "draft-api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981"
+      },
+      "binary_sha256": "4331ae7c1c554c2f66cebdd29573d7717b99900ea226b85fcf3bb4fa0aa6f698",
+      "actual_app_sources_absent": true,
+      "prototype_promoted": false,
+      "full_goal_complete": false,
+      "main_signal_process_tested": false,
+      "shutdown_join_verification": "Native source inspection against installed net/http.Server.Shutdown documentation; no OS-signal/main process test"
+    },
+    "review": {
+      "verdict": "approve",
+      "rationale": "The three supplied Go sources implement the step's obligations: /health/live returns 200 with the required fields; /health/ready returns 200 on success or 503 JSON with status not_ready on failure; non-GET methods return 405 JSON; unknown routes return 404 JSON; NewConfig requires DATABASE_URL. The readiness handler uses a 5s bounded context, and the server WriteTimeout is 10s, leaving handler room to return 503 JSON. TestReadinessDeadlineReturnsJSON uses the actual production http.Server (not httptest defaults), an atomic call counter, an invalidDeadline flag, and cleanup/join via closeDeadlineTestServer. The shutdown-v13 patch adds shutdownDone synchronization so main waits for Shutdown to finish after ListenAndServe returns ErrServerClosed, with forced Close on shutdown error, matching the installed Server.Shutdown documentation. The main startup DB context is 10s and separated from the long-lived signal.Background context; SIGINT and SIGTERM are registered via signal.NotifyContext; a fresh bounded shutdown context is used; raw DB errors are not logged. Test evidence shows 7 tests pass, vet/build exit 0, and the deadline regression was RED at 5s (EOF) and GREEN at 10s. The later headless operator probe demonstrates a real dedicated PostgreSQL identity with actual pgxpool.Ping/acquisition via source handlers, with no credential leaks and no actual main-process success claim. All constraints are respected: the prototype is not promoted, actual app sources are absent, and no autonomous repair/learning success is claimed.",
+      "findings": [],
+      "usage": {
+        "prompt_tokens": 5996,
+        "completion_tokens": 383,
+        "total_tokens": 6379
+      }
+    },
+    "operator_supervised": true,
+    "actual_autonomous_repair": false
+  },
+  "actual_integration": {
+    "operation_id": "commerce64-reviewed-api-reference-integration-20261029-v1",
+    "task_id": "task_abb1bf76e59af592a42372e4e1a69756",
+    "goal_id": "goalop_4935247ce393b9db1b08030148598dc2aa6dea0c3a758ce80cf556b298b99bbb",
+    "native_goal_state": "completed",
+    "actions": 11,
+    "attempts": 1,
+    "plans": 1,
+    "provider_calls": 4,
+    "calls": [
+      {
+        "file": "001.response.json",
+        "sha256": "f659f97c80e8f8e5be170c518c0be000c0b9ab7c61a27abd644d4ed7f2ac1435",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 3896,
+          "completion_tokens": 565,
+          "total_tokens": 4461
+        },
+        "error": ""
+      },
+      {
+        "file": "002.response.json",
+        "sha256": "ef7939b057c6b0133e22a07b6a3a74dd588cecea785e551bc898a034216f22f1",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1298,
+          "completion_tokens": 155,
+          "total_tokens": 1453
+        },
+        "error": ""
+      },
+      {
+        "file": "003.response.json",
+        "sha256": "58333aa1c97bf548364ca41c1a35931a882559b067dd8d9b0554f6d484e4072a",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7155,
+          "completion_tokens": 3553,
+          "total_tokens": 10708
+        },
+        "error": ""
+      },
+      {
+        "file": "004.response.json",
+        "sha256": "c2dad8ed95d2e8fd43b97aca04bafef09b8b39bbc56b16a73e1d92c4cddaddd2",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 5587,
+          "completion_tokens": 267,
+          "total_tokens": 5854
+        },
+        "error": ""
+      }
+    ],
+    "native_proposal_id": "134e1f3280d8747ddad4f217f9f0bc03db9456b70dd7ed7d220b951a167d3d4c",
+    "native_proposal_state": "verified",
+    "initial_independent_exact_copy_check_passed": false,
+    "initial_failure": "Native main.go omitted only final LF; native goal completed but independent driver exited1. Original result/log retained.",
+    "normalization": "Standard gofmt stdout verified to append exactly one final LF; separate current-preimage product API write,1receipt0rollback; no semantic edits or history rewrite.",
+    "qa": {
+      "test_exit": 0,
+      "vet_exit": 0,
+      "build_exit": 0,
+      "test_events": {
+        "pass": 7,
+        "fail": 0,
+        "skip": 0
+      },
+      "test_names": [
+        "TestReadinessDeadlineReturnsJSON",
+        "TestHealthLive",
+        "TestHealthReadySuccess",
+        "TestHealthReadyFailure",
+        "TestMethodNotAllowed",
+        "TestUnknownRoute",
+        "TestConfigMissingDatabaseURL"
+      ],
+      "source_hashes": {
+        "api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981",
+        "api/cmd/server/main.go": "cc6a2292197e2bf3616aeef8dfd08fa19d8b70e6bc2604ea35f918487f67c920",
+        "api/cmd/server/main_test.go": "0388303a2682d210e179d702827dc34bcfa01cd0adfe781a51bc974acf1f1ad6"
+      },
+      "readonly_files_unchanged": true,
+      "source_hashes_match_exact_reviewed_native_reference": true,
+      "no_source_overlay": true,
+      "source_semantics_native_authored": true,
+      "operator_normalization": "One final LF only; guarded product API receipt, not a semantic code edit",
+      "main_process_started": false,
+      "full_goal_complete": false,
+      "autonomous_draft_repair_implemented": false,
+      "native_goal_completed": true,
+      "independent_initial_exact_copy_check_passed": false,
+      "original_failure_and_goal_result_retained": true
+    },
+    "real_postgresql": {
+      "exit": 0,
+      "real_dedicated_postgresql_tested": true,
+      "private_credentials_not_exposed_to_model_or_output": true,
+      "real_db_identity_verified": true,
+      "liveness200_without_db_acquire": true,
+      "readiness200_with_actual_pool_ping": true,
+      "headless_native_api_test": true,
+      "standalone_server_or_main_process_started": false,
+      "actual_app_sources_written_by_probe": false,
+      "actual_app_sources_used": true,
+      "source_overlay_used": false,
+      "source_promoted_through_native_operation": true,
+      "full_goal_complete": false,
+      "log_sha256": "3e3b90e64369e1e53713a9a2de7b55150c2c77228214d8bd09953e1a12f94e2c"
+    },
+    "read_observer": {
+      "active_inference": 0,
+      "full_goal_complete": false,
+      "integration_actions": 11,
+      "integration_attempts": 1,
+      "integration_plans": 1,
+      "integration_state": "completed",
+      "observer_source_or_task_writes": false,
+      "original_actions": 30,
+      "original_attempts": 4,
+      "original_deadline": "2026-10-28T16:53:16.0057013Z",
+      "original_plans": 2,
+      "original_state": "budget_exhausted",
+      "original_task_goal_sha256": "104421345623eb1475cd35eb4688af81aee2bca5c80574e240c6cd5227711c1c",
+      "original_task_goal_unchanged_after_normalization": true
+    },
+    "full_readonly_reference_delivery": {
+      "actual_dispatched_worker_request": true,
+      "request_sha256": "3007fda6aa3f08237f2991b8e4ab7bb2192d25bb68c45ba41a9ce796f785f7d8",
+      "selected_files": [
+        "api/cmd/server/deadline_test.go",
+        "api/cmd/server/main.go",
+        "api/cmd/server/main_test.go",
+        "api/go.mod",
+        "api/go.sum",
+        "docs/API_REFERENCE_DEADLINE_TEST.md",
+        "docs/API_REFERENCE_MAIN.md",
+        "docs/API_REFERENCE_TEST.md"
+      ],
+      "absent_files": [
+        "api/cmd/server/deadline_test.go",
+        "api/cmd/server/main.go",
+        "api/cmd/server/main_test.go"
+      ],
+      "writable_paths": [
+        "api/cmd/server/deadline_test.go",
+        "api/cmd/server/main.go",
+        "api/cmd/server/main_test.go"
+      ],
+      "references": {
+        "docs/API_REFERENCE_MAIN.md": {
+          "sha256": "1e9edcf8558a26d3355fffd2d41672f8236dae40fbfcd3f4e45d66a24eeb33d4",
+          "bytes": 4526,
+          "writable": false,
+          "full_content_delivered": true
+        },
+        "docs/API_REFERENCE_TEST.md": {
+          "sha256": "ae3efbcce06c171187f96b58e594f66ca479eed93a65e113e9717b8a9a15232e",
+          "bytes": 4676,
+          "writable": false,
+          "full_content_delivered": true
+        },
+        "docs/API_REFERENCE_DEADLINE_TEST.md": {
+          "sha256": "0e656b247521182b0f3e4e44497101d94a8ffedef78eddd50ae4f57107e1e1b2",
+          "bytes": 3043,
+          "writable": false,
+          "full_content_delivered": true
+        }
+      },
+      "source_applied_by_observer": false
+    }
+  },
+  "evidence": [
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-marketplace-api-primary-docs-v1/native.trial-summary.json",
+      "sha256": "14ecbc7e949b18ef7e16cbd5e301622be0092ab8b5f665a64ea16b7811dca2de",
+      "bytes": 3716
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-marketplace-api-primary-docs-v1/native.primary-docs-worker-proof.json",
+      "sha256": "7e709829f26bdd1a67e16964912611d9c41db18ecf4bfffa649dc9c88109b583",
+      "bytes": 911
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/verified-archive.json",
+      "sha256": "4095214b5ee63bc03b2bca66a84945bbe555677e79dae647f50cb1f8697cd820",
+      "bytes": 40023
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/native-entries-v2.json",
+      "sha256": "13d47470fd38309dec2cee533ecf7853e3de4281b5ae9af6b8b7160d5fb5aba2",
+      "bytes": 1974
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/qa-summary-v2.json",
+      "sha256": "e644438daeaaa9991af51102ce6855cf4690d6fa86fc6ff25bcdb0f0e0a9f783",
+      "bytes": 869
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/review-v2.task.json",
+      "sha256": "142f5598c78aeadd08544bd64633699158d033c3737dbca07cdfbbf920ffc504",
+      "bytes": 17983
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/review-v2.result.json",
+      "sha256": "1d14ace8cfc9682f3fa1e181d8ac5bc1fa34a4493fc1b855401e195b1f3892df",
+      "bytes": 1709
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/real-pg-v2-proof.json",
+      "sha256": "959c2f19a0b62c1666db14a40d2d14469d3b299cb3eb53e908957890087dc044",
+      "bytes": 534
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-primary-prototype-repair-v1/native-deadline-red.log",
+      "sha256": "af22df21d252182a925ca4b78ad268bab72915573a0e558545986c72a769224c",
+      "bytes": 233
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.input.json",
+      "sha256": "f9d26ba86717011d886e5e682f1463f788e73771721be4bac7eaa0d5d9266d83",
+      "bytes": 10863
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.reference-receipts.json",
+      "sha256": "945be3709657ecadc0ecbc399cefa4733d31e47169bba926cec5ee2fd712abc2",
+      "bytes": 32466
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.reference-worker-proof.json",
+      "sha256": "fede07196c614b0251aa0d3cf584f880dea16e5e23ba057d0ff04498130e8a9f",
+      "bytes": 1413
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.result.json",
+      "sha256": "cf4cbce3495f93ecae3a46b22111b886a3c7a22eb4f46ba4246b772b8158bff0",
+      "bytes": 60730
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.mechanical-normalization-intent.json",
+      "sha256": "5614701c607df9d73c9018676067fd74f8e857234b30e736c0ac0b342b9af155",
+      "bytes": 4386
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.mechanical-normalization-receipt.json",
+      "sha256": "293d068b97f6c70e95d8e3447117bb4c4f054dbf6fd6ec67fa221656d6e9ec72",
+      "bytes": 14311
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/actual-api-qa-summary.json",
+      "sha256": "f54c2067bbbe3ecc43b4be861deead30295221cbb4885cca136b2c4fd3963164",
+      "bytes": 1253
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/actual-real-pg-proof.json",
+      "sha256": "667c23c0ca9b5dd769307437740ef2f4034d3be0e92a98840ef883c0da400c8a",
+      "bytes": 633
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-reference-integration-v1/native.final-read-observer.json",
+      "sha256": "52eae9354bd46c45354d1723f908a60e6537038bbf9ac11e7587ca3682e6701e",
+      "bytes": 550
+    }
+  ],
+  "limits": [
+    "Writer and reviewers use same physical Bonsai model; not diversity.",
+    "13 narrow prototype calls were operator-decomposed and repaired; not automatic draft repair or learned transfer.",
+    "No fair A/B speed/cost claim: tasks, supervision and prepared source references differ; operator reasoning cost excluded.",
+    "Actual source paths were tested without source replacement overlays; a temporary overlay added only the operator PostgreSQL probe test.",
+    "No standalone server/main process, OS-signal lifecycle or actual DB-outage recovery test.",
+    "Full buyer/seller/admin/business/Thai UI/stream/cache/queue/Compose/Kubernetes and held-out learning outcomes remain unfinished.",
+    "No new Harness source patch in this milestone. Known unchanged Windows full-suite desktop approval-observation failure remains open."
+  ],
+  "full_goal_complete": false
+}

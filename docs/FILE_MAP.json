@@ -1,8 +1,18 @@
 {
   "version": 1,
-  "updated": "2026-10-28",
+  "updated": "2026-10-29",
   "docs_root": "docs/",
   "files": [
+    {
+      "path": "docs/reviews/2026-10-29-marketplace-api-reference-integration.md",
+      "role": "test",
+      "summary": "Primary-docs trial failure,13 supervised native draft repairs and actual API integration with disclosed final-LF acceptance miss and real PostgreSQL proof."
+    },
+    {
+      "path": "docs/validation/2026-10-29-marketplace-api-reference-integration.json",
+      "role": "test",
+      "summary": "Exact source/evidence hashes, native call ancestry, actual7-test/API DB acceptance and immutable original task-goal observer."
+    },
     {
       "path": "internal/taskcoord/requirement_escalation_test.go",
       "role": "test",
