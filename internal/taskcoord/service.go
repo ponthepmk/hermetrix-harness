@@ -562,7 +562,6 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	if currentRoot, rootErr := s.products.ProjectRootIdentity(ctx, input.Packet.ProjectID); rootErr != nil || currentRoot != projectRoot {
 		return ProposalOutput{}, fmt.Errorf("project root changed during source snapshot")
 	}
-	criteria = append(criteria, input.Packet.Step.Checks...)
 	workerTask := worker.Task{
 		ID:                 input.Packet.TaskID + ":" + input.Packet.Step.Key + ":" + input.Packet.CanonicalPacketHash,
 		Kind:               "durable_step_proposal",

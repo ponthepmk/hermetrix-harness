@@ -137,7 +137,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 			"instructions":     map[string]any{"type": "string"},
 			"requirement_ids":  map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string"}},
 			"dependencies":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"checks":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"checks":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": 32},
 			"effect_scope":     map[string]any{"type": "array", "minItems": len(requiredStepEffects), "maxItems": len(requiredStepEffects), "uniqueItems": true, "items": effectSchema},
 		},
 	}
@@ -154,7 +154,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	}, Tools: []providers.ToolDefinition{{Type: "function", Function: providers.ToolFunction{
 		Name: "submit_plan", Description: "Submit a bounded dependency plan.", Parameters: planSchema,
 	}}}}
-	request.Messages[0].Content += " Write the human-facing plan reason, titles and instructions in the request's language. Keep executable checks as exact commands."
+	request.Messages[0].Content += " Write the human-facing plan reason, titles and instructions in the request's language. Keep executable checks as exact commands. Prefer a few meaningful behavioral test commands per step. Avoid redundant literal/name enumeration and unrelated checks. Each step may contain at most 32 checks; split meaningful execution cycles rather than truncating, dropping, or increasing limits."
 	request.Messages[0].Content += " For unchanged files use assert-file-sha256 <relative-path> <observed sha256 from repository_files>. For required literal text use assert-file-contains <relative-path> <quoted literal>. These are built-in assertions compiled by the host, not shell programs. Never use git diff, file listings or printed hashes as a mandatory check: those are observations and cannot prove acceptance. Actual test commands must discover at least one test. Do not invent a snapshot hash."
 	request.Messages[0].Content += " implementation_output_token_limit is the observed selected provider's proposal output ceiling. Each implementation step must fit complete file contents plus tool JSON and tests inside that ceiling. Split large backend/frontend changes into smaller dependency cycles instead of promising a whole application in one proposal. Truncated code is rejected before apply. Never pad output with folder scaffolding or future-step changes."
 	request.Messages[0].Content += " Repository entries marked absent are host-observed missing files authorized by writable_paths; plan complete file creation in their existing parent, never invent directory or delete authority."
@@ -206,8 +206,8 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 		change := strings.TrimSpace(step.WorkspaceChange)
 		changeLower := strings.ToLower(change)
 		if strings.TrimSpace(step.Key) == "" || strings.TrimSpace(step.Title) == "" || change == "" || strings.TrimSpace(step.Instructions) == "" ||
-			seen[step.Key] || len(step.Checks) == 0 || len(step.EffectScope) == 0 {
-			return PlanResult{}, fmt.Errorf("planner returned an incomplete or duplicate step")
+			seen[step.Key] || len(step.Checks) == 0 || len(step.Checks) > 32 || len(step.EffectScope) == 0 {
+			return PlanResult{}, fmt.Errorf("planner returned an incomplete, duplicate, or over-limit step")
 		}
 		if changeLower == "none" || changeLower == "n/a" || strings.Contains(changeLower, "no change") || strings.Contains(changeLower, "inspect only") {
 			return PlanResult{}, fmt.Errorf("planner step %q has no concrete workspace change", step.Key)
