@@ -22,7 +22,7 @@ func repositoryBodyBudget(inputTokens, ceiling int) int {
 	if inputTokens <= 2048 {
 		return 0
 	}
-	return min(ceiling, (inputTokens-2048)*4)
+	return min(ceiling, inputTokens-2048)
 }
 
 func (s *Service) plannerRepositoryContext(ctx context.Context, task taskengine.Task, input *worker.PlanTask, inputTokens int) (map[string]any, error) {

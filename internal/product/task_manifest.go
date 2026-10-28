@@ -115,6 +115,7 @@ func (s *Service) ProjectTaskManifest(ctx context.Context, projectID, query stri
 		}
 	}
 	lowerQuery := strings.ToLower(query)
+	prefixes := manifestQueryPrefixes(query)
 	score := func(p string) int {
 		n := 0
 		if parents[manifestPathKey(filepath.ToSlash(filepath.Dir(p)))] {
@@ -122,6 +123,9 @@ func (s *Service) ProjectTaskManifest(ctx context.Context, projectID, query stri
 		}
 		if strings.Contains(lowerQuery, strings.ToLower(p)) {
 			n += 10000
+		}
+		if manifestPrefixMatch(p, prefixes) >= 0 {
+			n += 2000
 		}
 		for _, word := range manifestWords(p) {
 			if terms[word] {
@@ -208,6 +212,7 @@ func (s *Service) ProjectTaskManifest(ctx context.Context, projectID, query stri
 	}
 	ranked := []rankedManifestFile(*candidates)
 	sort.Slice(ranked, func(i, j int) bool { return betterManifestFile(ranked[i], ranked[j]) })
+	ranked = orderManifestPrefixGroups(ranked, prefixes)
 	for _, item := range ranked {
 		result.Files = append(result.Files, item.file)
 	}
