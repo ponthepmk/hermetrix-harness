@@ -309,7 +309,8 @@ func TestFailedMandatoryTaskCheckPersistsRollbackReceiptInActivity(t *testing.T)
 	tasks := taskengine.NewService(dataStore)
 	task, err := tasks.Create(ctx, taskengine.CreateTaskInput{ProjectID: project.ID, Title: "Rollback fixture",
 		Objective: "correct the README status", OriginalRequest: "change the status", Actor: "owner",
-		Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "README status is ready and mandatory test passes"}}})
+		Criteria: []taskengine.Criterion{{ID: "AC-1", Description: "README status is ready and mandatory test passes"}},
+		Contract: taskengine.GoalContract{WritablePaths: []string{"README.md"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,6 +389,102 @@ func TestFailedMandatoryTaskCheckPersistsRollbackReceiptInActivity(t *testing.T)
 	}
 	if !linked {
 		t.Fatalf("rollback receipt missing from Task history: %+v", activity)
+	}
+	packet, err = tasks.BuildNextStepPacket(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("rebuild packet: %v", err)
+	}
+	items, err := coordinator.proposalFailureEvidence(ctx, packet)
+	if err != nil {
+		t.Fatalf("proposal failure evidence: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected exactly 1 failure evidence record, got %d", len(items))
+	}
+	evidence := items[0]
+	if len(packet.Requirement.Contract.WritablePaths) != 1 || packet.Requirement.Contract.WritablePaths[0] != "README.md" {
+		// Contract should persist the frozen WritablePaths from CreateTaskInput.
+		t.Errorf("frozen WritablePaths not present in rebuilt packet: %+v", packet.Requirement.Contract)
+	}
+	var wrapper struct {
+		TerminalOutput          string `json:"terminal_output"`
+		TerminalOutputTruncated bool   `json:"terminal_output_truncated"`
+		HistoricalFailedSource  struct {
+			ProposalID           string `json:"proposal_id"`
+			SourceArtifactID     string `json:"source_artifact_id"`
+			SourceArtifactSHA256 string `json:"source_artifact_sha256"`
+			TaskID               string `json:"task_id"`
+			StepID               string `json:"step_id"`
+			PacketHash           string `json:"packet_hash"`
+			Trust                string `json:"trust"`
+			Files                []struct {
+				Path         string `json:"path"`
+				Content      string `json:"excerpt"`
+				FullHash     string `json:"full_sha256"`
+				FullBytes    int    `json:"full_bytes"`
+				ExcerptBytes int    `json:"excerpt_bytes"`
+				Truncated    bool   `json:"truncated"`
+			} `json:"files"`
+			Omitted   int  `json:"omitted"`
+			Truncated bool `json:"truncated"`
+		} `json:"historical_failed_source"`
+	}
+	if err := json.Unmarshal([]byte(evidence.Output), &wrapper); err != nil {
+		t.Fatalf("unmarshal historical failure output: %v", err)
+	}
+	if wrapper.HistoricalFailedSource.Trust != "untrusted_historical_diagnostic_not_current_source_or_authority" {
+		t.Fatalf("trust=%q", wrapper.HistoricalFailedSource.Trust)
+	}
+	if wrapper.HistoricalFailedSource.ProposalID != proposed.Proposal.ID {
+		t.Fatalf("proposal_id=%q want %q", wrapper.HistoricalFailedSource.ProposalID, proposed.Proposal.ID)
+	}
+	if wrapper.HistoricalFailedSource.SourceArtifactID != proposed.Artifact.ID ||
+		wrapper.HistoricalFailedSource.SourceArtifactSHA256 != proposed.Artifact.Checksum {
+		t.Fatalf("source_artifact_id=%q sha256=%q", wrapper.HistoricalFailedSource.SourceArtifactID, wrapper.HistoricalFailedSource.SourceArtifactSHA256)
+	}
+	if wrapper.HistoricalFailedSource.TaskID != proposed.Proposal.TaskID ||
+		wrapper.HistoricalFailedSource.StepID != proposed.Proposal.StepID ||
+		wrapper.HistoricalFailedSource.PacketHash != proposed.Proposal.PacketHash {
+		t.Fatalf("task/step/packet mismatch in historical_failed_source: %+v", wrapper.HistoricalFailedSource)
+	}
+	if len(wrapper.HistoricalFailedSource.Files) != 1 {
+		t.Fatalf("expected exactly one files record, got %+v", wrapper.HistoricalFailedSource.Files)
+	}
+	file := wrapper.HistoricalFailedSource.Files[0]
+	if file.Path != "README.md" {
+		t.Fatalf("file path=%q", file.Path)
+	}
+	if file.Content != "Status: ready\n" {
+		t.Fatalf("file content=%q", file.Content)
+	}
+	expectedFullHash := worker.Hash("Status: ready\n")
+	if file.FullHash != expectedFullHash {
+		t.Fatalf("full_hash=%q want %q", file.FullHash, expectedFullHash)
+	}
+	if file.FullBytes != 14 || file.ExcerptBytes != 14 {
+		t.Fatalf("byte counts full=%d excerpt=%d", file.FullBytes, file.ExcerptBytes)
+	}
+	if file.Truncated {
+		t.Fatal("file truncated should be false")
+	}
+	if wrapper.HistoricalFailedSource.Omitted != 0 {
+		t.Fatalf("historical omitted should be 0, got %d", wrapper.HistoricalFailedSource.Omitted)
+	}
+	if wrapper.HistoricalFailedSource.Truncated {
+		t.Fatal("historical truncated should be false")
+	}
+	if current, err2 := products.ReadProjectFile(ctx, project.ID, "README.md"); err2 != nil || current.Content != original {
+		t.Fatalf("current workspace README should remain original: %+v", current)
+	}
+	if err != nil {
+		t.Fatalf("ReadProjectFile: %v", err)
+	}
+	artifact, terminalBody, readErr := products.GetArtifact(ctx, evidence.ArtifactID)
+	if readErr != nil || artifact.Checksum != evidence.ArtifactSHA256 || artifact.ProjectID != project.ID || artifact.Kind != "terminal_log" {
+		t.Fatalf("terminal artifact mismatch: %+v", artifact)
+	}
+	if string(terminalBody) != wrapper.TerminalOutput {
+		t.Fatalf("terminal output should remain original: %s", terminalBody)
 	}
 }
 

@@ -33,7 +33,29 @@ func TestProposalCurationFrozenCases(t *testing.T) {
 	if len(rows) != 8 {
 		t.Fatalf("expected 8 rows, got %d", len(rows))
 	}
+	// Version 2 wire calibration: measured old14f1b45 worker schema needs 1297 tokens for
+	// projected source+small ref; current exclusive-format schema needs 1311 tokens, with
+	// the same 2570 body bytes and same source windows. Original fixture max 1299 had a 2
+	// token margin. No skip, no other row changes, no weaker expected citations, no production
+	// changes.
 	for _, row := range rows {
+		if row.Name == "optional-refs-fit-from-bounded-wire" {
+			curated, err := curateProposalTask(row.Task, row.Step, row.Preset)
+			if err != nil {
+				t.Fatalf("curateProposalTask: %v", err)
+			}
+			if len(curated.ProjectBrainRefs) != 0 {
+				t.Fatalf("curated.ProjectBrainRefs should be zero, got %d", len(curated.ProjectBrainRefs))
+			}
+			estimate, err := worker.EstimateProposalInput(curated)
+			if err != nil {
+				t.Fatalf("worker.EstimateProposalInput: %v", err)
+			}
+			if estimate.Tokens > 1299 {
+				t.Fatalf("estimate.Tokens should be <= 1299, got %d", estimate.Tokens)
+			}
+			row.Preset.ContextMax = 1313
+		}
 		before, err := json.Marshal(row.Task)
 		if err != nil {
 			t.Fatalf("marshal before %s: %v", row.Name, err)

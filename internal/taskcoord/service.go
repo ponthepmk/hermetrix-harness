@@ -870,6 +870,9 @@ func (s *Service) proposalFailureEvidence(ctx context.Context, packet taskengine
 			evidence.ArtifactID, evidence.ArtifactSHA256, evidence.Output = artifact.ID, artifact.Checksum, string(output)
 			break
 		}
+		if err := s.enrichHistoricalFailure(ctx, packet, &evidence); err != nil {
+			return nil, err
+		}
 		result = append(result, evidence)
 	}
 	return result, nil
