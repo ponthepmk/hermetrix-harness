@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-10-27",
+  "updated": "2026-10-28",
   "docs_root": "docs/",
   "files": [
     {
@@ -861,7 +861,7 @@
     {
       "path": "internal/product/task_manifest.go",
       "role": "module",
-      "summary": "Fresh task-ranked path discovery with exact writable pins, bounded heap/stat work and canonical-root batch hash budgets."
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
     },
     {
       "path": "internal/product/terminal_windows_test.go",
@@ -1416,7 +1416,7 @@
     {
       "path": "internal/taskcoord/repository_context.go",
       "role": "module",
-      "summary": "Linear provider-preset/body fitting before source hashing; ranked planner/selector context and artifact receipts."
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
     },
     {
       "path": "internal/taskcoord/review_context_after_test.go",
@@ -1466,7 +1466,7 @@
     {
       "path": "internal/taskcoord/service.go",
       "role": "module",
-      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
     },
     {
       "path": "internal/taskcoord/step_criteria.go",
@@ -2056,7 +2056,7 @@
     {
       "path": "internal/worker/proposal.go",
       "role": "module",
-      "summary": "B6 native-authored applied source for immutable proposal input, bounded context/review or automatic source curation; exact authorship/hash in b6-applied/source-applied-manifest.json."
+      "summary": "Native proposal format XOR aligns schema with unchanged strict parser; original fixture retained, UTF8 ancestry/QA/review/apply verified."
     },
     {
       "path": "internal/worker/result_aggregate_limits_test.go",
@@ -2406,7 +2406,7 @@
     {
       "path": "internal/worker/proposal_schema_golden_test.go",
       "role": "test",
-      "summary": "Decorates expected original golden requests only for intentional schema and description fields."
+      "summary": "Native proposal format XOR aligns schema with unchanged strict parser; original fixture retained, UTF8 ancestry/QA/review/apply verified."
     },
     {
       "path": "internal/worker/proposal_schema_scope_cases.json",
@@ -3032,6 +3032,76 @@
       "path": "internal/web/ui/auto-retry.js",
       "role": "module",
       "summary": "Automatic continuation status and explicit pause controls."
+    },
+    {
+      "path": "internal/taskcoord/repository_context_dense_test.go",
+      "role": "test",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "docs/handoffs/2026-10-28-large-repository-context.md",
+      "role": "module",
+      "summary": "Actual large-repository context failure, native repair, next missing target contract gap and full-goal continuation."
+    },
+    {
+      "path": "docs/validation/2026-10-28-large-repository-context.json",
+      "role": "config",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/product/manifest_prefix_query.go",
+      "role": "module",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/product/manifest_prefix_match.go",
+      "role": "module",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/product/manifest_prefix_order.go",
+      "role": "module",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/taskcoord/repository_context_prefix_test.go",
+      "role": "test",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/taskcoord/planner_policy.go",
+      "role": "module",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/taskcoord/planner_policy_test.go",
+      "role": "test",
+      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+    },
+    {
+      "path": "internal/taskcoord/planner_policy_cases.json",
+      "role": "config",
+      "summary": "Frozen10-case DATA for qualified64k planner preset selection and legacy compatibility."
+    },
+    {
+      "path": "docs/handoffs/2026-10-28-commerce64-runtime.md",
+      "role": "config",
+      "summary": "Verified64k runtime, native source qualification, real marketplace continuation and remaining acceptance."
+    },
+    {
+      "path": "internal/worker/planner.go",
+      "role": "module",
+      "summary": "Native bounded planner/worker list contract; real boundary/Propose regressions, see commerce64 handoff."
+    },
+    {
+      "path": "internal/worker/planner_check_limit_test.go",
+      "role": "test",
+      "summary": "Native bounded planner/worker list contract; real boundary/Propose regressions, see commerce64 handoff."
+    },
+    {
+      "path": "internal/taskcoord/proposal_check_contract_test.go",
+      "role": "test",
+      "summary": "Native bounded planner/worker list contract; real boundary/Propose regressions, see commerce64 handoff."
     }
   ]
 }

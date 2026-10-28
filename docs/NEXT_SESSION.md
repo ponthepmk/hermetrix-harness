@@ -1,15 +1,15 @@
-# Next session — 2026-10-27
+# Next session — 2026-10-28
 
-State: Full goal ACTIVE. User authorized dev publication. Prepared six Harness commits are integrated with origin/dev in a two-parent merge, source schema81. Final merged snapshot: 1459 Go test events PASS/0fail/23skips, vet/build0,159 UI tests PASS, DarwinARM64 cross-build0; actual isolated originaldev74→81 upgrade PASS. Three bounded native reviews approve/0findings (same Bonsai separate profile, not diversity). Generated projects, new raw evidence and installed app/data remain untouched. See docs/handoffs/2026-10-27-dev-integration.md and Git origin/dev for the final publication receipt. All integration inference handles terminal. Shared authoring DB remains80; requalify tooling before future use.
-Next: Expand Project Brain evaluation to independent lessons and real coding outcomes; pure Thai without Latin terms remains a demonstrated miss. Evaluate a bounded local query rewrite within the existing task budget before adding a model call to default retrieval. Do not equate this single-lesson pilot with autonomous learning or full goal completion.
+State: Full goal ACTIVE. Published dev41994b2/51248bf/14f1b45/038542f: native metadata coverage/bytefit, qualified64k planner, separate32-bound criteria/checklists and schema XOR. Latest exact schemaQA158pass0skip0fail, allvet/build0; UTF8native reviewer approve, applyv3 2receipts0rollback, actualworkerpass. Prior exact contractQA266pass1skip0fail. Known later full-suite native desktop observation failure remains open (1470pass20skip1fail, isolated alsofail); do not claim all-suite green.
+Next: AFTER-FIX API trial is TERMINAL, not running: goal_mc64_api_after_schema_20261028_v1 WAITING22actions/7calls,0appGo retained; inspect RUNROOT/C64-20261028-marketplace-api-after-schema-v1/native.result.json and driver. Two valid source applies failed actual compiler checks and auto-rolled back; replan after2failures then third source truncated8192. Do not blind-retry. Investigate typed model sampling with preset/request identity and SHA-bound historical failed-source context after rollback; keep current preimages/authority correct. Source schema/policy repairs already applied/pushed, not pending. Full marketplace/API source remains uncompleted.
+Blockers: No external blocker. Dedicated actual PostgreSQL accepts connections at127.0.0.1:15432; operator provision only, Harness Docker/kubectl capability still absent. Existing workloads untouched. No provider accounts by owner choice: prepare payment/carrier test modes, but local media/storage/DB/cache/queue must be real/durable. Full marketplace not built.
+Operational: RUNROOT=.tmp-ui/goal-20261023/live-20261026-001100. Actual Bonsai64k PID13004; isolated schema81 runtime-v1/data, old shared DB80 untouched. Marketplace outside Git at D:/Projects/harness/hermetrix-marketplace. Actual owned PostgreSQL at127.0.0.1:15432; credentials private in ignored evidence, never model/project/Git. After-fix native API goal waiting22actions/7calls, source absent after2automatic rollbacks, third response length. Inspect deadline/claims/effects before any recovery. Source XOR APPLIED through UTF8native ancestry/review/applyv3 afterv1/v2blocked operator decoding errors; no guard relaxed. Four source commits published through038542f; docs checkpoint separate. L4/L6 unused DATA preserved in ignored unapplied-contract-data-20261028-v1 manifest, not staged. No gateway/subagents/Codex application implementation.
+
 
 Read first:
-- docs/handoffs/2026-10-27-dev-integration.md
-- docs/validation/2026-10-27-dev-integration.json
-- docs/handoffs/2026-10-27-harness-git-checkpoint.md
-- docs/handoffs/2026-10-27-project-brain-measurement-results.md
-- docs/validation/2026-10-27-project-brain-pilot.json
-- docs/redesign/2026-10-25-harness2-comparison-and-improvement-plan.md
+- docs/handoffs/2026-10-28-commerce64-runtime.md
+- docs/validation/2026-10-28-large-repository-context.json
+- docs/handoffs/2026-10-28-large-repository-context.md
 - docs/redesign/2026-10-25-hermetrix-marketplace-execution-contract.md
 
 ## Verified Project Brain milestone
@@ -32,7 +32,7 @@ Before the dev integration, source and shared readonly-audit-data were schema80.
 
 ## Persistent constraints and full objective
 
-Bonsai Local only; no 9arm gateway. Observed endpoint127.0.0.1:8088/v1, prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0, context16384/output3072/reasoningdisabled. Recheck health before inference. Writer provider_e9f035b434118c1048fd8a5f05398b56; reviewer provider_287ee0ae512731154193bf1b12131b6c. Same model separate profile is NOT diversity. Serialize inference/review/apply. No budget/profile increases.
+Bonsai Local only; no9arm gateway. Owner authorized NEW64k runs: endpoint127.0.0.1:8088/v1, prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0, actual65536context/8192output. Writer provider_71c7bb7363c9716a87e7ab2bcd3b64af; reviewer provider_92629ed161c9a86711644ee3419b6b81. Isolated schema81 data RUNROOT/C64-20261028-runtime-v1/data. Recheck health before inference; serialize calls. Same model separate profile is NOT diversity. All OLD16k budgets/identities/deadlines remain frozen and consumed.
 
 All product and standing-test semantics must be native Hermetrix/Bonsai authored. Codex supervises/designs/reviews/verifies and may write operational drivers, DATA/prose, exact native copies and mechanical gofmt only. No protocol-rejected salvage. No subagents authorized. User authorized separated Harness commits and subsequent dev push on 2026-10-27. Keep generated projects and new raw evidence local/ignored; retain standing test fixtures. Dev push is authorized; no PR was requested.
 

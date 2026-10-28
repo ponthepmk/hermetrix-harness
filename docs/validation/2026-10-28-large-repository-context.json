@@ -1,0 +1,376 @@
+{
+  "date": "2026-10-28",
+  "scope": "Applied native L2 metadata fitting, L7 named-prefix coverage and qualified64k planner policy; full large-repository and marketplace completion remain pending.",
+  "previous_goal_turn": "No progress toward implementation: explanatory answer only; current turn revalidated source/runtime and performed native trials and source apply.",
+  "base_commit": "2f7dce49b97485d2dfc120a6df4621ff0218c355",
+  "source_files": [
+    {
+      "path": "internal/taskcoord/repository_context.go",
+      "sha256": "46d12dbf90e3169eaf828e5c7b6be5df730185f62b2d5aea24d2f8a97669b503"
+    },
+    {
+      "path": "internal/taskcoord/repository_context_dense_test.go",
+      "sha256": "5eab4a6a7ef60603df5d79f212b81129d0a908724dd504fc230adae896948a0b"
+    },
+    {
+      "path": "internal/product/manifest_prefix_query.go",
+      "sha256": "48442f78bed1de5b9752fd7a097eb6985cf5220123f09d37f84ef172f554a0bc"
+    },
+    {
+      "path": "internal/product/manifest_prefix_match.go",
+      "sha256": "371d56977bde40065c50c83a5ee93b9414180c17cd6ab7c0d566496b8797a4e4"
+    },
+    {
+      "path": "internal/product/manifest_prefix_order.go",
+      "sha256": "935f01da42a3d4e25177a6030e53588362e4d216e7cedd2538d7cf40c8cc0169"
+    },
+    {
+      "path": "internal/product/task_manifest.go",
+      "sha256": "1805e09daec6eb20ebe1ca59d1d69504dda2473b1d0936b18aa102f6710c755f"
+    },
+    {
+      "path": "internal/taskcoord/repository_context_prefix_test.go",
+      "sha256": "ea1210a12073f7971de0786948cde1ba593d3822cc6005d3c16bb3b95bf9f1b2"
+    },
+    {
+      "path": "internal/taskcoord/planner_policy.go",
+      "sha256": "8f740ea7cc71e89c5de5601a4d6d9efdfd9cdd3f170396bed7c425a830ebfb20"
+    },
+    {
+      "path": "internal/taskcoord/service.go",
+      "sha256": "d2f2c9f7f57f6b2c5ac9caa43c5483e5f2f92c0dd0648680a671fdf192f5ce12"
+    },
+    {
+      "path": "internal/taskcoord/planner_policy_test.go",
+      "sha256": "5b5fc20553ef15fc0d01246b24f6067d2fe8759a79e86d185c210f3ab28c934d"
+    },
+    {
+      "path": "internal/taskcoord/planner_policy_cases.json",
+      "sha256": "41ee648b3c9377859a8d3c742cd0bc047b8abba5f21e5a77fb552a473bfa4def"
+    },
+    {
+      "path": "internal/worker/planner.go",
+      "sha256": "986fdb5b56908d43cf6e6d1e3b570ff081c57352a99e445c5d2c91104dd770ba"
+    },
+    {
+      "path": "internal/worker/planner_check_limit_test.go",
+      "sha256": "16c470feaf6ed8bfd97428d89f578f486f6056a19f0705453a5666d5266b22ee"
+    },
+    {
+      "path": "internal/taskcoord/proposal_check_contract_test.go",
+      "sha256": "59fd8f42e79fc85accd04e5b6009a45fe1b8ae4f6027d68211058fbe92777efb"
+    },
+    {
+      "path": "internal/worker/proposal.go",
+      "sha256": "ae4fb22f196c2270f78b5e5298f1cca4d70e578cc51c655f8f0f541ea88f4bbf"
+    },
+    {
+      "path": "internal/worker/proposal_schema_golden_test.go",
+      "sha256": "7d816888330e7506d2bb1f0724ac001601eab58481ca36ac822359eb32ec9504"
+    }
+  ],
+  "baseline": {
+    "repository_files": 1236,
+    "repository_bytes": 46965500,
+    "planner_user_body_bytes": 41767,
+    "server_prompt_tokens": 24106,
+    "server_context": 16384,
+    "outcome": "HTTP400 exceeds context; goal waiting; no reports or project source changes"
+  },
+  "fix": "Native repositoryBodyBudget conservatively budgets one metadata body byte per available input token after the existing2048 framing reservation, replacing four bytes/token. Existing ranked discovery, explicit-path guards, hash snapshots and truncation receipts retained. Fixed framing reservation is not a general proof for arbitrary adapters.",
+  "regression": {
+    "old_planner_body_bytes": 41646,
+    "old_selector_body_bytes": 42858,
+    "allowed_body_bytes": 10752,
+    "original_helper_both_tests_failed": true,
+    "candidate_both_tests_passed": true,
+    "actual_post_apply_targeted_passed": true
+  },
+  "actual_candidate_trial": {
+    "planner_prompt_tokens": 6011,
+    "planner_completion_tokens": 1426,
+    "selector_prompt_tokens": 3193,
+    "selector_completion_tokens": 248,
+    "worker_prompt_tokens": 13810,
+    "worker_completion_tokens": 32,
+    "outcome": "Planner and selector succeeded. Worker emitted empty changes, rejected as invalid change count. Goal waiting, zero reports; full task NOT completed.",
+    "confirmed_missing_target": "analysis/context-architecture.md is in frozen WritablePaths and step instructions but absent from worker Files and AbsentFiles after source-only file selection.",
+    "causality_limit": "The missing target is a confirmed contract gap. Its sole causation of the empty response is not yet established by a discriminating repair test.",
+    "source_integrity": "All1236 prepared source hashes unchanged in both isolated workspaces (candidate workspace has its intentionally prepared native helper).",
+    "profiles_unchanged": true
+  },
+  "qualification": {
+    "full_repository_overlay": {
+      "Pass": 1464,
+      "Fail": 0,
+      "TestExit": 0,
+      "VetExit": 0,
+      "BuildExit": 0,
+      "Skip": 20
+    },
+    "native_review": "approve with0findings; same Bonsai model separate profile, not diversity",
+    "native_write_receipts": 2,
+    "rollback_receipts": 0,
+    "installed_app_or_data_updated": false,
+    "new_commit_or_push": false
+  },
+  "remaining": [
+    "Make planning/decomposition respect worker input and output envelopes; preserve requirements, explicit writable destinations and honest source coverage.",
+    "Requalify full combined candidate suite after Windows browser cleanup failure, without weakening or skipping tests.",
+    "Obtain successful native review; do not bypass prior rejection. Then use guarded native product write API and actual post-apply checks.",
+    "Run a fresh actual native reverse-engineering trial and independently verify architecture/risks/acceptance reports against source citations.",
+    "Execute realistic multi-file business/recovery/skill trials; trusted learning and marketplace Compose/Kubernetes requirements remain outstanding."
+  ],
+  "local_evidence": "Ignored RUNROOT/L1-20261028-native-context-audit-v1,v2,v3; L4-20261028-target-binding-v1; L5-20261028-worker-fit-v1. All existing generation/trial/review/apply identities consumed. No live handles at checkpoint.",
+  "actual_target_candidate_trial": {
+    "id": "coding-l1-20261028-context-audit-v3",
+    "planner_prompt_tokens": 6011,
+    "planner_completion_tokens": 1253,
+    "selector_prompt_tokens": 3143,
+    "selector_completion_tokens": 282,
+    "worker_server_prompt_tokens": 17361,
+    "worker_context_window": 16384,
+    "worker_wire_bytes": 47546,
+    "worker_destination_bound": true,
+    "outcome": "HTTP400 prompt exceeds unchanged window; terminal driver, goal waiting, zero reports",
+    "prepared_files": 1241,
+    "changed_prepared_files": [],
+    "profiles_unchanged": true,
+    "applied_to_actual_worktree": false
+  },
+  "unapplied_target_binding_candidate": {
+    "regression": "Original fails unknown proposed target; candidate creates destination and completes actual filesystem/Node/goal fixture. All model transport is stubbed.",
+    "full_test_pass_events": 1480,
+    "full_test_failed_tests": [
+      "internal/product/TestManagedBrowserInteractsWithProjectPageAndCapturesEvidence: Windows TempDir cleanup access denied for CrashpadMetrics-active.pma"
+    ],
+    "isolated_failed_test_rerun": "pass",
+    "vet_exit": 0,
+    "build_exit": 0,
+    "native_review": "not approved: actual native end-to-end completion and full qualification unresolved",
+    "applied": false
+  },
+  "unapplied_worker_byte_candidate": {
+    "dense_regression_original_exit": 1,
+    "dense_regression_candidate_exit": 0,
+    "targeted_compatibility_exit": 0,
+    "targeted_tests": 4,
+    "native_count_adjustment": "L5-count-v1 accepted exact8to9fixture count edit only; not applied",
+    "fixture_policy": "Original1299envelope now explicit below2048framing refusal; same optional-reference data added at existing8192test envelope with original citation assertions retained. Saved provider budgets unchanged.",
+    "operational_first_compatibility_failure": "Go source overlay does not redirect os.ReadFile DATA; source-test count9 saw actual restored8row file. No model operation involved. Corrected driver mounts candidate DATA for tests and restores guarded original in finally.",
+    "actual_fixture_restored": true,
+    "candidate_data_sha256": "817cce78dd24e9200f00c6b145c29a032108a58425fe2a00190deb9b9d318d14",
+    "offline_actual_task_replay": "proposal source fit exhausted even with minimum256-byte views for18reference sources",
+    "native_review": "not yet performed",
+    "applied": false
+  },
+  "historical_runtime_16k": {
+    "provider": "Bonsai Local",
+    "context": 16384,
+    "output_cap": 3072,
+    "profiles_unchanged": true,
+    "gateway_used": false
+  },
+  "runtime": {
+    "provider": "Bonsai Local",
+    "context": 65536,
+    "output_cap": 8192,
+    "gateway_used": false,
+    "writer": "provider_71c7bb7363c9716a87e7ab2bcd3b64af",
+    "reviewer": "provider_92629ed161c9a86711644ee3419b6b81",
+    "qualification_calls": 12,
+    "qualification": "certified-64k gradeB eligible",
+    "identity_evidence": "partial",
+    "evidence": "C64-20261028-runtime-v1/verified-runtime-v2.json"
+  },
+  "qualification_l7": {
+    "pass": 1465,
+    "skip": 20,
+    "fail": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "native_review": "v2 approve0findings",
+    "write_receipts": 5,
+    "rollback": 0,
+    "evidence": "L7-20261028-discovery-coverage-v1"
+  },
+  "qualification_c64_policy": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_events": {
+      "pass": 1466,
+      "skip": 20,
+      "fail": 0
+    },
+    "failed_tests": [],
+    "source_hashes": {
+      "internal/taskcoord/planner_policy.go": "8f740ea7cc71e89c5de5601a4d6d9efdfd9cdd3f170396bed7c425a830ebfb20",
+      "internal/taskcoord/service.go": "30821276469e12f7ff9020e7b01f3cbb66fa299025a9175d20bbae3cb7f8e000",
+      "internal/taskcoord/planner_policy_test.go": "5b5fc20553ef15fc0d01246b24f6067d2fe8759a79e86d185c210f3ab28c934d"
+    },
+    "native_review": "v2 approve0findings",
+    "write_receipts": 3,
+    "rollback": 0,
+    "evidence": "C64-20261028-planner-policy-v1"
+  },
+  "coverage_replay": {
+    "old_files": 52,
+    "old_bytes": 10378,
+    "old_named_packages_missing": 4,
+    "new_files": 54,
+    "new_bytes": 10330,
+    "new_named_packages_covered": 6,
+    "byte_ceiling": 10752,
+    "limitation": "metadata coverage only; not source inspection or task completion"
+  },
+  "marketplace": {
+    "workspace": "D:/Projects/harness/hermetrix-marketplace",
+    "outside_harness_git": true,
+    "full_complete": false,
+    "integration_decision": "owner confirmed test payment/carrier interfaces; actual local media/storage/DB/cache/queue retained",
+    "current_source": "native PROJECT_PLAN.md, owner REQUEST prose and Go-tool-generated module DATA; no retained application Go code",
+    "bootstrap_trial": {
+      "task_id": "task_a62cad68c96d639aeabd59dd80d0a40f",
+      "requirement_revision": 2,
+      "state": "optional scaffold trial expired/stopped,77actions and prior history retained,not complete"
+    },
+    "original_api_trial": {
+      "operation_id": "commerce64-api-foundation-20261028-v1",
+      "task_id": "task_f20a73c5741dbc911267c782c83bd2ba",
+      "goal_id": "goalop_0f9d32a2316b41937355da12d877cf5b50315790e3addfd680eed4ff2f019b34",
+      "deadline": "2026-10-28T11:18:17.6554777Z",
+      "state": "stopped after expiry,7actions/config/counters/history retained; last failure reconciled"
+    },
+    "after_schema_trial": {
+      "goal": {
+        "id": "goal_mc64_api_after_schema_20261028_v1",
+        "task_id": "task_f20a73c5741dbc911267c782c83bd2ba",
+        "requirement_revision": 1,
+        "expected_task_revision": 18,
+        "actor": "owner-commerce64-after-reviewed-schema-fix",
+        "config": {
+          "start_input_sha256": "b8314f19d7f4d342ad9d4a37631545ff96e5bf6a878b10c47157c6a456382222",
+          "verification_timeout_seconds": 180,
+          "project_root": "d:\\projects\\harness\\hermetrix-marketplace",
+          "provider_id": "provider_71c7bb7363c9716a87e7ab2bcd3b64af",
+          "provider_revision": "provider-c4006064d59a8795",
+          "reviewer_provider_id": "provider_92629ed161c9a86711644ee3419b6b81",
+          "reviewer_provider_revision": "provider-c4006064d59a8795",
+          "apply_changes": true,
+          "max_actions": 100,
+          "max_attempts": 8,
+          "max_plans": 3,
+          "max_seconds": 900
+        },
+        "state": "waiting",
+        "reason": "action did not complete; inspect saved operation receipts before resuming",
+        "actions_used": 22,
+        "attempts_used": 3,
+        "plans_used": 1,
+        "deadline": "2026-10-28T11:45:51.6662967Z",
+        "created_at": "2026-10-28T11:30:51.6662967Z",
+        "updated_at": "2026-10-28T11:34:41.5435026Z"
+      },
+      "provider_calls": 7,
+      "retained_app_source_files": {},
+      "full_complete": false,
+      "automatic_behavior": [
+        "First2source proposals passed schema/apply then actual Go compilation failed; native rollback restored source absence both times.",
+        "Actual errors: missing net/url import and nonexistent http.NewClient; next source unexpected parenthesis at main.go120.",
+        "Native planner after2failures proposed simpler structures; fresh third source response hit8192completioncap, rejected beforeapply."
+      ],
+      "evidence": "C64-20261028-marketplace-api-after-schema-v1/native.result.json"
+    },
+    "operator_environment": {
+      "postgres_container": "hermetrix-commerce64-pg-20261028",
+      "volume": "hermetrix-commerce64-pgdata-20261028",
+      "endpoint": "127.0.0.1:15432",
+      "observed": "pg_isready accepts connections",
+      "limitation": "operator environment setup, not native Harness Docker authority; no API integration success yet",
+      "other_workloads": "unchanged"
+    },
+    "next": "Inspect typed sampler/preset identity and failed-source repair context; do not blind-retry same default generation. Retain original code/output caps and all failed histories; nogateway/Codex implementation."
+  },
+  "published_source_commits": [
+    "41994b2",
+    "51248bf",
+    "14f1b45",
+    "038542f"
+  ],
+  "source_repairs_pushed_dev": true,
+  "qualification_check_contract": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_scope": [
+      "./internal/taskcoord",
+      "./internal/worker"
+    ],
+    "vet_scope": "./...",
+    "build_scope": "./...",
+    "test_events": {
+      "pass": 266,
+      "skip": 1,
+      "fail": 0
+    },
+    "failed_tests": [],
+    "source_hashes": {
+      "internal/worker/planner.go": "986fdb5b56908d43cf6e6d1e3b570ff081c57352a99e445c5d2c91104dd770ba",
+      "internal/worker/planner_check_limit_test.go": "16c470feaf6ed8bfd97428d89f578f486f6056a19f0705453a5666d5266b22ee",
+      "internal/taskcoord/service.go": "d2f2c9f7f57f6b2c5ac9caa43c5483e5f2f92c0dd0648680a671fdf192f5ce12",
+      "internal/taskcoord/proposal_check_contract_test.go": "59fd8f42e79fc85accd04e5b6009a45fe1b8ae4f6027d68211058fbe92777efb"
+    },
+    "full_suite_limitation": "Prior planner-only candidate full suite1470pass20skip1fail: unchanged native desktop fixture observation changed after approval. Isolated rerun also failed. No desktop source/safety/skip modification; full green is NOT claimed.",
+    "native_review": "approve0findings after full-suite limitation disclosed",
+    "write_receipts": 4,
+    "rollback": 0,
+    "actual_post_apply_passed": true
+  },
+  "later_parser_only_full_suite": {
+    "test_exit": 1,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_events": {
+      "pass": 1470,
+      "skip": 20,
+      "fail": 1
+    },
+    "failed_tests": [
+      {
+        "package": "hermetrix-harness/internal/product",
+        "test": "TestNativeDesktopActionUsesExactApprovalAndDoesNotReplay"
+      }
+    ],
+    "source_hashes": {
+      "internal/worker/planner.go": "986fdb5b56908d43cf6e6d1e3b570ff081c57352a99e445c5d2c91104dd770ba",
+      "internal/worker/planner_check_limit_test.go": "16c470feaf6ed8bfd97428d89f578f486f6056a19f0705453a5666d5266b22ee"
+    }
+  },
+  "desktop_isolated_rerun": "failed observation changed; no source/guard/skip modification; exact dynamic cause unproven",
+  "qualification_change_exclusivity": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_events": {
+      "pass": 158,
+      "skip": 0,
+      "fail": 0
+    },
+    "source_hashes": {
+      "internal/worker/proposal.go": "ae4fb22f196c2270f78b5e5298f1cca4d70e578cc51c655f8f0f541ea88f4bbf",
+      "internal/worker/proposal_schema_golden_test.go": "7d816888330e7506d2bb1f0724ac001601eab58481ca36ac822359eb32ec9504"
+    },
+    "test_scope": "entire worker plus4targeted taskcoord integration/budget regressions",
+    "vet_scope": "./...",
+    "build_scope": "./...",
+    "frozen_fixture_sha256": "b588d34be3309b6fd39359548094ee81be9971521c4c0c2512e375c1c7bb8129",
+    "full_suite_limitation": "Known unchanged native desktop observation test failed twice during prior full suite; not modified or weakened, no new full-suite green claim. All other full-suite source unchanged except previously qualified worker/taskcoord repairs.",
+    "native_review": "UTF8v2 approve0findings",
+    "write_receipts": 2,
+    "rollback": 0,
+    "apply": "native-exclusivity-apply-v3",
+    "actual_post_apply_worker_passed": true,
+    "prior_apply_blocked": "v1/v2 before-intent blocked ancestry mismatch from operator default decoding; no source writes. UTF8 fresh native authoring/requalification/review restored exact ancestor/original Unicode."
+  }
+}
