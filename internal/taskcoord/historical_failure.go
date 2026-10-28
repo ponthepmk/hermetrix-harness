@@ -10,6 +10,10 @@ import (
 )
 
 func (s *Service) enrichHistoricalFailure(ctx context.Context, packet taskengine.StepPacket, evidence *worker.FailureEvidence) error {
+	return s.enrichHistoricalFailureWithBudget(ctx, packet, evidence, newHistoricalSourceBudget())
+}
+
+func (s *Service) enrichHistoricalFailureWithBudget(ctx context.Context, packet taskengine.StepPacket, evidence *worker.FailureEvidence, budget *historicalSourceBudget) error {
 	if s == nil || s.tasks == nil || s.products == nil || evidence == nil || packet.ProjectID == "" || evidence.ArtifactID == "" || len(packet.Requirement.Contract.WritablePaths) == 0 {
 		return nil
 	}
@@ -33,8 +37,8 @@ func (s *Service) enrichHistoricalFailure(ctx context.Context, packet taskengine
 		return nil
 	}
 
-	files, omitted, truncated := historicalSourceExcerpts(loaded.Bundle.Result.Changes, packet.Requirement.Contract.WritablePaths)
-	if len(files) == 0 {
+	files, omitted, truncated := budget.excerpts(loaded.Bundle.Result.Changes, packet.Requirement.Contract.WritablePaths)
+	if len(files) == 0 && omitted == 0 {
 		return nil
 	}
 

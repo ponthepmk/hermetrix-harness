@@ -1,0 +1,365 @@
+[
+  {
+    "name": "two_pairs_share_file_limit",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "abc",
+            "repeat": 1,
+            "full_bytes": 3,
+            "full_sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+          },
+          {
+            "path": "b",
+            "unit": "de",
+            "repeat": 1,
+            "full_bytes": 2,
+            "full_sha256": "959a45d44e6fcf58361ed004681556fe50129f2109e817dec098c00c9e5d2578"
+          }
+        ],
+        "writable_paths": [
+          "a",
+          "b"
+        ],
+        "want": {
+          "file_count": 2,
+          "byte_count": 5,
+          "omitted": 0,
+          "truncated": false
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "x",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+          },
+          {
+            "path": "b",
+            "unit": "y",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa"
+          }
+        ],
+        "writable_paths": [
+          "a",
+          "b"
+        ],
+        "want": {
+          "file_count": 0,
+          "byte_count": 0,
+          "omitted": 2,
+          "truncated": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "ascii_exhausts_byte_limit",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "x",
+            "repeat": 9000,
+            "full_bytes": 9000,
+            "full_sha256": "e797e2af6f05c24cdd064793ce60a9d01302d9a3b0e5dff5bb0c046b87f2f668"
+          }
+        ],
+        "writable_paths": [
+          "a"
+        ],
+        "want": {
+          "file_count": 1,
+          "byte_count": 8192,
+          "omitted": 0,
+          "truncated": true
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "b",
+            "unit": "zz",
+            "repeat": 1,
+            "full_bytes": 2,
+            "full_sha256": "4a60bf7d4bc1e485744cf7e8d0860524752fca1ce42331be7c439fd23043f151"
+          }
+        ],
+        "writable_paths": [
+          "b"
+        ],
+        "want": {
+          "file_count": 0,
+          "byte_count": 0,
+          "omitted": 1,
+          "truncated": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "utf8_leaves_two_bytes_for_next_record",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "ก",
+            "repeat": 3000,
+            "full_bytes": 9000,
+            "full_sha256": "f6159fb969ffd64587be1fb5a9fcad164d251dc4d32781b9e0856763c1ba96f2"
+          }
+        ],
+        "writable_paths": [
+          "a"
+        ],
+        "want": {
+          "file_count": 1,
+          "byte_count": 8190,
+          "omitted": 0,
+          "truncated": true
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "b",
+            "unit": "ab",
+            "repeat": 1,
+            "full_bytes": 2,
+            "full_sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603"
+          }
+        ],
+        "writable_paths": [
+          "b"
+        ],
+        "want": {
+          "file_count": 1,
+          "byte_count": 2,
+          "omitted": 0,
+          "truncated": false
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "c",
+            "unit": "x",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+          }
+        ],
+        "writable_paths": [
+          "c"
+        ],
+        "want": {
+          "file_count": 0,
+          "byte_count": 0,
+          "omitted": 1,
+          "truncated": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "readonly_ignored_without_spending",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "readonly",
+            "unit": "abc",
+            "repeat": 1,
+            "full_bytes": 3,
+            "full_sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+          }
+        ],
+        "writable_paths": [
+          "a"
+        ],
+        "want": {
+          "file_count": 0,
+          "byte_count": 0,
+          "omitted": 0,
+          "truncated": false
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "aa",
+            "repeat": 1,
+            "full_bytes": 2,
+            "full_sha256": "961b6dd3ede3cb8ecbaacbd68de040cd78eb2ed5889130cceb4c49268ea4d506"
+          }
+        ],
+        "writable_paths": [
+          "a"
+        ],
+        "want": {
+          "file_count": 1,
+          "byte_count": 2,
+          "omitted": 0,
+          "truncated": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "empty_file_spends_one_slot",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "",
+            "repeat": 1,
+            "full_bytes": 0,
+            "full_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "b",
+            "unit": "q",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "8e35c2cd3bf6641bdb0e2050b76932cbb2e6034a0ddacc1d9bea82a6ba57f7cf"
+          }
+        ],
+        "writable_paths": [
+          "a",
+          "b"
+        ],
+        "want": {
+          "file_count": 2,
+          "byte_count": 1,
+          "omitted": 0,
+          "truncated": false
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "c",
+            "unit": "z",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "594e519ae499312b29433b7dd8a97ff068defcba9755b6d5d00e84c524d67b06"
+          }
+        ],
+        "writable_paths": [
+          "c"
+        ],
+        "want": {
+          "file_count": 0,
+          "byte_count": 0,
+          "omitted": 1,
+          "truncated": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "exact_bytes_blocks_later_empty",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "x",
+            "repeat": 8192,
+            "full_bytes": 8192,
+            "full_sha256": "18f8d2eb4a387bbc1e37ec099a7326805739bc9c99ecf0f14b808a5bcb65bf49"
+          }
+        ],
+        "writable_paths": [
+          "a"
+        ],
+        "want": {
+          "file_count": 1,
+          "byte_count": 8192,
+          "omitted": 0,
+          "truncated": false
+        }
+      },
+      {
+        "changes": [
+          {
+            "path": "b",
+            "unit": "",
+            "repeat": 1,
+            "full_bytes": 0,
+            "full_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "c",
+            "unit": "z",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "594e519ae499312b29433b7dd8a97ff068defcba9755b6d5d00e84c524d67b06"
+          }
+        ],
+        "writable_paths": [
+          "b",
+          "c"
+        ],
+        "want": {
+          "file_count": 0,
+          "byte_count": 0,
+          "omitted": 2,
+          "truncated": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "one_call_still_two_files",
+    "calls": [
+      {
+        "changes": [
+          {
+            "path": "a",
+            "unit": "x",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+          },
+          {
+            "path": "b",
+            "unit": "y",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa"
+          },
+          {
+            "path": "c",
+            "unit": "z",
+            "repeat": 1,
+            "full_bytes": 1,
+            "full_sha256": "594e519ae499312b29433b7dd8a97ff068defcba9755b6d5d00e84c524d67b06"
+          }
+        ],
+        "writable_paths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "want": {
+          "file_count": 2,
+          "byte_count": 2,
+          "omitted": 1,
+          "truncated": true
+        }
+      }
+    ]
+  }
+]

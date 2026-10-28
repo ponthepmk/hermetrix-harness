@@ -6,12 +6,27 @@ import (
 	"hermetrix-harness/internal/worker"
 )
 
-func historicalSourceExcerpts(changes []worker.Change, writablePaths []string) ([]map[string]any, int, bool) {
+const (
+	historicalSourceBudgetMaxFiles = 2
+	historicalSourceBudgetMaxBytes = 8192
+)
+
+type historicalSourceBudget struct {
+	remainingFiles int
+	remainingBytes int
+}
+
+func newHistoricalSourceBudget() *historicalSourceBudget {
+	return &historicalSourceBudget{
+		remainingFiles: historicalSourceBudgetMaxFiles,
+		remainingBytes: historicalSourceBudgetMaxBytes,
+	}
+}
+
+func (b *historicalSourceBudget) excerpts(changes []worker.Change, writablePaths []string) ([]map[string]any, int, bool) {
 	records := []map[string]any{}
 	omitted := 0
 	truncated := false
-	remaining := 8192
-	maxRecords := 2
 
 	for _, change := range changes {
 		allowed := false
@@ -24,7 +39,7 @@ func historicalSourceExcerpts(changes []worker.Change, writablePaths []string) (
 		if !allowed {
 			continue
 		}
-		if len(records) >= maxRecords || remaining <= 0 {
+		if b.remainingFiles <= 0 || b.remainingBytes <= 0 {
 			omitted++
 			truncated = true
 			continue
@@ -40,11 +55,12 @@ func historicalSourceExcerpts(changes []worker.Change, writablePaths []string) (
 				"excerpt":       "",
 				"truncated":     false,
 			})
+			b.remainingFiles--
 			continue
 		}
 		excerpt := change.Content
-		if fullBytes > remaining {
-			for len(excerpt) > remaining && len(excerpt) > 0 {
+		if fullBytes > b.remainingBytes {
+			for len(excerpt) > b.remainingBytes && len(excerpt) > 0 {
 				excerpt = excerpt[:len(excerpt)-1]
 			}
 			for len(excerpt) > 0 && !utf8.ValidString(excerpt) {
@@ -65,7 +81,13 @@ func historicalSourceExcerpts(changes []worker.Change, writablePaths []string) (
 			"excerpt":       excerpt,
 			"truncated":     len(excerpt) < fullBytes,
 		})
-		remaining -= len(excerpt)
+		b.remainingFiles--
+		b.remainingBytes -= len(excerpt)
 	}
 	return records, omitted, truncated
+}
+
+func historicalSourceExcerpts(changes []worker.Change, writablePaths []string) ([]map[string]any, int, bool) {
+	budget := newHistoricalSourceBudget()
+	return budget.excerpts(changes, writablePaths)
 }

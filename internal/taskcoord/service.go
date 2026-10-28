@@ -845,6 +845,7 @@ func (s *Service) proposalFailureEvidence(ctx context.Context, packet taskengine
 	}
 	seen := map[string]bool{}
 	result := []worker.FailureEvidence{}
+	budget := newHistoricalSourceBudget()
 	for i := len(packet.ValidationEvidence) - 1; i >= 0 && len(result) < 3; i-- {
 		validation := packet.ValidationEvidence[i]
 		if validation.Status != taskengine.ValidationFail || !allowedChecks[validation.CheckID] || seen[validation.CheckID] {
@@ -870,7 +871,7 @@ func (s *Service) proposalFailureEvidence(ctx context.Context, packet taskengine
 			evidence.ArtifactID, evidence.ArtifactSHA256, evidence.Output = artifact.ID, artifact.Checksum, string(output)
 			break
 		}
-		if err := s.enrichHistoricalFailure(ctx, packet, &evidence); err != nil {
+		if err := s.enrichHistoricalFailureWithBudget(ctx, packet, &evidence, budget); err != nil {
 			return nil, err
 		}
 		result = append(result, evidence)
