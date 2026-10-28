@@ -486,6 +486,90 @@ func TestFailedMandatoryTaskCheckPersistsRollbackReceiptInActivity(t *testing.T)
 	if string(terminalBody) != wrapper.TerminalOutput {
 		t.Fatalf("terminal output should remain original: %s", terminalBody)
 	}
+
+	// Real replan regression: create a fresh task revision, propose a diagnostic
+	// replan, and verify the proposal packet and failure evidence are stable.
+	fresh, err := tasks.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("fresh task get: %v", err)
+	}
+	if fresh.Revision == 0 || fresh.ActiveRequirementRevision == 0 || fresh.ActivePlanRevision == 0 {
+		t.Fatalf("fresh task revision fields zero: %+v", fresh)
+	}
+	newTask, err := tasks.CreatePlan(ctx, taskengine.CreatePlanInput{
+		TaskID:               fresh.ID,
+		ExpectedTaskRevision: fresh.Revision,
+		RequirementRevision:  fresh.ActiveRequirementRevision,
+		Actor:                "planner",
+		Reason:               "replan diagnostic",
+		Steps: []taskengine.StepSpec{{
+			Key:            "fix-replanned",
+			Title:          "Diagnostic replan step",
+			Instructions:   "No-op diagnostic step for replan regression",
+			RequirementIDs: []string{"AC-1"},
+			Checks:         []string{"node test.js"},
+			EffectScope:    []string{"provider.propose", "workspace.apply", "workspace.run", "provider.review"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create replan plan: %v", err)
+	}
+	if newTask.ID != task.ID {
+		t.Fatalf("replan should create a new task: %s", newTask.ID)
+	}
+	if newTask.ActivePlanRevision != 2 {
+		t.Fatalf("replan plan revision should be 2, got %d", newTask.ActivePlanRevision)
+	}
+	if len(newTask.Plan.Steps) != 1 {
+		t.Fatalf("replan plan should have exactly 1 step, got %d", len(newTask.Plan.Steps))
+	}
+	if newTask.Plan.Steps[0].ID == proposed.Proposal.StepID {
+		t.Fatalf("replan step id should differ from original proposal step id")
+	}
+	newPacket, err := tasks.BuildNextStepPacket(ctx, newTask.ID)
+	if err != nil {
+		t.Fatalf("build next step packet: %v", err)
+	}
+	if newPacket.Step.ID == proposed.Proposal.StepID {
+		t.Fatalf("new packet step id should differ from original proposal step id")
+	}
+	if newPacket.CanonicalPacketHash == proposed.Proposal.PacketHash {
+		t.Fatalf("new packet hash should differ from original packet hash")
+	}
+	replanEvidence, err := coordinator.proposalFailureEvidence(ctx, newPacket)
+	if err != nil {
+		t.Fatalf("replan proposal failure evidence: %v", err)
+	}
+	if len(replanEvidence) != 1 {
+		t.Fatalf("expected 1 replan failure evidence record, got %d", len(replanEvidence))
+	}
+	if replanEvidence[0].ArtifactID != evidence.ArtifactID || replanEvidence[0].ArtifactSHA256 != evidence.ArtifactSHA256 {
+		t.Fatalf("replan failure evidence artifact mismatch: %+v", replanEvidence[0])
+	}
+	var envelope struct {
+		TerminalOutput         string `json:"terminal_output"`
+		HistoricalFailedSource struct {
+			StepID     string `json:"step_id"`
+			ProposalID string `json:"proposal_id"`
+			PacketHash string `json:"packet_hash"`
+		} `json:"historical_failed_source"`
+	}
+	if err := json.Unmarshal([]byte(replanEvidence[0].Output), &envelope); err != nil {
+		t.Fatalf("decode replan historical failed source: %v", err)
+	}
+	if envelope.HistoricalFailedSource.StepID != proposed.Proposal.StepID ||
+		envelope.HistoricalFailedSource.ProposalID != proposed.Proposal.ID ||
+		envelope.HistoricalFailedSource.PacketHash != proposed.Proposal.PacketHash ||
+		envelope.TerminalOutput != string(terminalBody) {
+		t.Fatalf("replan historical failed source mismatch: %+v", envelope)
+	}
+	readme, err := products.ReadProjectFile(ctx, project.ID, "README.md")
+	if err != nil {
+		t.Fatalf("read README after replan: %v", err)
+	}
+	if readme.Content != original {
+		t.Fatalf("README should remain original after replan")
+	}
 }
 
 type rollbackReviewAdapter struct{ onReview func(providers.ChatRequest) }

@@ -14,7 +14,7 @@ func (s *Service) enrichHistoricalFailure(ctx context.Context, packet taskengine
 		return nil
 	}
 
-	proposal, found, err := s.tasks.FailedProposalForLog(ctx, packet.TaskID, packet.Step.ID, evidence.ArtifactID)
+	proposal, found, err := s.tasks.FailedProposalForLog(ctx, packet.TaskID, historicalFailureStepID(packet, *evidence), evidence.ArtifactID)
 	if err != nil {
 		return fmt.Errorf("failed proposal lookup: %w", err)
 	}

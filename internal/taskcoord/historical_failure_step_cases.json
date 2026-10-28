@@ -1,0 +1,685 @@
+[
+  {
+    "name": "replanned_exact_binding",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-old"
+  },
+  {
+    "name": "same_step_binding",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-old",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-old"
+  },
+  {
+    "name": "foreign_task",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-other",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "wrong_validation",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-other",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "wrong_check",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go vet ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "passed_validation",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "pass",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "empty_origin_step",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "actual_mismatch",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=passed exit_code=0",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "subject_mismatch",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r9",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "substring_artifact",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned-extra"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "double_prefix_artifact",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "unprefixed_artifact",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "check_not_currently_declared",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go vet ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "no_recorded_validation",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": []
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "ambiguous_duplicate",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        },
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "non_step_subject",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "requirement:task-owned:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "requirement:task-owned:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "zero_revision",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r0",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r0",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "noncanonical_revision",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-old:r08",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-old:r08",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  },
+  {
+    "name": "wrong_subject_step",
+    "packet": {
+      "task_id": "task-owned",
+      "project_id": "project-owned",
+      "plan_revision": 2,
+      "step": {
+        "id": "step-new",
+        "checks": [
+          "go test ./..."
+        ]
+      },
+      "validation_evidence": [
+        {
+          "id": "validation-failed",
+          "task_id": "task-owned",
+          "step_id": "step-old",
+          "check_id": "go test ./...",
+          "subject_revision": "step:step-other:r8",
+          "status": "fail",
+          "actual": "state=failed exit_code=1",
+          "evidence_refs": [
+            "artifact:log-owned"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "validation_id": "validation-failed",
+      "check_id": "go test ./...",
+      "subject_revision": "step:step-other:r8",
+      "actual": "state=failed exit_code=1",
+      "artifact_id": "log-owned"
+    },
+    "want_step_id": "step-new"
+  }
+]
