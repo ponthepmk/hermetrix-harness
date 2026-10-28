@@ -30,3 +30,5 @@ Go และ standing tests ทั้งหมดสร้างผ่าน Bon
 ขั้นต่อไปคือรันงานแก้ API ใหม่ด้วย authority และ identity ใหม่ที่ถูกต้อง ตรวจว่าคอมไพล์และตอบ health/readiness กับ PostgreSQL จริง แล้วค่อยขยาย flow marketplace ส่วน UI/security audit ของ O-SOUL เป็นผลตรวจโดย operator แยกจากความสามารถทำเองของ Harness
 
 ผลพร้อม hash หลักฐาน: [validation](../validation/2026-10-28-historical-failure-context.json) · หลักฐานดิบอยู่ `.tmp-ui/goal-20261023/live-20261026-001100/` ที่ถูก ignore จาก Git โปรเจค marketplace อยู่นอก Harness Git
+
+ภายหลังมีการรัน marketplace จริงเพิ่มเติมและแก้ขีดจำกัด history ให้ใช้ร่วมทั้งรายการ fail ใน `9077ec6` อ่าน [ผลล่าสุดและข้อจำกัด](2026-10-28-marketplace-after-context.md) แทนสถานะที่ยังไม่มี generation รอบใหม่ใน checkpoint เก่านี้

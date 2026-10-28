@@ -4,6 +4,31 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "internal/taskcoord/historical_source_budget_cases.json",
+      "role": "test",
+      "summary": "Frozen independently specified7case14call source-budget boundary DATA."
+    },
+    {
+      "path": "internal/taskcoord/historical_source_budget_test.go",
+      "role": "test",
+      "summary": "Native exact per-call budget/UTF8/hash/path and mutation checks across shared request budget."
+    },
+    {
+      "path": "internal/taskcoord/historical_source_budget_fixture_test.go",
+      "role": "test",
+      "summary": "Native JSON-tagged loader for frozen7case14call shared history DATA."
+    },
+    {
+      "path": "docs/validation/2026-10-28-marketplace-after-context.json",
+      "role": "test",
+      "summary": "SHA-bound actual native trial, approved5Go/DATA aggregate-history repair, scoped QA and exact postapply/publish proof."
+    },
+    {
+      "path": "docs/reviews/2026-10-28-marketplace-after-context.md",
+      "role": "test",
+      "summary": "Actual14-call/6-rollback marketplace trial and published9077ec6 shared-history budget fix:384pass, real packet fitting, explicit remaining gaps."
+    },
+    {
       "path": "docs/reviews/2026-10-28-historical-failure-context.md",
       "role": "test",
       "summary": "Published same-step/replan failed-source context, actual archive replay, native authorship and exact verification limits."

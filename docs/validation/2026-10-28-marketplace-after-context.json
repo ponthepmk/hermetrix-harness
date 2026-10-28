@@ -1,0 +1,362 @@
+{
+  "date": "2026-10-28",
+  "trial": {
+    "actual_trial_status": "terminal_incomplete",
+    "goal_id": "goal_mc64_api_after_context_20261029_v1",
+    "deadline": "2026-10-28T15:49:51.4739511Z",
+    "actions": 45,
+    "attempts": 6,
+    "plans": 3,
+    "actual_calls": 14,
+    "rolled_back_proposals": 6,
+    "retained_source_files": {},
+    "calls": [
+      {
+        "response": "001.response.json",
+        "sha256": "28a243cdd3d8fa1152a6eb28250201b9b15afc5aa0b240c6525fac312ad780c0",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1448,
+          "completion_tokens": 122,
+          "total_tokens": 1570
+        },
+        "error": ""
+      },
+      {
+        "response": "002.response.json",
+        "sha256": "eaa0bbb7fce67bbcbcd0937652eb663ce8ddf4e4e615dc79b34fc5c54fcc75bf",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7093,
+          "completion_tokens": 6698,
+          "total_tokens": 13791
+        },
+        "error": ""
+      },
+      {
+        "response": "003.response.json",
+        "sha256": "feb0bbe23d6787cddc13002a045881a2f3979dbf37a6bb82082961cc04c1c383",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1448,
+          "completion_tokens": 149,
+          "total_tokens": 1597
+        },
+        "error": ""
+      },
+      {
+        "response": "004.response.json",
+        "sha256": "9575f3d2eb10f8c3d06a1df63adf5a65f7470e77745cea86229a7df1b1d6855c",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7436,
+          "completion_tokens": 2627,
+          "total_tokens": 10063
+        },
+        "error": ""
+      },
+      {
+        "response": "005.response.json",
+        "sha256": "68ca5916594e487cd914be17ec1c080cad0d6069ec4d4e9763e4f7bf52d92038",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7913,
+          "completion_tokens": 1101,
+          "total_tokens": 9014
+        },
+        "error": ""
+      },
+      {
+        "response": "006.response.json",
+        "sha256": "bbd98b6c4acd682214e9611ae29b6f81e51c6f24ec36807d306a9790ad431dcf",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1674,
+          "completion_tokens": 113,
+          "total_tokens": 1787
+        },
+        "error": ""
+      },
+      {
+        "response": "007.response.json",
+        "sha256": "4494fa04d1906504764319eef5756a22b52c1503bc44aecca28ddd3a9a57ff16",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7397,
+          "completion_tokens": 2560,
+          "total_tokens": 9957
+        },
+        "error": ""
+      },
+      {
+        "response": "008.response.json",
+        "sha256": "ac1c4d605811e8a34e894ac5eb21c661aabb17ce9e32fdc1cf26d43b5c08f136",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1674,
+          "completion_tokens": 112,
+          "total_tokens": 1786
+        },
+        "error": ""
+      },
+      {
+        "response": "009.response.json",
+        "sha256": "a96fded74b490a32f70eac2522b8106b9ba8bf068a4cf6851e6f7d3d808de6e5",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7216,
+          "completion_tokens": 2704,
+          "total_tokens": 9920
+        },
+        "error": ""
+      },
+      {
+        "response": "010.response.json",
+        "sha256": "62d38f51d11e09b0baba722e5ba1063a292fad1c2cb665dbb986ae2b8814170c",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7693,
+          "completion_tokens": 1319,
+          "total_tokens": 9012
+        },
+        "error": ""
+      },
+      {
+        "response": "011.response.json",
+        "sha256": "ec1e4d916647f194f24690647a55b4830518952449cbc9999f74887d63788d02",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1781,
+          "completion_tokens": 128,
+          "total_tokens": 1909
+        },
+        "error": ""
+      },
+      {
+        "response": "012.response.json",
+        "sha256": "a8990765084d8abfd66082c864a045294b8f2ceaa0871368dbd5c58f51662e7f",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 7307,
+          "completion_tokens": 2582,
+          "total_tokens": 9889
+        },
+        "error": ""
+      },
+      {
+        "response": "013.response.json",
+        "sha256": "db1b18d7c94316594559e338beebc9cd8124fe09d55d11e8d2dca8279f3cb410",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 1781,
+          "completion_tokens": 113,
+          "total_tokens": 1894
+        },
+        "error": ""
+      },
+      {
+        "response": "014.response.json",
+        "sha256": "d238d79038350c25f7a9e34b2336bf960e6d403f37ab6029469077c7d730e2ee",
+        "finish_reason": "tool_calls",
+        "usage": {
+          "prompt_tokens": 11019,
+          "completion_tokens": 2680,
+          "total_tokens": 13699
+        },
+        "error": ""
+      }
+    ],
+    "prompt_tokens": 72880,
+    "completion_tokens": 23008,
+    "all_structured_responses_complete": true,
+    "full_marketplace_complete": false,
+    "trial_label_note": "The 20261029 string is a fresh identifier; actual created_at/deadline timestamps on 2026-10-28 are authoritative."
+  },
+  "candidate_replay": {
+    "actual_current_task_replay": true,
+    "baseline_context_error": "planner context cannot retain every explicitly writable source path",
+    "candidate_context_error": "",
+    "body_bytes_before": 30109,
+    "body_bytes_after": 21507,
+    "body_limit": 27952,
+    "historical_source_bytes": 6664,
+    "historical_source_files": 2,
+    "explicitly_omitted_files": 2,
+    "primary_terminal_and_all_provenance_unchanged": true,
+    "task_goal_effect_proposal_validation_hashes_unchanged": true,
+    "preset_unchanged": true,
+    "source_applied": false
+  },
+  "shared_budget_source_status": "applied_reviewed_post_verified_and_pushed",
+  "full_goal_complete": false,
+  "source_inference": "Historical context delivery proven; code completion/learning not proven",
+  "evidence": [
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-after-context-v1/native.result.json",
+      "sha256": "f43d6c6c001f2416164d9fbfff21505f8aba6aa481807edd549f0bd22b87af5e",
+      "bytes": 29110
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-after-context-v1/native.trial-summary.json",
+      "sha256": "d569b15976a67ec68ff30fa96f7cd338c51908a90eef2ec2200a39745b6cb7d7",
+      "bytes": 5115
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-after-context-v1/native.worker-context-proof.json",
+      "sha256": "364ecfd5d1c12ff29a5ce5a86d924185eec7cdaa715189d0306d5f26d706d990",
+      "bytes": 984
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-after-context-v1/native.planner-context-diagnostic.json",
+      "sha256": "4dc2ee8ca0c0111a69523eccc4e44afe900ca546806e414443c32729bfaad516",
+      "bytes": 31283
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-after-context-v1/native.old-expired-goal-retained.json",
+      "sha256": "279118d86fba661806c4dcf7ea27aa78ef1ad4063af67f5456c8ada4d8031dd4",
+      "bytes": 1076
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261029-marketplace-api-after-context-v1/native.fresh-trial-input.json",
+      "sha256": "76beac7587ca2856b82a72ffe686adfdb557aa65da975001c5dd1163a7b0b96a",
+      "bytes": 972
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/actual-replay-v2-proof.json",
+      "sha256": "25af70eb5c71aa9e1a26ce605be5b413446aa5311103a6acd21666b9b6ff31aa",
+      "bytes": 545
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/frozen-data-manifest.json",
+      "sha256": "5e73b8b4ee52d1c2710ff0e139100ff4131a9bd8d1f85f87afc59de0aecd4d86",
+      "bytes": 243
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/qa-summary.json",
+      "sha256": "eab294207fe84d84706197f71b2cf9039d6268b4ef62e71bed3cd807109621b1",
+      "bytes": 2202
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/native-entries.json",
+      "sha256": "f62a431e3d8d5166f70445ceb63a33a471c07dcd2fe0387b923cd8b4eecbbc21",
+      "bytes": 1585
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/review-v1.task.json",
+      "sha256": "a4ffc0ba154a6b4d27be96d62b608e9f42ea307a0c02e5e272f0e2e797ac14e8",
+      "bytes": 34111
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/review-v1.result.json",
+      "sha256": "cea6fc3daf2a2a85132141c9584a582e7ee5ddd4b6647dfb130d67dede52ec8f",
+      "bytes": 1606
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/review-v1.result.json.dispatch.json",
+      "sha256": "c349ec9256bff789d1ebed3265792847deb019d233a43aab3c42db252f5d7125",
+      "bytes": 341
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/review-v1.result.json.completion.json",
+      "sha256": "13341e2cd556b19ed72287b4f58859540d697062ace97f59d0f27551c00f8f14",
+      "bytes": 1975
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/native-shared-budget-apply-v1.result.json",
+      "sha256": "834d804d62b5599f115fe635d5c8394c5c24250583ed0f52cc62cb0289332bbc",
+      "bytes": 177445
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/post-apply-proof.json",
+      "sha256": "7bf3e51e633947501c760ddcb568abcf3b7ce5c03e74d9d9d36622c7bbfbc777",
+      "bytes": 441
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-shared-history-budget-v1/source-publish.json",
+      "sha256": "b550405f436cc61dc7ade9d9bd8b8c0a6b37b77a0b3ae9ebe4ce9390cac5ef8a",
+      "bytes": 259
+    }
+  ],
+  "publication": {
+    "source_commit": "9077ec62b968c2f7d110fdf1b3f68bba31df25f8",
+    "branch": "dev",
+    "remote_head_verified": "9077ec62b968c2f7d110fdf1b3f68bba31df25f8",
+    "source_files": 5,
+    "data_files": 1,
+    "source_applied": true,
+    "full_goal_complete": false
+  },
+  "shared_budget_qa": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_events": {
+      "fail": 0,
+      "skip": 1,
+      "pass": 384
+    },
+    "failed_tests": [],
+    "skipped_tests": [
+      {
+        "package": "hermetrix-harness/internal/taskcoord",
+        "test": "TestBonsaiDecisionAgainstLocalServer"
+      }
+    ],
+    "source_hashes": {
+      "internal/taskcoord/historical_source_excerpt.go": "77149761af01df3cbfe74615461fd4d03a99ee6bf3371ead23cebab037837787",
+      "internal/taskcoord/historical_failure.go": "f370e64844bd2ad20a4bd13d4b5d6c214e85219913f80c1e7532828f4b794376",
+      "internal/taskcoord/service.go": "4847f5c96e912d16767eecab1dd17033dd885d487e68b2aa021c61834735bd34",
+      "internal/taskcoord/historical_source_budget_fixture_test.go": "bc27516cc8757783c10806593fdbc2a8ae662440c199ad648bd687d3792125b6",
+      "internal/taskcoord/historical_source_budget_test.go": "a47e6beb27d6f2178ddba677b35bbdaf3ec3461962916794adfd8c9bbc95f94f"
+    },
+    "data_hashes": {
+      "internal/taskcoord/historical_source_budget_cases.json": "b15085405ed443d8837fb66fca51977c0e566662b39fa5a51ab4c13b2e7f9747"
+    },
+    "data_case_count": 7,
+    "data_call_count": 14,
+    "test_scope": [
+      "./internal/taskengine",
+      "./internal/taskcoord",
+      "./internal/worker"
+    ],
+    "vet_scope": "./...",
+    "build_scope": "./...",
+    "targeted_exit": 0,
+    "actual_replay": {
+      "actual_current_task_replay": true,
+      "baseline_context_error": "planner context cannot retain every explicitly writable source path",
+      "candidate_context_error": "",
+      "body_bytes_before": 30109,
+      "body_bytes_after": 21507,
+      "body_limit": 27952,
+      "historical_source_bytes": 6664,
+      "historical_source_files": 2,
+      "explicitly_omitted_files": 2,
+      "primary_terminal_and_all_provenance_unchanged": true,
+      "task_goal_effect_proposal_validation_hashes_unchanged": true,
+      "preset_unchanged": true,
+      "source_applied": false
+    },
+    "full_suite_limitation": "Affected suites plus whole repository vet/build only; prior unchanged Windows native desktop approval-observation runtime failure remains open. No full-suite, marketplace completion, independent-model review or learned transfer claim."
+  },
+  "post_apply": {
+    "source_hashes_match_all5": true,
+    "frozen_data_unchanged": true,
+    "actual_planner_context_replay_exit": 0,
+    "exact_candidate_packet_evidence_manifest_and_preset_match": true,
+    "planner_context_error": "",
+    "planner_body_bytes": 21507,
+    "planner_body_limit": 27952,
+    "task_run_goal_effect_proposal_validation_hashes_unchanged": true,
+    "targeted_tests_exit": 0,
+    "active_inference": 0,
+    "full_goal_complete": false
+  },
+  "limitations": [
+    "All14actual marketplace calls completed structured protocol but6compiler failures remain; no application source retained",
+    "Actual historical-context delivery and aggregate fitting verified, no full marketplace or learning transfer proof",
+    "Affected suites and whole vet/build only; prior Windows desktop observation runtime failure still open",
+    "Same physical Bonsai writer/reviewer gives no model diversity",
+    "PendingEscalation query is task-only; before revising actual requirements inspect stale awaiting_plan escalation and reproduce whether AutoPlan without an active plan can proceed"
+  ]
+}
