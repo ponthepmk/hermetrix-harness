@@ -268,8 +268,11 @@ type PlannerEscalationContext struct {
 func (s *Service) PendingEscalation(ctx context.Context, taskID string) (*PlannerEscalationContext, error) {
 	var item PlannerEscalationContext
 	var evidence string
-	err := s.store.DB.QueryRowContext(ctx, `SELECT id,step_id,normalized_signature,ordinal,evidence_json FROM task_step_escalations
-		WHERE task_id=? AND state='awaiting_plan' ORDER BY created_at DESC LIMIT 1`, taskID).
+	err := s.store.DB.QueryRowContext(ctx, `SELECT e.id,e.step_id,e.normalized_signature,e.ordinal,e.evidence_json FROM task_step_escalations e
+		JOIN task_steps st ON st.id=e.step_id AND st.task_id=e.task_id
+		JOIN task_plan_revisions pr ON pr.task_id=st.task_id AND pr.revision=st.plan_revision
+		JOIN durable_tasks dt ON dt.id=e.task_id AND dt.active_requirement_revision=pr.requirement_revision
+		WHERE e.task_id=? AND e.state='awaiting_plan' ORDER BY e.created_at DESC LIMIT 1`, taskID).
 		Scan(&item.ID, &item.StepID, &item.NormalizedSignature, &item.Ordinal, &evidence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -293,7 +296,7 @@ func (s *Service) PendingEscalation(ctx context.Context, taskID string) (*Planne
 
 func (s *Service) ResolvePendingEscalation(ctx context.Context, taskID, plannerRunID string, planRevision int) error {
 	result, err := s.store.DB.ExecContext(ctx, `UPDATE task_step_escalations SET state='resolved',planner_run_id=?,plan_revision=?,resolved_at=?
-		WHERE id=(SELECT id FROM task_step_escalations WHERE task_id=? AND state='awaiting_plan' ORDER BY created_at DESC LIMIT 1)`,
+		WHERE id=(SELECT e.id FROM task_step_escalations e JOIN task_steps st ON st.id=e.step_id AND st.task_id=e.task_id JOIN task_plan_revisions pr ON pr.task_id=st.task_id AND pr.revision=st.plan_revision JOIN durable_tasks dt ON dt.id=e.task_id AND dt.active_requirement_revision=pr.requirement_revision WHERE e.task_id=? AND e.state='awaiting_plan' ORDER BY e.created_at DESC LIMIT 1)`,
 		plannerRunID, planRevision, formatTime(time.Now().UTC()), taskID)
 	if err != nil {
 		return err
