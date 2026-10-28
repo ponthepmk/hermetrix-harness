@@ -338,11 +338,20 @@ func materializeChange(before string, content *string, edits []TextEdit) (string
 
 func proposalSchema() map[string]any {
 	stringList := map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 32}
-	return map[string]any{"type": "object", "properties": map[string]any{
+	schema := map[string]any{"type": "object", "properties": map[string]any{
 		"summary": map[string]any{"type": "string"}, "assumptions": stringList, "risks": stringList, "recommended_checks": stringList,
 		"changes": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "object", "properties": map[string]any{
 			"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"},
 			"edits": map[string]any{"type": "array", "minItems": 1, "maxItems": 64, "items": map[string]any{"type": "object", "properties": map[string]any{"old": map[string]any{"type": "string"}, "new": map[string]any{"type": "string"}}, "required": []string{"old", "new"}, "additionalProperties": false}},
 		}, "required": []string{"path"}, "additionalProperties": false}},
 	}, "required": []string{"changes"}, "additionalProperties": false}
+
+	schemaProperties := schema["properties"].(map[string]any)
+	changesItems := schemaProperties["changes"].(map[string]any)["items"].(map[string]any)
+	changesItems["oneOf"] = []map[string]any{
+		{"required": []string{"content"}},
+		{"required": []string{"edits"}},
+	}
+
+	return schema
 }

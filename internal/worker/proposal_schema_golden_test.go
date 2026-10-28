@@ -63,4 +63,5 @@ func decorateScopeGolden(t *testing.T, name string, request *providers.ChatReque
 	}
 	changes["maxItems"] = int(maxChanges)
 	changes["items"].(map[string]any)["properties"].(map[string]any)["path"].(map[string]any)["enum"] = allowed
+	changes["items"].(map[string]any)["oneOf"] = []map[string]any{{"required": []string{"content"}}, {"required": []string{"edits"}}}
 }
