@@ -1,0 +1,261 @@
+{
+  "date": "2026-10-28",
+  "site": "https://o-soul.go2gether-tech.online/",
+  "environment": "production_prelaunch",
+  "operator": "Codex through browser control, not autonomous Hermetrix/Bonsai execution",
+  "result": "two_tested_purchase_paths_completed_with_mock_payment_and_cancel",
+  "whole_site_ready": false,
+  "product_source_changed": false,
+  "deployment_performed": false,
+  "new_load_test_performed": false,
+  "real_payment_performed": false,
+  "paid_ai_generation_performed": false,
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "width": 390,
+      "height": 844
+    },
+    {
+      "width": 320,
+      "height": 720
+    }
+  ],
+  "physical_touch_device_tested": false,
+  "hover_tested": false,
+  "full_keyboard_or_screenreader_tested": false,
+  "screenshots": 54,
+  "indexed_captures": 45,
+  "observed_page_horizontal_overflow": [],
+  "note": "No page overflow does not imply correct child layout; UI-01 has zero-width text.",
+  "contrast": {
+    "checked_samples": 502,
+    "below_threshold": 0,
+    "skipped": {
+      "disabled_or_decorative": 356,
+      "non_rgb_background": 220,
+      "non_rgb_foreground": 206,
+      "background_image_or_gradient": 54,
+      "opacity_group": 153
+    },
+    "unique_controls": false,
+    "whole_site_wcag_certification": false,
+    "scope": "Original50capture audit,502supported samples; follow-up contest screenshots not numerically re-audited"
+  },
+  "flows": [
+    {
+      "id": "shop_cart",
+      "status": "passed",
+      "evidence": "02-07",
+      "assertion": "size guide, black/M selection, quantity totals, remove and restore"
+    },
+    {
+      "id": "qa_login_return",
+      "status": "passed",
+      "evidence": "08-10",
+      "assertion": "returns to cart"
+    },
+    {
+      "id": "checkout_invalid_zip",
+      "status": "passed_with_ux_finding",
+      "evidence": "11",
+      "finding": "UI-03"
+    },
+    {
+      "id": "checkout_invalid_coupon_recovery",
+      "status": "passed",
+      "evidence": "12-13"
+    },
+    {
+      "id": "standard_mock_order_reload_cancel",
+      "status": "passed_with_ux_finding",
+      "evidence": "13-18",
+      "finding": "UI-02"
+    },
+    {
+      "id": "existing_2d_upload_grid",
+      "status": "passed",
+      "evidence": "19-25",
+      "grid": [
+        37,
+        37
+      ],
+      "beads": 1369
+    },
+    {
+      "id": "edit_undo_redo_save_reload",
+      "status": "passed",
+      "evidence": "26-30",
+      "counts": {
+        "F19": 1368,
+        "A1": 1
+      }
+    },
+    {
+      "id": "product_selection_placement_persistence",
+      "status": "passed",
+      "evidence": "31-33",
+      "shirt": "white/M",
+      "x_percent": 51,
+      "y_percent": 42
+    },
+    {
+      "id": "bundle_quantity_totals",
+      "status": "passed",
+      "evidence": "34-36",
+      "one_set_thb": 149.9,
+      "two_sets_thb": 299.8,
+      "two_sets_beads": 2738
+    },
+    {
+      "id": "artwork_mock_order_reload_cancel",
+      "status": "passed_with_ux_finding",
+      "evidence": "37-42",
+      "finding": "UI-02"
+    },
+    {
+      "id": "320_editor_palette_review_navigation",
+      "status": "passed_with_ux_finding",
+      "evidence": "43-47",
+      "finding": "UI-01"
+    },
+    {
+      "id": "real_contest_submission",
+      "status": "passed_to_pending_review",
+      "evidence": "51-54",
+      "artwork_id": 748,
+      "round_id": 13,
+      "entry_id": 288,
+      "refresh_verified": true,
+      "moderation_approval": "not_tested"
+    },
+    {
+      "id": "live_payment_shipping_admin_production",
+      "status": "not_tested"
+    }
+  ],
+  "findings": [
+    {
+      "id": "UI-01",
+      "priority": "P2",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-02",
+      "priority": "P2",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-03",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-04",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-05",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-06",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-07",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-08",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    },
+    {
+      "id": "UI-09",
+      "priority": "P3",
+      "status": "confirmed_observation_no_fix_applied"
+    }
+  ],
+  "cleanup": {
+    "owner_cart": "restored_empty_before_qa_login",
+    "qa_cart": "empty_verified_capture50",
+    "orders": [
+      {
+        "number": "OS19193452979207",
+        "total_thb": 490,
+        "status": "cancelled",
+        "payment_mode": "Mock"
+      },
+      {
+        "number": "OS19348952970556",
+        "total_thb": 149.9,
+        "status": "cancelled",
+        "payment_mode": "Mock"
+      }
+    ],
+    "retained_private_artwork": 748,
+    "generation_session": 218,
+    "generation_version": 359,
+    "irreversible_delete_performed": false,
+    "contest_submission_performed": true,
+    "viewport_override": "reset",
+    "contest_entry_retained": 288,
+    "retained_private_artwork_note": "Original design748 retained; authorized contest snapshot288 now pending review"
+  },
+  "raw_evidence_root": "D:/Projects/harness/hermetrix-harness/.tmp-ui/osoul-flow-20261028T123926Z",
+  "manifest_sha256": "25f63f951d64f7125cec80cbb5f5c60421c0b8cbb9453cab04d9b74baefd93af",
+  "representative_evidence": [
+    {
+      "path": "17-cancelled-persists-after-refresh.png",
+      "bytes": 31527,
+      "sha256": "d7dd83a822db52532d950f416a58183b11d3fafb2a9b7453260925e123e54d9c"
+    },
+    {
+      "path": "42-both-qa-orders-cancelled.png",
+      "bytes": 21731,
+      "sha256": "6c877f2b5c899e0fc2dde3052c5bdbb2b91760cc70af435cc225cf3772f97fdf"
+    },
+    {
+      "path": "44-editor-320.png",
+      "bytes": 39349,
+      "sha256": "c6dc01a6ed8971868b03f0c5851edb71272e12607410aa7f5bc07077379cd3a8"
+    },
+    {
+      "path": "44-palette-geometry.json",
+      "bytes": 758,
+      "sha256": "9887d930a04250ef2b6fab85664fcc16849804df83290454bebabd26258b9371"
+    },
+    {
+      "path": "50-final-qa-cart.png",
+      "bytes": 47018,
+      "sha256": "7551e4fe8e9c525de5a757511084a563dc256bf417fb6cf2917e769c36d7fcf4"
+    },
+    {
+      "path": "contrast-analysis.json",
+      "bytes": 185105,
+      "sha256": "d65cae1dd9aff8efc671dff8797646cb6e01e459f8b07b2364d9891382152c6f"
+    }
+  ],
+  "report": "docs/reviews/2026-10-28-osoul-ui-flows.md",
+  "initial_screenshots": 50,
+  "contest_followup": {
+    "artwork_id": 748,
+    "round_id": 13,
+    "entry_id": 288,
+    "status": "pending_review",
+    "refresh_verified": true,
+    "screenshots": 4,
+    "evidence_manifest": "D:/Projects/harness/hermetrix-harness/.tmp-ui/osoul-flow-20261028T123926Z/contest-followup.json",
+    "evidence_manifest_sha256": "8c08c130ffe719145e067e964ab2ee38c000a528f95eea844727a642a8fa73a0",
+    "owner_authorization": "explicit approved reply",
+    "prize_claim": false
+  }
+}

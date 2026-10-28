@@ -1,0 +1,205 @@
+{
+  "date": "2026-10-28",
+  "status": "implemented_and_technically_verified",
+  "source_commits": [
+    "70de7de65d92409e4615eff7713dab63bbf2a126",
+    "366447fe1f091a99e8e6b6be633c3c5f2c469e78"
+  ],
+  "published_branch": "dev",
+  "remote_head_verified": "366447fe1f091a99e8e6b6be633c3c5f2c469e78",
+  "authorship": "All production and standing Go test semantics native Hermetrix/Bonsai; operator DATA/prose/guards/observers only",
+  "model": "Bonsai Local 64k only",
+  "reviewer_diversity": false,
+  "same_step_qa": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_scope": [
+      "./internal/taskengine",
+      "./internal/taskcoord",
+      "./internal/worker"
+    ],
+    "vet_scope": "./...",
+    "build_scope": "./...",
+    "test_events": {
+      "fail": 0,
+      "skip": 1,
+      "pass": 363
+    },
+    "failed_tests": [],
+    "skipped_tests": [
+      {
+        "package": "hermetrix-harness/internal/taskcoord",
+        "test": "TestBonsaiDecisionAgainstLocalServer"
+      }
+    ],
+    "source_hashes": {
+      "internal/taskengine/historical_proposal.go": "0350888ff863a9670363b0d212887fe64ec241a47e6e0a1cc8e143ae45d3c52e",
+      "internal/taskcoord/historical_source_excerpt.go": "66721e5219876a26f2744618166368cf27390651ff1cede1e01a93f8de47d08e",
+      "internal/taskcoord/historical_failure.go": "0187ac2600aa64b2c47aa0fa9a894784c9cd178b379a7daa04c21b2cfba1ee95",
+      "internal/taskcoord/service.go": "4b152d2dafcd1f199cec54c0cf89b3e1190b57f7e71bd5e0f083cdaa7c2dc81b",
+      "internal/taskcoord/historical_boundary_01_test.go": "7e9c1dc4112df2feeda18b5a4467d5140a4c5d139e1e9826a0770ee4db03d70a",
+      "internal/taskcoord/historical_boundary_02_test.go": "ff5d023d506908aa166775c4787057d63536d1bd77d23d1f21c7bad2a2c8fd87",
+      "internal/taskcoord/historical_boundary_03_test.go": "c06da1f8c88cd60151b623634ab71ed0df6da4a3018782e00c0ba7d351c40c54",
+      "internal/taskcoord/historical_boundary_04_test.go": "26cd25917139b6e75af3e4e78150ecfdba9d3691287dc4ac5a7af1c15f8fb503",
+      "internal/taskcoord/historical_boundary_05_test.go": "351e6644e53a1ae42d1170db5005047cb56733a473788d299dfde58394b266e0",
+      "internal/taskcoord/historical_boundary_06_test.go": "fe2bf7c94a47cdce1d040b5988c43724c15583f81c4f190ba7ee25b4b14260ad",
+      "internal/taskcoord/historical_boundary_07_test.go": "11184751bfd077b160e17523062a6528f8a46c0e4b9dc8c12c415f93b81982c0",
+      "internal/taskcoord/service_test.go": "8646ccd09b3bcff577fca3db18b163db7e55cf616b8005ad0ebc789eec55ff42",
+      "internal/taskcoord/proposal_curation_contract_test.go": "e2265251d941c1324634fc14eeb32dfe1ea6a4c95fb3e611bb12753835ca764e"
+    },
+    "baseline_outcome_test_exit": 1,
+    "baseline_outcome_evidence": "rollback-baseline-red.log",
+    "prior12file_qa": "final-historical-qa-summary.json",
+    "wire_calibration": {
+      "old_schema_commit": "14f1b45",
+      "old_small_ref_tokens": 1297,
+      "current_small_ref_tokens": 1311,
+      "body_bytes_both": 2570,
+      "original_cap_still_enforced": 1299,
+      "calibrated_test_cap": 1313,
+      "margin_preserved": 2,
+      "original_fixture_sha256_unchanged": "ad63d6c3415a96f5e88ef4ede9c4a0b7859b8573e1450adb84e93dca096ce2bf",
+      "production_profiles_unchanged": true,
+      "strict1299_ref_drop_and1313_small_ref_retention": "curation-calibrated-v3.log"
+    },
+    "full_suite_limitation": "This exact candidate was tested in taskengine/taskcoord/worker plus repository-wide vet/build, not whole-suite runtime QA. Prior full suite1470pass20skip1fail in unchanged Windows desktop approval-observation fixture remains open. No desktop guard changes or skips. Full marketplace remains incomplete."
+  },
+  "cross_replan_qa": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_events": {
+      "pass": 383,
+      "fail": 0,
+      "skip": 1
+    },
+    "failed_tests": [],
+    "skipped_tests": [
+      {
+        "package": "hermetrix-harness/internal/taskcoord",
+        "test": "TestBonsaiDecisionAgainstLocalServer"
+      }
+    ],
+    "source_hashes": {
+      "internal/taskcoord/historical_failure_step.go": "e9d3062283102b69f34430eb6cc11b3ccac9cc7607d52a8a14daa55400d9c7ec",
+      "internal/taskcoord/historical_failure_step_test.go": "9c36e88bd0cae3ced2def7d38cef7642bb6219d2b154f2ca4115bce328a75aa1",
+      "internal/taskcoord/historical_failure.go": "70194ae493770a99b955ee268a96f5e78502a5b279e63a8cd5ddd238dadd0295",
+      "internal/taskcoord/service_test.go": "5f9086ef138401ea4903fcc3ef7e37aea71ee5e4179e04879abbd7b94c2dccef"
+    },
+    "data_hashes": {
+      "internal/taskcoord/historical_failure_step_cases.json": "04c2f9f6df4a5ca6122f4ca35c193eea3ab4b81dd71f638090744f54e58daee8"
+    },
+    "data_case_count": 19,
+    "test_scope": [
+      "./internal/taskengine",
+      "./internal/taskcoord",
+      "./internal/worker"
+    ],
+    "vet_scope": "./...",
+    "build_scope": "./...",
+    "baseline_outcome_test_exit": 1,
+    "full_suite_limitation": "Affected taskengine/taskcoord/worker suites plus whole-repository vet/build only. Prior unchanged Windows desktop approval-observation full-suite failure remains open; not whole-suite green. Full marketplace not completed."
+  },
+  "post_apply": {
+    "source_hashes_match_all4": true,
+    "frozen_data_unchanged": true,
+    "real_archive_replay_exit": 0,
+    "archived_packet_and_evidence_match_exact_candidate": true,
+    "historical_excerpt_bytes": 6824,
+    "terminal_bytes": 210,
+    "task_and_goal_table_hashes_unchanged": true,
+    "targeted_tests_exit": 0,
+    "full_goal_complete": false
+  },
+  "history_budget": {
+    "max_files": 2,
+    "max_utf8_bytes": 8192,
+    "policy": "prefix excerpts from exact current writable paths; original full hashes retained; truncation and omission explicit"
+  },
+  "known_limits": [
+    "Full runtime suite not rerun: prior Windows desktop approval-observation failure remains open",
+    "No new actual marketplace generation after this context repair yet",
+    "Two-file prefix budget can omit error-adjacent code later in large files",
+    "Same physical Bonsai reviewer provides no model diversity",
+    "No end-to-end marketplace, security tester runtime or held-out learning-transfer completion claim"
+  ],
+  "full_goal_complete": false,
+  "evidence": [
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-historical-source-v1/final-historical13-qa-summary.json",
+      "bytes": 3092,
+      "sha256": "7459024d014a5e1cc7d19290470d6f1ed32c4023ce6d758c5702589557291fd6"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-historical-source-v1/native-historical-apply-v2.result.json",
+      "bytes": 328890,
+      "sha256": "501f01dd566ab75a1dc42105e8a039dd3563170560a7a514e0f04bc267c762b5"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-historical-source-v1/post-apply-proof.json",
+      "bytes": 250,
+      "sha256": "3cfb524300cc667c78f2a888e3fd65163cb293e326ff6573f9fc0b523706a07c"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-historical-source-v1/source-publish.json",
+      "bytes": 149,
+      "sha256": "09b2bb4f15b5b2f242d9440f749e494443cf696101c6e72a278c0da9fcc0fc59"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/qa-summary.json",
+      "bytes": 1448,
+      "sha256": "5ac312a97483181b2a3ae4db024b4b5c9ef803931971f8c2f389f4dd75001af4"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/baseline-red.log",
+      "bytes": 305,
+      "sha256": "f1df06b51d5de6acc265fb3a32582b00575862020da9aa220cd257cb94055864"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/review-v1.task.json",
+      "bytes": 61894,
+      "sha256": "814d531f153e4d9cc040f8bf69d8a5a3ca9c065ad76fabcab8b348187cd1ef6b"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/review-v1.result.json",
+      "bytes": 1615,
+      "sha256": "48b9dc24a9577acaa063b94ca536f83fdd8f321db4c4abe83d1cd188445db327"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/review-v1.result.json.dispatch.json",
+      "bytes": 332,
+      "sha256": "06b0967880e75995eb584d734220ed6aebdf3fadb103cc70a1eb167ac6d691f2"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/review-v1.result.json.completion.json",
+      "bytes": 1984,
+      "sha256": "708923a0edd1c7035171a1b818c1692558fa62f3a6558aba92551c0f96a2e454"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/native-entries.json",
+      "bytes": 1843,
+      "sha256": "e2b1e679c9677396202b064fec8367ff156f782b7d2f56a9fe76fb9d0d23a490"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/native-cross-replan-apply-v1.result.json",
+      "bytes": 133579,
+      "sha256": "73b7969aebe94629853ed847d3e25269f6f86df4a22246d996f5b1edf77cd029"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/frozen-case-manifest-v2.json",
+      "bytes": 729,
+      "sha256": "a790a8da87f4f45eceabcc748de5ac79bcbd152a1ed69d299290ff2eb1669c66"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/post-apply-proof.json",
+      "bytes": 344,
+      "sha256": "5cd374aacce24cdbfd9b84be0e5219bd4e8b1b77c4cda4f7b3fc62258813e595"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-cross-replan-v1/actual-replanned-replay-v2-summary.json",
+      "bytes": 721,
+      "sha256": "f552bda71a0d94d74dbfea0b1e9480010811bf8805516051846211b7e310115b"
+    }
+  ]
+}

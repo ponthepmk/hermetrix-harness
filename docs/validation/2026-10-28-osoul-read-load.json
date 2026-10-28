@@ -1,0 +1,117 @@
+{
+  "scope_authorization": {
+    "environment": "production prelaunch, owner-confirmed",
+    "virtual_users": 10,
+    "aggregate_max_rps": 10,
+    "duration_seconds": 60,
+    "workload": "public API reads only; no writes or browser load"
+  },
+  "raw_summary": {
+    "run_id": "osoul-load-20261028T122047Z",
+    "status": "completed",
+    "stop_reason": null,
+    "admission_window_seconds": 60,
+    "elapsed_seconds_including_drain": 60.015,
+    "dispatched": 549,
+    "completed": 549,
+    "errors": 1,
+    "statuses": {
+      "200": 549
+    },
+    "max_starts_in_any_rolling_second": 10,
+    "max_inflight_observed": 2,
+    "virtual_users_used": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "wire_bytes": 1903092,
+    "endpoints": {
+      "/products": {
+        "requests": 138,
+        "errors": 1,
+        "statuses": {
+          "200": 138
+        },
+        "p50_ms": 62.0,
+        "p95_ms": 78.0,
+        "p99_ms": 125.0
+      },
+      "/config/public": {
+        "requests": 137,
+        "errors": 0,
+        "statuses": {
+          "200": 137
+        },
+        "p50_ms": 78.0,
+        "p95_ms": 125.0,
+        "p99_ms": 156.0
+      },
+      "/shipping-methods": {
+        "requests": 137,
+        "errors": 0,
+        "statuses": {
+          "200": 137
+        },
+        "p50_ms": 47.0,
+        "p95_ms": 78.0,
+        "p99_ms": 110.0
+      },
+      "/contest/rounds": {
+        "requests": 137,
+        "errors": 0,
+        "statuses": {
+          "200": 137
+        },
+        "p50_ms": 62.0,
+        "p95_ms": 94.0,
+        "p99_ms": 110.0
+      }
+    },
+    "limitations": [
+      "Not maximum capacity or authenticated workflow/security/race coverage.",
+      "No UI workload was run concurrently; browser/API aggregate governance remains proposed.",
+      "One run and public read endpoints only; no application/DB metrics captured.",
+      "Mixed public read transport with guest slots and persistent Python HTTPS connections."
+    ]
+  },
+  "classification": {
+    "fully_read_validated_json": 548,
+    "http_200_observed": 549,
+    "runner_window_cancellations": 1,
+    "other_errors": 0,
+    "cancelled_sequences": [
+      549
+    ],
+    "note": "Raw summary retains errors=1. The recorded exception explicitly comes from the runner enforcing its approved time window after receiving HTTP200; last response body was not fully checked. Do not classify it as a server500, nor count it as a fully passed response."
+  },
+  "evidence_sha256": {
+    "scope.json": "5dcd873c5757877d8f1eeaa650bae4856aa0946508b26379317187e9a00e1751",
+    "summary.json": "243363f99400f6250505aa973244273681019cc4fd47281836f6ffeed6b3bfdb",
+    "requests.json": "30bff54afb51c550e27c8c5d8929f222fe941a5ac4e5b2d4a83779a922dac881",
+    "run_read_smoke.py": "290f96bd4c2f3fc5ce444a774b72c16ad8ff0174b7c265b7e9141ae437ee4a0a",
+    "followup-health.json": "8d12284d9f15b41369b60b85ba9c8369e1b8ad29e364262289f5e658be9f1fb1"
+  },
+  "followup": {
+    "utc": "2026-10-28T12:24:37.824684+00:00",
+    "method": "GET",
+    "url": "https://api-o-soul.go2gether-tech.online/health/ready",
+    "status": 200,
+    "body": "{\"status\":\"ready\"}",
+    "elapsed_ms": 109.0
+  },
+  "measurement_notes": {
+    "average_dispatched_requests_per_second": 9.15,
+    "timer_implementation": "GetTickCount64()",
+    "timer_resolution_seconds": 0.015625,
+    "latency_precision": "Client-side approximate timings; clock resolution limits precision. Percentiles are observations of this run, not a service SLA.",
+    "checks": "HTTP status and bounded decompression/JSON container validation only, not complete business assertions."
+  }
+}

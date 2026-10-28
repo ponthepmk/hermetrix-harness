@@ -4,6 +4,56 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "docs/reviews/2026-10-28-historical-failure-context.md",
+      "role": "test",
+      "summary": "Published same-step/replan failed-source context, actual archive replay, native authorship and exact verification limits."
+    },
+    {
+      "path": "docs/validation/2026-10-28-historical-failure-context.json",
+      "role": "test",
+      "summary": "Exact scoped QA, source/receipt/reviewer provenance and SHA-bound raw context-repair evidence."
+    },
+    {
+      "path": "internal/taskcoord/historical_failure_step.go",
+      "role": "module",
+      "summary": "Choose historical origin only from unique exact same-task failed validation during replan."
+    },
+    {
+      "path": "internal/taskcoord/historical_failure_step_test.go",
+      "role": "test",
+      "summary": "Native frozen 19-case replan-origin selection and input-immutability checks."
+    },
+    {
+      "path": "internal/taskcoord/historical_failure_step_cases.json",
+      "role": "test",
+      "summary": "Frozen positive/rejection DATA for historical failed-step provenance across replans."
+    },
+    {
+      "path": "docs/reviews/2026-10-28-osoul-ui-flows.md",
+      "role": "test",
+      "summary": "Hands-on O-SOUL UI review: two Mock purchase paths completed, 320px editor geometry bug and canceled-status ambiguity, evidence and prioritized fixes."
+    },
+    {
+      "path": "docs/validation/2026-10-28-osoul-ui-flows.json",
+      "role": "test",
+      "summary": "Measured browser-flow observations, evidence hashes, 502 supported contrast samples, limitations and QA cleanup; no autonomous Harness claim."
+    },
+    {
+      "path": "docs/reviews/2026-10-28-osoul-authorized-read-load.md",
+      "role": "test",
+      "summary": "Owner-authorized 10guest-slot/10RPS/60second production read pilot:549 HTTP200,548 checked bodies,1window cancellation; no full-flow or maximum-capacity claim."
+    },
+    {
+      "path": "docs/validation/2026-10-28-osoul-read-load.json",
+      "role": "test",
+      "summary": "Measured O-SOUL public-read metrics, raw error/cancellation distinction, clock limits, follow-up readiness and evidence hashes."
+    },
+    {
+      "path": "docs/redesign/2026-10-28-authorized-security-testing.md",
+      "role": "feature",
+      "summary": "Proposed scoped security tester: O-SOUL read-only evidence, 56 routes/197 vs201 API operations, CORS observation, concurrent workload design; no runtime change applied."
+    },
+    {
       "path": "cmd/hermetrix-goal/main_test.go",
       "role": "test",
       "summary": "Durable coding goal lifecycle, scoped authority, evidence, cancellation and recovery; actual model pilot pending."
