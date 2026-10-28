@@ -4,6 +4,21 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "internal/taskcoord/requirement_escalation_test.go",
+      "role": "test",
+      "summary": "Native SQLite/API regression preserves obsolete requirement history while replanning/resolving current requirement across plan revisions."
+    },
+    {
+      "path": "docs/validation/2026-10-28-requirement-escalation.json",
+      "role": "test",
+      "summary": "Exact native2Go ancestry/QA/review/apply/post/publish hashes and explicit runtime/marketplace limitations."
+    },
+    {
+      "path": "docs/reviews/2026-10-28-requirement-escalation.md",
+      "role": "test",
+      "summary": "Published active-requirement escalation lookup/resolution repair with two red causal tests and req1→req2 plan continuation outcome."
+    },
+    {
       "path": "internal/taskcoord/historical_source_budget_cases.json",
       "role": "test",
       "summary": "Frozen independently specified7case14call source-budget boundary DATA."

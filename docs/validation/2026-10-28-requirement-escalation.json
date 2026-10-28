@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-28",
+  "status": "applied_reviewed_post_verified_pushed",
+  "publication": {
+    "source_commit": "3109f2dad484ec840a213a497d0c2e33f9cf1a4b",
+    "branch": "dev",
+    "remote_verified": "3109f2dad484ec840a213a497d0c2e33f9cf1a4b",
+    "full_goal_complete": false
+  },
+  "qa": {
+    "test_exit": 0,
+    "vet_exit": 0,
+    "build_exit": 0,
+    "test_events": {
+      "pass": 385,
+      "fail": 0,
+      "skip": 1
+    },
+    "failed_tests": [],
+    "skipped_tests": [
+      {
+        "package": "hermetrix-harness/internal/taskcoord",
+        "test": "TestBonsaiDecisionAgainstLocalServer"
+      }
+    ],
+    "source_hashes": {
+      "internal/taskengine/orchestration.go": "9b3e40e8a99fcd41f0a976681bbec2c588bbd830a5fab666e64870fbc7212fe8",
+      "internal/taskcoord/requirement_escalation_test.go": "a6ee94e07430aeebeed1358a36b37e61679ee61318a33853be6f647afdcc9e16"
+    },
+    "test_scope": [
+      "./internal/taskengine",
+      "./internal/taskcoord",
+      "./internal/worker"
+    ],
+    "vet_scope": "./...",
+    "build_scope": "./...",
+    "baseline_red_exit": 1,
+    "pending_only_red_exit": 1,
+    "targeted_green_exit": 0,
+    "full_suite_limitation": "Affected suites and whole repository vet/build only; prior unchanged Windows desktop approval-observation runtime failure remains open; no whole-suite/marketplace/learning completion claim."
+  },
+  "post_apply": {
+    "source_hashes_match_all2": true,
+    "actual_current_pending_still_eligible": true,
+    "actual_current_pending_id": "escalation_88ac1f8903b44ff983cc8e3797b190de",
+    "current_requirement": 1,
+    "current_task_revision": 42,
+    "observation_exit": 0,
+    "actual_task_run_goal_effect_proposal_validation_escalation_plan_requirement_tables_unchanged": true,
+    "targeted_tests_exit": 0,
+    "active_inference": 0,
+    "full_goal_complete": false
+  },
+  "authorship": "All Go and standing test semantics native Bonsai; operator lifecycle observer/prose only",
+  "reviewer_diversity": false,
+  "reviewer_rationale_note": "review-v1 phrase currently active plan revision is imprecise: SQL binds origin step to its own plan and filters active REQUIREMENT, not active plan. Actual regression verifies req2 origin plan2 escalation resolves after plan3; source and test are authoritative.",
+  "limitations": [
+    "No new actual marketplace generation after this patch at publication checkpoint",
+    "Lifecycle regression uses real SQLite/APIs with fixture provider and API-recorded failures, not actual command jobs",
+    "Affected suites plus whole vet/build only; prior Windows desktop observation runtime failure remains open",
+    "Selected-skill bridge/full marketplace/learning-transfer completion still pending"
+  ],
+  "full_goal_complete": false,
+  "evidence": [
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/baseline-reproduction-v2.json",
+      "bytes": 1062,
+      "sha256": "9481a5eb37a4df7002b16b542e25eae2e926e539d3a5c06170cb63865145ddf5"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/baseline-red.log",
+      "bytes": 636,
+      "sha256": "5f8008de6523facab9d2220c2f44659288e32ed45eb35c849ebd741d6f362309"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/pending-only-red.log",
+      "bytes": 772,
+      "sha256": "5e9f6a144c4bd3025fe1fdab306f94703e19e0cc1e717681731464ed2374cd65"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/targeted.log",
+      "bytes": 186,
+      "sha256": "85e51c422306e2d04cc02a1bd14fe681791c1c99216bd087679c223fbd6543df"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/qa-summary.json",
+      "bytes": 1047,
+      "sha256": "dd62ea4926eb76ee1bd549f0a68d87343cd99a018d6dabd13f016bf18d5aadeb"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/native-entries.json",
+      "bytes": 781,
+      "sha256": "124833310d9e6f22c397ef5d75483e1b027f6c35a6e8aa855e1e4656eff1680a"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/review-v1.task.json",
+      "bytes": 33797,
+      "sha256": "8b344d89aaaeeedc295937925d9a35914a904a8b75ac1f4097c11c8ef68151b2"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/review-v1.result.json",
+      "bytes": 1681,
+      "sha256": "b97d1d1d2fecca011716e5644e636177012f9f21979b1449939344e922111b47"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/review-v1.result.json.dispatch.json",
+      "bytes": 349,
+      "sha256": "72cd7738784e77153a843967b9632ec6656a868f16b20e57a0e0d994b5b2007b"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/review-v1.result.json.completion.json",
+      "bytes": 2050,
+      "sha256": "b6ef09dc4863adffa019c81be51fb0922dd375ad005ccc9abb0ff53738bc7daa"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/native-requirement-scope-apply-v1.result.json",
+      "bytes": 71521,
+      "sha256": "8510e0bcde5f559dbf87be1ecc2f8c4ddc85180407e17484b54ac27c81f7c22b"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/post-apply-proof.json",
+      "bytes": 448,
+      "sha256": "ea4b4f72a4dbfb5ca7edadf062f6745b1cbb5934c23487bb15ab29b4a7ea0351"
+    },
+    {
+      "path": ".tmp-ui/goal-20261023/live-20261026-001100/C64-20261028-requirement-escalation-v1/source-publish.json",
+      "bytes": 185,
+      "sha256": "9fadffff9f4bbd93baf8a27901e1b3f6b9a9166bcd304f6aa16244965ae85703"
+    }
+  ]
+}
