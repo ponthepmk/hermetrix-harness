@@ -3202,6 +3202,66 @@
       "path": "internal/taskcoord/proposal_check_contract_test.go",
       "role": "test",
       "summary": "Native bounded planner/worker list contract; real boundary/Propose regressions, see commerce64 handoff."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-verified-draft-repair.md",
+      "role": "feature",
+      "summary": "Published verified-draft repair, correct native review contract, retained failed API trials and causal diagnosis evidence."
+    },
+    {
+      "path": "docs/validation/2026-10-29-verified-draft-repair.json",
+      "role": "test",
+      "summary": "Exact source/test/review/HTTP/ledger/negative-trial/counterfactual evidence and limits."
+    },
+    {
+      "path": "internal/store/future_schema_test.go",
+      "role": "test",
+      "summary": "Newer DB versions are rejected without changing bytes, data, journal mode or lock ownership."
+    },
+    {
+      "path": "internal/worker/repair_draft.go",
+      "role": "module",
+      "summary": "Bounded repair pipeline preserving actual preimages, verified origins, explicit scope and goal budgets."
+    },
+    {
+      "path": "internal/worker/repair_draft_happy_test.go",
+      "role": "test",
+      "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
+    },
+    {
+      "path": "internal/worker/repair_draft_freeze_test.go",
+      "role": "test",
+      "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
+    },
+    {
+      "path": "internal/worker/repair_draft_protocol_test.go",
+      "role": "test",
+      "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
+    },
+    {
+      "path": "internal/worker/repair_draft_boundaries_test.go",
+      "role": "test",
+      "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
+    },
+    {
+      "path": "internal/taskcoord/goal_proposal_failure.go",
+      "role": "module",
+      "summary": "Bounded repair pipeline preserving actual preimages, verified origins, explicit scope and goal budgets."
+    },
+    {
+      "path": "internal/taskcoord/goal_proposal_failure_test.go",
+      "role": "test",
+      "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
+    },
+    {
+      "path": "internal/taskcoord/repair_drafts.go",
+      "role": "module",
+      "summary": "Bounded repair pipeline preserving actual preimages, verified origins, explicit scope and goal budgets."
+    },
+    {
+      "path": "internal/taskcoord/repair_drafts_test.go",
+      "role": "test",
+      "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
     }
   ]
 }

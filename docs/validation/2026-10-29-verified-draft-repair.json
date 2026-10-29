@@ -1,0 +1,1180 @@
+{
+  "recorded_at": "2026-10-29T06:10:44.273464+00:00",
+  "scope": "bounded verified historical drafts and safe complete-proposal rejection recovery",
+  "full_goal_complete": false,
+  "full_suite_green": false,
+  "native_repair_success": false,
+  "learning_benefit_proven": false,
+  "source_authorship": "Codex integration under updated Harness authorization; happy/freeze test files native-authored earlier",
+  "git_base": "ebe8a403918962dbbc7fdaa141942d4300e7b482",
+  "candidate_source_sha256": {
+    "internal/worker/models.go": "c025e804bcfe47c42cb6fc2db8f5103313a51c5172d4b6aa178572c66b220580",
+    "internal/worker/task_snapshot.go": "dd2c1d773878320e36ff09fa43a47922f20813ff6668ca61c5a8c34fa27352ea",
+    "internal/worker/proposal.go": "be25d2a0d2093ceb0c29eb8464462ffc89c92f16da9dff624660a4ec3223e954",
+    "internal/worker/proposal_request.go": "ad73a2e92f421ac2fb201291d170a965a3a8521219e3ba6687ea42816bcf5bf7",
+    "internal/worker/proposal_schema_scope.go": "7fa93c5a12c2e746faedf55c8852b86cbf486f598f9bc2aaea88c8b7fb2cbd1b",
+    "internal/worker/result_resources.go": "556292eb89884c60f378d888298a3aa0f6a390471ad36fb05f79989771c4a749",
+    "internal/worker/scoped_result.go": "981f8336531fe8c0f57442be743cd71612bd03f5676823525b3fe17e15bbf593",
+    "internal/worker/repair_draft.go": "a7c9039b4ddd2f3f71da0b0526e87f2449ae641b4023946e5cff713963a6d0db",
+    "internal/worker/repair_draft_happy_test.go": "4db61dbec8f2f91a305e91dd848b38c76d81c3b9de27d90bbcaf49c883a81e51",
+    "internal/worker/repair_draft_freeze_test.go": "530f2aeddc4aa6a13d8bb54f8696ee300ea287fe33f0bdb2fc6eb22e4dd0c123",
+    "internal/worker/repair_draft_protocol_test.go": "f8b01b6fd951f16435470ee66eb4582c1be4c3620d538aef51007b95793adad7",
+    "internal/worker/repair_draft_boundaries_test.go": "363c172ad88d7e5f98259bbe535ac0b94707c0c0ff0557d082ea0ce23a80ac78",
+    "internal/taskcoord/goal.go": "3a9409c977440fc1afdf1f0f7620ef07351eb6ccd74e75f3594a6130c8d55a72",
+    "internal/taskcoord/goal_test.go": "970c9640113abe2beeec651dad0a6b3470ec8620025edd70cdf142da15090501",
+    "internal/taskcoord/goal_proposal_failure.go": "3400cd60f8b017974337c14891cc6457d45e2cbc407171806988fbe37b57f0d9",
+    "internal/taskcoord/goal_proposal_failure_test.go": "60ab0a3879f6b0dda2a69b1cc976ff4bdd214a682fc46744653d30113ef50d24",
+    "internal/taskcoord/proposal_bundle.go": "d5a6aa80cd3e3c6b00a83dfc4e3acf3cf9f2d251234f15e498ec5213b4757183",
+    "internal/taskcoord/repair_drafts.go": "980dbd5b376d704e101e2eb326c1bf39edb7f918045d06e4cde773844dd9494b",
+    "internal/taskcoord/repair_drafts_test.go": "1fd01252325ace4bd987e7764aa4d0e0c3fa0290c8bfd897d739fb6882e44068",
+    "internal/taskcoord/service.go": "165a4f04c065969656308127562e8b11d4cb5aab1b7935c7c36ac5984be8d755"
+  },
+  "candidate_manifest_sha256": "1b38d1516065d4c662a2d8adc1db452baf9fa17e358091de3ea2aa51818a1e87",
+  "candidate_changes_published": true,
+  "limits": {
+    "repair_draft_files": 2,
+    "repair_draft_shared_utf8_bytes": 8192,
+    "context": 65536,
+    "profile_output_tokens": 8192,
+    "same_physical_model_review": true
+  },
+  "test_checkpoints": [
+    {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\affected-tests.jsonl",
+      "sha256": "3b9962a56457995dfe1815e0e0f0f28283956eca2a6c8a75d3b636c7c926a2bc",
+      "test_events": {
+        "pass": 389,
+        "skip": 1
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 8.319
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "pass",
+          "Elapsed": 29.787
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "fail",
+          "Elapsed": 182.256
+        }
+      ],
+      "failed_test_events": []
+    },
+    {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\affected-tests-300s.jsonl",
+      "sha256": "74ee78a68f14aab14bd292d856852035168cef9087e9e8eac553f980e343849e",
+      "test_events": {
+        "pass": 415,
+        "skip": 1
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 5.64
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "pass",
+          "Elapsed": 16.975
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "pass",
+          "Elapsed": 191.527
+        }
+      ],
+      "failed_test_events": []
+    },
+    {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\full-tests-v2.jsonl",
+      "sha256": "f4fba2a82a5f5a787185dc1aa32f301aa64e34e13d7985514cebaf99984e9dcf",
+      "test_events": {
+        "pass": 1562,
+        "skip": 23,
+        "fail": 6
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/blob",
+          "Action": "pass",
+          "Elapsed": 6.212
+        },
+        {
+          "Package": "hermetrix-harness/internal/capabilities",
+          "Action": "pass",
+          "Elapsed": 6.623
+        },
+        {
+          "Package": "hermetrix-harness/internal/durability",
+          "Action": "pass",
+          "Elapsed": 6.895
+        },
+        {
+          "Package": "hermetrix-harness/internal/context",
+          "Action": "pass",
+          "Elapsed": 8.22
+        },
+        {
+          "Package": "hermetrix-harness/internal/embedding",
+          "Action": "pass",
+          "Elapsed": 9.371
+        },
+        {
+          "Package": "hermetrix-harness/internal/curator",
+          "Action": "pass",
+          "Elapsed": 10.619
+        },
+        {
+          "Package": "hermetrix-harness/cmd/hermetrix-h2",
+          "Action": "pass",
+          "Elapsed": 11.621
+        },
+        {
+          "Package": "hermetrix-harness/cmd/hermetrix-goal",
+          "Action": "pass",
+          "Elapsed": 13.031
+        },
+        {
+          "Package": "hermetrix-harness/cmd/hermetrix",
+          "Action": "pass",
+          "Elapsed": 13.531
+        },
+        {
+          "Package": "hermetrix-harness/internal/inference",
+          "Action": "pass",
+          "Elapsed": 10.08
+        },
+        {
+          "Package": "hermetrix-harness/internal/runtime",
+          "Action": "pass",
+          "Elapsed": 4.4030000000000005
+        },
+        {
+          "Package": "hermetrix-harness/internal/localmodel",
+          "Action": "pass",
+          "Elapsed": 9.1
+        },
+        {
+          "Package": "hermetrix-harness/internal/agentplatform",
+          "Action": "pass",
+          "Elapsed": 14.003
+        },
+        {
+          "Package": "hermetrix-harness/internal/fidelity",
+          "Action": "pass",
+          "Elapsed": 12.799
+        },
+        {
+          "Package": "hermetrix-harness/internal/secrets",
+          "Action": "pass",
+          "Elapsed": 4.497
+        },
+        {
+          "Package": "hermetrix-harness/internal/agentplatform/piidentity",
+          "Action": "pass",
+          "Elapsed": 15.033
+        },
+        {
+          "Package": "hermetrix-harness/internal/textmatch",
+          "Action": "pass",
+          "Elapsed": 3.769
+        },
+        {
+          "Package": "hermetrix-harness/internal/projectbrain",
+          "Action": "pass",
+          "Elapsed": 11.32
+        },
+        {
+          "Package": "hermetrix-harness/internal/hostile",
+          "Action": "pass",
+          "Elapsed": 17.271
+        },
+        {
+          "Package": "hermetrix-harness/internal/tools",
+          "Action": "pass",
+          "Elapsed": 8.073
+        },
+        {
+          "Package": "hermetrix-harness/internal/selfimprove",
+          "Action": "pass",
+          "Elapsed": 11.078
+        },
+        {
+          "Package": "hermetrix-harness/internal/qualification",
+          "Action": "pass",
+          "Elapsed": 15.168
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskeval",
+          "Action": "pass",
+          "Elapsed": 11.168
+        },
+        {
+          "Package": "hermetrix-harness/internal/mcp",
+          "Action": "pass",
+          "Elapsed": 21.589
+        },
+        {
+          "Package": "hermetrix-harness/internal/learning",
+          "Action": "pass",
+          "Elapsed": 24.591
+        },
+        {
+          "Package": "hermetrix-harness/internal/providers",
+          "Action": "pass",
+          "Elapsed": 29.121
+        },
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 22.045
+        },
+        {
+          "Package": "hermetrix-harness/internal/store",
+          "Action": "pass",
+          "Elapsed": 26.426
+        },
+        {
+          "Package": "hermetrix-harness/internal/discordbridge",
+          "Action": "fail",
+          "Elapsed": 41.205
+        },
+        {
+          "Package": "hermetrix-harness/internal/skills",
+          "Action": "pass",
+          "Elapsed": 54.947
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "pass",
+          "Elapsed": 54.216
+        },
+        {
+          "Package": "hermetrix-harness/scripts",
+          "Action": "fail",
+          "Elapsed": 64.416
+        },
+        {
+          "Package": "hermetrix-harness/internal/agent",
+          "Action": "pass",
+          "Elapsed": 97.322
+        },
+        {
+          "Package": "hermetrix-harness/internal/product",
+          "Action": "pass",
+          "Elapsed": 172.848
+        },
+        {
+          "Package": "hermetrix-harness/internal/web",
+          "Action": "pass",
+          "Elapsed": 176.035
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "fail",
+          "Elapsed": 321.555
+        }
+      ],
+      "failed_test_events": [
+        "TestBridgeDeadlineFinishesDeferredResponseWithoutReplayingWork",
+        "TestArchitecturePilotPreflightNeverStartsOrReplacesAProcess",
+        "TestLauncherDetachedReuseAndIdentity",
+        "TestLauncherForeignPortIsUntouched",
+        "TestLauncherUnexpectedHealthyProcessIsUntouched",
+        "TestDeliveryLauncherOpensOfflineAndPreservesExactInstance"
+      ]
+    },
+    {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\candidate-tests.jsonl",
+      "sha256": "cd6fa02f2539a4acd2cca4c30e95d4d65fcec1f8b7ab72568e9a3be244e9b2cb",
+      "test_events": {
+        "pass": 303,
+        "fail": 1,
+        "skip": 1
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 25.351
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "fail",
+          "Elapsed": 363.649
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "fail",
+          "Elapsed": 363.662
+        }
+      ],
+      "failed_test_events": [
+        "TestGoalCreatesNewSourceRollsBackToAbsenceAndReplans"
+      ]
+    },
+    {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\candidate-focused-tests.jsonl",
+      "sha256": "071c2971293955e4b3290d873d8516d93a1783d9b6a79b316244fd847274994c",
+      "test_events": {
+        "pass": 25,
+        "fail": 1
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 1.998
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "pass",
+          "Elapsed": 0.496
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "fail",
+          "Elapsed": 181.636
+        }
+      ],
+      "failed_test_events": [
+        "TestGoalRejectedCompleteProposalStartsFreshBoundedAttempt"
+      ]
+    },
+    {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\candidate-focused-d-tests.jsonl",
+      "sha256": "3de6a7288430552bf133ad0042ed1aa90493e955a12b9af2ec4b92add90f0c58",
+      "test_events": {
+        "pass": 36
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "pass",
+          "Elapsed": 0.946
+        },
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 2.915
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "pass",
+          "Elapsed": 54.328
+        }
+      ],
+      "failed_test_events": []
+    }
+  ],
+  "candidate_vet_exit_code": 0,
+  "candidate_build_exit_code": 0,
+  "live_trials": {
+    "live-v1": {
+      "result": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\live-v1\\result.json",
+      "result_sha256": "42568afce80931e89297fa7fd6809fa7ae63f267c7cbfd74700e8920015b2dd0",
+      "goal_id": "goalop_852d3269bb8734618d011c99ae0619f759ad1ad2d01629dbe3d45412504c55df",
+      "state": "waiting",
+      "actions": 12,
+      "attempts": 2,
+      "plans": 1,
+      "actual_model_calls": 4,
+      "seed_calls": 1,
+      "readonly_hashes": {
+        "api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981",
+        "api/go.mod": "507f490e953fd9655cfbaf4508d9348084c176a9fba4187ecc7d16cda4ab86ff",
+        "api/go.sum": "faac02efcbba1cee48a6329a786a30519daad1034699951e181378f18efc1266"
+      },
+      "no_main_process": true
+    },
+    "live-v2": {
+      "result": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\live-v2\\result.json",
+      "result_sha256": "d5a7747d044b0996b8618151b4ca0f0779179f8726f4207e971443e8d13d885e",
+      "goal_id": "goalop_d7b1e8ed2044b31ab9f94e711ece2fb17a328696998513a2706c931532554a6a",
+      "state": "budget_exhausted",
+      "actions": 31,
+      "attempts": 3,
+      "plans": 2,
+      "actual_model_calls": 7,
+      "seed_calls": 1,
+      "readonly_hashes": {
+        "api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981",
+        "api/go.mod": "507f490e953fd9655cfbaf4508d9348084c176a9fba4187ecc7d16cda4ab86ff",
+        "api/go.sum": "faac02efcbba1cee48a6329a786a30519daad1034699951e181378f18efc1266"
+      },
+      "no_main_process": true
+    },
+    "live-v3": {
+      "result": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\live-v3\\result.json",
+      "result_sha256": "29185133d419343d7bc7e644cb885dc0cdbaee87b141e40bf330a7119b296c9c",
+      "source_commit": "9476f93267db597a7fa453013971ee2505faea24",
+      "state": "budget_exhausted",
+      "actions": 18,
+      "attempts": 3,
+      "plans": 2,
+      "actual_model_calls": 7,
+      "seed_calls": 1,
+      "readonly_hashes": {
+        "api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981",
+        "api/go.mod": "507f490e953fd9655cfbaf4508d9348084c176a9fba4187ecc7d16cda4ab86ff",
+        "api/go.sum": "faac02efcbba1cee48a6329a786a30519daad1034699951e181378f18efc1266"
+      },
+      "rollback_receipts": 1,
+      "unchanged_proposals_rejected_before_apply": 2,
+      "budget_or_old_trials_reset": false,
+      "target_write_timeout10_present_in_actual_worker_brief": true,
+      "native_repair_success": false,
+      "no_main_process": true
+    }
+  },
+  "pending": {},
+  "native_code_review": {
+    "state": "terminal_failed",
+    "exec_session_id": 45908,
+    "driver_log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\code-review-driver.log",
+    "worker": {
+      "error": "review response was truncated",
+      "review": {
+        "verdict": "",
+        "rationale": "",
+        "findings": null,
+        "usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        }
+      },
+      "same_physical_model": true
+    },
+    "coordinator": {
+      "error": "review response was truncated",
+      "review": {
+        "verdict": "",
+        "rationale": "",
+        "findings": null,
+        "usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        }
+      },
+      "same_physical_model": true
+    },
+    "raw_sha256": {
+      "001.request.json": "0b8f0d7e4271bd82475c9e92b55dc9e48c0a75178c4a3175e195f32a01ad94be",
+      "001.response.json": "4438cdb2a1a55b9df6a4d70a87824d3eb4959b13d3de60f60c3130dae0f579f2",
+      "002.request.json": "ea3e33e7e43a4c295a994c57e09995143624f116bb76f713ad35dac17bac8092",
+      "002.response.json": "7af956105e64d7aad00d5f09431dfeb4a6b773c442ebb5c776e76fb70794d6b0",
+      "coordinator.input.json": "393511acccd81234b3347ee0e09bb4ff49ef33d8a6657161c23f9f21045f0b59",
+      "coordinator.result.json": "665e426a3e690371874ee0e293e6c0fcc6aaf5667bb6f309c6edcc1ad8fbab3b",
+      "worker.input.json": "1a298389b2c943253f508a4b4430e9a4fe2e4c3379a5cd561ca6ed2ed3273cd3",
+      "worker.result.json": "665e426a3e690371874ee0e293e6c0fcc6aaf5667bb6f309c6edcc1ad8fbab3b"
+    },
+    "approval_obtained": false,
+    "rejected_output_salvaged": false,
+    "actual_usage": {
+      "001.response.json": {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 19235,
+          "completion_tokens": 8192,
+          "total_tokens": 27427
+        }
+      },
+      "002.response.json": {
+        "finish_reason": "length",
+        "usage": {
+          "prompt_tokens": 30733,
+          "completion_tokens": 8192,
+          "total_tokens": 38925
+        }
+      }
+    },
+    "scope_correction": "Broad v1 and partitioned v2 operator calls omitted inference.WithOwner, so preset_id/revision/digest were empty and reasoning was uncontrolled; not evidence that the production reviewer preset fails."
+  },
+  "isolated_review_schema_tag_restore": {
+    "schema_before": 81,
+    "schema_after": 82,
+    "six_task_tables_byte_equivalent_in_canonical_snapshot": true,
+    "tables": {
+      "task_goal_runs": {
+        "rows": 10,
+        "sha256": "eeb7a53277fea5670a6e140e387576956330977404e35fe0080fac6b5a6aaed8"
+      },
+      "task_goal_actions": {
+        "rows": 247,
+        "sha256": "e10ba8ec8700c6f9b8f1b25832342c7f2065d92670635d1fb533335c2045708e"
+      },
+      "task_step_attempts": {
+        "rows": 27,
+        "sha256": "037e65c5b716857ab3604fb9f48ae6e668d6790123b7d44a6feadec7e363d5df"
+      },
+      "task_effect_intents": {
+        "rows": 168,
+        "sha256": "4d34149fa5418403fc581e62251d1a2a5e9b5a46e71c3da79438d02b19bc650b"
+      },
+      "task_code_proposals": {
+        "rows": 20,
+        "sha256": "b484456470a58e71e75b9dd9c95af34dfb806f72d386204ac21ff88c6847b143"
+      },
+      "durable_tasks": {
+        "rows": 6,
+        "sha256": "21cbdc61b254985ec040283e2afe43e15c2a9dcd06c69c97d05d7e2c3adb3b24"
+      }
+    },
+    "operator_error": "old schema81 commit-candidate reviewer opened isolated schema82 copy; version tag downgraded to81; current schema82 Open restored tag idempotently after review terminal; original data unaffected"
+  },
+  "published_separate_future_schema_fix": {
+    "commit": "88a979c07a0a444c9387778fffc25564303388ac",
+    "branch": "dev",
+    "pushed": true,
+    "files": [
+      "internal/store/store.go",
+      "internal/store/future_schema_test.go"
+    ],
+    "red_baseline_exit": 1,
+    "guarded_schema81_exit": 0,
+    "current_schema82_exit": 0,
+    "vet_store_exit": 0,
+    "build_store_exit": 0,
+    "commit_input": {
+      "base": "ebe8a403918962dbbc7fdaa141942d4300e7b482",
+      "files": {
+        "internal/store/store.go": {
+          "git_blob": "b7a735e12bc49297e3df79d7a4732d20b43c5f9e",
+          "sha256": "f1a761762fadfc68c485297f679c54fefb415862e717376c9c2f6a03c493ac58"
+        },
+        "internal/store/future_schema_test.go": {
+          "git_blob": "c9d7ec5879aa5ce0cc3952c33172d5fe6f3d0d0d",
+          "sha256": "e6a434b66a9e86daf2ccab66d2b6deb243a6d146c68d2a3d2367c67e3a3175eb"
+        }
+      },
+      "validation": {
+        "red_expected_nonzero": 1,
+        "green": 0,
+        "current82_targeted": 0,
+        "vet_store": 0,
+        "build_store": 0
+      },
+      "scope": "only future-schema protection; unrelated schema82 migration and repair/architecture changes remain in working tree"
+    },
+    "store_suite": {
+      "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\future-schema-store-tests.jsonl",
+      "sha256": "65ed3ccaf6c6431c7ba2fe427d26721f5a54cf651c9e5230362c118e1503c3ed",
+      "test_events": {
+        "skip": 1,
+        "pass": 21
+      },
+      "terminal_packages": [
+        {
+          "Package": "hermetrix-harness/internal/store",
+          "Action": "pass",
+          "Elapsed": 53.216
+        }
+      ],
+      "failures": []
+    }
+  },
+  "candidate_full_affected_package_tests": {
+    "log": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\candidate-full-d-tests.jsonl",
+    "sha256": "48c94d0bf05660accd6f7a9b9cb63d58114d78a652b2af85f75d852adb679ff9",
+    "test_events": {
+      "pass": 419,
+      "skip": 1
+    },
+    "terminal_packages": [
+      {
+        "Package": "hermetrix-harness/internal/worker",
+        "Action": "pass",
+        "Elapsed": 15.803
+      },
+      {
+        "Package": "hermetrix-harness/internal/taskcoord",
+        "Action": "pass",
+        "Elapsed": 421.768
+      },
+      {
+        "Package": "hermetrix-harness/internal/taskengine",
+        "Action": "pass",
+        "Elapsed": 85.688
+      }
+    ],
+    "failures": [],
+    "command_policy": {
+      "test_package_timeout_seconds": 600,
+      "serialized_package_processes": true,
+      "child_only_temp_root_on_D": true,
+      "goal_and_provider_budgets_changed": false
+    }
+  },
+  "published_core_commit": "9476f93267db597a7fa453013971ee2505faea24",
+  "published_core_branch": "dev",
+  "published_core_pushed": true,
+  "scoped_review_v2": {
+    "state": "terminal_failed",
+    "exec_session_id": 90587,
+    "first_part_result": {
+      "error": "review response was truncated",
+      "input_sha256": "0f8017c9bab6cc1182cbb91721419adc11e37b5c5d54d475a86cfe773f6b677e",
+      "review": {
+        "verdict": "",
+        "rationale": "",
+        "findings": null,
+        "usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "total_tokens": 0
+        }
+      },
+      "same_physical_model": true
+    },
+    "remaining_parts_not_dispatched": true,
+    "inference_ledger": {
+      "owner_kind": "unscoped",
+      "owner_id": "process",
+      "preset_id": "",
+      "preset_revision": 0,
+      "effective_parameter_digest": ""
+    },
+    "rejected_output_salvaged": false
+  },
+  "production_role_bound_review_v3": {
+    "state": "terminal_pass",
+    "exec_session_id": 70795,
+    "scope": "five bounded review parts covering all20changed source/test paths; tracked large files use all changed hunks with context",
+    "plan_sha256": "dc0da72c68c67aa08b3ac6009cfaec2979a40eeebb43052d4ecfd028362de118",
+    "plan": {
+      "candidate_manifest_sha256": "1b38d1516065d4c662a2d8adc1db452baf9fa17e358091de3ea2aa51818a1e87",
+      "source_sha256": {
+        "internal/worker/models.go": "c025e804bcfe47c42cb6fc2db8f5103313a51c5172d4b6aa178572c66b220580",
+        "internal/worker/task_snapshot.go": "dd2c1d773878320e36ff09fa43a47922f20813ff6668ca61c5a8c34fa27352ea",
+        "internal/worker/proposal.go": "be25d2a0d2093ceb0c29eb8464462ffc89c92f16da9dff624660a4ec3223e954",
+        "internal/worker/proposal_request.go": "ad73a2e92f421ac2fb201291d170a965a3a8521219e3ba6687ea42816bcf5bf7",
+        "internal/worker/proposal_schema_scope.go": "7fa93c5a12c2e746faedf55c8852b86cbf486f598f9bc2aaea88c8b7fb2cbd1b",
+        "internal/worker/result_resources.go": "556292eb89884c60f378d888298a3aa0f6a390471ad36fb05f79989771c4a749",
+        "internal/worker/scoped_result.go": "981f8336531fe8c0f57442be743cd71612bd03f5676823525b3fe17e15bbf593",
+        "internal/worker/repair_draft.go": "a7c9039b4ddd2f3f71da0b0526e87f2449ae641b4023946e5cff713963a6d0db",
+        "internal/worker/repair_draft_happy_test.go": "4db61dbec8f2f91a305e91dd848b38c76d81c3b9de27d90bbcaf49c883a81e51",
+        "internal/worker/repair_draft_freeze_test.go": "530f2aeddc4aa6a13d8bb54f8696ee300ea287fe33f0bdb2fc6eb22e4dd0c123",
+        "internal/worker/repair_draft_protocol_test.go": "f8b01b6fd951f16435470ee66eb4582c1be4c3620d538aef51007b95793adad7",
+        "internal/worker/repair_draft_boundaries_test.go": "363c172ad88d7e5f98259bbe535ac0b94707c0c0ff0557d082ea0ce23a80ac78",
+        "internal/taskcoord/goal.go": "3a9409c977440fc1afdf1f0f7620ef07351eb6ccd74e75f3594a6130c8d55a72",
+        "internal/taskcoord/goal_test.go": "970c9640113abe2beeec651dad0a6b3470ec8620025edd70cdf142da15090501",
+        "internal/taskcoord/goal_proposal_failure.go": "3400cd60f8b017974337c14891cc6457d45e2cbc407171806988fbe37b57f0d9",
+        "internal/taskcoord/goal_proposal_failure_test.go": "60ab0a3879f6b0dda2a69b1cc976ff4bdd214a682fc46744653d30113ef50d24",
+        "internal/taskcoord/proposal_bundle.go": "d5a6aa80cd3e3c6b00a83dfc4e3acf3cf9f2d251234f15e498ec5213b4757183",
+        "internal/taskcoord/repair_drafts.go": "980dbd5b376d704e101e2eb326c1bf39edb7f918045d06e4cde773844dd9494b",
+        "internal/taskcoord/repair_drafts_test.go": "1fd01252325ace4bd987e7764aa4d0e0c3fa0290c8bfd897d739fb6882e44068",
+        "internal/taskcoord/service.go": "165a4f04c065969656308127562e8b11d4cb5aab1b7935c7c36ac5984be8d755"
+      },
+      "partitions": [
+        {
+          "name": "snapshot-materialization",
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\code-review-v2-input\\00-snapshot-materialization.json",
+          "sha256": "0f8017c9bab6cc1182cbb91721419adc11e37b5c5d54d475a86cfe773f6b677e",
+          "json_utf8_bytes": 24230,
+          "criteria": [
+            "Validate bounded whole historical drafts and frozen map ownership without replacing actual Files or absence.",
+            "Materialize exact edits or explicit retention with proof and real before-hash/create-versus-replace strategy."
+          ]
+        },
+        {
+          "name": "wire-contract",
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\code-review-v2-input\\01-wire-contract.json",
+          "sha256": "30f8cb4c6d4fc28016bbc9dc42af1ca773711f3ee5e1a4079254873e2a28683c",
+          "json_utf8_bytes": 20899,
+          "criteria": [
+            "Draft paths accept only edits or explicit true retention; ordinary paths retain prior forms. System instructions and schema agree.",
+            "Secrets including transient edit proof are rejected, and persisted/result identity preserves the source transformation."
+          ]
+        },
+        {
+          "name": "persisted-proof",
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\code-review-v2-input\\02-persisted-proof.json",
+          "sha256": "11c99f348936731f0bb86f80e7551e7c820a4b884f45b99167b83f4426833658",
+          "json_utf8_bytes": 18451,
+          "criteria": [
+            "Re-signed tampered persisted results cannot bypass actual preimages, draft proof or writable/view bounds.",
+            "File count, shared UTF8-byte and raw metadata/proof limits are charged before expensive hashing/materialization."
+          ]
+        },
+        {
+          "name": "origin-and-integration",
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\code-review-v2-input\\03-origin-and-integration.json",
+          "sha256": "1e044058b40f92533119d54675742d801af1632e350fb4b6c7e6776f42817401",
+          "json_utf8_bytes": 26767,
+          "criteria": [
+            "Use only same-task/project/requirement verified failed proposal/log/input/current-preimage bindings; no larger scope or context budget.",
+            "Hook validated drafts into Propose before dispatch, reject unchanged failed source before apply, and reject unbound legacy repair proof.",
+            "Existing/absent rollback and SQLite reopen tests support these bindings; model transport is explicitly a fixture."
+          ]
+        },
+        {
+          "name": "bounded-retry",
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\draft-repair-integration-20261029\\code-review-v2-input\\04-bounded-retry.json",
+          "sha256": "f2c36e8f96a7c13bd9121202038992246c023d57a4550d9171a5762999004d28",
+          "json_utf8_bytes": 19896,
+          "criteria": [
+            "Retry complete invalid proposals only with observed failed receipts and settled provider-only effects; no replay or increased goal budget.",
+            "Unknown/transport/truncated/partial-persistence/workspace outcomes require inspection; normal completion/review/authority gates remain."
+          ]
+        }
+      ],
+      "coverage": {
+        "internal/worker/models.go": {
+          "partitions": [
+            "snapshot-materialization"
+          ],
+          "source_sha256": "c025e804bcfe47c42cb6fc2db8f5103313a51c5172d4b6aa178572c66b220580",
+          "view": "all changed hunks, eight context lines"
+        },
+        "internal/worker/task_snapshot.go": {
+          "partitions": [
+            "snapshot-materialization"
+          ],
+          "source_sha256": "dd2c1d773878320e36ff09fa43a47922f20813ff6668ca61c5a8c34fa27352ea",
+          "view": "all changed hunks, eight context lines"
+        },
+        "internal/worker/proposal.go": {
+          "partitions": [
+            "wire-contract"
+          ],
+          "source_sha256": "be25d2a0d2093ceb0c29eb8464462ffc89c92f16da9dff624660a4ec3223e954",
+          "view": "all changed hunks, eight context lines"
+        },
+        "internal/worker/proposal_request.go": {
+          "partitions": [
+            "wire-contract"
+          ],
+          "source_sha256": "ad73a2e92f421ac2fb201291d170a965a3a8521219e3ba6687ea42816bcf5bf7",
+          "view": "full after source"
+        },
+        "internal/worker/proposal_schema_scope.go": {
+          "partitions": [
+            "wire-contract"
+          ],
+          "source_sha256": "7fa93c5a12c2e746faedf55c8852b86cbf486f598f9bc2aaea88c8b7fb2cbd1b",
+          "view": "full after source"
+        },
+        "internal/worker/result_resources.go": {
+          "partitions": [
+            "persisted-proof"
+          ],
+          "source_sha256": "556292eb89884c60f378d888298a3aa0f6a390471ad36fb05f79989771c4a749",
+          "view": "full after source"
+        },
+        "internal/worker/scoped_result.go": {
+          "partitions": [
+            "persisted-proof"
+          ],
+          "source_sha256": "981f8336531fe8c0f57442be743cd71612bd03f5676823525b3fe17e15bbf593",
+          "view": "full after source"
+        },
+        "internal/worker/repair_draft.go": {
+          "partitions": [
+            "snapshot-materialization",
+            "persisted-proof"
+          ],
+          "source_sha256": "a7c9039b4ddd2f3f71da0b0526e87f2449ae641b4023946e5cff713963a6d0db",
+          "view": "full after source"
+        },
+        "internal/worker/repair_draft_happy_test.go": {
+          "partitions": [
+            "snapshot-materialization"
+          ],
+          "source_sha256": "4db61dbec8f2f91a305e91dd848b38c76d81c3b9de27d90bbcaf49c883a81e51",
+          "view": "full after source"
+        },
+        "internal/worker/repair_draft_freeze_test.go": {
+          "partitions": [
+            "snapshot-materialization"
+          ],
+          "source_sha256": "530f2aeddc4aa6a13d8bb54f8696ee300ea287fe33f0bdb2fc6eb22e4dd0c123",
+          "view": "full after source"
+        },
+        "internal/worker/repair_draft_protocol_test.go": {
+          "partitions": [
+            "wire-contract"
+          ],
+          "source_sha256": "f8b01b6fd951f16435470ee66eb4582c1be4c3620d538aef51007b95793adad7",
+          "view": "full after source"
+        },
+        "internal/worker/repair_draft_boundaries_test.go": {
+          "partitions": [
+            "persisted-proof"
+          ],
+          "source_sha256": "363c172ad88d7e5f98259bbe535ac0b94707c0c0ff0557d082ea0ce23a80ac78",
+          "view": "full after source"
+        },
+        "internal/taskcoord/goal.go": {
+          "partitions": [
+            "bounded-retry"
+          ],
+          "source_sha256": "3a9409c977440fc1afdf1f0f7620ef07351eb6ccd74e75f3594a6130c8d55a72",
+          "view": "all changed hunks, eight context lines"
+        },
+        "internal/taskcoord/goal_test.go": {
+          "partitions": [
+            "bounded-retry"
+          ],
+          "source_sha256": "970c9640113abe2beeec651dad0a6b3470ec8620025edd70cdf142da15090501",
+          "view": "all changed hunks, eight context lines"
+        },
+        "internal/taskcoord/goal_proposal_failure.go": {
+          "partitions": [
+            "bounded-retry"
+          ],
+          "source_sha256": "3400cd60f8b017974337c14891cc6457d45e2cbc407171806988fbe37b57f0d9",
+          "view": "full after source"
+        },
+        "internal/taskcoord/goal_proposal_failure_test.go": {
+          "partitions": [
+            "bounded-retry"
+          ],
+          "source_sha256": "60ab0a3879f6b0dda2a69b1cc976ff4bdd214a682fc46744653d30113ef50d24",
+          "view": "full after source"
+        },
+        "internal/taskcoord/proposal_bundle.go": {
+          "partitions": [
+            "origin-and-integration"
+          ],
+          "source_sha256": "d5a6aa80cd3e3c6b00a83dfc4e3acf3cf9f2d251234f15e498ec5213b4757183",
+          "view": "full after source"
+        },
+        "internal/taskcoord/repair_drafts.go": {
+          "partitions": [
+            "origin-and-integration"
+          ],
+          "source_sha256": "980dbd5b376d704e101e2eb326c1bf39edb7f918045d06e4cde773844dd9494b",
+          "view": "full after source"
+        },
+        "internal/taskcoord/repair_drafts_test.go": {
+          "partitions": [
+            "origin-and-integration"
+          ],
+          "source_sha256": "1fd01252325ace4bd987e7764aa4d0e0c3fa0290c8bfd897d739fb6882e44068",
+          "view": "full after source"
+        },
+        "internal/taskcoord/service.go": {
+          "partitions": [
+            "origin-and-integration"
+          ],
+          "source_sha256": "165a4f04c065969656308127562e8b11d4cb5aab1b7935c7c36ac5984be8d755",
+          "view": "all changed hunks, eight context lines"
+        }
+      },
+      "not_full_native_autonomy_or_diverse_review": true,
+      "prior_two_truncated_reviews_retained": true
+    },
+    "same_physical_model": true,
+    "runtime_schema": 81,
+    "profile_defaults_changed": false,
+    "source_files_changed_to_obtain_review": false,
+    "role_preset": {
+      "id": "worker-review-3e60e3c303b510f2faa49948",
+      "revision": 1,
+      "role": "worker-review",
+      "context_target": 20000,
+      "context_max": 30000,
+      "reasoning_mode": "disabled",
+      "reasoning_token_cap": 0,
+      "answer_reserve": 4096,
+      "generation_cap": 4096,
+      "temperature": 0.1,
+      "schema_version": 1,
+      "content_digest": "f46688c5edb895af0434eede3f65d4722263df7d93e66eaf36f261dce81d4ae3"
+    },
+    "parts": {
+      "snapshot-materialization": {
+        "review": {
+          "error": "",
+          "input_sha256": "0f8017c9bab6cc1182cbb91721419adc11e37b5c5d54d475a86cfe773f6b677e",
+          "review": {
+            "verdict": "approve",
+            "rationale": "The snapshot-materialization component is implemented and evidenced. models.go adds RepairDrafts to Task, Change.Repair, RepairDraft, and DraftEditProof with JSON tags. task_snapshot.go validates drafts before snapshotting and deep-copies RepairDrafts into both snapshot and wire copies, preserving freeze independence. repair_draft.go enforces bounded file/byte budgets, selected whole-file writable scope, no partial views, valid paths, provenance SHA256s, content hash equality, and non-identity against current files. materializeRepairDraft accepts only exact edits or explicit retention, records create_file/replace_file strategy with absent-file handling, and does not mutate task.Files. validateRepairDraftChange rederives the change from the frozen proof and compares BeforeSHA256, Strategy, and Content. Tests cover freeze binding, aliasing, byte boundaries, view conflicts, actual preimages, absent/create vs replace, and rederivation. Test evidence shows all three affected package suites passed with vet/build pass. No current-step blocking defects found.",
+            "findings": [],
+            "usage": {
+              "prompt_tokens": 7973,
+              "completion_tokens": 262,
+              "total_tokens": 8235
+            }
+          },
+          "same_physical_model": true
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "7b255287c8370d0a4156ae21b9ed3199c35105170800e800a755a3d896d786cc",
+          "temperature": 0.1
+        },
+        "ledger_contract": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        },
+        "effective_input_sha256": "68aaebf59a290a915ad18b08fc86f95a4e62c7b1f617280c093d45acd06264fe",
+        "raw_sha256": {
+          "001.request.json": "e88f359a671ecf8e750e478548412c74c107c708d5b28d60e302e57d799d0ee4",
+          "001.response.json": "def299fa30cef05e87c8bbd34989b00199b4ad35cbde71d987b651d68f19e42d",
+          "effective-input.json": "68aaebf59a290a915ad18b08fc86f95a4e62c7b1f617280c093d45acd06264fe",
+          "http-role-contract.json": "5ee943965d1bf2736277c741b3d3f3979a1d68a7fefdbaa3624af7631fca1708",
+          "ledger-contract.json": "f377100760e129d03e8eaace16470c1974d857621a015a69c4fb08c429df938c",
+          "result.json": "0b1677f96098c2ffb63618bed2a10ee6b46a9a47d1b081b1fd0fa4244c0ecade"
+        }
+      },
+      "wire-contract": {
+        "review": {
+          "error": "",
+          "input_sha256": "30f8cb4c6d4fc28016bbc9dc42af1ca773711f3ee5e1a4079254873e2a28683c",
+          "review": {
+            "verdict": "approve",
+            "rationale": "The wire-contract component is implemented and evidenced. proposalRequest.go and proposal_schema_scope.go enforce the per-path source contract: when RepairDrafts is nonempty, the system prompt replaces the ordinary full-content rule with a rule that draft paths accept only edits or retain_draft:true, while ordinary paths keep content/edits. The schema adds retain_draft (const true) and a oneOf of content (ordinary paths), edits (allowed paths), and retain_draft (draft paths), with additionalProperties false and path enums. proposal.go adds RetainDraft to the proposal struct, rejects retain_draft without an explicit historical draft, rejects credential values in draft edits and derived content, and materializes draft repairs via materializeRepairDraft. Tests cover retain/edits derivation, wire separation of historical drafts from current snapshots, persisted/result identity, tamper rejection, invalid forms, ordinary retention rejection, credential guards, and resource budgets. Test evidence shows all three affected package suites passed (419 pass, 1 conditional skip, 0 fail), vet/build pass, and budgets unchanged. No blocking defects found.",
+            "findings": [],
+            "usage": {
+              "prompt_tokens": 6644,
+              "completion_tokens": 273,
+              "total_tokens": 6917
+            }
+          },
+          "same_physical_model": true
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "d78efbcc8b3d860a4c81341f87a0f370dbd1fb672934052ff74035a042a89e35",
+          "temperature": 0.1
+        },
+        "ledger_contract": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        },
+        "effective_input_sha256": "5b3702eba50a73fff7fdf911880fc5cdc2edc5a5ce82fc278cb9b9d076496982",
+        "raw_sha256": {
+          "001.request.json": "6acc43f60cc9bc1340dbf58aaba4e7d0bb8e4dcdadcf5e1af87717c8ea3184f9",
+          "001.response.json": "2cd829827d64877f28b2ee1c18fb9b2ccc15f70f761d9d883a62ad64fec71500",
+          "effective-input.json": "5b3702eba50a73fff7fdf911880fc5cdc2edc5a5ce82fc278cb9b9d076496982",
+          "http-role-contract.json": "93b14d38ab4a3f8a93bd1ac927b22b85745d20629239036e6683d376e7c79775",
+          "ledger-contract.json": "f377100760e129d03e8eaace16470c1974d857621a015a69c4fb08c429df938c",
+          "result.json": "32b7731cf80b7b52fbdfcda77bcf1d06bbdf991116c87f95ec1c8a67bb9e4c06"
+        }
+      },
+      "persisted-proof": {
+        "review": {
+          "error": "",
+          "input_sha256": "11c99f348936731f0bb86f80e7551e7c820a4b884f45b99167b83f4426833658",
+          "review": {
+            "verdict": "approve",
+            "rationale": "The persisted-proof component enforces the required preimage, draft-proof, and writable/view bounds before materialization. validateRepairDrafts checks explicit writable scope, selected whole-file views, path safety, provenance SHA/ID formats, shared UTF-8 byte budget, and that draft content matches its historical snapshot. materializeRepairDraft rejects mixed retention/edits, clones edits into the proof, and distinguishes empty existing files from absent files. validateRepairDraftChange rederives the change from the frozen proof and rejects mutations, retention combined with edits, or mismatched before hash/strategy/content. result_resources.go charges file count, shared UTF-8/raw metadata budgets, and canonical encoded size before hashing. scoped_result.go routes historical drafts through validateRepairDraftChange and rejects unexpected repair proofs. Tests cover unbound scope, malformed provenance, unsafe paths, false absence, shared budget overflow, empty preimage, edit aliasing, and mixed retention. Test evidence shows the affected suites passed.",
+            "findings": [],
+            "usage": {
+              "prompt_tokens": 6331,
+              "completion_tokens": 251,
+              "total_tokens": 6582
+            }
+          },
+          "same_physical_model": true
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "99fbf33156788821bc489297abfef3557e96db7bbfff0b23f5c946f9d63d9150",
+          "temperature": 0.1
+        },
+        "ledger_contract": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        },
+        "effective_input_sha256": "82914ed14d31ca427b11f8cec68479b4e275b933f0f26d769c70f604aaa45762",
+        "raw_sha256": {
+          "001.request.json": "943949c23e91cdb2d0890c603b0b5e721b4b85f69cb66cfa2e998f7848f451f5",
+          "001.response.json": "f2472e2f9b23e395e08769a02dfb748545d78485802b71b8e883758de7e8c23f",
+          "effective-input.json": "82914ed14d31ca427b11f8cec68479b4e275b933f0f26d769c70f604aaa45762",
+          "http-role-contract.json": "bff03b6eef850249e3c0d2ff0af609be4164999bac3c770c41d4be1d6a9a45ac",
+          "ledger-contract.json": "f377100760e129d03e8eaace16470c1974d857621a015a69c4fb08c429df938c",
+          "result.json": "8c14e3aa7f65cbd4e27248c67a56edaafa7a1d8498a2737781ddab6ee4b4e76d"
+        }
+      },
+      "origin-and-integration": {
+        "review": {
+          "error": "",
+          "input_sha256": "1e044058b40f92533119d54675742d801af1632e350fb4b6c7e6776f42817401",
+          "review": {
+            "verdict": "approve",
+            "rationale": "The origin-and-integration component is implemented and evidenced. service.go wires attachRepairDrafts into Propose before dispatch and adds the repeatsFailedDrafts guard before apply, rejecting unchanged failed drafts with invalid_proposal. repair_drafts.go binds drafts only to same-task/requirement verified failed proposals, validates origin packet, project, requirement revision, checksums, writable paths, preimage/absent state, and budgets; legacy repair proof is rejected by decodeProposalBundle. Tests cover existing/absent rollback, SQLite reopen, bad log checksum, changed preimage, readonly, old requirement, moved root, and too-small context; model transport is a fixture. Test evidence shows 419 pass, 0 fail, vet/build pass, and live v1/v2 failure with no claimed native repair success.",
+            "findings": [],
+            "usage": {
+              "prompt_tokens": 8844,
+              "completion_tokens": 216,
+              "total_tokens": 9060
+            }
+          },
+          "same_physical_model": true
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "c4364e4fed8c8395f6feae833c6b6a6e15fbf19f0fce9f23f6f8b25c1e82c3d5",
+          "temperature": 0.1
+        },
+        "ledger_contract": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        },
+        "effective_input_sha256": "9225c4eb25051bb8c52e769a152ad15521111b01e88731c0ec6484e2f27b6c56",
+        "raw_sha256": {
+          "001.request.json": "9172b79daa6c888150dbe52ee413eb26eee94f115104220620282bc3ab09c57b",
+          "001.response.json": "902c2d9e9415c0e2a6d35c46edca706917fd257e18b4a5e3adda5de8c1a6209f",
+          "effective-input.json": "9225c4eb25051bb8c52e769a152ad15521111b01e88731c0ec6484e2f27b6c56",
+          "http-role-contract.json": "0cc6764b4641d5da0aefa1777bc23db3415ce5e4d9d8c2768674d13491198016",
+          "ledger-contract.json": "f377100760e129d03e8eaace16470c1974d857621a015a69c4fb08c429df938c",
+          "result.json": "86f686b0013caa803897489ef1539991f3b8be4d9c1abb7c9be81fb451ce6214"
+        }
+      },
+      "bounded-retry": {
+        "review": {
+          "error": "",
+          "input_sha256": "f2c36e8f96a7c13bd9121202038992246c023d57a4550d9171a5762999004d28",
+          "review": {
+            "verdict": "approve",
+            "rationale": "The bounded-retry component is implemented and evidenced. goal_proposal_failure.go gates retry on a complete invalid proposal: worker.ErrorInvalidProposal in PhaseValidatingProposal, running attempt, empty proposal/artifact IDs, observed effect with failed receipt, no other unobserved effects, stable task/step revisions, and running step. It fails the attempt/step and records confirmed failure without replaying the provider operation. goal.go only marks complete_proposal_rejected when failRejectedGoalProposal succeeds, preserving normal completion/review/authority gates. Tests verify: one rejected complete proposal leads to a fresh bounded attempt with one failed attempt/effect and one valid proposal, deadline not reset; repeated rejections exhaust MaxAttempts=2 without file mutation; transport and truncated outcomes stop at GoalWaiting with one attempt and no retry. Test evidence shows all three affected package suites passed (419 pass, 1 conditional skip, 0 fail), vet/build pass, budgets unchanged. No security regressions or correctness defects found in this component.",
+            "findings": [],
+            "usage": {
+              "prompt_tokens": 6933,
+              "completion_tokens": 257,
+              "total_tokens": 7190
+            }
+          },
+          "same_physical_model": true
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "a8c8761342c8d76f5c190df8fed0d72edea7a0373df0d415b1b140e3671559b0",
+          "temperature": 0.1
+        },
+        "ledger_contract": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        },
+        "effective_input_sha256": "0bff692f8f7037f94eaad0b0b36d126a86e7d266ef8d26e50dc013a6a58a3367",
+        "raw_sha256": {
+          "001.request.json": "d3553d8e95924d1d385c130d2ff352c4cf4264e1241ce233a14b3469e9f31f97",
+          "001.response.json": "ba7f3d5e9393b7e0cf5c5c76d5672444364c615771fcb391928babf2c0d79b39",
+          "effective-input.json": "0bff692f8f7037f94eaad0b0b36d126a86e7d266ef8d26e50dc013a6a58a3367",
+          "http-role-contract.json": "d2b15d31c8466c5f112395f03e0c749e693b2f15a6a1722b232a7daabc85979d",
+          "ledger-contract.json": "f377100760e129d03e8eaace16470c1974d857621a015a69c4fb08c429df938c",
+          "result.json": "c47da06e9ebc347e3aad0918f05b565dea74829d5a20fec50c498b9681bdbe76"
+        }
+      }
+    }
+  },
+  "grounded_diagnosis_prototype": {
+    "role_bound_readonly_native_result": {
+      "autonomous_repair_proven": false,
+      "diagnosis": {
+        "root_cause": "The readiness handler creates a 5-second request context and then calls the injected Ping; when the Ping blocks until that deadline, the handler cannot finish writing the 503 response before the server's 5-second WriteTimeout expires, so the client receives EOF instead of the required 503 JSON.",
+        "path": "api/cmd/server/main.go",
+        "source_sha256": "96469bef1fb472c90ebd0f63b41f80d8d3125a1f47dc1969675d278c20f7d1cd",
+        "exact_quote": "ReadTimeout:       5 * time.Second,",
+        "repair_hint": "Increase the server WriteTimeout to give the handler writing headroom after the 5-second Ping deadline, e.g. 10 seconds, while preserving the 5-second bounded Ping and the 503 not_ready response path.",
+        "uncertainties": [
+          "The exact failing line may be the WriteTimeout rather than ReadTimeout, but both are 5 seconds in the historical source.",
+          "The test uses a fresh listener and client timeout of 8 seconds, so the failure is specifically the server-side write timeout, not the client timeout."
+        ]
+      },
+      "exact_quote_verified": true,
+      "goal_unchanged": true,
+      "source_modified": false,
+      "usage": {
+        "prompt_tokens": 3734,
+        "completion_tokens": 330,
+        "total_tokens": 4064
+      }
+    },
+    "scope_correction": "exact_quote_verified means only unique bytes in the verified draft, not the correct causal symbol. Model quoted ReadTimeout despite correct WriteTimeout repair hint and admitted uncertainty. Do not apply automatically.",
+    "causal_symbol_correct": false,
+    "role_http_contract": {
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      },
+      "max_tokens": 4096,
+      "reasoning_budget_tokens": 0,
+      "reasoning_format": "deepseek",
+      "request_sha256": "0237e3585a37251886e73e716557879f69bf6f8dbca68aef216971c07b3b8ddc",
+      "temperature": 0.1
+    },
+    "counterfactual": {
+      "test_events": {
+        "pass": 3
+      },
+      "packages": [
+        {
+          "Package": "hermetrix-commerce/api/cmd/server",
+          "Action": "pass",
+          "Elapsed": 13.931000000000001
+        }
+      ],
+      "readonly_native_source_manifest": {
+        "native_source_and_regression_hashes": {
+          "api/cmd/server/main.go": "96469bef1fb472c90ebd0f63b41f80d8d3125a1f47dc1969675d278c20f7d1cd",
+          "api/cmd/server/main_test.go": "0388303a2682d210e179d702827dc34bcfa01cd0adfe781a51bc974acf1f1ad6",
+          "api/go.mod": "507f490e953fd9655cfbaf4508d9348084c176a9fba4187ecc7d16cda4ab86ff",
+          "api/go.sum": "faac02efcbba1cee48a6329a786a30519daad1034699951e181378f18efc1266",
+          "api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981"
+        },
+        "operator_test": "counterfactual_test.go",
+        "production_source_edited": false,
+        "original_exhausted_goal_resumed": false
+      },
+      "read_timeout10_only": "EOF persists with WriteTimeout5",
+      "write_timeout10_only": "503 not_ready JSON with ReadTimeout5",
+      "log_sha256": "b4d1c1bb73703518651f258906c578b7bcb64d7f6ae0dc737610e0117d7b1422",
+      "operator_test_not_native_generated": true,
+      "actual_task_or_project_source_changed": false
+    },
+    "next_acceptance": "Semantic source-symbol/hypothesis verification is required before a diagnosis can guide automatic edits; byte grounding alone is insufficient.",
+    "raw_sha256": {
+      "001.request.json": "0a84fda5ef03cadfb9c90a40c0ec73213a22f7fa2c7c8d2ada846330b337d572",
+      "001.response.json": "9201debd7e4be6cc4a58c61765c670839ca3ee5e7df5532100466a42f9f8bdc5",
+      "counterfactual-input.json": "7a4efb065cf5cb82e0ea59bbbbadae3f8b12af05ea97d0424e9d171722e52047",
+      "http-role-contract.json": "b2bd0387152bf27589bef9f4968bb0454f4d84a96eec3d27cbeb91200925697e",
+      "input.json": "59ec7b59cb04ae56bded6228a31bd6fea7004dfd781efa41068ec53eed54340e",
+      "result.json": "d2c01c4eec8a7b35bb4889d33a465574350e77a5c0ee54a81ff5eab382ee740d"
+    }
+  }
+}
