@@ -56,6 +56,17 @@ func Open(ctx context.Context, root string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	// Check before changing journal mode or running any migration. An older
+	// binary must not relabel a newer database with its own schema version.
+	var existingVersion int
+	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&existingVersion); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read schema version before opening: %w", err)
+	}
+	if existingVersion > CurrentSchemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("database schema version %d is newer than supported version %d", existingVersion, CurrentSchemaVersion)
+	}
 	if _, err := db.ExecContext(ctx, `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("configure sqlite: %w", err)
