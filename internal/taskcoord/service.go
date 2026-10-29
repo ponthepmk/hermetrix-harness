@@ -601,7 +601,10 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	if curateErr != nil {
 		return ProposalOutput{}, curateErr
 	}
-	workerTask = curatedTask
+	workerTask, err = s.attachRepairDrafts(ctx, input.Packet, curatedTask, preset, projectRoot)
+	if err != nil {
+		return ProposalOutput{}, err
+	}
 	frozenTask, canonicalInput, _, freezeErr := worker.FreezeTask(workerTask)
 	if freezeErr != nil {
 		return ProposalOutput{}, freezeErr
@@ -628,6 +631,10 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 			return dispatchErr
 		},
 	})
+	if runErr == nil && repeatsFailedDrafts(workerTask, result) {
+		runErr = &worker.Error{Code: worker.ErrorInvalidProposal, Phase: worker.PhaseValidatingProposal,
+			Message: "proposal reproduces only unchanged verification-failed drafts; edit the cause of the failing check; retain_draft restores unchanged companions alongside a repair"}
+	}
 	if runErr != nil {
 		if dispatched {
 			receipt := map[string]any{"status": "failed", "error": runErr.Error()}

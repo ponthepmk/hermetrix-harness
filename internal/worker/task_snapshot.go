@@ -17,6 +17,9 @@ func prepareWorkerTask(task Task) (Task, []byte, []byte, error) {
 	if err := validateWorkerTaskResources(task); err != nil {
 		return Task{}, nil, nil, err
 	}
+	if err := validateRepairDrafts(task); err != nil {
+		return Task{}, nil, nil, err
+	}
 
 	snapshot := Task{
 		ID:                 task.ID,
@@ -30,6 +33,7 @@ func prepareWorkerTask(task Task) (Task, []byte, []byte, error) {
 		FileViews:          maps.Clone(task.FileViews),
 		WritablePaths:      slices.Clone(task.WritablePaths),
 		AbsentFiles:        slices.Clone(task.AbsentFiles),
+		RepairDrafts:       maps.Clone(task.RepairDrafts),
 		FailureEvidence:    slices.Clone(task.FailureEvidence),
 		MaxOutputTokens:    task.MaxOutputTokens,
 	}
@@ -59,6 +63,7 @@ func prepareWorkerTask(task Task) (Task, []byte, []byte, error) {
 		FileViews:          maps.Clone(snapshot.FileViews),
 		WritablePaths:      slices.Clone(snapshot.WritablePaths),
 		AbsentFiles:        slices.Clone(snapshot.AbsentFiles),
+		RepairDrafts:       maps.Clone(snapshot.RepairDrafts),
 		FailureEvidence:    slices.Clone(snapshot.FailureEvidence),
 		MaxOutputTokens:    snapshot.MaxOutputTokens,
 	}

@@ -98,6 +98,12 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 			}
 		}
 	}
+	for _, draft := range task.RepairDrafts {
+		if containsCredentialValue(draft.Content, draft.SourceArtifactID, draft.ProposalID,
+			draft.SourceArtifactSHA256, draft.InputSHA256, draft.SourceSHA256) {
+			return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingInput, false, "credential present in repair draft", nil)
+		}
+	}
 	if containsCredentialValue(string(body)) {
 		return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingInput, false, "credential present in task", nil)
 	}
@@ -135,9 +141,10 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 		Risks             []string `json:"risks"`
 		RecommendedChecks []string `json:"recommended_checks"`
 		Changes           []struct {
-			Path    string     `json:"path"`
-			Content *string    `json:"content,omitempty"`
-			Edits   []TextEdit `json:"edits,omitempty"`
+			Path        string     `json:"path"`
+			Content     *string    `json:"content,omitempty"`
+			Edits       []TextEdit `json:"edits,omitempty"`
+			RetainDraft *bool      `json:"retain_draft,omitempty"`
 		} `json:"changes"`
 	}
 	if len(raw) > 256*1024 {
@@ -167,6 +174,26 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 		}
 		if !writablePathAllowed(task, change.Path) {
 			return Result{}, invalidProposal(fmt.Sprintf("proposed path %q is outside the frozen writable paths", change.Path))
+		}
+		if _, historical := task.RepairDrafts[change.Path]; historical {
+			for _, edit := range change.Edits {
+				if containsCredentialValue(edit.Old, edit.New) {
+					return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in draft edit proof", nil)
+				}
+			}
+			derived, err := materializeRepairDraft(task, change.Path, change.Content, change.Edits, change.RetainDraft)
+			if err != nil {
+				return Result{}, invalidProposal("draft repair rejected: " + err.Error())
+			}
+			if containsCredentialValue(derived.Content) {
+				return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in proposal", nil)
+			}
+			seen[change.Path] = true
+			result.Changes = append(result.Changes, derived)
+			continue
+		}
+		if change.RetainDraft != nil {
+			return Result{}, invalidProposal("draft retention requires an explicit historical draft")
 		}
 		content, strategy, err := func() (string, string, error) {
 			if view, ok := task.FileViews[change.Path]; ok {

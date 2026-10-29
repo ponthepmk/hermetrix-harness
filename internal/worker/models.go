@@ -20,6 +20,7 @@ type Task struct {
 	FileViews          map[string][]BoundedFileView `json:"file_views,omitempty"`
 	WritablePaths      []string                     `json:"writable_paths,omitempty"`
 	AbsentFiles        []string                     `json:"absent_files,omitempty"`
+	RepairDrafts       map[string]RepairDraft       `json:"repair_drafts,omitempty"`
 	FailureEvidence    []FailureEvidence            `json:"failure_evidence,omitempty"`
 	MaxOutputTokens    int                          `json:"max_output_tokens,omitempty"`
 }
@@ -56,11 +57,32 @@ type TextEdit struct {
 }
 
 type Change struct {
-	Path         string     `json:"path"`
-	BeforeSHA256 string     `json:"before_sha256"`
-	Content      string     `json:"content"`
-	Strategy     string     `json:"strategy"`
+	Path         string          `json:"path"`
+	BeforeSHA256 string          `json:"before_sha256"`
+	Content      string          `json:"content"`
+	Strategy     string          `json:"strategy"`
+	Edits        []TextEdit      `json:"edits,omitempty"`
+	Repair       *DraftEditProof `json:"repair,omitempty"`
+}
+
+// RepairDraft is a caller-verified historical reference, never the current
+// workspace preimage or permission to modify a file. Coordinators verify its
+// stored origin before supplying it; the worker binds it to the frozen input.
+type RepairDraft struct {
+	ProposalID           string `json:"proposal_id"`
+	SourceArtifactID     string `json:"source_artifact_id"`
+	SourceArtifactSHA256 string `json:"source_artifact_sha256"`
+	InputSHA256          string `json:"input_sha256"`
+	SourceSHA256         string `json:"source_sha256"`
+	Content              string `json:"content"`
+}
+
+// DraftEditProof records how historical text became a new unverified proposal.
+// BeforeSHA256 on Change always identifies the actual workspace snapshot.
+type DraftEditProof struct {
+	SourceSHA256 string     `json:"source_sha256"`
 	Edits        []TextEdit `json:"edits,omitempty"`
+	Retain       bool       `json:"retain,omitempty"`
 }
 
 type Result struct {

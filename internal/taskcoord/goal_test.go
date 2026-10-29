@@ -84,8 +84,23 @@ func (a *goalAdapter) StreamChat(ctx context.Context, _ providers.Profile, _ str
 			op = "*"
 		}
 		value = map[string]any{"summary": "correct arithmetic", "recommended_checks": []string{"node test.js"}, "changes": []any{map[string]any{"path": "sum.js", "content": "module.exports=(a,b)=>a" + op + "b;\n"}}}
+		if a.proposals > 1 && a.proposals <= a.failures {
+			// Distinct proposed source can still reproduce the same behavioral
+			// failure, which must trigger the existing repeated-failure escalation.
+			value.(map[string]any)["changes"].([]any)[0].(map[string]any)["content"] = "// distinct failing attempt\nmodule.exports=(a,b)=>a" + op + "b;\n"
+		}
 		if a.sawReviewFailure {
 			value = map[string]any{"summary": "address actual reviewer finding", "recommended_checks": []string{"node test.js"}, "changes": []any{map[string]any{"path": "sum.js", "content": "// arithmetic documentation: returns the sum\nmodule.exports=(a,b)=>a+b;\n"}}}
+		}
+		if draft, ok := input.RepairDrafts["sum.js"]; ok {
+			change := value.(map[string]any)["changes"].([]any)[0].(map[string]any)
+			content := change["content"].(string)
+			delete(change, "content")
+			if content == draft.Content {
+				change["retain_draft"] = true
+			} else {
+				change["edits"] = []worker.TextEdit{{Old: draft.Content, New: content}}
+			}
 		}
 	case "submit_review":
 		a.reviews++

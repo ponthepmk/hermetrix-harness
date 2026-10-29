@@ -36,6 +36,15 @@ func validateWorkerScopedResult(task Task, result Result) error {
 			return invalidProposal("proposal change does not match its preimage")
 		}
 		seen[change.Path] = true
+		if _, historical := task.RepairDrafts[change.Path]; historical {
+			if err := validateRepairDraftChange(task, change); err != nil {
+				return invalidProposal("draft proposal does not match its frozen proof")
+			}
+			continue
+		}
+		if change.Repair != nil {
+			return invalidProposal("unexpected historical draft proof")
+		}
 
 		if partial, ok := task.FileViews[change.Path]; ok && len(partial) > 0 {
 			if change.Strategy != "replace_text" {

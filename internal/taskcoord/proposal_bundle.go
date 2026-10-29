@@ -106,6 +106,9 @@ func validateLegacyResult(r worker.Result) error {
 		return err
 	}
 	for i, c := range r.Changes {
+		if c.Repair != nil {
+			return fmt.Errorf("legacy result changes[%d] must not carry draft proof", i)
+		}
 		if len(c.Edits) > 0 {
 			return fmt.Errorf("legacy result changes[%d] must not carry edits", i)
 		}

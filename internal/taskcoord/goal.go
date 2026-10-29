@@ -231,6 +231,10 @@ func (s *Service) AdvanceGoal(ctx context.Context, id string) (taskengine.GoalRu
 	if action == "review" && receipt["rejected"] == true && receipt["rolled_back"] == true {
 		state, reason = taskengine.GoalActive, "review rejected the change; source restored; investigate and retry"
 	}
+	if action == "propose" && receipt["complete_proposal_rejected"] == true {
+		state, reason = taskengine.GoalActive, "complete proposal rejected before apply; next bounded attempt uses saved diagnostic"
+		receipt["outcome"] = "proposal_rejected"
+	}
 	if actionErr == nil && action == "finish" {
 		state, reason = taskengine.GoalCompleted, "all current completion gates passed"
 	}
@@ -447,7 +451,18 @@ func (s *Service) executeGoalAction(ctx context.Context, g taskengine.GoalRun, a
 			return map[string]any{"selection_artifact_id": selection.Artifact.ID}, err
 		}
 		out, err := s.Propose(ctx, ProposalInput{AttemptID: x.Attempt.ID, ProviderID: g.Config.ProviderID, Authority: auth, Files: selection.Result.Files})
-		return map[string]any{"proposal_id": out.Proposal.ID, "artifact_id": out.Artifact.ID, "selection_artifact_id": selection.Artifact.ID}, err
+		receipt := map[string]any{"proposal_id": out.Proposal.ID, "artifact_id": out.Artifact.ID, "selection_artifact_id": selection.Artifact.ID}
+		if err != nil {
+			rejected, recoveryErr := s.failRejectedGoalProposal(ctx, x, out, err)
+			if recoveryErr != nil {
+				return receipt, recoveryErr
+			}
+			if rejected {
+				receipt["complete_proposal_rejected"] = true
+				receipt["failed_operation_id"] = out.Effect.OperationID
+			}
+		}
+		return receipt, err
 	case "approve":
 		out, err := s.tasks.DecideCodeProposal(ctx, x.Proposal.ID, actor, taskengine.ProposalApproved,
 			"owner authorized scoped automatic apply in goal "+g.ID+"; frozen writable paths and mandatory checks still apply; independent review follows verification", nil)

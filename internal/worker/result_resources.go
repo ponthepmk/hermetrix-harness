@@ -48,6 +48,17 @@ func validateWorkerResultResources(result Result) error {
 		if err := consumeRawBudget(&remainingRaw, change.Edits); err != nil {
 			return err
 		}
+		if change.Repair != nil {
+			if len(change.Repair.SourceSHA256) != 64 {
+				return errors.New("repair proof source sha256 must contain 64 bytes")
+			}
+			if err := consumeRawBudget(&remainingRaw, change.Repair.SourceSHA256); err != nil {
+				return err
+			}
+			if err := consumeRawBudget(&remainingRaw, change.Repair.Edits); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(result.TaskID) > maxWorkerWireBytes {
