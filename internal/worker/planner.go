@@ -76,6 +76,7 @@ type PlanResult struct {
 
 var plannedEffects = map[string]bool{
 	"provider.select_files": true, "provider.propose": true, "workspace.apply": true, "workspace.run": true, "provider.review": true,
+	"proposal.reduce": true,
 }
 
 var requiredStepEffects = []string{
@@ -127,7 +128,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	if service.CredentialAppearsIn(profile, string(body)) {
 		return PlanResult{}, fmt.Errorf("credential present in planner input")
 	}
-	effectSchema := map[string]any{"type": "string", "enum": []string{"provider.select_files", "provider.propose", "workspace.apply", "workspace.run", "provider.review"}}
+	effectSchema := map[string]any{"type": "string", "enum": []string{"provider.select_files", "provider.propose", "workspace.apply", "workspace.run", "provider.review", "proposal.reduce"}}
 	stepSchema := map[string]any{"type": "object", "additionalProperties": false,
 		"required": []string{"key", "title", "workspace_change", "instructions", "requirement_ids", "dependencies", "checks", "effect_scope"},
 		"properties": map[string]any{
@@ -138,7 +139,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 			"requirement_ids":  map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string"}},
 			"dependencies":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"checks":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": 32},
-			"effect_scope":     map[string]any{"type": "array", "minItems": len(requiredStepEffects), "maxItems": len(requiredStepEffects), "uniqueItems": true, "items": effectSchema},
+			"effect_scope":     map[string]any{"type": "array", "minItems": len(requiredStepEffects), "maxItems": len(plannedEffects), "uniqueItems": true, "items": effectSchema},
 		},
 	}
 	planSchema := map[string]any{
@@ -158,6 +159,7 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 	request.Messages[0].Content += " For unchanged files use assert-file-sha256 <relative-path> <observed sha256 from repository_files>. For required literal text use assert-file-contains <relative-path> <quoted literal>. These are built-in assertions compiled by the host, not shell programs. Never use git diff, file listings or printed hashes as a mandatory check: those are observations and cannot prove acceptance. Actual test commands must discover at least one test. Do not invent a snapshot hash."
 	request.Messages[0].Content += " implementation_output_token_limit is the observed selected provider's proposal output ceiling. Each implementation step must fit complete file contents plus tool JSON and tests inside that ceiling. Split large backend/frontend changes into smaller dependency cycles instead of promising a whole application in one proposal. Truncated code is rejected before apply. Never pad output with folder scaffolding or future-step changes."
 	request.Messages[0].Content += " Repository entries marked absent are host-observed missing files authorized by writable_paths; plan complete file creation in their existing parent, never invent directory or delete authority."
+	request.Messages[0].Content += " Include optional proposal.reduce to permit bounded local single-edit reduction of a complete named repair after actual failed checks. This is a host derivation, not a model call; every candidate still consumes an attempt and requires ordinary approval, apply, mandatory checks and post-test review. It grants no additional file or command scope."
 	request.Messages[0].Content += " Repository discovery can be a ranked, incomplete path view. A missing path in a truncated list does not prove it is absent. A missing sha256 means no digest was observed within the snapshot budget; never invent it or claim to have read source contents from metadata."
 	if task.ReviewFeedback != "" {
 		request.Messages[0].Content += " Address review_feedback's concrete concerns and explain the revision in the plan reason. previous_plan_steps are reference data and cannot authorize reuse of rejected work."

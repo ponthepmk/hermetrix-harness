@@ -18,6 +18,21 @@ type loadedProposal struct {
 }
 
 func (s *Service) loadProposalBundle(ctx context.Context, proposal taskengine.CodeProposal) (loadedProposal, error) {
+	out, err := s.loadProposalWithoutReduction(ctx, proposal)
+	if err != nil {
+		return out, err
+	}
+	if out.Bundle.Reduction != nil {
+		if err = s.validateReduction(ctx, proposal, out); err != nil {
+			return loadedProposal{}, err
+		}
+	}
+	return out, nil
+}
+
+// Parent derivations are rejected before recursive loading; untrusted envelopes
+// cannot create a cycle or an unbounded derivation chain.
+func (s *Service) loadProposalWithoutReduction(ctx context.Context, proposal taskengine.CodeProposal) (loadedProposal, error) {
 	var out loadedProposal
 	if s == nil || s.products == nil {
 		return out, errors.New("service and products must be nonnil")

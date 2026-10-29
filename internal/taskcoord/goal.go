@@ -446,6 +446,9 @@ func (s *Service) executeGoalAction(ctx context.Context, g taskengine.GoalRun, a
 			ExpectedTaskRevision: t.Revision, ExpectedStepRevision: packet.Step.Revision, InputHash: packet.CanonicalPacketHash, Packet: &packet})
 		return map[string]any{"attempt_id": attempt.ID, "packet_hash": packet.CanonicalPacketHash}, err
 	case "propose":
+		if out, handled, err := s.tryGoalReduction(ctx, g, x, auth); handled {
+			return map[string]any{"proposal_id": out.Proposal.ID, "artifact_id": out.Artifact.ID, "operation_id": out.Effect.OperationID, "origin": "host_single_edit_reduction", "provider_called": false}, err
+		}
 		selection, err := s.SelectFiles(ctx, SelectFilesInput{AttemptID: x.Attempt.ID, ProviderID: g.Config.ProviderID, Authority: auth})
 		if err != nil {
 			return map[string]any{"selection_artifact_id": selection.Artifact.ID}, err

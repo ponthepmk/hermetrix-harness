@@ -16,9 +16,10 @@ const maxProposalBodyBytes = 16 << 20
 // proposalBundle is the private stored shape of a proposal.
 // Version 2 is the current envelope; Version 1 is the legacy raw result.
 type proposalBundle struct {
-	Version         int           `json:"version"`
-	InputArtifactID string        `json:"input_artifact_id"`
-	Result          worker.Result `json:"result"`
+	Version         int                   `json:"version"`
+	InputArtifactID string                `json:"input_artifact_id"`
+	Result          worker.Result         `json:"result"`
+	Reduction       *repairReductionProof `json:"reduction,omitempty"`
 }
 
 // decodeProposalBundle decodes a stored proposal body into a proposalBundle.
