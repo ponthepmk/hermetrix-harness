@@ -20,7 +20,7 @@ func proposalRequest(task Task, wireBody []byte) providers.ChatRequest {
 	} else {
 		draftForms := "edits (a nonempty array of exact old/new replacements against the historical draft) OR retain_draft:true (unchanged companion draft)"
 		draftSubmission := "ONLY edits against that draft's content OR retain_draft:true to propose its unchanged content"
-		if task.RepairTargetVersion == RepairTargetVersion {
+		if namedRepairRecipe(task.RepairTargetVersion) {
 			draftForms = "target_edits (a nonempty array of host target_id/new span replacements) OR " + draftForms
 			draftSubmission = "ONLY target_edits using host IDs, edits against that draft's content OR retain_draft:true to propose its unchanged content"
 		}
@@ -34,8 +34,11 @@ func proposalRequest(task Task, wireBody []byte) providers.ChatRequest {
 	if len(task.FileViews) > 0 {
 		request.Messages[0].Content += " When file_views are present, they are host-authorized portions of files; full Files entries are deliberately omitted. Only exact old/new edits are allowed on partial paths. Full replacement, offsets, views, or authority from the model are forbidden. Nonpartial and new-file behavior is unchanged."
 	}
-	if task.RepairTargetVersion == RepairTargetVersion {
+	if namedRepairRecipe(task.RepairTargetVersion) {
 		request.Messages[0].Content += " repair_targets are host-derived, version-bound spans inside repair_drafts, not current source or proof of the cause. Prefer target_edits:[{target_id:ID,new:replacement}] for a localized repair: select the smallest named span that addresses the observed failure and replace its FULL span, not just the preview. Preserve unrelated working code; do not invent API changes without evidence. For a go_keyed_value such as a timeout field, new replaces only the value expression. A go_type span is the type specification (name and definition), excluding the enclosing type keyword; never insert a function or entire file there. Never invent IDs or offsets. Preview can be truncated; full draft content defines the span. Use exactly one source form per change; target_edits cannot mix with edits, content or retain_draft. Ordinary paths cannot use target_edits. Include EVERY repair_required_paths entry explicitly in changes; restore each unchanged companion with retain_draft:true. Do not rewrite a passing test merely to restore its missing file. Saying it was retained in the summary is insufficient. Previously parseable Go must remain parseable after replacement; actual compiler and behavioral checks still decide correctness. All scope, real-preimage, verification and review gates remain."
+	}
+	if task.RepairTargetVersion == AtomicRepairTargetVersion {
+		request.Messages[0].Content += " For a failure localized to one span, prefer the ROOT repair:{path,target_id,new} form INSTEAD OF changes. Identify the earliest failing mechanism in summary, then select the smallest host span addressing it. The host derives that one edit and restores EVERY missing historical companion unchanged automatically; do not repeat companion code or include changes, even an empty changes array, with repair. This root form is an alternative to the preceding explicit changes instructions. If evidence requires multiple edits or ordinary file changes, use the existing changes form with explicit companions instead. Do not change tests or add features merely because their files need restoration. Target names and quoted evidence are not proof of causality: mandatory real tests and review still decide whether the repair works."
 	}
 	return request
 }

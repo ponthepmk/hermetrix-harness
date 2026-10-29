@@ -136,10 +136,11 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 		return Result{}, invalidProposal("expected one complete submit_changes tool call")
 	}
 	var proposal struct {
-		Summary           string   `json:"summary"`
-		Assumptions       []string `json:"assumptions"`
-		Risks             []string `json:"risks"`
-		RecommendedChecks []string `json:"recommended_checks"`
+		Summary           string        `json:"summary"`
+		Assumptions       []string      `json:"assumptions"`
+		Risks             []string      `json:"risks"`
+		RecommendedChecks []string      `json:"recommended_checks"`
+		Repair            *atomicRepair `json:"repair,omitempty"`
 		Changes           []struct {
 			Path        string          `json:"path"`
 			Content     *string         `json:"content,omitempty"`
@@ -159,7 +160,17 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 	if decoder.Decode(new(any)) != io.EOF {
 		return Result{}, invalidProposal("trailing proposal data")
 	}
-	if len(proposal.Changes) == 0 || len(proposal.Changes) > len(task.Files) {
+	var rootFields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &rootFields); err != nil {
+		return Result{}, invalidProposal("invalid proposal root")
+	}
+	_, atomic := rootFields["repair"]
+	if atomic {
+		_, hasChanges := rootFields["changes"]
+		if proposal.Repair == nil || hasChanges || task.RepairTargetVersion != AtomicRepairTargetVersion {
+			return Result{}, invalidProposal("root repair requires recipe 2 and cannot mix with changes")
+		}
+	} else if len(proposal.Changes) == 0 || len(proposal.Changes) > len(task.Files) {
 		return Result{}, invalidProposal("invalid change count")
 	}
 	if len(proposal.Assumptions) > 32 || len(proposal.Risks) > 32 || len(proposal.RecommendedChecks) > 32 {
@@ -167,6 +178,23 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 	}
 	result := Result{Status: "proposed_unverified", TaskID: task.ID, InputSHA256: Hash(string(body)), Summary: proposal.Summary,
 		Assumptions: proposal.Assumptions, Risks: proposal.Risks, RecommendedChecks: proposal.RecommendedChecks, Usage: completion.Usage}
+	if atomic {
+		if proposal.Repair.New == nil {
+			return Result{}, invalidProposal("atomic repair requires a replacement string")
+		}
+		if containsCredentialValue(proposal.Repair.Path, proposal.Repair.TargetID, *proposal.Repair.New) {
+			return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in atomic repair", nil)
+		}
+		result.Changes, err = materializeAtomicRepair(task, *proposal.Repair)
+		if err != nil {
+			return Result{}, invalidProposal("atomic repair rejected: " + err.Error())
+		}
+		for _, change := range result.Changes {
+			if containsCredentialValue(change.Content) {
+				return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in proposal", nil)
+			}
+		}
+	}
 	seen := map[string]bool{}
 	for _, change := range proposal.Changes {
 		before, ok := task.Files[change.Path]

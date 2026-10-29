@@ -22,7 +22,7 @@ func RepairSelections(task Task, full Result) ([]RepairSelection, error) {
 	if err := ValidateResult(task, full); err != nil {
 		return nil, err
 	}
-	if task.RepairTargetVersion != RepairTargetVersion || len(task.FileViews) != 0 {
+	if !namedRepairRecipe(task.RepairTargetVersion) || len(task.FileViews) != 0 {
 		return nil, errors.New("reduction requires versioned named repairs")
 	}
 	var selections []RepairSelection

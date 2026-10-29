@@ -13,7 +13,7 @@ import (
 )
 
 func materializeRepairTargetEdits(task Task, path string, edits []DraftTargetEdit) (Change, error) {
-	if task.RepairTargetVersion != RepairTargetVersion || len(edits) == 0 || len(edits) > maxRepairTargets {
+	if !namedRepairRecipe(task.RepairTargetVersion) || len(edits) == 0 || len(edits) > maxRepairTargets {
 		return Change{}, errors.New("named target edits require the frozen recipe and bounded edits")
 	}
 	remaining := maxWorkerRawProposalBytes
@@ -69,7 +69,7 @@ func materializeRepairTargetEdits(task Task, path string, edits []DraftTargetEdi
 // Only the new recipe enforces this invariant; historical proposals retain
 // their replay semantics and malformed input remains repairable.
 func validateRepairSyntax(task Task, path, output string) error {
-	if task.RepairTargetVersion != RepairTargetVersion || !strings.HasSuffix(path, ".go") {
+	if !namedRepairRecipe(task.RepairTargetVersion) || !strings.HasSuffix(path, ".go") {
 		return nil
 	}
 	draft := task.RepairDrafts[path]

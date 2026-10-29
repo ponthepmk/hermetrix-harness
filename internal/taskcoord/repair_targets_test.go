@@ -29,12 +29,12 @@ func (a *namedGoalAdapter) StreamChat(ctx context.Context, p providers.Profile, 
 		if err := json.Unmarshal([]byte(r.Messages[1].Content), &input); err != nil {
 			return providers.Completion{}, err
 		}
-		if input.RepairTargetVersion == worker.RepairTargetVersion {
+		if input.RepairTargetVersion == worker.AtomicRepairTargetVersion {
 			for _, target := range input.Targets["sum.js"] {
 				if target.Kind == "text_line" {
 					a.named = true
 					a.base.proposals++
-					body, _ := json.Marshal(map[string]any{"changes": []any{map[string]any{"path": "sum.js", "target_edits": []worker.DraftTargetEdit{{TargetID: target.ID, New: "module.exports=(a,b)=>a+b;\n"}}}}, "recommended_checks": []string{"node test.js"}})
+					body, _ := json.Marshal(map[string]any{"repair": map[string]any{"path": "sum.js", "target_id": target.ID, "new": "module.exports=(a,b)=>a+b;\n"}, "recommended_checks": []string{"node test.js"}})
 					return providers.Completion{FinishReason: "tool_calls", ToolCalls: []providers.ToolCall{{Name: "submit_changes", Arguments: string(body)}}}, nil
 				}
 			}
@@ -75,7 +75,7 @@ func TestGoalNamedRepairTargetPersistsAndReopens(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loaded.InputTask.RepairTargetVersion != worker.RepairTargetVersion || len(loaded.Bundle.Result.Changes[0].Repair.TargetEdits) != 1 {
+			if loaded.InputTask.RepairTargetVersion != worker.AtomicRepairTargetVersion || len(loaded.Bundle.Result.Changes[0].Repair.TargetEdits) != 1 {
 				t.Fatal("recipe/proof not persisted")
 			}
 			want := worker.Hash("module.exports=(a,b)=>a-b;\n")
@@ -107,7 +107,7 @@ func TestGoalNamedRepairTargetPersistsAndReopens(t *testing.T) {
 				t.Fatal(err)
 			}
 			loaded, err = restored.loadProposalBundle(ctx, p)
-			if err != nil || loaded.InputTask.RepairTargetVersion != worker.RepairTargetVersion || len(loaded.Bundle.Result.Changes[0].Repair.TargetEdits) != 1 {
+			if err != nil || loaded.InputTask.RepairTargetVersion != worker.AtomicRepairTargetVersion || len(loaded.Bundle.Result.Changes[0].Repair.TargetEdits) != 1 {
 				t.Fatal("named proof could not be rederived after reopen", err)
 			}
 		})

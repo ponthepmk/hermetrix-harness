@@ -16,6 +16,15 @@ import (
 // tasks and hashes; a new recipe must not reinterpret an old frozen proposal.
 const RepairTargetVersion = 1
 
+// AtomicRepairTargetVersion adds an optional single-span submission whose
+// missing historical companions are restored by the host. Recipe 1 keeps its
+// original wire contract; both recipes still allow explicit multi-span repairs.
+const AtomicRepairTargetVersion = 2
+
+func namedRepairRecipe(version int) bool {
+	return version == RepairTargetVersion || version == AtomicRepairTargetVersion
+}
+
 const maxRepairTargets = 32
 const maxRepairTargetWireBytes = 8192
 
@@ -35,7 +44,7 @@ func buildRepairTargets(task Task) (map[string][]RepairTarget, error) {
 	if task.RepairTargetVersion == 0 {
 		return nil, nil
 	}
-	if task.RepairTargetVersion != RepairTargetVersion || len(task.RepairDrafts) == 0 {
+	if !namedRepairRecipe(task.RepairTargetVersion) || len(task.RepairDrafts) == 0 {
 		return nil, errors.New("unsupported repair-target recipe or missing drafts")
 	}
 	if err := validateRepairDrafts(task); err != nil {
@@ -204,7 +213,7 @@ func buildRepairTargets(task Task) (map[string][]RepairTarget, error) {
 }
 
 func requiredRepairPaths(task Task) []string {
-	if task.RepairTargetVersion != RepairTargetVersion {
+	if !namedRepairRecipe(task.RepairTargetVersion) {
 		return nil
 	}
 	var paths []string
