@@ -1,0 +1,206 @@
+{
+  "recorded_at": "2026-10-29T10:51:57.423461+00:00",
+  "scope": "Optional recipe2 atomic historical repair and mechanical missing companion restoration; legacy wire preserved; fresh seeded API repair success, explicit multi-edit form used.",
+  "base": "5b6300318df47161abd0456b6a282b30ba8767de",
+  "published_source_commit": "025e5cbe3d4500e4c931de99551c3e3e230d55ce",
+  "published": true,
+  "source_sha256": {
+    "internal/worker/atomic_repair.go": "3a0a0db4cf91d3bd3d944049224ca5fde365ba46d060cda276042aa4c8735cef",
+    "internal/worker/atomic_repair_test.go": "428c66323882aad3206ae6bf9bf6af732ade86afaab5183506e7415ac270ad3a",
+    "internal/worker/proposal.go": "b2eed97145f7dca1f0be74eb8c4b39eaee7f0d20341d6b0edcad572438c2da8a",
+    "internal/worker/proposal_request.go": "035b8f24677a9eafaecd12d39f6bc17765883baa546cd8e5b19e6968f02a3048",
+    "internal/worker/proposal_schema_scope.go": "c3339bf3506d04372c00911b67b1fadfa7d2ed9d30903ecba97ad142563ebe02",
+    "internal/worker/repair_targets.go": "b9e59a09c08064801701c41d41da0972e22c17fb7fd318571fbd76b4014cc317",
+    "internal/worker/repair_target_edits.go": "7ce41dda12fca337f24f2cb2323f017a73f091889b9bac0d66a9bb3917dcc3ac",
+    "internal/worker/repair_reduction.go": "8ccccaed0073bb2ccf8abcfa7a67563dd963a65df8b5939a3ead5a576113afd0",
+    "internal/taskcoord/repair_drafts.go": "d47d952c7db31f116ed45f2582710870dfd9da77d8f003a59b9ee89248526386",
+    "internal/taskcoord/repair_targets_test.go": "638765a1792ef055873c46edd6dbe447e684b7da3d566d1946440d4d3febc8fd",
+    "internal/taskcoord/atomic_repair_test.go": "0d535d7fe21f3356569a29609f650a451f82474f8a961e6572ca6c5ddbc89e7d"
+  },
+  "candidate_manifest": {
+    "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\qualified-v3\\manifest.json",
+    "sha256": "827d131c98ab804f2a64a7e9c2bf524216b94ef260dd99e44673d7b960a987d6"
+  },
+  "qualification": {
+    "full_affected_suite": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\qualified-v1-tests.jsonl",
+      "sha256": "4c790dbcda256d65cb2fe9effa463be0c6194f4d3c9560a49c6930e7009a03df"
+    },
+    "events": {
+      "pass": 460,
+      "skip": 1
+    },
+    "terminal_packages": [
+      {
+        "package": "hermetrix-harness/internal/worker",
+        "action": "pass",
+        "elapsed": 12.253
+      },
+      {
+        "package": "hermetrix-harness/internal/taskcoord",
+        "action": "pass",
+        "elapsed": 522.079
+      },
+      {
+        "package": "hermetrix-harness/internal/taskengine",
+        "action": "pass",
+        "elapsed": 54.657
+      }
+    ],
+    "final_schema_and_atomic_tests": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\atomic-schema-test.log",
+      "sha256": "0f4cc9e19c18ae6779a582ebe49bf44721e6d5ce17e584cb6315a64331e4e764"
+    },
+    "actual_atomic_companion_lifecycle": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\atomic-companion-test.log",
+      "sha256": "2ccb8a4b1344dd2f2fc1bfe51f6f25e868e621f86e5e5d44561ad04e2e4f8c37"
+    },
+    "vet": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\final-vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "build": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "qualification_scope": "Full affected suite used frozen v1; final v3 production hashes identical. Added schema test passed separately against v2; added real Node/SQLite companion lifecycle passed against v3. No full shared-worktree claim."
+  },
+  "native": {
+    "driver": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\native_driver.go.txt",
+      "sha256": "6a70daff5d0ffe391d87f9dd47a814e11cd084475b2de298d7eae43723a09be7"
+    },
+    "input_manifest": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\native-input-manifest.json",
+      "sha256": "c8f4af2fb79896b14a9eaa4ba687f2193aeed0ccd148525353a9a04ea932e93a"
+    },
+    "result": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\native-v1\\result.json",
+      "sha256": "26bc880979f01aff0cd2b2cbd7fffa5a254d09c7c1b66948278b6068294b5158"
+    },
+    "observer": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\native-observer.json",
+      "sha256": "1ab956d48745a40218a9f09da55f56f2b45bc4413ce649b8b1e4f572db41b31c"
+    },
+    "goal_state": "completed",
+    "actions": 20,
+    "attempts": 2,
+    "plans": 1,
+    "actual_bonsai_calls": 5,
+    "initial_recorded_source_fixture_calls": 1,
+    "new_writer_call": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\native-v1\\calls\\005.response.json",
+      "sha256": "0a59b8faa6194a85ce77c13fc83d9ccfbab7ff54761a979874044bd11f6b93e7"
+    },
+    "actual_go_passes": 7,
+    "verification_scope": 1,
+    "root_repair_used_by_native": false,
+    "explicit_two_named_edits_used": true,
+    "unnecessary_test_helper_change": "FakePing success waits100ms instead of returning immediately; assertions and readonly deadline regression unchanged.",
+    "post_test_review": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\native-v1\\calls\\006.response.json",
+      "sha256": "4fd124d578a4701586ff01014913729b54a36c80fc1a7adc6142f11da8458b23"
+    },
+    "same_physical_model": true
+  },
+  "code_review": [
+    {
+      "partition": "coordinator",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\code-review-v1\\coordinator\\result.json",
+        "sha256": "18f2428fcae2076461ec88747a221dc97fb77eb692ef051178f95034038704eb"
+      },
+      "http_role": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 4096,
+        "reasoning_budget_tokens": 0,
+        "reasoning_format": "deepseek",
+        "request_sha256": "b047b49c652814fda304e8bc3e12ffc0d0c567433abb72d2b5baf216f4bc63d8",
+        "temperature": 0.1
+      },
+      "ledger": {
+        "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+        "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+        "preset_revision": 1,
+        "state": "reconciled"
+      }
+    },
+    {
+      "partition": "materialization",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\code-review-v1\\materialization\\result.json",
+        "sha256": "b21380282481e1909714e4389a659f8b438e63161930726a5b0944b94ccb3742"
+      },
+      "http_role": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 4096,
+        "reasoning_budget_tokens": 0,
+        "reasoning_format": "deepseek",
+        "request_sha256": "2d0af59d0557905a63dfeb218cdec0318a5adcd589f3011f91fb7c4297d815ec",
+        "temperature": 0.1
+      },
+      "ledger": {
+        "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+        "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+        "preset_revision": 1,
+        "state": "reconciled"
+      }
+    },
+    {
+      "partition": "response-validation",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\code-review-v1\\response-validation\\result.json",
+        "sha256": "3fb865e214cfe0761860a42b1759808959c2797330e6e3ca8051aebf39165687"
+      },
+      "http_role": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 4096,
+        "reasoning_budget_tokens": 0,
+        "reasoning_format": "deepseek",
+        "request_sha256": "83749268ce624b14ccdf4df2970723f752df2b014825de3f2bce84ae980fa721",
+        "temperature": 0.1
+      },
+      "ledger": {
+        "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+        "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+        "preset_revision": 1,
+        "state": "reconciled"
+      }
+    },
+    {
+      "partition": "wire-contract",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\atomic-repair-20261029\\code-review-v1\\wire-contract\\result.json",
+        "sha256": "9fdbc09cd21c78647716e1a33d00452eba60e612047425427359e8ef63b724a4"
+      },
+      "http_role": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        },
+        "max_tokens": 4096,
+        "reasoning_budget_tokens": 0,
+        "reasoning_format": "deepseek",
+        "request_sha256": "4ca09864e1d2efd79910d903a35dbd1e81ecb97cd9b913606bb05529612aae4c",
+        "temperature": 0.1
+      },
+      "ledger": {
+        "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+        "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+        "preset_revision": 1,
+        "state": "reconciled"
+      }
+    }
+  ],
+  "full_goal_complete": false,
+  "unseeded_project_complete": false,
+  "native_atomic_root_adoption_proven": false,
+  "general_quality_or_efficiency_gain_proven": false,
+  "learning_benefit_proven": false,
+  "full_shared_worktree_suite_green": false
+}

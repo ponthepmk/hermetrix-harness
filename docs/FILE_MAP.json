@@ -4,6 +4,31 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "internal/worker/atomic_repair.go",
+      "role": "module",
+      "summary": "Optional version2 single-span proposal with host-derived missing historical companions and unchanged actual preimages."
+    },
+    {
+      "path": "internal/worker/atomic_repair_test.go",
+      "role": "test",
+      "summary": "Atomic source-form/schema parity, legacy wire, proof tamper rejection and preserved broader repair capability."
+    },
+    {
+      "path": "internal/taskcoord/atomic_repair_test.go",
+      "role": "test",
+      "summary": "Real Node/SQLite failed-check rollback to root repair restoring two required absent modules with readonly acceptance."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-atomic-repair.md",
+      "role": "feature",
+      "summary": "Optional atomic protocol, actual companion restoration and fresh seeded native repair success with honest adoption boundaries."
+    },
+    {
+      "path": "docs/validation/2026-10-29-atomic-repair.json",
+      "role": "test",
+      "summary": "Frozen source/test/review/native/observer hashes and explicit full-goal limits for atomic repair milestone."
+    },
+    {
       "path": "docs/reviews/2026-10-29-verification-scope.md",
       "role": "feature",
       "summary": "Confirmed readonly false completion, full selected-source fence, scoped check coverage, recorded API success and fresh native failure."
