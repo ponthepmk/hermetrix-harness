@@ -1,0 +1,353 @@
+{
+  "recorded_at": "2026-10-29T10:33:39.011839+00:00",
+  "scope": "Full selected-source snapshot fencing, immutable verification scope1, and reduction proof2 readonly SHA coverage.",
+  "published_code_commit": "48f2a5db1a2f2b8feeee16e6f8d40726a9e60595",
+  "published": true,
+  "git_base": "f39ade6721f3c58ea39e6c8a308b5b7fa1de429e",
+  "candidate_source_sha256": {
+    "internal/taskcoord/service.go": "90c40d6701a74fa75cc3884bf6f96599aec02b4654210a3e624f6dcd56d7dd53",
+    "internal/taskcoord/goal_verification.go": "35f2d0a41f2e37da08166e2a91ad980ea21e7e1eb907d70f0a02b389c70a0828",
+    "internal/taskcoord/review_snapshot.go": "2713542aca382262287f8f808a8351aa103605c8061a8dd98f99e54f9abdf0ae",
+    "internal/taskcoord/repair_reduction.go": "904884e1dc2f51262531ddc96bb8b0cc7684200213875fd31773b62be2e1f21f",
+    "internal/taskcoord/proposal_bundle.go": "dbbaa353e8b16af0e3ac9256aba1b2de3fa7f0c43d0e372298b3275b63bb639a",
+    "internal/taskcoord/verification_scope.go": "21b649d11e2ac1c074f50d76fa4efcf4dca55f8cd8349f9aff6a6c700b4b7615",
+    "internal/taskcoord/verification_scope_test.go": "0249afa1e352d1305ecb44682ee30f0196ae5fcf7119ae23f4a3a3ed9bb27990"
+  },
+  "candidate_manifest": {
+    "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\qualified-v1\\manifest.json",
+    "sha256": "04f88c859fbc51dc83e09df617841b09b3ee2d12178ec5422870872f362cb55f"
+  },
+  "full_goal_complete": false,
+  "fresh_native_repair_success": false,
+  "unseeded_project_complete": false,
+  "learning_benefit_proven": false,
+  "full_shared_worktree_suite_green": false,
+  "qualification": {
+    "tests": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\qualified-v1-tests.jsonl",
+      "sha256": "d1cb94c8f963e9b7b5f8ec41f291f8ae03d8d70ab2e54c22a6a19a9a649b15e2"
+    },
+    "test_events": {
+      "pass": 457,
+      "skip": 1
+    },
+    "terminal_packages": [
+      {
+        "Package": "hermetrix-harness/internal/worker",
+        "Action": "pass",
+        "Elapsed": 18.629
+      },
+      {
+        "Package": "hermetrix-harness/internal/taskcoord",
+        "Action": "pass",
+        "Elapsed": 485.07
+      },
+      {
+        "Package": "hermetrix-harness/internal/taskengine",
+        "Action": "pass",
+        "Elapsed": 55.173
+      }
+    ],
+    "vet": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "build": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "baseline_red": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\before.log",
+      "sha256": "eca077db8bd6c86dc1d1891b3c7a7234fb308b9b678e3d3c2cef2958b993bcb5"
+    },
+    "focused_green": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\after.log",
+      "sha256": "877a65765e6a065dad56459b74baea356ba3b4e6409f0e933e0a054bce442566"
+    },
+    "scope_and_reduction": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\scope-and-reduction-v1.jsonl",
+      "sha256": "8ee08a65e08c98f2700a6626aeb1fa0f34e19d6b260effda2389a21a274f2964"
+    },
+    "test_environment": "Child-only D TMP/TEMP, serialized affected packages,900s package test ceiling; product budgets unchanged.",
+    "doc_truth_current_worktree": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\doc-truth.log",
+      "sha256": "7bdc5fa39a1f5ae4b7c6ed255fc7329fc0835cb1190c87cf569782904bb3f518",
+      "exit_code": 0,
+      "scope": "Registered evidence anchor existence, not semantic/full published-worktree acceptance."
+    }
+  },
+  "review": {
+    "same_physical_model": true,
+    "parts": [
+      {
+        "component": "scope-contract",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v2\\scope-contract\\result.json",
+          "sha256": "ea2082e26dd3364619ef8746c0ce054980bf391e0f1dd767545e568dbe7bf4af"
+        },
+        "effective_input": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v2\\scope-contract\\effective-input.json",
+          "sha256": "8e1a0b34a1f2e1780d37c85560b7c5594b7c5fd40cdbd38c55c002ff5d3554cf"
+        },
+        "http": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "0d445efead81988bf1b58e93404aff36926835d61c03a267207351170df9d3c2",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "verification-lifecycle",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\verification-lifecycle\\result.json",
+          "sha256": "a58bc2f5073b07f97ebfeb58d69e6cc5c89f446db7d075d0e29ef2c6cb4e95ec"
+        },
+        "effective_input": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\verification-lifecycle\\effective-input.json",
+          "sha256": "ac7a4b1cf6d9324d71ab3fc023b277be5c7a35c43fdfddaaa10e844cda7889b9"
+        },
+        "http": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "57d3667d14182a9e633258083fa7a72cfe9f215fdb4bec5056df5eb29c53d2eb",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "async-completion",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\async-completion\\result.json",
+          "sha256": "c9b7448e7b2041e1027275a6e22a19c229a206c0d08b11f3ee743dda13fb0dd2"
+        },
+        "effective_input": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\async-completion\\effective-input.json",
+          "sha256": "c14ad8a0d16f9916d9d6439bafa7c801ba2f8d3a7273fa853a08beb1f84bbe03"
+        },
+        "http": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "9a37f697b583b1038725104d4947ca8e1b7678e863ffd2a2a0c9ef9de6606c1a",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "versioned-reduction",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\versioned-reduction\\result.json",
+          "sha256": "cb82e1a8719b3795fd8c22ebce2ae12a49719c17a8ca90d811c6b232db9ed1cf"
+        },
+        "effective_input": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\versioned-reduction\\effective-input.json",
+          "sha256": "45bbbea67f2cafd6405ced08fa0de2b2f8adc6c71c71c733fe49d663d4f42d6e"
+        },
+        "http": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "b89c0913b11bf85283c8f236594b04f2a6e3a2500bba29ae4fd7df56f52de204",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "regressions",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\regressions\\result.json",
+          "sha256": "6f69b4a04cf0a5899c0695478fb9fe96ce98ac1bbc70d4fe6a30b90f1c2c12e6"
+        },
+        "effective_input": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v3\\regressions\\effective-input.json",
+          "sha256": "0be98fdcad83369ded3d7b2282bcdc167251091cf64e8827da359283a68149b0"
+        },
+        "http": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "ee4c4c0b13bd3818384385d8e9950172275f77bf980e6014d22e21612481beb9",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      }
+    ],
+    "coverage_plan": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\review-input-v3\\plan.json",
+      "sha256": "e39bdc05e2aa52a5a15b3edf834cd43d0cb511772ade3c1b829d6ae099e74a55"
+    },
+    "earlier_results_retained": [
+      {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v1\\scope-contract\\result.json",
+        "sha256": "9386b2508626b69fbf79abe8594b7d53fcbbd767367b447d62cd00a5fa90386a"
+      },
+      {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\code-review-v2\\verification-lifecycle\\result.json",
+        "sha256": "8a00c3ae69fccce7613ec40e0a3dc1191153fd063dd2b3534adde23ad7b41df5"
+      }
+    ],
+    "disposition": "V1 rationale3217characters exceeded2000; findings strings were valid. Earlier operator message incorrectly blamed findings. V2 helper approved after exact permission intersection context. Lifecycle valid rejection requested missing helper context. V3 includes complete helper in remaining4packets and all approve, source/validator unchanged. V2 operator hint wrongly described finding objects; actual schema/validator still required strings, valid approvals contain empty findings; V3 corrects hint. No rejected output salvaged."
+  },
+  "native_trials": [
+    {
+      "name": "v3",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\native-v3\\result.json",
+        "sha256": "f6d7c678523dd31033950ecc17de7445b4eef0acac790efb44bfcdd5510517f6"
+      },
+      "state": "completed",
+      "actions": 28,
+      "attempts": 3,
+      "plans": 2,
+      "actual_calls": 5,
+      "source_fixtures": 2,
+      "fresh_native_writer_qualified": false,
+      "budget": {
+        "start_input_sha256": "db2c7797874a579a7947a7d9a9586699e2992dcd90e8b1c994ca98fa69e92169",
+        "verification_timeout_seconds": 120,
+        "project_root": "d:\\projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\api-project-v3",
+        "provider_id": "provider_71c7bb7363c9716a87e7ab2bcd3b64af",
+        "provider_revision": "provider-c4006064d59a8795",
+        "reviewer_provider_id": "provider_92629ed161c9a86711644ee3419b6b81",
+        "reviewer_provider_revision": "provider-c4006064d59a8795",
+        "apply_changes": true,
+        "max_actions": 70,
+        "max_attempts": 3,
+        "max_plans": 2,
+        "max_seconds": 600
+      }
+    },
+    {
+      "name": "v4",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\native-v4\\result.json",
+        "sha256": "d773d4d352c0180109a19d8eaf183051d7dad2a1c5c573e2f8087b5daa1bbf3b"
+      },
+      "state": "budget_exhausted",
+      "actions": 26,
+      "attempts": 3,
+      "plans": 2,
+      "actual_calls": 5,
+      "source_fixtures": 1,
+      "fresh_native_writer_qualified": false,
+      "budget": {
+        "start_input_sha256": "170b158e55862b4abe51267ab69bcd8fca8b5338882964b7f0bf948e10f804b5",
+        "verification_timeout_seconds": 120,
+        "project_root": "d:\\projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\api-project-v4",
+        "provider_id": "provider_71c7bb7363c9716a87e7ab2bcd3b64af",
+        "provider_revision": "provider-c4006064d59a8795",
+        "reviewer_provider_id": "provider_92629ed161c9a86711644ee3419b6b81",
+        "reviewer_provider_revision": "provider-c4006064d59a8795",
+        "apply_changes": true,
+        "max_actions": 70,
+        "max_attempts": 3,
+        "max_plans": 2,
+        "max_seconds": 600
+      }
+    }
+  ],
+  "recorded_trial_independent_observation": {
+    "artifact": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\native-v3-observer.json",
+      "sha256": "a4965c8486858fa337670d64dbb740f65acc34ad876a0163fce3706b866838d7"
+    },
+    "observation": {
+      "actual_go_passes": 7,
+      "new_inference_calls": 0,
+      "not_fresh_writer_or_unseeded_project": true,
+      "proposal_id": "72e3de5606efbf51331ab7ef354d661c6009920395eecadef9022aecfc1a4d63",
+      "proposal_minimum_scope": 1,
+      "proposal_state": "verified",
+      "reduction_proof_version": 2,
+      "snapshot_hashes": {
+        "api/cmd/server/deadline_test.go": "9312772329108528a8b6795c4052daaf5d366cf9e8dc87b018f32790ebf0b981",
+        "api/cmd/server/main.go": "daab35e3216656f7499aaaa01057f40dc43cb09146f2fa1a3e82ace1b09939e2",
+        "api/cmd/server/main_test.go": "0388303a2682d210e179d702827dc34bcfa01cd0adfe781a51bc974acf1f1ad6",
+        "api/go.mod": "507f490e953fd9655cfbaf4508d9348084c176a9fba4187ecc7d16cda4ab86ff",
+        "api/go.sum": "faac02efcbba1cee48a6329a786a30519daad1034699951e181378f18efc1266"
+      },
+      "source_preimages_current": true,
+      "verification_scope": 1
+    }
+  },
+  "fresh_trial_provenance_audit": {
+    "artifact": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029\\native-v4-provenance-audit.json",
+      "sha256": "0d990c54468c5edf778285b7726691bf15e7fef4a8d733754877f033f60cc55f"
+    },
+    "audit": {
+      "driver_sha256": "f45469c7189b60d6f31db0a9c700cba4516a263e31d4a2c4966d1e32ef7746bf",
+      "recorded_repair_branch_compile_time_false": true,
+      "subsequent_calls_use_real_adapter": true,
+      "fixture_calls": 1,
+      "actual_calls": 5,
+      "fresh_arguments_sha256": "70fc548c5dda712c80e692d785394d057bfbab66f4e0a02f7779ea923a031c37",
+      "archived_arguments_sha256": "0cbc00296f0643d3e4ef7cfd39abb310eec44c7c9416ee9f89cc6843c2af445d",
+      "usage": {
+        "prompt_tokens": 15474,
+        "completion_tokens": 1151,
+        "total_tokens": 16625
+      },
+      "transport_kind_text_is_mislabeled": true,
+      "original_artifacts_modified": false,
+      "fresh_native_repair_succeeded": false
+    }
+  },
+  "native_outcome_boundary": "Recorded v3 completed with two prior-native source fixtures and actual planning/selection/review. Fresh v4 used only initial fixture, actual writer added a response header/misplaced test instead of WriteTimeout fix; one host reduction ran and still failed. No fresh native repair or unseeded project claim.",
+  "limits": {
+    "context": 65536,
+    "profile_output": 8192,
+    "96k_qualified": false,
+    "product_budget_increased": false,
+    "source_scope_expanded": false,
+    "schema_changed": false
+  },
+  "authorship": "Codex Harness authoring under existing owner authorization, same-model Bonsai review and bounded actual tests; generated app source remains prior or current native output.",
+  "next_acceptance": "Improve actual diagnostic/atomic target selection, retaining unchanged companions mechanically; verify fresh current native repair before full large-project/context/Skills/reverse-engineering/marketplace/deployment/learning acceptance.",
+  "live_handles": {},
+  "raw_evidence_root": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\verification-scope-20261029",
+  "exclusions": "Unrelated architecture/Skills/UI/learning/schema82 edits preserved outside published7file delta. Generated projects/raw evidence ignored."
+}

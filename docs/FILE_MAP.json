@@ -4,6 +4,26 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "docs/reviews/2026-10-29-verification-scope.md",
+      "role": "feature",
+      "summary": "Confirmed readonly false completion, full selected-source fence, scoped check coverage, recorded API success and fresh native failure."
+    },
+    {
+      "path": "internal/taskcoord/verification_scope.go",
+      "role": "module",
+      "summary": "Versioned complete selected-source snapshot coverage and proven readonly SHA check coverage for reduction proof2."
+    },
+    {
+      "path": "internal/taskcoord/verification_scope_test.go",
+      "role": "test",
+      "summary": "Actual readonly mutation/review regressions plus scope downgrade and behavioral-check retention contracts."
+    },
+    {
+      "path": "docs/validation/2026-10-29-verification-scope.json",
+      "role": "test",
+      "summary": "In-progress selected-context guard qualification and recorded/fresh native API outcome boundaries."
+    },
+    {
       "path": "internal/worker/repair_reduction.go",
       "role": "module",
       "summary": "Bounded pure single-native-edit selection with unchanged preimages, explicit companion retention and zero new inference usage."
