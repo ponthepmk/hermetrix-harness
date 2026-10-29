@@ -1,0 +1,336 @@
+{
+  "recorded_at": "2026-10-29T07:55:43.515966+00:00",
+  "scope": "Bounded host reduction of complete structurally valid test-failed named native proposals inside ordinary goal gates.",
+  "published_code_commit": "33320a27cdbbeeb3733bdfc1b3a6c599d4db08a6",
+  "published": true,
+  "git_base": "889d6b1e0acaee7395dfe2d48196a4788b9cabe4",
+  "candidate_source_sha256": {
+    "internal/worker/repair_reduction.go": "01c70f9febc0841a68abffa3f234ceb1c664fa466fb8fa39f41eefd4f56a5960",
+    "internal/worker/repair_reduction_test.go": "c57237cbb6465e492a8165e6b6b897a45ca92292dae3e61c6063c7a1421e2188",
+    "internal/worker/planner.go": "581356fdd2818f7e698ecd10d705b8e862e2026520f92ed615181e68537a4c2c",
+    "internal/taskengine/repair_reduction.go": "332f0305660287b20c078802ec65830394c23e4f2ae74abb6b654246da8e1de6",
+    "internal/taskcoord/repair_reduction.go": "7dbcfc51e1e57bdcb10854b65cfd8c2568d86537115bf251c2d0c30289df1239",
+    "internal/taskcoord/repair_reduction_test.go": "c049c8fadee39d6db15c19025469a5ab3217163f5f12ec10aa5c0dd93319273f",
+    "internal/taskcoord/proposal_bundle.go": "7f139cfc924dfead7d788cabdf4f51e181ebb256ff63f403c03a6b1fd308292e",
+    "internal/taskcoord/proposal_load.go": "4df14ba945a2a07c506631064712dbae3fe4edbde5bf59550a3f41eff521c290",
+    "internal/taskcoord/goal.go": "3345009fadcd6c62b4c625c32fea1011ae512faabc7d486ffd863378940c59b7"
+  },
+  "candidate_manifest": {
+    "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\qualified-v2\\manifest.json",
+    "sha256": "a7449595f1b7f255dfa6ea5ec8faee84c3b2fa89d8bbb073f184bf95dc2c6750"
+  },
+  "full_goal_complete": false,
+  "native_api_repair_success": false,
+  "learning_benefit_proven": false,
+  "full_shared_worktree_suite_green": false,
+  "authorship": "Codex Harness authoring under existing authorization, native same-model scoped source reviews; lifecycle model transport explicitly a fixture. API fixtures preserve prior actual Bonsai source/argument ancestry and zero new fixture usage.",
+  "limits": {
+    "named_edits_min": 2,
+    "named_edits_max": 4,
+    "candidate_edits": 1,
+    "context_window": 65536,
+    "profile_output_tokens": 8192,
+    "96k_runtime_qualified": false,
+    "provider_defaults_or_product_budgets_increased": false,
+    "requires_explicit_plan_effect": "proposal.reduce"
+  },
+  "qualification": {
+    "structural_v1_three_packages": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\qualified-v1-tests.jsonl",
+      "sha256": "dbf3c38effa1afd406e4775fd22d21998875b823db0cbfa25a2f5108a6e1c62b",
+      "test_events": {
+        "pass": 442,
+        "skip": 1
+      },
+      "packages": [
+        {
+          "Package": "hermetrix-harness/internal/worker",
+          "Action": "pass",
+          "Elapsed": 14.989
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "pass",
+          "Elapsed": 596.989
+        },
+        {
+          "Package": "hermetrix-harness/internal/taskengine",
+          "Action": "pass",
+          "Elapsed": 56.87
+        }
+      ],
+      "skips": [
+        "TestBonsaiDecisionAgainstLocalServer"
+      ]
+    },
+    "final_v2_delta": [
+      "internal/taskcoord/repair_reduction.go",
+      "internal/taskcoord/repair_reduction_test.go"
+    ],
+    "renamed_step_matrix": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\integration-renamed-v2.jsonl",
+      "sha256": "68c634d18db8f1094d0cca25b0e50b75b78f0497764b7d13e0d63c300bfb72e5",
+      "test_events": {
+        "pass": 6
+      },
+      "packages": [
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "pass",
+          "Elapsed": 156.119
+        }
+      ],
+      "skips": []
+    },
+    "subset_progression": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\next-target-after-failure.log",
+      "sha256": "3d42efec13015cc3d57c04cb9525a3e5e61da0b8c1ae052844a03cc00c9714d5"
+    },
+    "renamed_step_before_fix": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\renamed-step-before.log",
+      "sha256": "b7f2a555cad0203021ca95aaf39057c74988e5153cfd34cecf0ff27f2b9f1cee"
+    },
+    "initial_failed_fixture_integration": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\integration-v1.jsonl",
+      "sha256": "b2f4d216b64b86a23059151960823610b0b826bb9bbd09f4ee92068843f6238a"
+    },
+    "initial_fixture_integration_after_full_evidence_lookup": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\integration-v2.jsonl",
+      "sha256": "4f50819680a93b1aace11b68389ae0dbfbf0094fd05a854a1593f1db1c81a5cc",
+      "test_events": {
+        "pass": 6
+      },
+      "packages": [
+        {
+          "Package": "hermetrix-harness/internal/taskcoord",
+          "Action": "pass",
+          "Elapsed": 45.731
+        }
+      ],
+      "skips": []
+    },
+    "vet_final_v2": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\vet-v2.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "build_final_v2": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\build-v2.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "environment": "Child-only D TMP/TEMP, serialized structural packages, 900s test-package ceiling; existing product action/attempt/deadline/check/provider limits unchanged.",
+    "doc_truth_current_worktree": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\doc-truth.log",
+      "sha256": "89d033ace677ca6bf33d297d87bc2c7ef2ef2e8be6712088fa5a3335a29b1fc2",
+      "exit_code": 0,
+      "scope": "Registered source/evidence anchor existence only, not semantic acceptance or full published-worktree validation."
+    }
+  },
+  "review": {
+    "same_physical_model": true,
+    "parts": [
+      {
+        "component": "worker-candidates",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\code-review-v1\\worker-candidates\\result.json",
+          "sha256": "49fd71a48aecb1fa79f558ee4a3cf251e129021e07c640f0af00b467055307df"
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "0ea9862f8b51ea70cabcd3e8f80cd37ac0a6a07f7fc41c7310e8a702d26fa2fd",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "source-ancestry",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\code-review-v1\\source-ancestry\\result.json",
+          "sha256": "85d6d66b69bb3066b9e3242a74aeba1668485017d2612ee0d86aff1b6dedd3c7"
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "e747ae29cfada17b3dc31bb705436a72b371035c61c106a194717a3da8fa540f",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "persistence-dispatch",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\code-review-v1\\persistence-dispatch\\result.json",
+          "sha256": "10d92760fac1ecc1ee2e9f893c9c0928ec474ee2f0cf4707e69e6c29208cdb35"
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "5cd96f696cdfb98ebd25ca7e1c3ea4048040a7a27d66c24bec6c4d39dde2a319",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "planner-history",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\code-review-v1\\planner-history\\result.json",
+          "sha256": "421ca57d0806f1e76435834e202e4af98ee1a96b92ac65395b9218b9e31fd9e5"
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "c3c2ee9a3da0ab11eeba795cdf8b8dbaadba239092c8c107b2fad30d5a1c9e5b",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      },
+      {
+        "component": "lifecycle-tests",
+        "result": {
+          "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\code-review-v1\\lifecycle-tests\\result.json",
+          "sha256": "81e620cd5d79b5290199bfb6172516610af654bf305e127475b387814c164534"
+        },
+        "http_contract": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          },
+          "max_tokens": 4096,
+          "reasoning_budget_tokens": 0,
+          "reasoning_format": "deepseek",
+          "request_sha256": "b1a98c281581d3b3eb9cc9c2849060f0e4586241f7675f384d03f01c0bd64826",
+          "temperature": 0.1
+        },
+        "ledger": {
+          "effective_parameter_digest": "9b08508268ed1e09f5e74de2e9bc15fb78397bfc19a30b2a0328eb40bf8a0a85",
+          "preset_id": "worker-review-3e60e3c303b510f2faa49948",
+          "preset_revision": 1,
+          "state": "reconciled"
+        }
+      }
+    ],
+    "coverage_plan": {
+      "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\review-input-v1\\plan.json",
+      "sha256": "df4a93ce27b23c8a455e27f7952042ba4a566dd1f43569a7eb5ceb471bce7bd0"
+    }
+  },
+  "native_trials": [
+    {
+      "version": "v1",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\native-recorded-v1\\result.json",
+        "sha256": "ad31a2cc702157b45b8fbfdfd49106d85188c7811dd22d26315fd16a880de990"
+      },
+      "state": "budget_exhausted",
+      "actions": 20,
+      "attempts": 3,
+      "plans": 2,
+      "actual_model_calls": 6,
+      "explicit_source_fixtures": 2,
+      "fresh_native_writer_qualified": false,
+      "reason": "Strict initial step-key comparison prevented derivation after native replan renamed the step.",
+      "budget": {
+        "start_input_sha256": "bd14a1cb71bdc771d3cb8861bb2f12fee3f9e21822ba50f272a2af1367aa817a",
+        "verification_timeout_seconds": 120,
+        "project_root": "d:\\projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\api-project-v1",
+        "provider_id": "provider_71c7bb7363c9716a87e7ab2bcd3b64af",
+        "provider_revision": "provider-c4006064d59a8795",
+        "reviewer_provider_id": "provider_92629ed161c9a86711644ee3419b6b81",
+        "reviewer_provider_revision": "provider-c4006064d59a8795",
+        "apply_changes": true,
+        "max_actions": 70,
+        "max_attempts": 3,
+        "max_plans": 2,
+        "max_seconds": 600
+      },
+      "input_manifest": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\native-recorded-input-manifest.json",
+        "sha256": "c0849b4d2784592b6424882092ddfcc82244c6800945db021ed57c1f5393ccbd"
+      }
+    },
+    {
+      "version": "v2",
+      "result": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\native-recorded-v2\\result.json",
+        "sha256": "8cc110de800e81cd6cd2ba71edd2240eb3d9064e09c4f7d27c3f2852e13d875d"
+      },
+      "state": "budget_exhausted",
+      "actions": 24,
+      "attempts": 3,
+      "plans": 2,
+      "actual_model_calls": 6,
+      "explicit_source_fixtures": 2,
+      "fresh_native_writer_qualified": false,
+      "reason": "Native replan dropped two readonly hash checks; unchanged strict ordered-check binding refused reduction and ordinary fallback failed.",
+      "budget": {
+        "start_input_sha256": "67ae20d2c3a336b5534b71041d375680b9c58d74c6cbcd8e1ad3e23ea3362b9f",
+        "verification_timeout_seconds": 120,
+        "project_root": "d:\\projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\api-project-v2",
+        "provider_id": "provider_71c7bb7363c9716a87e7ab2bcd3b64af",
+        "provider_revision": "provider-c4006064d59a8795",
+        "reviewer_provider_id": "provider_92629ed161c9a86711644ee3419b6b81",
+        "reviewer_provider_revision": "provider-c4006064d59a8795",
+        "apply_changes": true,
+        "max_actions": 70,
+        "max_attempts": 3,
+        "max_plans": 2,
+        "max_seconds": 600
+      },
+      "input_manifest": {
+        "path": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029\\native-recorded-v2-input-manifest.json",
+        "sha256": "c641901a364faf77fe6dc8457ee4ba89b0944d0c9dc05e6a48705fa80dfa4601"
+      }
+    }
+  ],
+  "runtime_component_outcome": {
+    "existing_and_absent": true,
+    "renamed_replan": true,
+    "old_plan_fallback": true,
+    "attempt_limit": true,
+    "post_review_rejection_and_rollback": true,
+    "resigned_ancestry_rejected": true,
+    "reopen": true,
+    "next_unused_target_after_failed_subset": true,
+    "model_transport": "explicit fixture",
+    "actual_Node_SQLite_filesystem": true
+  },
+  "pending_acceptance": "Host post-check readonly snapshot integrity/recovery must be investigated and proved before treating a removed readonly hash assertion as independently covered. Never weaken ordered behavioral checks to pass a trial. Then verify actual current native API repair and continue full large-project/context/Skills/decomposition/reverse-engineering/marketplace/deployment/learning-transfer acceptance.",
+  "live_handles": {},
+  "raw_evidence_root": "D:\\Projects\\harness\\hermetrix-harness\\.tmp-ui\\repair-reduction-20261029",
+  "exclusions": "Unrelated architecture/Skills/UI/learning/schema82 changes remain intact in worktree and outside this commit; raw evidence/generated projects ignored."
+}

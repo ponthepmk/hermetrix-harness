@@ -4,6 +4,41 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "internal/worker/repair_reduction.go",
+      "role": "module",
+      "summary": "Bounded pure single-native-edit selection with unchanged preimages, explicit companion retention and zero new inference usage."
+    },
+    {
+      "path": "internal/worker/repair_reduction_test.go",
+      "role": "test",
+      "summary": "Pure derivation, tamper/companion and optional planner capability regression checks."
+    },
+    {
+      "path": "internal/taskengine/repair_reduction.go",
+      "role": "module",
+      "summary": "Durable used-target history and failure-evidence lookup for internal proposal reduction."
+    },
+    {
+      "path": "internal/taskcoord/repair_reduction.go",
+      "role": "module",
+      "summary": "Scope-bound host reduction with native ancestry, failed log/rollback/current source checks and persisted proof validation."
+    },
+    {
+      "path": "internal/taskcoord/repair_reduction_test.go",
+      "role": "test",
+      "summary": "Real Node/SQLite/apply/rollback/review/reopen with explicit model fixtures, renamed replans and bounded target progression."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-repair-reduction.md",
+      "role": "feature",
+      "summary": "Host reduction design, component proof, two failed native integration trials and strict remaining check-integrity acceptance."
+    },
+    {
+      "path": "docs/validation/2026-10-29-repair-reduction.json",
+      "role": "test",
+      "summary": "Frozen source/test/native/review evidence for the bounded host reduction milestone."
+    },
+    {
       "path": "internal/worker/repair_targets.go",
       "role": "module",
       "summary": "Version-bound bounded nonoverlapping syntax targets and explicit missing-companion restoration for historical repairs."
