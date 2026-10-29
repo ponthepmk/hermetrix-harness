@@ -9,20 +9,21 @@ import (
 // Task is the complete, caller-curated contract for one bounded worker call.
 // Files contain source text rather than paths for the worker to discover.
 type Task struct {
-	ID                 string                       `json:"id,omitempty"`
-	Kind               string                       `json:"kind,omitempty"`
-	Brief              string                       `json:"brief"`
-	AcceptanceCriteria []string                     `json:"acceptance_criteria,omitempty"`
-	Constraints        []string                     `json:"constraints,omitempty"`
-	RecommendedChecks  []string                     `json:"recommended_checks,omitempty"`
-	ProjectBrainRefs   []KnowledgeRef               `json:"project_brain_refs,omitempty"`
-	Files              map[string]string            `json:"files"`
-	FileViews          map[string][]BoundedFileView `json:"file_views,omitempty"`
-	WritablePaths      []string                     `json:"writable_paths,omitempty"`
-	AbsentFiles        []string                     `json:"absent_files,omitempty"`
-	RepairDrafts       map[string]RepairDraft       `json:"repair_drafts,omitempty"`
-	FailureEvidence    []FailureEvidence            `json:"failure_evidence,omitempty"`
-	MaxOutputTokens    int                          `json:"max_output_tokens,omitempty"`
+	ID                  string                       `json:"id,omitempty"`
+	Kind                string                       `json:"kind,omitempty"`
+	Brief               string                       `json:"brief"`
+	AcceptanceCriteria  []string                     `json:"acceptance_criteria,omitempty"`
+	Constraints         []string                     `json:"constraints,omitempty"`
+	RecommendedChecks   []string                     `json:"recommended_checks,omitempty"`
+	ProjectBrainRefs    []KnowledgeRef               `json:"project_brain_refs,omitempty"`
+	Files               map[string]string            `json:"files"`
+	FileViews           map[string][]BoundedFileView `json:"file_views,omitempty"`
+	WritablePaths       []string                     `json:"writable_paths,omitempty"`
+	AbsentFiles         []string                     `json:"absent_files,omitempty"`
+	RepairDrafts        map[string]RepairDraft       `json:"repair_drafts,omitempty"`
+	RepairTargetVersion int                          `json:"repair_target_version,omitempty"`
+	FailureEvidence     []FailureEvidence            `json:"failure_evidence,omitempty"`
+	MaxOutputTokens     int                          `json:"max_output_tokens,omitempty"`
 }
 
 // FailureEvidence is saved, historical diagnostic data, never current proof
@@ -80,9 +81,17 @@ type RepairDraft struct {
 // DraftEditProof records how historical text became a new unverified proposal.
 // BeforeSHA256 on Change always identifies the actual workspace snapshot.
 type DraftEditProof struct {
-	SourceSHA256 string     `json:"source_sha256"`
-	Edits        []TextEdit `json:"edits,omitempty"`
-	Retain       bool       `json:"retain,omitempty"`
+	SourceSHA256 string            `json:"source_sha256"`
+	Edits        []TextEdit        `json:"edits,omitempty"`
+	TargetEdits  []DraftTargetEdit `json:"target_edits,omitempty"`
+	Retain       bool              `json:"retain,omitempty"`
+}
+
+// DraftTargetEdit replaces a host-derived historical source span. The model
+// supplies its opaque ID and replacement, never byte offsets or source hashes.
+type DraftTargetEdit struct {
+	TargetID string `json:"target_id"`
+	New      string `json:"new"`
 }
 
 type Result struct {

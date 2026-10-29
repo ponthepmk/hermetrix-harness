@@ -104,7 +104,7 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 			return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingInput, false, "credential present in repair draft", nil)
 		}
 	}
-	if containsCredentialValue(string(body)) {
+	if containsCredentialValue(string(body)) || containsCredentialValue(string(wireBody)) {
 		return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingInput, false, "credential present in task", nil)
 	}
 	request := proposalRequest(task, wireBody)
@@ -141,10 +141,11 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 		Risks             []string `json:"risks"`
 		RecommendedChecks []string `json:"recommended_checks"`
 		Changes           []struct {
-			Path        string     `json:"path"`
-			Content     *string    `json:"content,omitempty"`
-			Edits       []TextEdit `json:"edits,omitempty"`
-			RetainDraft *bool      `json:"retain_draft,omitempty"`
+			Path        string          `json:"path"`
+			Content     *string         `json:"content,omitempty"`
+			Edits       []TextEdit      `json:"edits,omitempty"`
+			RetainDraft *bool           `json:"retain_draft,omitempty"`
+			TargetEdits json.RawMessage `json:"target_edits,omitempty"`
 		} `json:"changes"`
 	}
 	if len(raw) > 256*1024 {
@@ -176,6 +177,32 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 			return Result{}, invalidProposal(fmt.Sprintf("proposed path %q is outside the frozen writable paths", change.Path))
 		}
 		if _, historical := task.RepairDrafts[change.Path]; historical {
+			if len(change.TargetEdits) > 0 {
+				var targetEdits []DraftTargetEdit
+				targetDecoder := json.NewDecoder(strings.NewReader(string(change.TargetEdits)))
+				targetDecoder.DisallowUnknownFields()
+				if err := targetDecoder.Decode(&targetEdits); err != nil || len(targetEdits) == 0 || len(targetEdits) > maxRepairTargets {
+					return Result{}, invalidProposal("target_edits requires a nonempty bounded array of exact fields")
+				}
+				if change.Content != nil || len(change.Edits) > 0 || change.RetainDraft != nil {
+					return Result{}, invalidProposal("named target edits cannot mix source forms")
+				}
+				for _, edit := range targetEdits {
+					if containsCredentialValue(edit.TargetID, edit.New) {
+						return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in target edit proof", nil)
+					}
+				}
+				derived, err := materializeRepairTargetEdits(task, change.Path, targetEdits)
+				if err != nil {
+					return Result{}, invalidProposal("named repair rejected: " + err.Error())
+				}
+				if containsCredentialValue(derived.Content) {
+					return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in proposal", nil)
+				}
+				seen[change.Path] = true
+				result.Changes = append(result.Changes, derived)
+				continue
+			}
 			for _, edit := range change.Edits {
 				if containsCredentialValue(edit.Old, edit.New) {
 					return Result{}, workerError(ErrorCredentialPresent, PhaseValidatingProposal, false, "credential present in draft edit proof", nil)
@@ -192,7 +219,7 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 			result.Changes = append(result.Changes, derived)
 			continue
 		}
-		if change.RetainDraft != nil {
+		if change.RetainDraft != nil || len(change.TargetEdits) > 0 {
 			return Result{}, invalidProposal("draft retention requires an explicit historical draft")
 		}
 		content, strategy, err := func() (string, string, error) {
@@ -228,6 +255,9 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 		} else {
 			result.Changes = append(result.Changes, Change{Path: change.Path, BeforeSHA256: beforeHash, Content: content, Strategy: strategy})
 		}
+	}
+	if err := validateRepairTargetCompleteness(task, result); err != nil {
+		return Result{}, invalidProposal(err.Error())
 	}
 	result.ProposalID = proposalID(result.InputSHA256, result)
 	if err := validateWorkerResultResources(result); err != nil {

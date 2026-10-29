@@ -22,20 +22,21 @@ func prepareWorkerTask(task Task) (Task, []byte, []byte, error) {
 	}
 
 	snapshot := Task{
-		ID:                 task.ID,
-		Kind:               task.Kind,
-		Brief:              task.Brief,
-		AcceptanceCriteria: slices.Clone(task.AcceptanceCriteria),
-		Constraints:        slices.Clone(task.Constraints),
-		RecommendedChecks:  slices.Clone(task.RecommendedChecks),
-		ProjectBrainRefs:   slices.Clone(task.ProjectBrainRefs),
-		Files:              maps.Clone(task.Files),
-		FileViews:          maps.Clone(task.FileViews),
-		WritablePaths:      slices.Clone(task.WritablePaths),
-		AbsentFiles:        slices.Clone(task.AbsentFiles),
-		RepairDrafts:       maps.Clone(task.RepairDrafts),
-		FailureEvidence:    slices.Clone(task.FailureEvidence),
-		MaxOutputTokens:    task.MaxOutputTokens,
+		ID:                  task.ID,
+		Kind:                task.Kind,
+		Brief:               task.Brief,
+		AcceptanceCriteria:  slices.Clone(task.AcceptanceCriteria),
+		Constraints:         slices.Clone(task.Constraints),
+		RecommendedChecks:   slices.Clone(task.RecommendedChecks),
+		ProjectBrainRefs:    slices.Clone(task.ProjectBrainRefs),
+		Files:               maps.Clone(task.Files),
+		FileViews:           maps.Clone(task.FileViews),
+		WritablePaths:       slices.Clone(task.WritablePaths),
+		AbsentFiles:         slices.Clone(task.AbsentFiles),
+		RepairDrafts:        maps.Clone(task.RepairDrafts),
+		RepairTargetVersion: task.RepairTargetVersion,
+		FailureEvidence:     slices.Clone(task.FailureEvidence),
+		MaxOutputTokens:     task.MaxOutputTokens,
 	}
 
 	for path, views := range snapshot.FileViews {
@@ -52,20 +53,21 @@ func prepareWorkerTask(task Task) (Task, []byte, []byte, error) {
 	}
 
 	wire := Task{
-		ID:                 snapshot.ID,
-		Kind:               snapshot.Kind,
-		Brief:              snapshot.Brief,
-		AcceptanceCriteria: slices.Clone(snapshot.AcceptanceCriteria),
-		Constraints:        slices.Clone(snapshot.Constraints),
-		RecommendedChecks:  slices.Clone(snapshot.RecommendedChecks),
-		ProjectBrainRefs:   slices.Clone(snapshot.ProjectBrainRefs),
-		Files:              maps.Clone(snapshot.Files),
-		FileViews:          maps.Clone(snapshot.FileViews),
-		WritablePaths:      slices.Clone(snapshot.WritablePaths),
-		AbsentFiles:        slices.Clone(snapshot.AbsentFiles),
-		RepairDrafts:       maps.Clone(snapshot.RepairDrafts),
-		FailureEvidence:    slices.Clone(snapshot.FailureEvidence),
-		MaxOutputTokens:    snapshot.MaxOutputTokens,
+		ID:                  snapshot.ID,
+		Kind:                snapshot.Kind,
+		Brief:               snapshot.Brief,
+		AcceptanceCriteria:  slices.Clone(snapshot.AcceptanceCriteria),
+		Constraints:         slices.Clone(snapshot.Constraints),
+		RecommendedChecks:   slices.Clone(snapshot.RecommendedChecks),
+		ProjectBrainRefs:    slices.Clone(snapshot.ProjectBrainRefs),
+		Files:               maps.Clone(snapshot.Files),
+		FileViews:           maps.Clone(snapshot.FileViews),
+		WritablePaths:       slices.Clone(snapshot.WritablePaths),
+		AbsentFiles:         slices.Clone(snapshot.AbsentFiles),
+		RepairDrafts:        maps.Clone(snapshot.RepairDrafts),
+		RepairTargetVersion: snapshot.RepairTargetVersion,
+		FailureEvidence:     slices.Clone(snapshot.FailureEvidence),
+		MaxOutputTokens:     snapshot.MaxOutputTokens,
 	}
 
 	for path := range wire.FileViews {
@@ -81,6 +83,17 @@ func prepareWorkerTask(task Task) (Task, []byte, []byte, error) {
 	}
 
 	wireJSON, err := json.Marshal(wire)
+	if err == nil && snapshot.RepairTargetVersion != 0 {
+		targets, targetErr := buildRepairTargets(snapshot)
+		if targetErr != nil {
+			return Task{}, nil, nil, targetErr
+		}
+		wireJSON, err = json.Marshal(struct {
+			Task
+			Targets       map[string][]RepairTarget `json:"repair_targets"`
+			RequiredPaths []string                  `json:"repair_required_paths,omitempty"`
+		}{wire, targets, requiredRepairPaths(snapshot)})
+	}
 	if err != nil {
 		return Task{}, nil, nil, err
 	}

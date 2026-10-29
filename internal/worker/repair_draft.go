@@ -96,6 +96,13 @@ func materializeRepairDraft(task Task, path string, content *string, edits []Tex
 		}
 		proof.Edits = slices.Clone(edits)
 	}
+	return repairDraftOutputChange(task, path, output, proof)
+}
+
+func repairDraftOutputChange(task Task, path, output string, proof *DraftEditProof) (Change, error) {
+	if err := validateRepairSyntax(task, path, output); err != nil {
+		return Change{}, err
+	}
 	before := task.Files[path]
 	change := Change{Path: path, BeforeSHA256: Hash(before), Content: output, Strategy: "replace_file", Repair: proof}
 	if absentFile(task, path) {
@@ -110,6 +117,19 @@ func validateRepairDraftChange(task Task, change Change) error {
 	draft, ok := task.RepairDrafts[change.Path]
 	if !ok || change.Repair == nil || change.Repair.SourceSHA256 != draft.SourceSHA256 || len(change.Edits) != 0 {
 		return errors.New("draft proof does not match frozen historical input")
+	}
+	if len(change.Repair.TargetEdits) > 0 {
+		if len(change.Repair.Edits) != 0 || change.Repair.Retain {
+			return errors.New("target proof cannot mix source forms")
+		}
+		derived, err := materializeRepairTargetEdits(task, change.Path, change.Repair.TargetEdits)
+		if err != nil {
+			return err
+		}
+		if derived.BeforeSHA256 != change.BeforeSHA256 || derived.Strategy != change.Strategy || derived.Content != change.Content {
+			return errors.New("target proposal cannot be rederived from frozen proof")
+		}
+		return nil
 	}
 	var retain *bool
 	if change.Repair.Retain {

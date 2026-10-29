@@ -21,6 +21,9 @@ func validateWorkerScopedResult(task Task, result Result) error {
 		result.ProposalID != proposalID(inputHash, result) || len(result.Changes) == 0 || len(result.Changes) > len(task.Files) {
 		return invalidProposal("proposal identity does not match the task")
 	}
+	if err := validateRepairTargetCompleteness(task, result); err != nil {
+		return invalidProposal(err.Error())
+	}
 
 	seen := map[string]bool{}
 	for _, change := range result.Changes {

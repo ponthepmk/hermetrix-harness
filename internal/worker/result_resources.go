@@ -58,6 +58,9 @@ func validateWorkerResultResources(result Result) error {
 			if err := consumeRawBudget(&remainingRaw, change.Repair.Edits); err != nil {
 				return err
 			}
+			if err := consumeRawBudget(&remainingRaw, change.Repair.TargetEdits); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -133,6 +136,21 @@ func consumeRawBudget(remaining *int, value any) error {
 				return errors.New("raw proposal metadata exceeds 256 KiB")
 			}
 			*remaining -= len(edit.New)
+		}
+	case []DraftTargetEdit:
+		if len(v) > maxRepairTargets {
+			return errors.New("too many named target edits")
+		}
+		for _, edit := range v {
+			if len(edit.TargetID) != 64 {
+				return errors.New("target ID must contain 64 bytes")
+			}
+			if err := consumeRawBudget(remaining, edit.TargetID); err != nil {
+				return err
+			}
+			if err := consumeRawBudget(remaining, edit.New); err != nil {
+				return err
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported raw proposal metadata type %T", value)

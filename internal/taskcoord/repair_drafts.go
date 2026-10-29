@@ -101,6 +101,7 @@ func (s *Service) attachRepairDrafts(ctx context.Context, packet taskengine.Step
 		if len(candidate.RepairDrafts) == 0 {
 			return task, nil
 		}
+		candidate.RepairTargetVersion = worker.RepairTargetVersion
 		candidate.FailureEvidence = slices.Clone(task.FailureEvidence)
 		for i := range candidate.FailureEvidence {
 			stripRepairDiagnostic(&candidate.FailureEvidence[i], proposal, loaded)
@@ -109,7 +110,10 @@ func (s *Service) attachRepairDrafts(ctx context.Context, packet taskengine.Step
 			"prefer complete replacement content if exact old/new matching failed",
 			"for explicitly supplied repair drafts use exact edits or explicit retention; ordinary paths keep their normal source forms")
 		if !proposalTaskFits(candidate, preset) {
-			return task, nil // Keep the existing bounded context; do not clip drafts.
+			candidate.RepairTargetVersion = 0
+			if !proposalTaskFits(candidate, preset) {
+				return task, nil
+			} // Keep bounded whole drafts or the original context; never clip.
 		}
 		frozen, _, _, err := worker.FreezeTask(candidate)
 		if err != nil {
