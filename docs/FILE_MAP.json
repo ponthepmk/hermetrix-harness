@@ -4,6 +4,36 @@
   "docs_root": "docs/",
   "files": [
     {
+      "path": "internal/worker/repair_targets.go",
+      "role": "module",
+      "summary": "Version-bound bounded nonoverlapping syntax targets and explicit missing-companion restoration for historical repairs."
+    },
+    {
+      "path": "internal/worker/repair_target_edits.go",
+      "role": "module",
+      "summary": "Host-rederived target edits and source-safe Go syntax-regression diagnostics; actual compiler and checks remain authoritative."
+    },
+    {
+      "path": "internal/worker/repair_targets_test.go",
+      "role": "test",
+      "summary": "Target IDs, wire/source-form consistency, proofs, credentials, resource limits, companion restoration and syntax regression."
+    },
+    {
+      "path": "internal/taskcoord/repair_targets_test.go",
+      "role": "test",
+      "summary": "Actual SQLite/Node/apply/rollback/reopen integration with explicit model transport fixtures for named historical repairs."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-repair-targets.md",
+      "role": "feature",
+      "summary": "Versioned repair target design, retained negative native trials and incomplete full-goal acceptance."
+    },
+    {
+      "path": "docs/validation/2026-10-29-repair-targets.json",
+      "role": "test",
+      "summary": "Frozen candidate and terminal qualification/review/trial hashes for bounded historical source repair."
+    },
+    {
       "path": "docs/reviews/2026-10-29-marketplace-api-reference-integration.md",
       "role": "test",
       "summary": "Primary-docs trial failure,13 supervised native draft repairs and actual API integration with disclosed final-LF acceptance miss and real PostgreSQL proof."
