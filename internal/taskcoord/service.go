@@ -681,9 +681,10 @@ func (s *Service) Propose(ctx context.Context, input ProposalInput) (ProposalOut
 	}
 
 	encoded, err := json.Marshal(proposalBundle{
-		Version:         2,
-		InputArtifactID: inputArtifact.ID,
-		Result:          result,
+		Version:                  2,
+		InputArtifactID:          inputArtifact.ID,
+		Result:                   result,
+		VerificationScopeVersion: verificationScopeVersion,
 	})
 	if err != nil {
 		return ProposalOutput{Effect: effect}, err
@@ -887,11 +888,12 @@ func (s *Service) proposalFailureEvidence(ctx context.Context, packet taskengine
 }
 
 type verificationContext struct {
-	snapshot product.ProjectSnapshot
-	proposal taskengine.CodeProposal
-	task     taskengine.Task
-	step     taskengine.Step
-	root     string
+	snapshot     product.ProjectSnapshot
+	proposal     taskengine.CodeProposal
+	task         taskengine.Task
+	step         taskengine.Step
+	root         string
+	scopeVersion int
 }
 
 func (s *Service) prepareVerification(ctx context.Context, proposalID, actor string, checks []CommandCheck) (verificationContext, error) {
@@ -978,6 +980,14 @@ func (s *Service) prepareVerification(ctx context.Context, proposalID, actor str
 			pathSeen[change.Path] = true
 		}
 	}
+	if loaded.InputTask != nil {
+		for path := range loaded.InputTask.Files {
+			if !pathSeen[path] {
+				paths = append(paths, path)
+				pathSeen[path] = true
+			}
+		}
+	}
 	snapshot, err := s.products.CaptureProjectSnapshot(ctx, proposal.ProjectID, frozenRoot, paths)
 	if err != nil {
 		return verificationContext{}, err
@@ -987,7 +997,14 @@ func (s *Service) prepareVerification(ctx context.Context, proposalID, actor str
 			return verificationContext{}, fmt.Errorf("verification source for %s drifted after apply", change.Path)
 		}
 	}
-	return verificationContext{proposal: proposal, task: task, step: step, root: snapshot.Root, snapshot: snapshot}, nil
+	version := 0
+	if loaded.InputTask != nil {
+		version = verificationScopeVersion
+	}
+	if err = validateVerificationScope(loaded, snapshot, version); err != nil {
+		return verificationContext{}, err
+	}
+	return verificationContext{proposal: proposal, task: task, step: step, root: snapshot.Root, snapshot: snapshot, scopeVersion: version}, nil
 }
 
 func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority, proposalID, actor string, checks []CommandCheck) (VerifyOutput, error) {
@@ -1060,16 +1077,23 @@ func (s *Service) Verify(ctx context.Context, authority taskengine.RunAuthority,
 			return s.failVerification(ctx, proposal, output, fmt.Errorf("mandatory check %s failed", check.ID))
 		}
 	}
-	return s.finishVerification(ctx, proposal, checks, output, prepared.snapshot)
+	return s.finishVerification(ctx, proposal, checks, output, prepared.snapshot, prepared.scopeVersion)
 }
 
-func (s *Service) finishVerification(ctx context.Context, proposal taskengine.CodeProposal, checks []CommandCheck, output VerifyOutput, snapshot product.ProjectSnapshot) (VerifyOutput, error) {
+func (s *Service) finishVerification(ctx context.Context, proposal taskengine.CodeProposal, checks []CommandCheck, output VerifyOutput, snapshot product.ProjectSnapshot, scopeVersion int) (VerifyOutput, error) {
+	loaded, err := s.loadProposalBundle(ctx, proposal)
+	if err != nil {
+		return output, err
+	}
+	if err = validateVerificationScope(loaded, snapshot, scopeVersion); err != nil {
+		return output, err
+	}
 	unlock, err := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, snapshot)
 	if err != nil {
 		return output, err
 	}
 	defer unlock()
-	bundleBody, err := json.Marshal(verificationBundle{ProposalID: proposal.ID, Checks: checks, Jobs: output.Jobs, Evidence: output.Validations, Snapshot: snapshot})
+	bundleBody, err := json.Marshal(scopedVerificationBundle{verificationBundle: verificationBundle{ProposalID: proposal.ID, Checks: checks, Jobs: output.Jobs, Evidence: output.Validations, Snapshot: snapshot}, ScopeVersion: scopeVersion})
 	if err != nil {
 		return output, err
 	}
@@ -1251,6 +1275,9 @@ func (s *Service) Review(ctx context.Context, authority taskengine.RunAuthority,
 		return ReviewOutput{}, err
 	}
 	changeSet := loaded.Bundle.Result
+	if err = validateStoredVerificationScope(loaded, bundleBody, bundle.Snapshot); err != nil {
+		return ReviewOutput{}, err
+	}
 
 	files := make(map[string]string, len(changeSet.Changes))
 	releaseSource, err := s.products.GuardProjectSnapshot(ctx, proposal.ProjectID, bundle.Snapshot)

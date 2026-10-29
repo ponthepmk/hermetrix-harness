@@ -16,20 +16,21 @@ import (
 // Persist IDs and small validation records. Command output stays in its managed
 // job/artifact instead of being copied into the polling checkpoint on every tick.
 type goalVerificationProgress struct {
-	Snapshot    product.ProjectSnapshot `json:"source_snapshot"`
-	RunID       string                  `json:"run_id"`
-	AttemptID   string                  `json:"attempt_id"`
-	PacketHash  string                  `json:"packet_hash"`
-	Root        string                  `json:"root"`
-	Actor       string                  `json:"actor"`
-	Checks      []CommandCheck          `json:"checks"`
-	Index       int                     `json:"index"`
-	OperationID string                  `json:"operation_id,omitempty"`
-	JobID       string                  `json:"job_id,omitempty"`
-	Jobs        []string                `json:"jobs"`
-	Validations []taskengine.Validation `json:"validations"`
-	EvidenceID  string                  `json:"evidence_id,omitempty"`
-	RollbackID  string                  `json:"rollback_id,omitempty"`
+	ScopeVersion int                     `json:"scope_version,omitempty"`
+	Snapshot     product.ProjectSnapshot `json:"source_snapshot"`
+	RunID        string                  `json:"run_id"`
+	AttemptID    string                  `json:"attempt_id"`
+	PacketHash   string                  `json:"packet_hash"`
+	Root         string                  `json:"root"`
+	Actor        string                  `json:"actor"`
+	Checks       []CommandCheck          `json:"checks"`
+	Index        int                     `json:"index"`
+	OperationID  string                  `json:"operation_id,omitempty"`
+	JobID        string                  `json:"job_id,omitempty"`
+	Jobs         []string                `json:"jobs"`
+	Validations  []taskengine.Validation `json:"validations"`
+	EvidenceID   string                  `json:"evidence_id,omitempty"`
+	RollbackID   string                  `json:"rollback_id,omitempty"`
 }
 
 func goalCheckTimeout(g taskengine.GoalRun) int {
@@ -65,6 +66,13 @@ func (s *Service) validateAsyncVerificationScope(ctx context.Context, g taskengi
 	}
 	if !reflect.DeepEqual(checks, p.Checks) {
 		return fmt.Errorf("frozen checks changed")
+	}
+	loaded, err := s.loadProposalBundle(ctx, *x.Proposal)
+	if err != nil {
+		return err
+	}
+	if err = validateVerificationScope(loaded, p.Snapshot, p.ScopeVersion); err != nil {
+		return err
 	}
 	matches, err := s.tasks.VerificationEffectsMatch(ctx, x.Task.ID, p.OperationID)
 	if err != nil {
@@ -143,7 +151,7 @@ func (s *Service) beginGoalVerification(ctx context.Context, g taskengine.GoalRu
 	if prepared.root == "" || prepared.root != g.Config.ProjectRoot {
 		return nil, fmt.Errorf("verification requires the goal's frozen project root")
 	}
-	p := goalVerificationProgress{RunID: x.Run.ID, AttemptID: x.Attempt.ID, PacketHash: x.Proposal.PacketHash, Root: prepared.root, Actor: actor, Checks: checks, Snapshot: prepared.snapshot}
+	p := goalVerificationProgress{RunID: x.Run.ID, AttemptID: x.Attempt.ID, PacketHash: x.Proposal.PacketHash, Root: prepared.root, Actor: actor, Checks: checks, Snapshot: prepared.snapshot, ScopeVersion: prepared.scopeVersion}
 	_, err = s.saveGoalVerification(ctx, g, taskengine.GoalVerification{ProposalID: x.Proposal.ID}, p, "active")
 	if err != nil {
 		return nil, err
@@ -324,7 +332,7 @@ func (s *Service) advanceGoalVerification(ctx context.Context, g taskengine.Goal
 	if err != nil {
 		return nil, err
 	}
-	output, err = s.finishVerification(ctx, *x.Proposal, p.Checks, output, p.Snapshot)
+	output, err = s.finishVerification(ctx, *x.Proposal, p.Checks, output, p.Snapshot, p.ScopeVersion)
 	if err != nil {
 		return nil, err
 	}

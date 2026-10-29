@@ -16,10 +16,11 @@ const maxProposalBodyBytes = 16 << 20
 // proposalBundle is the private stored shape of a proposal.
 // Version 2 is the current envelope; Version 1 is the legacy raw result.
 type proposalBundle struct {
-	Version         int                   `json:"version"`
-	InputArtifactID string                `json:"input_artifact_id"`
-	Result          worker.Result         `json:"result"`
-	Reduction       *repairReductionProof `json:"reduction,omitempty"`
+	Version                  int                   `json:"version"`
+	InputArtifactID          string                `json:"input_artifact_id"`
+	Result                   worker.Result         `json:"result"`
+	Reduction                *repairReductionProof `json:"reduction,omitempty"`
+	VerificationScopeVersion int                   `json:"verification_scope_version,omitempty"`
 }
 
 // decodeProposalBundle decodes a stored proposal body into a proposalBundle.
@@ -62,6 +63,9 @@ func decodeProposalBundle(body []byte) (out proposalBundle, err error) {
 		}
 		if out.Version != 2 {
 			return out, fmt.Errorf("version mismatch: expected 2, got %d", out.Version)
+		}
+		if out.VerificationScopeVersion < 0 || out.VerificationScopeVersion > verificationScopeVersion {
+			return out, errors.New("unsupported proposal verification scope recipe")
 		}
 		if strings.TrimSpace(out.InputArtifactID) == "" {
 			return out, errors.New("input_artifact_id must be nonblank")

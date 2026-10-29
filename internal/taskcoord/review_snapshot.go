@@ -27,6 +27,13 @@ func (s *Service) guardGoalCompletionSnapshot(ctx context.Context, g taskengine.
 			return nil, fmt.Errorf("goal verification bundle is invalid")
 		}
 		snapshot = bundle.Snapshot
+		loaded, err := s.loadProposalBundle(ctx, *x.Proposal)
+		if err != nil {
+			return nil, err
+		}
+		if err = validateStoredVerificationScope(loaded, body, snapshot); err != nil {
+			return nil, err
+		}
 	}
 	if snapshot.Root != g.Config.ProjectRoot {
 		return nil, fmt.Errorf("goal verification root differs from frozen goal scope")

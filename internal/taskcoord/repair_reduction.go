@@ -26,8 +26,11 @@ type repairReductionProof struct {
 // parent. It never trusts an envelope merely because its hashes were re-signed.
 func (s *Service) validateReduction(ctx context.Context, p taskengine.CodeProposal, loaded loadedProposal) error {
 	proof := loaded.Bundle.Reduction
-	if proof == nil || proof.Version != 1 || proof.SourceProposalID == p.ID || loaded.InputTask == nil {
+	if proof == nil || (proof.Version != 1 && proof.Version != 2) || proof.SourceProposalID == p.ID || loaded.InputTask == nil {
 		return fmt.Errorf("invalid reduction proof")
+	}
+	if proof.Version == 2 && loaded.Bundle.VerificationScopeVersion != verificationScopeVersion {
+		return fmt.Errorf("reduction proof requires selected-source verification policy")
 	}
 	parent, err := s.tasks.GetCodeProposal(ctx, proof.SourceProposalID)
 	if err != nil {
@@ -49,7 +52,7 @@ func (s *Service) validateReduction(ctx context.Context, p taskengine.CodePropos
 		return fmt.Errorf("reduction requires a frozen current packet")
 	}
 	root, _ := loaded.Artifact.Metadata["project_root"].(string)
-	bound, err := s.reductionSourceBound(ctx, *attempt.Packet, parent, original, root)
+	bound, err := s.reductionSourceBound(ctx, *attempt.Packet, parent, original, root, proof.Version)
 	if err != nil {
 		return err
 	}
@@ -70,7 +73,7 @@ func (s *Service) validateReduction(ctx context.Context, p taskengine.CodePropos
 
 // A native parent must be tied to real failed mandatory checks, complete
 // provider receipts, the same immutable requirement and a verified rollback.
-func (s *Service) reductionSourceBound(ctx context.Context, packet taskengine.StepPacket, p taskengine.CodeProposal, loaded loadedProposal, root string) (bool, error) {
+func (s *Service) reductionSourceBound(ctx context.Context, packet taskengine.StepPacket, p taskengine.CodeProposal, loaded loadedProposal, root string, proofVersion int) (bool, error) {
 	if loaded.InputTask == nil || loaded.Bundle.Reduction != nil || p.State != taskengine.ProposalVerifyFailed ||
 		p.TaskID != packet.TaskID || p.ProjectID != packet.ProjectID || loaded.Artifact.Metadata["project_root"] != root ||
 		loaded.Artifact.Metadata["provider_id"] != p.ProviderID || loaded.Artifact.Metadata["provider_revision"] != p.ProviderRevision {
@@ -95,7 +98,7 @@ func (s *Service) reductionSourceBound(ctx context.Context, packet taskengine.St
 	slices.Sort(currentIDs)
 	if prior.TaskID != p.TaskID || prior.ProjectID != p.ProjectID || origin.InputHash != p.PacketHash || prior.CanonicalPacketHash != p.PacketHash ||
 		prior.Step.ID != p.StepID || prior.Requirement.ID != packet.Requirement.ID || prior.Requirement.Revision != packet.Requirement.Revision ||
-		!slices.Equal(prior.Step.Checks, packet.Step.Checks) || !slices.Equal(priorIDs, currentIDs) {
+		!reductionChecksCompatible(prior.Step.Checks, packet.Step.Checks, *loaded.InputTask, prior.Requirement.Contract.WritablePaths, proofVersion) || !slices.Equal(priorIDs, currentIDs) {
 		return false, nil
 	}
 	if _, err = worker.RepairSelections(*loaded.InputTask, loaded.Bundle.Result); err != nil {
@@ -241,7 +244,7 @@ func (s *Service) tryGoalReduction(ctx context.Context, g taskengine.GoalRun, x 
 			if parent.ProviderID != g.Config.ProviderID || parent.ProviderRevision != g.Config.ProviderRevision {
 				continue
 			}
-			bound, e := s.reductionSourceBound(ctx, packet, parent, loaded, g.Config.ProjectRoot)
+			bound, e := s.reductionSourceBound(ctx, packet, parent, loaded, g.Config.ProjectRoot, 2)
 			if e != nil {
 				return out, true, e
 			}
@@ -277,7 +280,7 @@ func (s *Service) tryGoalReduction(ctx context.Context, g taskengine.GoalRun, x 
 				if e != nil {
 					continue
 				} // e.g. restoring this subset would be a current no-op.
-				proof := repairReductionProof{Version: 1, SourceProposalID: parent.ID, SourceArtifactSHA256: loaded.Artifact.Checksum, Selection: selected}
+				proof := repairReductionProof{Version: 2, SourceProposalID: parent.ID, SourceArtifactSHA256: loaded.Artifact.Checksum, Selection: selected}
 				out, e = s.persistGoalReduction(ctx, auth, x.Attempt.ID, packet, g.Config.ProjectRoot, parent, task, result, proof)
 				return out, true, e
 			}
@@ -314,7 +317,7 @@ func (s *Service) persistGoalReduction(ctx context.Context, auth taskengine.RunA
 	if err != nil {
 		return out, err
 	}
-	body, err := json.Marshal(proposalBundle{Version: 2, InputArtifactID: input.ID, Result: result, Reduction: &proof})
+	body, err := json.Marshal(proposalBundle{Version: 2, InputArtifactID: input.ID, Result: result, Reduction: &proof, VerificationScopeVersion: verificationScopeVersion})
 	if err != nil {
 		return out, err
 	}
