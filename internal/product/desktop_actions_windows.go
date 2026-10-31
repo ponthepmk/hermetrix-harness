@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"strings"
 	"time"
 
@@ -68,8 +69,8 @@ func (s *Service) PrepareDesktopAction(ctx context.Context, input DesktopActionI
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE desktop_actions SET state='cancelled',completed_at=? WHERE owner_principal_id=? AND state='prepared' AND expires_at<=?`,
-		formatTime(time.Now().UTC()), ownerID, formatTime(time.Now().UTC()))
+	durability.Exec("expire prepared desktop actions").Observe(s.store.DB.ExecContext(ctx, `UPDATE desktop_actions SET state='cancelled',completed_at=? WHERE owner_principal_id=? AND state='prepared' AND expires_at<=?`,
+		formatTime(time.Now().UTC()), ownerID, formatTime(time.Now().UTC())))
 	var unresolved int
 	if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM desktop_actions da WHERE da.owner_principal_id=? AND da.window_handle=? AND da.process_id=?
 		AND (da.state IN ('prepared','dispatched') OR (da.state='uncertain' AND NOT EXISTS
@@ -290,8 +291,8 @@ func (s *Service) ConfirmDesktopAction(ctx context.Context, id, subjectHash, tex
 		if errors.Is(err, errDesktopNotDispatched) {
 			state = "cancelled"
 		}
-		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state=?,error=?,completed_at=? WHERE id=? AND state='dispatched'`,
-			state, err.Error(), formatTime(time.Now().UTC()), id)
+		durability.Exec("record desktop action failure").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state=?,error=?,completed_at=? WHERE id=? AND state='dispatched'`,
+			state, err.Error(), formatTime(time.Now().UTC()), id))
 		return s.GetDesktopAction(context.Background(), id)
 	}
 	observation, observeErr := s.ObserveDesktopWindow(ctx, item.Handle, item.ProcessID)
@@ -299,8 +300,8 @@ func (s *Service) ConfirmDesktopAction(ctx context.Context, id, subjectHash, tex
 		if observeErr == nil {
 			observeErr = fmt.Errorf("follow-up screenshot unavailable: %s", observation.ScreenshotError)
 		}
-		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state='uncertain',error=?,completed_at=? WHERE id=? AND state='dispatched'`,
-			"action returned but follow-up observation failed: "+observeErr.Error(), formatTime(time.Now().UTC()), id)
+		durability.Exec("record uncertain desktop observation").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE desktop_actions SET state='uncertain',error=?,completed_at=? WHERE id=? AND state='dispatched'`,
+			"action returned but follow-up observation failed: "+observeErr.Error(), formatTime(time.Now().UTC()), id))
 		return s.GetDesktopAction(context.Background(), id)
 	}
 	observationBody, _ := json.Marshal(observation)

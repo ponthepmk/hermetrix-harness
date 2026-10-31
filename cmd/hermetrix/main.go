@@ -209,7 +209,7 @@ func runServe(args []string) {
 		os.Exit(1)
 	}
 	providerService := providers.NewService(dataStore, nil).WithVault(vault)
-	taskCoordinator := taskcoord.New(taskService, productService, providerService).WithLearning(learningService)
+	taskCoordinator := taskcoord.New(taskService, productService, providerService).WithLearning(learningService).WithSkills(skillService)
 	localProber := localmodel.NewProber()
 	qualificationService := qualification.NewService(dataStore, providerService, localProber, gate, estimator)
 	capabilityCatalog := capabilities.NewCatalog()

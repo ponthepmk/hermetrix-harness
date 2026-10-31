@@ -2320,9 +2320,9 @@ function chatComposerHTML(session, projectName) {
         <button type="button" class="composer-tool-button" id="composerFilesButton">${uiIcon("files")}<span>ไฟล์</span></button>
         <button type="button" class="composer-tool-button" id="composerTerminalButton">${uiIcon("terminal")}<span>เทอร์มินัล</span></button>
         <button type="button" class="composer-tool-button" id="composerAttachButton">${uiIcon("file")}<span>แนบไฟล์ข้อความ</span></button><input hidden id="composerFileInput" type="file" multiple accept=".txt,.md,.csv,.json,.log,.js,.ts,.py,.go,.yaml,.yml"><button type="button" class="composer-tool-button" id="composerImageButton" ${activeSessionSupportsVision() ? "" : "disabled"} title="${activeSessionSupportsVision() ? "แนบรูปภาพที่โมเดลรองรับ" : "เซสชันนี้ยังไม่มีโมเดลที่รองรับรูปภาพ"}">${uiIcon("artifact")}<span>รูปภาพ</span></button>
-        <button type="button" class="composer-tool-button voice-entry" data-voice-open aria-label="เริ่มคุยด้วยเสียงในเครื่อง">🎙 <span>พูด</span></button>
         <small>${escapeHTML(projectName)}</small>
       </div></details></div>
+      <button type="button" class="ghost voice-entry composer-voice-entry" data-voice-open aria-label="เริ่มคุยด้วยเสียงในเครื่อง">🎙 พูด</button>
       <div class="composer-usage">${sessionUsageHTML(session, state.sessionDetail?.events, state.sessionDetail?.latest_context_snapshot)}</div>
       ${chatControlsHTML(session)}
     </div><input hidden id="composerImageInput" type="file" multiple accept="image/png,image/jpeg,image/webp">
@@ -2470,7 +2470,7 @@ async function submitChatText(content, attachments = [], options = {}) {
   state.turnSessionID = sessionID;
   state.sending = true;
   state.chatTurnError = "";
-  state.failedRequest = {sessionID, draftText:options.draftText || content, beforeEventID:[...(state.sessionDetail.events || [])].reverse().find(item => item.event_kind === "message" || item.event_kind === "turn_failed")?.id, content, attachments};
+  state.failedRequest = {sessionID, draftText:options.draftText || content, beforeEventID:[...(state.sessionDetail.events || [])].reverse().find(item => item.event_kind === "message" || item.event_kind === "turn_failed")?.id, content, attachments, idempotencyKey:options.idempotencyKey, paused:options.automaticRetry === false};
   state.streamingText = "";
   renderChat();
   refreshPaneChat();
@@ -5547,6 +5547,7 @@ function renderTaskCockpit(body) {
     ${selected ? `<div class="task-detail-toolbar"><button class="ghost" type="button" id="taskBackToOverview">← งานทั้งหมด</button><span>${tasks.length} งานในโปรเจกต์นี้</span></div>` : ""}
     ${selected ? `<div id="taskCurrentAction" class="task-current-action">${taskPlanAwaitsReview(selected) ? `<p class="task-current-caption">ตรวจแผนก่อนเริ่มงาน</p><button class="primary" type="button" data-task-jump="taskPlanReview">ไปตรวจและยืนยันแผน</button>` : selected.plan?.review_status === "rejected" ? `<p class="task-current-caption">แผนถูกส่งกลับแก้</p><button class="primary" type="button" data-task-jump="taskAutoPlan">สร้างแผนใหม่</button>` : !selected.active_plan_revision ? `<p class="task-current-caption">ยังไม่มีแผนสำหรับเป้าหมายนี้</p><button class="primary" type="button" data-task-jump="taskAutoPlan">ไปสร้างแผน</button>` : taskExecutionHTML(selected, execution)}</div>` : ""}
     ${selected ? taskFlowHTML(stage, jump) : ""}
+    ${selected ? '<div data-task-goal-controls></div>' : ""}
     ${selected ? `<nav class="task-section-nav" aria-label="ส่วนของงาน"><a href="#taskCurrentAction">ทำต่อ</a><a href="#taskGoal">เป้าหมาย</a><a href="#taskPlan">แผน</a><a href="#taskResults">ผลและหลักฐาน</a></nav>` : ""}
     <details class="task-create" ${!selected || draftObjective ? "open" : ""}><summary>${selected ? "+ เพิ่มงานใหม่" : "+ สร้างงานใหม่"}</summary><form id="durableTaskForm"><fieldset ${taskActions.has("create") ? "disabled" : ""}>
       <label>ต้องการให้งานนี้ได้ผลอะไร?<textarea name="objective" required rows="3" placeholder="อธิบายสิ่งที่ต้องการสร้างหรือแก้ไข">${escapeHTML(draftObjective)}</textarea></label>
@@ -5568,7 +5569,7 @@ function renderTaskCockpit(body) {
       ${steps.length && canReplan ? `<details><summary>ปรับแผนนี้</summary><p>สร้างแผนฉบับใหม่จากเป้าหมายและเกณฑ์สำเร็จเดิม แล้วตรวจแผนก่อนเริ่มอีกครั้ง</p><label>โมเดลวางแผน<select id="taskPlannerProvider">${taskProviderOptions(providers)}</select></label><button class="ghost" id="taskAutoPlan" ${providers.length ? "" : "disabled"}>สร้างแผนฉบับใหม่</button></details>` : ""}
       ${!providers.length ? `<p class="session-error">No ready ${selected.egress_policy === "remote_allowed" ? "" : "local "}model is configured for this task. Connect one or fix its credentials in Models.</p><button class="ghost" data-task-models>Open Models</button>` : ""}
       ${providers.length && !providers.some(provider => taskEligibleProviders(selected, provider.id).length) ? `<p class="task-readiness">วางแผนและเสนอการแก้ไขได้ แต่การตรวจงานขั้นสุดท้ายต้องมีโปรไฟล์อีกตัวสำหรับการตรวจรอบแยกใน Models</p>` : ""}
-      <div id="taskResults">${taskCompletionHTML(selected, execution)}</div>
+      <div id="taskResults">${taskCompletionHTML(selected, execution)}${typeof window !== "undefined" ? window.HermetrixTaskContextView?.render(execution) || "" : ""}</div>
     </section>${taskActivityHTML(execution)}<details id="taskOptionalTools" class="task-optional-tools" ${taskOptionalToolsOpen.has(selected.id) || (execution?.research || []).length || execution?.content?.brief || (execution?.socialPosts || []).length ? "open" : ""}><summary>เครื่องมือคอนเทนต์ · ค้นแหล่งข้อมูลและเตรียมโพสต์</summary>${taskResearchHTML(selected, execution)}${taskContentHTML(selected, execution)}</details>${taskDesktopActionsHTML(selected, execution)}${taskBrowserActionsHTML(selected, execution)}<div id="taskProjectBrain"></div>${taskDecisionLabHTML(selected)}` : ""}</div>`;
   $("#taskOptionalTools")?.addEventListener("toggle", event => {
     if (event.currentTarget.open) taskOptionalToolsOpen.add(selected.id);
@@ -5750,6 +5751,12 @@ function renderTaskCockpit(body) {
   $("#taskComfyStart")?.addEventListener("click", () => startTaskComfy(selected.id, body));
   body.querySelectorAll("[data-comfy-refresh]").forEach(button => button.addEventListener("click", () => refreshTaskComfy(selected.id, button.dataset.comfyRefresh, body)));
   body.querySelectorAll("[data-comfy-cancel]").forEach(button => button.addEventListener("click", () => cancelTaskComfy(selected.id, button.dataset.comfyCancel, body)));
+  // Mount the feature before restoring scroll. Inserting its initial height
+  // afterward lets browser anchoring add that height to the saved position.
+  if (selected && typeof window !== "undefined") window.HermetrixGoals?.mount(body.querySelector("[data-task-goal-controls]"), {
+    task:selected, providers, api, actor:currentActor,
+    onChange:async () => { await loadTaskExecution(selected.id); if (state.selectedDurableTask === selected.id && body.isConnected) renderCurrentTaskCockpit(selected.id); },
+  });
   const position = selected && taskViewportPositions.get(selected.id);
   if (position) { body.scrollTop = position.top; body.scrollLeft = position.left; }
   const jumpToTaskControl = targetID => {

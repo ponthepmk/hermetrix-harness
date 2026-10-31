@@ -12,7 +12,7 @@
     outputEpoch: 0, outputAbort: null, sound: null, soundURL: null, queue: [],
     speaking: false, spokenBuffer: "", sentUtterance: -1, sentTurns: new Set(), pendingFinals: [], voiceSessionID: "", playbackResolve: null, capabilities: null,
     nativeAbort: null, nativeActive: false, nativeRequested: false, nativeDevices: [], micRequestEpoch: 0, nativeFrames: 0,
-    nativeIgnoreUtterance: false, nativeSuppressUntil: 0
+    nativeIgnoreUtterance: false, nativeSuppressUntil: 0, draftFinal: null, focusReturn: null
   };
 
   function status(message, tone = "") {
@@ -37,12 +37,36 @@
     el("#voiceMic").textContent = voice.stream || voice.nativeActive ? "ปิดไมค์" : "เปิดไมค์";
     el("#voiceMic").disabled = !voice.capabilities?.asr_ready;
     el("#voiceNativeMic").textContent = voice.nativeActive ? "ปิดไมค์ Windows" : "ใช้ไมค์ Windows";
-    el("#voiceSend").disabled = !el("#voiceTranscript").value.trim() || state.sending;
+    el("#voiceSend").disabled = !el("#voiceTranscript").value.trim() || state.sending || !turns.ready();
     el("#voiceAutoSend").disabled = !state.sessionDetail?.session;
     const orb = el("#voiceOrb");
     orb.disabled = !voice.capabilities?.asr_ready;
     orb.setAttribute("aria-pressed", String(Boolean(voice.stream || voice.nativeActive)));
     orb.setAttribute("aria-label", voice.stream || voice.nativeActive ? "ปิดไมโครโฟน" : "เปิดไมโครโฟน");
+    el("#voiceInspectStop").hidden = !turns.snapshot().blocked;
+    el("#voiceInspectStop").disabled = turns.snapshot().pending;
+    el("#voiceQueueCount").textContent = voice.pendingFinals.length ? `รอส่ง ${voice.pendingFinals.length} ข้อความ` : "";
+  }
+
+  const turns = window.HermetrixVoiceTurnControl.create({
+    stop: (sessionID, turnID) => api(`/api/sessions/${encodeURIComponent(sessionID)}/stop`, {method:"POST",body:JSON.stringify({turn_id:turnID})}),
+    read: sessionID => api(`/api/sessions/${encodeURIComponent(sessionID)}`),
+    reconcile: (sessionID, turnID) => api(`/api/sessions/${encodeURIComponent(sessionID)}/stop/reconcile`, {method:"POST",body:JSON.stringify({turn_id:turnID})}),
+    onState(phase) {
+      if (panel.hidden) return;
+      if (["stopping","waiting_for_commit"].includes(phase)) status("กำลังหยุดคำตอบเดิม · พูดต่อได้");
+      else if (phase === "needs_review") status("ยังยืนยันการหยุดไม่ได้ · ตรวจแชตก่อนทำต่อ", "error");
+      else if (phase === "idle" && voice.pendingFinals.length) scheduleAutoSend();
+      updateControls();
+    },
+  });
+
+  function interruptAnswer() {
+    stopOutput();
+    void turns.interrupt().then(() => {
+      if (turns.ready() && voice.pendingFinals.length) scheduleAutoSend();
+      updateControls();
+    });
   }
 
   function clearAutoSend() {
@@ -55,9 +79,16 @@
     voice.autoTimer = setTimeout(async () => {
       voice.autoTimer = null;
       if (panel.hidden || !el("#voiceAutoSend").checked || !voice.pendingFinals.length) return;
-      if (state.sending) {
-        status("ได้ยินแล้ว · รอคำตอบก่อนหน้า แล้วจะส่งข้อความนี้");
+      if (turns.snapshot().blocked) { updateControls(); return; }
+      if (state.sending || !turns.ready()) {
+        status("ได้ยินแล้ว · รอยืนยันคำตอบเดิมก่อนส่งข้อความถัดไป");
         scheduleAutoSend(400);
+        return;
+      }
+      const session = state.sessionDetail?.session;
+      if (session?.state !== "active" || session.active_turn_id) {
+        status(session?.state === "awaiting_approval" ? "มีคำสั่งรอให้ยืนยันในแชต · เก็บคำพูดถัดไปไว้แล้ว" : "รอตรวจสถานะแชต · เก็บคำพูดถัดไปไว้แล้ว");
+        scheduleAutoSend(1000);
         return;
       }
       const next = voice.pendingFinals.shift();
@@ -113,6 +144,17 @@
 
   function end() {
     clearAutoSend();
+    const unsent = voice.pendingFinals.filter(item => !voice.sentTurns.has(item.voiceTurnID)).map(item => item.text);
+    const draft = el("#voiceTranscript").value.trim();
+    const draftKey = voice.draftFinal?.voiceTurnID || `${voice.voiceSessionID}:${voice.utterance}`;
+    if (draft && !voice.sentTurns.has(draftKey) && !unsent.includes(draft)) unsent.push(draft);
+    if (!panel.hidden && voice.sessionID && unsent.length) {
+      const selected = voice.sessionID === state.sessionDetail?.session?.id;
+      if (selected) captureComposer();
+      const previous = selected ? {text:state.draftMessage,attachments:state.composerAttachments} : sessionDrafts.get(voice.sessionID) || {text:readSessionDraft(voice.sessionID)};
+      setComposerDraft([previous.text,...unsent].filter(Boolean).join("\n\n"),previous.attachments || [],voice.sessionID);
+      toast("เก็บคำพูดที่ยังไม่ส่งไว้ในร่างแชตแล้ว");
+    }
     voice.pendingFinals = [];
     voice.utterance++;
     voice.micRequestEpoch++;
@@ -122,6 +164,7 @@
     voice.nativeActive = false;
     voice.nativeIgnoreUtterance = false;
     voice.asrAbort?.abort();
+    turns.reset();
     stopMic(false);
     stopOutput();
     panel.hidden = true;
@@ -130,6 +173,9 @@
     voice.projectID = null;
     voice.sessionID = null;
     setVoiceLevel(0);
+    const opener = voice.focusReturn?.isConnected && voice.focusReturn !== document.body && voice.focusReturn.getClientRects().length ? voice.focusReturn :
+      [...document.querySelectorAll('[data-voice-open]')].find(button => button.getClientRects().length);
+    (opener || document.querySelector('#chatInput'))?.focus();
   }
 
   function recordingType() {
@@ -144,7 +190,7 @@
     if (!type) { status("เบราว์เซอร์นี้บันทึกเสียงจากไมค์ไม่ได้", "error"); stopMic(false); return; }
     if (!voice.pendingFinals.length) clearAutoSend();
     voice.asrAbort?.abort();
-    stopOutput(); // Mute old speech; let the local model finish before the next text turn.
+    interruptAnswer();
     voice.utterance++;
     const thisUtterance = voice.utterance;
     voice.chunks = [];
@@ -202,6 +248,7 @@
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       if (panel.hidden || voice.nativeRequested || voice.nativeActive || requestEpoch !== voice.micRequestEpoch) { stream.getTracks().forEach(track => track.stop()); return; }
       voice.stream = stream;
+      localStorage.setItem("hermetrix.voice.input", "browser");
       stream.getAudioTracks().forEach(track => { track.onended = () => { if (voice.stream) stopMic(false); }; });
       const AudioContextType = window.AudioContext || window.webkitAudioContext;
       voice.context = new AudioContextType();
@@ -299,7 +346,11 @@
       status("ได้ยินเสียงพื้นหลัง ไม่มีข้อความที่จะส่ง");
       return;
     }
+    const key = voiceTurnID || `${voice.voiceSessionID}:${voice.utterance}`;
+    if (voice.sentTurns.has(key) || voice.pendingFinals.some(item => item.voiceTurnID === key)) return;
     el("#voiceTranscript").value = transcript;
+    const final = {text:transcript, utterance:voice.utterance, sessionID:voice.sessionID, voiceTurnID:key};
+    voice.draftFinal = final;
     updateControls();
     if (!state.sessionDetail?.session) {
       state.startDraft = transcript;
@@ -308,7 +359,14 @@
       status("ถอดเสียงแล้ว · ตั้งค่าโมเดลที่ตอบได้ก่อนเริ่มแชต", "error");
     } else if (el("#voiceAutoSend").checked) {
       status("ถอดเสียงแล้ว · กำลังส่งข้อความ");
-      voice.pendingFinals.push({text:transcript, utterance:voice.utterance, sessionID:voice.sessionID, voiceTurnID});
+      if (voice.pendingFinals.length >= 16) {
+        stopMic(false);
+        status("คิวเสียงเต็ม · ข้อความล่าสุดอยู่ในช่องด้านล่าง กดส่งเมื่อคิวว่าง", "error");
+        updateControls();
+        return;
+      }
+      voice.pendingFinals.push(final);
+      updateControls();
       scheduleAutoSend();
     } else status("ถอดเสียงแล้ว ตรวจข้อความและกดส่งเมื่อพร้อม");
   }
@@ -322,6 +380,7 @@
       const select = el("#voiceDevice");
       select.replaceChildren(...voice.nativeDevices.map(name => new Option(name, name)));
       el("#voiceNativeRow").hidden = !voice.nativeDevices.length;
+      el("#voiceInputSettings").hidden = !voice.nativeDevices.length;
     } catch { /* Browser microphone remains available when device discovery fails. */ }
   }
 
@@ -344,7 +403,7 @@
       }
       voice.nativeIgnoreUtterance = false;
       if (!voice.pendingFinals.length) clearAutoSend();
-      stopOutput();
+      interruptAnswer();
       voice.utterance++;
       voice.sentUtterance = -1;
       status("กำลังฟังคำพูด…", "listening");
@@ -378,6 +437,8 @@
     const device = el("#voiceDevice").value;
     if (!voice.nativeDevices.includes(device)) { status("เลือกไมค์ Windows ก่อน", "error"); return; }
     voice.nativeRequested = true;
+    localStorage.setItem("hermetrix.voice.input", "windows");
+    localStorage.setItem("hermetrix.voice.device", device);
     voice.micRequestEpoch++;
     voice.asrAbort?.abort();
     if (voice.stream) stopMic(false);
@@ -484,7 +545,7 @@
   async function sendTranscript(final = null) {
     clearAutoSend();
     const text = (final?.text || el("#voiceTranscript").value).trim();
-    if (!text || state.sending || panel.hidden) return;
+    if (!text || state.sending || panel.hidden || !turns.ready()) return;
     if (!state.sessionDetail?.session) {
       state.startDraft = text;
       const input = document.querySelector("#startPrompt");
@@ -492,10 +553,16 @@
       status("เลือกโมเดลและกดเริ่มคุยเพื่อส่งข้อความ", "error");
       return;
     }
+    final = final || (voice.draftFinal?.text === text ? voice.draftFinal : null);
     const utterance = final?.utterance ?? voice.utterance;
     if (final?.sessionID && final.sessionID !== state.sessionDetail.session.id) return;
-    if (voice.sentTurns.has(utterance)) { status("ข้อความนี้ส่งแล้ว พูดหรือแก้ข้อความใหม่ก่อนส่งอีกครั้ง"); return; }
-    voice.sentTurns.add(utterance);
+    const key = final?.voiceTurnID || `${voice.voiceSessionID}:${utterance}`;
+    if (voice.sentTurns.has(key)) { status("ข้อความนี้ส่งแล้ว · ตรวจผลในแชตได้"); return; }
+    const sessionID = state.sessionDetail.session.id;
+    const ticket = turns.begin(sessionID);
+    if (!ticket) return;
+    voice.pendingFinals = voice.pendingFinals.filter(item => item.voiceTurnID !== key);
+    voice.sentTurns.add(key);
     voice.sentUtterance = utterance;
     voice.spokenBuffer = "";
     const controller = new AbortController();
@@ -503,14 +570,21 @@
     voice.turnAbort = controller;
     status("ส่งข้อความแล้ว กำลังรับคำตอบสด…");
     updateControls();
-    const ok = await submitChatText(text, [], { signal: controller.signal,
-      idempotencyKey: final?.voiceTurnID || `${voice.voiceSessionID}:${utterance}`,
-      onEvent: item => { if (voice.turnAbort === controller && outputEpoch === voice.outputEpoch && !controller.signal.aborted && !panel.hidden) onTurnEvent(item); } });
+    let ok = false;
+    try {
+      ok = await submitChatText(text, [], { signal: controller.signal, idempotencyKey:key, automaticRetry:false,
+        onEvent: item => {
+          if (voice.turnAbort !== controller || voice.sessionID !== sessionID || panel.hidden) return;
+          if (item.type === "user_committed") ticket.commit(item.turn_id);
+          ticket.terminal(item.type, item.turn_id);
+          if (outputEpoch === voice.outputEpoch && !controller.signal.aborted) onTurnEvent(item);
+        } });
+    } finally { ticket.finish({failed:!ok}); }
     if (voice.turnAbort === controller) voice.turnAbort = null;
     if (outputEpoch === voice.outputEpoch && !panel.hidden) {
       if (ok && voice.spokenBuffer.trim()) queueSpeech(voice.spokenBuffer);
       voice.spokenBuffer = "";
-      if (!ok && !controller.signal.aborted) { voice.sentUtterance = -1; voice.sentTurns.delete(utterance); status("ส่งข้อความไม่สำเร็จ ตรวจแชตแล้วลองอีกครั้ง", "error"); }
+      if (!ok && !controller.signal.aborted && !turns.snapshot().interrupted) status("ยังยืนยันผลข้อความนี้ไม่ได้ · ตรวจแชตก่อนส่งใหม่", "error");
       else if (ok && !voice.queue.length && !voice.speaking) status(voice.stream || voice.nativeActive ? "ฟังอยู่ · พูดต่อได้" : "คำตอบอยู่ในแชต", voice.stream || voice.nativeActive ? "listening" : "");
     }
     updateControls();
@@ -518,6 +592,7 @@
 
   async function open() {
     if (!panel.hidden) { panel.focus(); return; }
+    voice.focusReturn = document.activeElement;
     if (!state.sessionDetail?.session && state.sessionReady) {
       const created = await createAgentSession("คุยด้วยเสียง");
       if (!created) return;
@@ -527,6 +602,8 @@
     voice.sentUtterance = -1;
     voice.sentTurns.clear();
     voice.pendingFinals = [];
+    voice.draftFinal = null;
+    turns.reset();
     voice.voiceSessionID = crypto.randomUUID();
     panel.hidden = false;
     document.querySelector("#voiceHost")?.append(panel);
@@ -546,7 +623,7 @@
       updateControls();
       await loadNativeDevices();
       const lastDevice = localStorage.getItem("hermetrix.voice.device");
-      if (voice.nativeDevices.includes(lastDevice)) {
+      if (localStorage.getItem("hermetrix.voice.input") === "windows" && voice.nativeDevices.includes(lastDevice)) {
         el("#voiceDevice").value = lastDevice;
         void startNativeMic();
       } else await startMic();
@@ -577,15 +654,36 @@
     if (!voice.capabilities?.tts_ready) { status("เสียงพูดตอบในเครื่องนี้ยังไม่พร้อม", "error"); return; }
     queueSpeech("ทดสอบเสียงตอบจาก Hermetrix ในเครื่อง");
   });
-  el("#voiceStopOutput").addEventListener("click", () => { stopOutput(); status(voice.stream || voice.nativeActive ? "หยุดเสียงตอบแล้ว ไมค์ยังเปิดอยู่" : "หยุดเสียงตอบแล้ว"); });
+  el("#voiceStopOutput").addEventListener("click", () => {
+    interruptAnswer();
+    if (turns.ready()) status(voice.stream || voice.nativeActive ? "หยุดคำตอบแล้ว · ไมค์ยังเปิดอยู่" : "หยุดคำตอบแล้ว");
+  });
+  el("#voiceInspectStop").addEventListener("click", async () => {
+    if (await turns.inspect()) {
+      status("ตรวจยืนยันแล้ว · พูดต่อหรือส่งข้อความได้", voice.stream ? "listening" : "");
+      if (voice.pendingFinals.length) scheduleAutoSend();
+    } else {
+      await selectSession(voice.sessionID, {refresh:true}).catch(() => {});
+      status("ตรวจสถานะในแชตและผลเครื่องมือก่อนทำต่อ", "error");
+    }
+    updateControls();
+  });
   el("#voiceReply").addEventListener("change", () => { if (!el("#voiceReply").checked) stopOutput(); });
   el("#voiceAutoSend").addEventListener("change", () => { if (el("#voiceAutoSend").checked && voice.pendingFinals.length) scheduleAutoSend(); else clearAutoSend(); });
-  el("#voiceTranscript").addEventListener("input", () => { clearAutoSend(); voice.pendingFinals = []; voice.utterance++; voice.sentUtterance = -1; updateControls(); status("แก้ข้อความแล้ว กดส่งเมื่อพร้อม"); });
+  el("#voiceTranscript").addEventListener("input", () => {
+    clearAutoSend();
+    if (voice.draftFinal) voice.pendingFinals = voice.pendingFinals.filter(item => item !== voice.draftFinal);
+    voice.utterance++;
+    voice.draftFinal = null;
+    voice.sentUtterance = -1;
+    updateControls(); status("แก้ข้อความแล้ว · กดส่งเมื่อพร้อม");
+  });
+  panel.addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); end(); } });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && voice.stream) stopMic(false);
     if (document.hidden && voice.nativeActive) { voice.nativeAbort?.abort(); voice.nativeActive = false; }
   });
   window.addEventListener("beforeunload", end);
-  window.HermetrixVoice = { onRender, beforeRender, end, open };
+  window.HermetrixVoice = { onRender, beforeRender, end, open, onCaptureEvent:onNativeEvent };
   onRender();
 })();

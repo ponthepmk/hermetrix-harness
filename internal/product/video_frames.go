@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,7 +120,7 @@ func (s *Service) runVideoExtract(ctx context.Context, jobID string) {
 			return
 		}
 		frames = append(frames, sampledVideoFrame{ref: ref, size: len(data), width: width, height: height, second: second})
-		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE media_jobs SET progress=?,updated_at=? WHERE id=? AND state='running'`, .1+float64(index+1)*.25, formatTime(time.Now().UTC()), jobID)
+		durability.Exec("record video frame progress").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE media_jobs SET progress=?,updated_at=? WHERE id=? AND state='running'`, .1+float64(index+1)*.25, formatTime(time.Now().UTC()), jobID))
 	}
 	if ctx.Err() != nil {
 		s.finishMediaContext(jobID, ctx.Err(), "job stopped before saving frames")

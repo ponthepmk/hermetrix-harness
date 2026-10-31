@@ -58,7 +58,7 @@ async function refreshAutomaticTurns() {
     if (latest?.id !== failed.beforeEventID) { failed.retryAt = null; return; }
     if (detail.auto_retry?.state === 'paused') { failed.paused = true; return; }
     failed.retryAt = Date.now() + 300000;
-    const ok = await submitChatText(failed.content, failed.attachments || [], {draftText:failed.draftText});
+    const ok = await submitChatText(failed.content, failed.attachments || [], {draftText:failed.draftText,idempotencyKey:failed.idempotencyKey});
     if (ok) {
       if (state.draftMessage === failed.draftText) setComposerDraft('',[],id);
       if (state.paneChatDraft === failed.draftText) state.paneChatDraft = '';

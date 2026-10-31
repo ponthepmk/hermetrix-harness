@@ -266,7 +266,22 @@ func (s *Server) getTaskExecution(w http.ResponseWriter, r *http.Request) {
 		taskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, snapshot)
+	var receipt *taskcoord.ContextReceipt
+	contextError := ""
+	if s.coord != nil && snapshot.Proposal != nil {
+		receipt, err = s.coord.ProposalContext(r.Context(), *snapshot.Proposal)
+		if err != nil {
+			contextError = "ตรวจหลักฐานบริบทของข้อเสนอนี้ไม่ได้"
+			if s.logger != nil {
+				s.logger.Error("read proposal context receipt failed", "proposal_id", snapshot.Proposal.ID, "error", err)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		taskengine.ExecutionSnapshot
+		ContextReceipt *taskcoord.ContextReceipt `json:"context_receipt,omitempty"`
+		ContextError   string                    `json:"context_error,omitempty"`
+	}{snapshot, receipt, contextError})
 }
 
 func (s *Server) beginTaskRun(w http.ResponseWriter, r *http.Request) {

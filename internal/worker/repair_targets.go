@@ -21,8 +21,17 @@ const RepairTargetVersion = 1
 // original wire contract; both recipes still allow explicit multi-span repairs.
 const AtomicRepairTargetVersion = 2
 
+// FocusedRepairTargetVersion fairly allocates the bounded catalog across paths
+// and prioritizes spans near reported source locations. Older recipes retain
+// their exact catalogs and request grammar for persisted proposal replay.
+const FocusedRepairTargetVersion = 3
+
 func namedRepairRecipe(version int) bool {
-	return version == RepairTargetVersion || version == AtomicRepairTargetVersion
+	return version == RepairTargetVersion || version == AtomicRepairTargetVersion || version == FocusedRepairTargetVersion
+}
+
+func atomicRepairRecipe(version int) bool {
+	return version == AtomicRepairTargetVersion || version == FocusedRepairTargetVersion
 }
 
 const maxRepairTargets = 32
@@ -189,6 +198,35 @@ func buildRepairTargets(task Task) (map[string][]RepairTarget, error) {
 	})
 	result := map[string][]RepairTarget{}
 	remaining, count := maxRepairTargetWireBytes-2, 0
+	if task.RepairTargetVersion == FocusedRepairTargetVersion {
+		// A large lexically earlier file must not hide the failed companion.
+		// Reorder only recipe 3; IDs and membership of old catalogs stay frozen.
+		byPath := map[string][]RepairTarget{}
+		for _, c := range candidates {
+			byPath[c.path] = append(byPath[c.path], c.target)
+		}
+		for _, selected := range focusedRepairOrder(task, byPath) {
+			b, _ := json.Marshal(selected.target)
+			cost := len(b) + 1
+			if len(result[selected.path]) == 0 {
+				key, _ := json.Marshal(selected.path)
+				cost += len(key) + 4
+			}
+			if cost > remaining {
+				continue
+			}
+			if count == maxRepairTargets {
+				break
+			}
+			result[selected.path] = append(result[selected.path], selected.target)
+			remaining -= cost
+			count++
+		}
+		if count == 0 {
+			return nil, errors.New("repair target catalog does not fit its bounds")
+		}
+		return result, nil
+	}
 	for _, c := range candidates {
 		b, _ := json.Marshal(c.target)
 		cost := len(b) + 1

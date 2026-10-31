@@ -25,7 +25,6 @@ import (
 	"hermetrix-harness/internal/runtime"
 	"hermetrix-harness/internal/skills"
 	"hermetrix-harness/internal/store"
-	"hermetrix-harness/internal/textmatch"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -890,73 +889,7 @@ func selectSkillBindings(goal string, catalog []SessionSkillBinding) []SessionSk
 // substring a vector only approximates.
 func rankSkillBindings(goal string, catalog []SessionSkillBinding,
 	semantic map[string]int) []SessionSkillBinding {
-	type scored struct {
-		binding SessionSkillBinding
-		score   int
-	}
-	query := strings.ToLower(strings.TrimSpace(goal))
-	queryWords, queryGrams := textmatch.Terms(query)
-	var candidates []scored
-	for _, binding := range catalog {
-		score := 0
-		reasons := []string{}
-		if binding.Pinned {
-			score += 100
-			reasons = append(reasons, "pinned in this session")
-		}
-		name := strings.ToLower(strings.ReplaceAll(binding.CanonicalName, "-", " "))
-		if query != "" && (strings.Contains(query, name) || strings.Contains(name, query)) {
-			score += 40
-			reasons = append(reasons, "name matches the goal")
-		}
-		candidateWords, candidateGrams := textmatch.Terms(name + " " + strings.ToLower(binding.Summary))
-		wordMatched := false
-		for term := range candidateWords {
-			if queryWords[term] {
-				score += 4
-				wordMatched = true
-			}
-		}
-		if wordMatched {
-			reasons = append(reasons, "terms overlap with the goal")
-		}
-		// Thai and other unspaced scripts reach the scorer only through this
-		// branch. Without it a Thai query matched nothing short of the summary
-		// repeated verbatim.
-		if shared := textmatch.Overlap(queryGrams, candidateGrams); shared > 0 {
-			// The shorter side is whichever of goal and summary is more specific,
-			// so this reads as "how much of the specific one is covered".
-			smaller := len(queryGrams)
-			if len(candidateGrams) < smaller {
-				smaller = len(candidateGrams)
-			}
-			score += int(math.Round(gramWeight * float64(shared) / float64(smaller)))
-			reasons = append(reasons, "text resembles the goal")
-		}
-		semanticScore := semantic[bindingKey(binding)]
-		score += semanticScore
-		if semanticScore > 0 {
-			reasons = append(reasons, "meaning resembles the goal")
-		}
-		if score > 0 {
-			binding.SelectionReason = strings.Join(reasons, "; ")
-			candidates = append(candidates, scored{binding: binding, score: score})
-		}
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].score != candidates[j].score {
-			return candidates[i].score > candidates[j].score
-		}
-		return candidates[i].binding.CanonicalName < candidates[j].binding.CanonicalName
-	})
-	if len(candidates) > 3 {
-		candidates = candidates[:3]
-	}
-	selected := make([]SessionSkillBinding, 0, len(candidates))
-	for _, candidate := range candidates {
-		selected = append(selected, candidate.binding)
-	}
-	return selected
+	return skills.RankBindings(goal, catalog, semantic)
 }
 
 func (s *Service) runAgentLoop(ctx context.Context, session Session, provider providers.Profile, profile ctxcompiler.Profile,

@@ -6,6 +6,10 @@ import "errors"
 // eventual wire JSON for task. It consumes a fixed 128 KiB budget and returns a
 // plain error as soon as any accounted field would exceed it.
 func validateWorkerWireLowerBound(task Task) error {
+	if err := validateSkillRefs(task.SkillRefs); err != nil {
+		return err
+	}
+
 	remaining := maxWorkerWireBytes
 
 	consume := func(n int) bool {
@@ -85,6 +89,16 @@ func validateWorkerWireLowerBound(task Task) error {
 
 	for _, ref := range task.ProjectBrainRefs {
 		if !consumeStrings(ref.Citation, ref.Version, ref.Provenance, ref.Trust, ref.Content) {
+			return errors.New("task exceeds 128 KiB")
+		}
+	}
+
+	if !consume(len(task.SkillRefs)) {
+		return errors.New("task exceeds 128 KiB")
+	}
+
+	for _, ref := range task.SkillRefs {
+		if !consumeStrings(ref.SkillID, ref.VersionID, ref.ContentHash, ref.Name, ref.Content) {
 			return errors.New("task exceeds 128 KiB")
 		}
 	}

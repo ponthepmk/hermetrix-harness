@@ -24,6 +24,7 @@ func curateProposalTask(task worker.Task, step taskengine.Step, preset inference
 	}
 	candidate := task
 	candidate.ProjectBrainRefs = nil
+	candidate.SkillRefs = nil
 	if !proposalTaskFits(candidate, preset) {
 		if len(task.FileViews) > 0 {
 			return worker.Task{}, errors.New("original FileViews must be empty")
@@ -35,6 +36,7 @@ func curateProposalTask(task worker.Task, step taskengine.Step, preset inference
 		}
 		candidate = curated
 	}
+	candidate = restoreProposalSkills(candidate, task.SkillRefs, preset)
 	candidate = restoreProposalKnowledge(candidate, task.ProjectBrainRefs, preset)
 	frozen, _, _, err := worker.FreezeTask(candidate)
 	return frozen, err

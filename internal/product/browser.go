@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"net"
 	"net/http"
 	"net/url"
@@ -239,8 +240,8 @@ func (s *Service) BrowserAction(ctx context.Context, id string, input BrowserAct
 			if len(message) > 500 {
 				message = message[:500]
 			}
-			_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE browser_action_receipts SET state=?,error=?,screenshot_after_id=?,completed_at=?
-				WHERE id=? AND state='dispatched'`, status, message, screenshot, formatTime(time.Now().UTC()), receipt.ID)
+			durability.Exec("record browser action completion").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE browser_action_receipts SET state=?,error=?,screenshot_after_id=?,completed_at=?
+				WHERE id=? AND state='dispatched'`, status, message, screenshot, formatTime(time.Now().UTC()), receipt.ID))
 		}()
 	}
 	inspect := input.Action == "inspect" || input.Action == "audit"

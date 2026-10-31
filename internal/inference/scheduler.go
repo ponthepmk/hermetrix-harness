@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"sync"
 	"time"
 
@@ -419,7 +420,7 @@ func (s *Scheduler) markDispatched(ctx context.Context, requestID string) error 
 
 func (s *Scheduler) finishBeforeDispatch(requestID, reason string) {
 	if s.store != nil {
-		_, _ = s.store.DB.Exec(`UPDATE inference_usage_ledger SET state='cancelled_before_dispatch',terminal_reason=?,updated_at=? WHERE request_id=? AND state='reserved'`, reason, nowText(), requestID)
+		durability.Exec("cancel inference reservation").Observe(s.store.DB.Exec(`UPDATE inference_usage_ledger SET state='cancelled_before_dispatch',terminal_reason=?,updated_at=? WHERE request_id=? AND state='reserved'`, reason, nowText(), requestID))
 	}
 }
 
@@ -453,7 +454,7 @@ func (s *Scheduler) reconcile(ctx context.Context, request Request, usage Usage,
 
 func (s *Scheduler) markUncertain(requestID, reason string) {
 	if s.store != nil {
-		_, _ = s.store.DB.Exec(`UPDATE inference_usage_ledger SET state='uncertain',terminal_reason=?,updated_at=? WHERE request_id=? AND state IN ('reserved','dispatched')`, reason, nowText(), requestID)
+		durability.Exec("quarantine inference reservation").Observe(s.store.DB.Exec(`UPDATE inference_usage_ledger SET state='uncertain',terminal_reason=?,updated_at=? WHERE request_id=? AND state IN ('reserved','dispatched')`, reason, nowText(), requestID))
 	}
 	s.mu.Lock()
 	s.metrics.Uncertain++

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"io"
 	"net/http"
 	"strings"
@@ -228,7 +229,7 @@ func (s *Server) getTikTokCreatorInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setSocialStatus(ctx context.Context, id, status string) {
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE social_connections SET status=?,checked_at=? WHERE id=?`, status, time.Now().UTC().Format(time.RFC3339Nano), id)
+	durability.Exec("record social connection check").Observe(s.store.DB.ExecContext(ctx, `UPDATE social_connections SET status=?,checked_at=? WHERE id=?`, status, time.Now().UTC().Format(time.RFC3339Nano), id))
 }
 
 func (s *Server) disconnectSocialAccount(w http.ResponseWriter, r *http.Request) {

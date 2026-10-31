@@ -19,7 +19,10 @@ var (
 	ErrStaleRevision = errors.New("stale task revision")
 )
 
-type Service struct{ store *store.Store }
+type Service struct {
+	store              *store.Store
+	completionObserver CompletionObserver
+}
 
 func NewService(dataStore *store.Store) *Service { return &Service{store: dataStore} }
 
@@ -437,6 +440,13 @@ func (s *Service) CompleteTask(ctx context.Context, taskID string, expectedRevis
 	if task.Revision != expectedRevision {
 		return Task{}, ErrStaleRevision
 	}
+	var stage CompletionStage
+	if s.completionObserver != nil {
+		stage, err = s.completionObserver.PrepareCompletion(ctx, task)
+		if err != nil {
+			return Task{}, err
+		}
+	}
 	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return Task{}, err
@@ -467,6 +477,13 @@ func (s *Service) CompleteTask(ctx context.Context, taskID string, expectedRevis
 	}
 	if changed, _ := result.RowsAffected(); changed != 1 {
 		return Task{}, ErrStaleRevision
+	}
+	if stage != nil {
+		completed := task
+		completed.State, completed.PauseReason, completed.Revision = StateCompleted, "", task.Revision+1
+		if err = stage(ctx, tx, completed, report); err != nil {
+			return Task{}, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return Task{}, err

@@ -5,6 +5,7 @@ import (
 
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/providers"
+	"hermetrix-harness/internal/skills"
 	toolruntime "hermetrix-harness/internal/tools"
 )
 
@@ -100,14 +101,7 @@ type QualificationBinding struct {
 	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
 }
 
-type SessionSkillBinding struct {
-	SkillID         string `json:"skill_id"`
-	VersionID       string `json:"version_id"`
-	CanonicalName   string `json:"canonical_name"`
-	Summary         string `json:"summary"`
-	Pinned          bool   `json:"pinned"`
-	SelectionReason string `json:"selection_reason,omitempty"`
-}
+type SessionSkillBinding = skills.Binding
 
 type InferencePresetBinding struct {
 	Role              string  `json:"role"`

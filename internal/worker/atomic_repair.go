@@ -11,8 +11,8 @@ type atomicRepair struct {
 }
 
 func materializeAtomicRepair(task Task, repair atomicRepair) ([]Change, error) {
-	if task.RepairTargetVersion != AtomicRepairTargetVersion || repair.New == nil || !writablePathAllowed(task, repair.Path) {
-		return nil, errors.New("atomic repair requires recipe 2 and a selected writable draft")
+	if !atomicRepairRecipe(task.RepairTargetVersion) || repair.New == nil || !writablePathAllowed(task, repair.Path) {
+		return nil, errors.New("atomic repair requires a supported recipe and a selected writable draft")
 	}
 	change, err := materializeRepairTargetEdits(task, repair.Path, []DraftTargetEdit{{TargetID: repair.TargetID, New: *repair.New}})
 	if err != nil {

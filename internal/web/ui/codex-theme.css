@@ -1680,6 +1680,7 @@ select option, select optgroup { background: #252526; color: #f1f1f1; }
 .voice-avatar:hover, .voice-avatar:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); outline: none; }
 .voice-avatar img, .task-start-heading .voice-avatar img { display: block; width: 52px; height: 52px; margin: 0; object-fit: contain; }
 .voice-avatar::after { content: "กดเพื่อคุยด้วยเสียง"; }
+.composer .composer-voice-entry { min-height: 44px; padding: 6px 10px; width: auto; }
 .voice-active .voice-avatar { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
 .voice-host:empty { display: none; }
 .chat-stage:has(> .voice-host:not(:empty)) { grid-template-rows: auto minmax(0, 1fr) auto auto; }
@@ -1694,8 +1695,8 @@ select option, select optgroup { background: #252526; color: #f1f1f1; }
 .voice-host > .voice-panel .voice-transcript-label { margin: 5px 0 3px; font-size: 12px; }
 .voice-host > .voice-panel textarea { min-height: 55px; }
 .voice-host > .voice-panel .voice-auto-send { margin: 5px 0; font-size: 12px; }
-.voice-host > .voice-panel .voice-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 7px; }
-.voice-host > .voice-panel .voice-actions button { min-height: 40px; padding-inline: 5px; }
+.voice-host > .voice-panel .voice-actions { position: sticky; bottom: -14px; z-index: 1; padding: 8px 0 14px; background: var(--surface); grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-top: 7px; }
+.voice-host > .voice-panel .voice-actions button { min-height: 44px; padding-inline: 5px; }
 .voice-host > .voice-panel .voice-footnote { margin-bottom: 0; }
 .voice-orb { --orb-color: var(--accent); position: relative; display: grid; place-items: center; width: 112px; height: 112px; margin: 4px auto 8px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; isolation: isolate; }
 .voice-orb:disabled { cursor: default; opacity: .55; }

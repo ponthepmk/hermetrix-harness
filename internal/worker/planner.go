@@ -21,6 +21,7 @@ type PlanTask struct {
 	ReviewFeedback                 string              `json:"review_feedback,omitempty"`
 	PreviousPlanSteps              []PreviousPlanStep  `json:"previous_plan_steps,omitempty"`
 	ProjectBrainRefs               []KnowledgeRef      `json:"project_brain_refs,omitempty"`
+	SkillRefs                      []SkillRef          `json:"skill_refs,omitempty"`
 	RepositoryFiles                []PlanFile          `json:"repository_files,omitempty"`
 	RepositoryFilesTruncated       bool                `json:"repository_files_truncated,omitempty"`
 	RepositoryHashesTruncated      bool                `json:"repository_hashes_truncated,omitempty"`
@@ -116,6 +117,9 @@ func PlanWithProviderService(ctx context.Context, service *providers.Service, pr
 		return PlanResult{}, fmt.Errorf("planner escalation evidence is invalid")
 	}
 	if err := validateKnowledgeRefs(task.ProjectBrainRefs); err != nil {
+		return PlanResult{}, err
+	}
+	if err := validateSkillRefs(task.SkillRefs); err != nil {
 		return PlanResult{}, err
 	}
 	if task.MaxOutputTokens <= 0 || task.MaxOutputTokens > 8192 {

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"io"
 	"log/slog"
 	"os"
@@ -126,8 +127,8 @@ func (s *Service) StartTerminal(ctx context.Context, input StartTerminalInput) (
 	if s.teamCtx.Err() != nil {
 		s.mu.Unlock()
 		runtime.discard()
-		_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE terminal_sessions SET state='closed',
-			updated_at=?,completed_at=? WHERE id=?`, formatTime(time.Now().UTC()), formatTime(time.Now().UTC()), session.ID)
+		durability.Exec("close terminal during shutdown").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE terminal_sessions SET state='closed',
+			updated_at=?,completed_at=? WHERE id=?`, formatTime(time.Now().UTC()), formatTime(time.Now().UTC()), session.ID))
 		return TerminalSession{}, fmt.Errorf("service is shutting down")
 	}
 	s.terminals[session.ID] = runtime

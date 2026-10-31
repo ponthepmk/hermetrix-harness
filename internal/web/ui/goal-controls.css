@@ -1,0 +1,21 @@
+.task-goal-runner { border:1px solid var(--line); border-radius:12px; padding:1rem; margin-block:1rem; background:var(--surface); min-width:0; }
+.goal-runner-heading, .goal-runner-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; }
+.goal-runner-heading { justify-content:space-between; }
+.goal-runner-heading h4 { margin:0; font-size:1rem; }
+.goal-state { color:var(--muted); font-size:.875rem; }
+.goal-state[data-goal-state="active"] { color:var(--accent); }
+.goal-state[data-goal-state="waiting"], .goal-error { color:var(--text); }
+.goal-runner-counts { font-variant-numeric:tabular-nums; margin-block:.65rem .25rem; }
+.goal-provider-fields { display:grid; gap:.75rem; margin-block:.75rem; }
+.goal-provider-fields label { display:grid; gap:.35rem; min-width:0; }
+.goal-provider-fields select { width:100%; min-width:0; }
+.task-cockpit .goal-write-consent { display:flex; align-items:flex-start; gap:.5rem; margin-block:.8rem; }
+.task-cockpit .goal-write-consent input { flex:none; width:auto; margin-block-start:.2rem; }
+.task-cockpit .task-goal-runner button { min-height:44px; }
+.task-goal-runner details { margin-block:.8rem; }
+.task-goal-runner summary { cursor:pointer; }
+.task-goal-runner small, .goal-reason, .goal-error p { overflow-wrap:anywhere; }
+.goal-error { border-inline-start:3px solid var(--line-hover); padding-inline-start:.75rem; margin-block:.75rem; }
+.goal-receipts { padding-inline-start:1.25rem; font-size:.875rem; }
+.task-context-receipt small, .task-context-receipt li { overflow-wrap:anywhere; }
+@media (min-width:768px) { .goal-provider-fields { grid-template-columns:repeat(2,minmax(0,1fr)); } }

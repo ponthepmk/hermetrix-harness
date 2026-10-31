@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -307,8 +308,8 @@ func (s *Service) finishMediaContext(id string, cause error, message string) {
 
 func (s *Service) finishMediaFailure(id, state, code, message string) {
 	now := formatTime(time.Now().UTC())
-	_, _ = s.store.DB.Exec(`UPDATE media_jobs SET state=?,error_code=?,error=?,updated_at=?,completed_at=?
-		WHERE id=? AND state IN ('queued','running')`, state, code, message, now, now, id)
+	durability.Exec("record media job failure").Observe(s.store.DB.Exec(`UPDATE media_jobs SET state=?,error_code=?,error=?,updated_at=?,completed_at=?
+		WHERE id=? AND state IN ('queued','running')`, state, code, message, now, now, id))
 	s.mu.Lock()
 	delete(s.cancels, id)
 	s.mu.Unlock()

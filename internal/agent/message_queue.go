@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"strings"
 	"time"
 
@@ -82,7 +83,7 @@ func (s *Service) QueueMessage(ctx context.Context, sessionID string, input Queu
 	}
 	if input.Mode == "steer" {
 		if _, err = s.StopTurn(ctx, sessionID, input.TurnID); err != nil {
-			_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_message_queue SET state='needs_review',error='Active turn changed before steer; refresh before continuing',updated_at=? WHERE id=? AND state='queued'`, now, id)
+			durability.Exec("quarantine queued steer after stop failure").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_message_queue SET state='needs_review',error='Active turn changed before steer; refresh before continuing',updated_at=? WHERE id=? AND state='queued'`, now, id))
 			return QueuedMessage{}, err
 		}
 	}

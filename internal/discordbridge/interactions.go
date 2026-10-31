@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"strconv"
 	"strings"
 	"time"
@@ -229,7 +230,7 @@ func formatApproval(approval ApprovalSummary) (string, bool) {
 func (s *Service) finishInteraction(id, state string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE discord_bridge_interactions SET state=? WHERE interaction_id=?`, state, id)
+	durability.Exec("record discord interaction state").Observe(s.store.DB.ExecContext(ctx, `UPDATE discord_bridge_interactions SET state=? WHERE interaction_id=?`, state, id))
 }
 
 func (s *Service) pruneInteractionHistory(ctx context.Context) {
@@ -242,8 +243,8 @@ func (s *Service) pruneInteractionHistory(ctx context.Context) {
 	s.mu.Unlock()
 	// IDs older than 15 minutes cannot execute at ingress. Keep 24 hours of
 	// replay receipts, deleting only a bounded batch on each maintenance pass.
-	_, _ = s.store.DB.ExecContext(ctx, `DELETE FROM discord_bridge_interactions WHERE interaction_id IN (SELECT interaction_id FROM discord_bridge_interactions WHERE created_at<? LIMIT 512)`, time.Now().Add(-24*time.Hour).UTC().Format(time.RFC3339Nano))
-	_, _ = s.store.DB.ExecContext(ctx, `DELETE FROM discord_bridge_approvals WHERE rowid IN (SELECT rowid FROM discord_bridge_approvals WHERE expires_at<? LIMIT 512)`, time.Now().UTC().Format(time.RFC3339Nano))
+	durability.Exec("prune discord interactions").Observe(s.store.DB.ExecContext(ctx, `DELETE FROM discord_bridge_interactions WHERE interaction_id IN (SELECT interaction_id FROM discord_bridge_interactions WHERE created_at<? LIMIT 512)`, time.Now().Add(-24*time.Hour).UTC().Format(time.RFC3339Nano)))
+	durability.Exec("prune discord approvals").Observe(s.store.DB.ExecContext(ctx, `DELETE FROM discord_bridge_approvals WHERE rowid IN (SELECT rowid FROM discord_bridge_approvals WHERE expires_at<? LIMIT 512)`, time.Now().UTC().Format(time.RFC3339Nano)))
 }
 func (s *Service) sessionBinding(ctx context.Context, key, scope string) (string, error) {
 	var id, stored string

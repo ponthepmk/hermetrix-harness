@@ -125,15 +125,35 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 	}
 	progress(PhaseValidatingProposal)
 	var raw string
+	directRepair := false
 	switch {
 	case len(completion.ToolCalls) == 1 && completion.ToolCalls[0].Name == "submit_changes":
 		raw = completion.ToolCalls[0].Arguments
+	case len(completion.ToolCalls) == 1 && completion.ToolCalls[0].Name == "submit_repair" && task.RepairTargetVersion == FocusedRepairTargetVersion:
+		raw = completion.ToolCalls[0].Arguments
+		directRepair = true
 	case len(completion.ToolCalls) == 0 && strings.TrimSpace(completion.Content) != "":
 		// Some OpenAI-compatible gateways do not preserve native tool calls.
 		// Accept only an exact JSON object and run it through the same validator.
 		raw = completion.Content
+		if task.RepairTargetVersion == FocusedRepairTargetVersion {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal([]byte(raw), &fields) == nil {
+				for _, name := range []string{"path", "target_id", "new"} {
+					_, present := fields[name]
+					directRepair = directRepair || present
+				}
+			}
+		}
 	default:
-		return Result{}, invalidProposal("expected one complete submit_changes tool call")
+		return Result{}, invalidProposal("expected one complete authorized proposal tool call")
+	}
+	if directRepair {
+		var err error
+		raw, err = normalizeAtomicSubmission(raw)
+		if err != nil {
+			return Result{}, invalidProposal(err.Error())
+		}
 	}
 	var proposal struct {
 		Summary           string        `json:"summary"`
@@ -167,8 +187,8 @@ func runWithOptions(ctx context.Context, task Task, options Options, containsCre
 	_, atomic := rootFields["repair"]
 	if atomic {
 		_, hasChanges := rootFields["changes"]
-		if proposal.Repair == nil || hasChanges || task.RepairTargetVersion != AtomicRepairTargetVersion {
-			return Result{}, invalidProposal("root repair requires recipe 2 and cannot mix with changes")
+		if proposal.Repair == nil || hasChanges || !(task.RepairTargetVersion == AtomicRepairTargetVersion || directRepair && task.RepairTargetVersion == FocusedRepairTargetVersion) {
+			return Result{}, invalidProposal("repair source form is not authorized or mixes with changes")
 		}
 	} else if len(proposal.Changes) == 0 || len(proposal.Changes) > len(task.Files) {
 		return Result{}, invalidProposal("invalid change count")

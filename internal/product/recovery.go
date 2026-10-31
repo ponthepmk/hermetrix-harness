@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"io"
 	"os"
 	"path"
@@ -39,7 +40,7 @@ func (s *Service) CreateFullRecovery(ctx context.Context, actor string) (BackupR
 	}
 	defer os.RemoveAll(runtimeRoot)
 	snapshotPath := filepath.Join(runtimeRoot, "hermetrix.db")
-	_, _ = s.store.DB.ExecContext(ctx, `PRAGMA wal_checkpoint(FULL)`)
+	durability.Exec("checkpoint recovery WAL").Observe(s.store.DB.ExecContext(ctx, `PRAGMA wal_checkpoint(FULL)`))
 	literal := strings.ReplaceAll(snapshotPath, "'", "''")
 	if _, err := s.store.DB.ExecContext(ctx, `VACUUM INTO '`+literal+`'`); err != nil {
 		s.failBackup(run.ID, err)

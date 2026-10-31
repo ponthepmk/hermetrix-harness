@@ -9,9 +9,10 @@
   <link rel="icon" type="image/png" href="/assets/brand/hermetrix-logo.png">
   <link rel="apple-touch-icon" href="/assets/brand/hermetrix-logo.png">
   <link rel="stylesheet" href="/style.css?v=folder-picker-v2">
-  <link rel="stylesheet" href="/codex-theme.css?v=audit-flow-1">
+  <link rel="stylesheet" href="/codex-theme.css?v=voice-control-2">
   <link rel="stylesheet" href="/hardware-monitor.css">
   <link rel="stylesheet" href="/interaction.css?v=audit-flow-1">
+  <link rel="stylesheet" href="/goal-controls.css?v=2">
 </head>
 <body>
   <!-- Workspaces scope file and task work. Personal Chat opens without one. -->
@@ -215,12 +216,13 @@
       </button>
       <p class="voice-status" id="voiceStatus" role="status" aria-live="polite">กำลังตรวจเครื่องมือเสียง…</p>
       <progress class="voice-level" id="voiceLevel" max="100" value="0" aria-label="ระดับเสียงไมโครโฟน"></progress>
-      <div class="voice-native-row" id="voiceNativeRow" hidden><label for="voiceDevice">ไมค์จาก Windows</label><select id="voiceDevice"></select><button type="button" class="ghost" id="voiceNativeMic">ใช้ไมค์ Windows</button></div>
       <label class="voice-transcript-label" for="voiceTranscript">ข้อความที่ได้ยิน</label>
     <textarea id="voiceTranscript" rows="3" placeholder="คำพูดที่ถอดได้จะปรากฏที่นี่ และแก้ก่อนส่งได้"></textarea>
     <label class="voice-auto-send"><input id="voiceAutoSend" type="checkbox"> ส่งข้อความเข้าห้องแชตทันทีเมื่อพูดจบ</label>
     <label class="voice-auto-send"><input id="voiceReply" type="checkbox" checked> พูดคำตอบกลับ</label>
-    <div class="voice-actions"><button type="button" class="primary" id="voiceMic">เปิดไมค์</button><button type="button" class="ghost" id="voiceSend" disabled>ส่งข้อความ</button><button type="button" class="ghost" id="voiceTestSound">ทดสอบลำโพง</button><button type="button" class="ghost" id="voiceStopOutput">หยุดเสียงตอบ</button></div>
+    <p id="voiceQueueCount" class="form-note" role="status" aria-live="polite"></p>
+    <div class="voice-actions"><button type="button" class="primary" id="voiceMic">เปิดไมค์</button><button type="button" class="ghost" id="voiceSend" disabled>ส่งข้อความ</button><button type="button" class="ghost" id="voiceTestSound">ทดสอบลำโพง</button><button type="button" class="ghost" id="voiceStopOutput">หยุดคำตอบ</button><button type="button" class="ghost" id="voiceInspectStop" hidden>ตรวจสถานะก่อนทำต่อ</button></div>
+    <details id="voiceInputSettings" hidden><summary>เลือกไมค์ Windows</summary><p class="form-note">ใช้เมื่อไมค์ในเบราว์เซอร์เปิดไม่ได้ · ขณะเล่นเสียงตอบให้กดหยุดคำตอบก่อนพูดแทรก</p><div class="voice-native-row" id="voiceNativeRow" hidden><label for="voiceDevice">ไมค์จาก Windows</label><select id="voiceDevice"></select><button type="button" class="ghost" id="voiceNativeMic">ใช้ไมค์ Windows</button></div></details>
     <p class="voice-footnote">เป้าหมายงานยังต้องตรวจแผนก่อนเริ่ม และเครื่องมือที่ต้องอนุมัติยังรอการยืนยันบนหน้าจอ · ปิดไมค์ไม่หยุดงานที่เริ่มแล้ว</p>
   </aside>
   <aside class="ui-activity" id="interactionStatus" data-state="idle" hidden aria-label="สถานะรายการล่าสุด">
@@ -234,9 +236,13 @@
   <script src="/project-brain-candidate.js" defer></script>
   <script src="/conversation-controls.js" defer></script>
   <script src="/auto-retry.js" defer></script>
-  <script src="/app.js?v=audit-flow-1" defer></script>
+  <script src="/task-context-view.js?v=1" defer></script>
+  <script src="/goal-view.js?v=2" defer></script>
+  <script src="/goal-controls.js?v=1" defer></script>
+  <script src="/app.js?v=architecture-20261029" defer></script>
   <script src="/hardware-monitor.js" defer></script>
-  <script src="/voice.js" defer></script>
+  <script src="/voice-turn-control.js" defer></script>
+  <script src="/voice.js?v=interrupt-1" defer></script>
   <script src="/ide-workspace.js" defer></script>
   <script src="/ide-assistant.js?v=audit-flow-1" defer></script>
   <script src="/discord-settings.js" defer></script>

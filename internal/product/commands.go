@@ -159,9 +159,9 @@ func (s *Service) startCommand(ctx context.Context, input CommandInput, maxTimeo
 	if s.closing {
 		s.mu.Unlock()
 		cancel()
-		_, _ = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE background_jobs SET state='interrupted',
+		durability.Exec("interrupt command before shutdown launch").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE background_jobs SET state='interrupted',
 			error='service shut down before command launch',completed_at=? WHERE id=? AND state='queued'`,
-			formatTime(time.Now().UTC()), job.ID)
+			formatTime(time.Now().UTC()), job.ID))
 		return Job{}, fmt.Errorf("service is shutting down")
 	}
 	s.cancels[job.ID] = cancel

@@ -38,7 +38,7 @@ func NewModelReviewer(providerService *providers.Service, providerID string) *Mo
 	return &ModelReviewer{providers: providerService, providerID: providerID}
 }
 
-func (r *ModelReviewer) Revision() string { return "model-reviewer-v1" }
+func (r *ModelReviewer) Revision() string { return "model-reviewer-v2" }
 
 // reviewerOutputBudget must hold reasoning plus a whole Skill body. Reasoning
 // models bill their thinking as completion tokens, so a budget sized for the
@@ -131,6 +131,9 @@ func (r *ModelReviewer) Review(ctx context.Context, digest Digest) (Decision, er
 		Temperature: &temperature, MaxTokens: reviewerOutputBudget}, nil)
 	if err != nil {
 		return Decision{}, fmt.Errorf("review provider call: %w", err)
+	}
+	if completion.FinishReason == "length" {
+		return Decision{Kind: "no_change", Unusable: true, Reason: "reviewer output reached its generation limit; no complete review accepted"}, nil
 	}
 	return parseReviewerDecision(completion.Content)
 }

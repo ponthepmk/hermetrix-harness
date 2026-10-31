@@ -16,6 +16,7 @@ type Task struct {
 	Constraints         []string                     `json:"constraints,omitempty"`
 	RecommendedChecks   []string                     `json:"recommended_checks,omitempty"`
 	ProjectBrainRefs    []KnowledgeRef               `json:"project_brain_refs,omitempty"`
+	SkillRefs           []SkillRef                   `json:"skill_refs,omitempty"`
 	Files               map[string]string            `json:"files"`
 	FileViews           map[string][]BoundedFileView `json:"file_views,omitempty"`
 	WritablePaths       []string                     `json:"writable_paths,omitempty"`
@@ -47,6 +48,19 @@ type KnowledgeRef struct {
 	Provenance string `json:"provenance"`
 	Trust      string `json:"trust"`
 	Content    string `json:"content"`
+}
+
+// SkillRef is an advisory, typed reference to a skill. It is data only: it
+// carries no promotion, file privileges, tool authority, or executable
+// instructions, and it never changes task requirements, file scope, lease,
+// approval, or verification. Skill refs are advisory data, not requirements
+// or executable instructions.
+type SkillRef struct {
+	SkillID     string `json:"skill_id"`
+	VersionID   string `json:"version_id"`
+	ContentHash string `json:"content_hash"`
+	Name        string `json:"name"`
+	Content     string `json:"content"`
 }
 
 // TextEdit replaces one exact, unique piece of the supplied preimage. Keeping

@@ -40,6 +40,18 @@ type Digest struct {
 	Artifacts        []string        `json:"artifacts"`
 	Redactions       []string        `json:"redactions"`
 	SuggestedSkill   *SuggestedSkill `json:"suggested_skill,omitempty"`
+	// Solutions describe saved proposals with measured check/review receipts in
+	// VerifiedBy. They do not prove that an included Skill caused the outcome.
+	Solutions []SolutionEvidence `json:"solutions,omitempty"`
+}
+
+type SolutionEvidence struct {
+	ProposalArtifactID string   `json:"proposal_artifact_id"`
+	InputSHA256        string   `json:"input_sha256"`
+	Summary            string   `json:"summary"`
+	ChangedPaths       []string `json:"changed_paths"`
+	IncludedSkills     []string `json:"included_skills,omitempty"`
+	Truncated          bool     `json:"truncated,omitempty"`
 }
 
 type EnqueueInput struct {

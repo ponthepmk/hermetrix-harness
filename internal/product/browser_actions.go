@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"net/url"
 	"strings"
 	"time"
@@ -55,8 +56,8 @@ func (s *Service) PrepareBrowserAction(ctx context.Context, tabID string, input 
 		}
 	}
 	var unresolved int
-	_, _ = s.store.DB.ExecContext(ctx, `UPDATE browser_action_receipts SET state='cancelled',completed_at=? WHERE owner_principal_id=? AND tab_id=? AND state='prepared' AND expires_at<=?`,
-		formatTime(time.Now().UTC()), ownerID, tabID, formatTime(time.Now().UTC()))
+	durability.Exec("expire prepared browser actions").Observe(s.store.DB.ExecContext(ctx, `UPDATE browser_action_receipts SET state='cancelled',completed_at=? WHERE owner_principal_id=? AND tab_id=? AND state='prepared' AND expires_at<=?`,
+		formatTime(time.Now().UTC()), ownerID, tabID, formatTime(time.Now().UTC())))
 	if err := s.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM browser_action_receipts a WHERE a.owner_principal_id=? AND a.tab_id=?
 		AND (a.state IN ('prepared','dispatched') OR (a.state='uncertain' AND NOT EXISTS
 		(SELECT 1 FROM browser_action_reconciliations r WHERE r.action_id=a.id)))`, ownerID, tabID).Scan(&unresolved); err != nil {

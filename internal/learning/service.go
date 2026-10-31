@@ -66,7 +66,15 @@ func (s *Service) RecoverInterrupted(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	requeued, err := outbox.RowsAffected()
-	return reviews + requeued, err
+	if err != nil {
+		return 0, err
+	}
+	taskOutbox, err := s.store.DB.ExecContext(ctx, `UPDATE task_learning_outbox SET state='pending',error='requeued after process interruption' WHERE state='processing'`)
+	if err != nil {
+		return 0, err
+	}
+	taskRequeued, err := taskOutbox.RowsAffected()
+	return reviews + requeued + taskRequeued, err
 }
 
 // StageTrigger writes a learning trigger into the same transaction that
@@ -90,6 +98,16 @@ func (s *Service) StageTrigger(ctx context.Context, tx *sql.Tx, input EnqueueInp
 	if turnID == "" {
 		turnID = input.MilestoneID
 	}
+	if strings.HasPrefix(input.SessionID, "task:") {
+		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO task_learning_outbox
+		(id,task_id,session_id,turn_id,milestone_id,job_id,trigger_kind,digest_json,state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			identity.New("learnout"), strings.TrimPrefix(input.SessionID, "task:"), input.SessionID, turnID, input.MilestoneID, input.JobID, input.TriggerKind, string(digestJSON), "pending", formatTime(time.Now().UTC()))
+		if err != nil {
+			return false, err
+		}
+		changed, err := result.RowsAffected()
+		return changed == 1, err
+	}
 	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO learning_trigger_outbox
 		(id,session_id,turn_id,milestone_id,job_id,trigger_kind,digest_json,state,created_at)
 		VALUES(?,?,?,?,?,?,?,?,?)`, identity.New("learnout"), input.SessionID, turnID,
@@ -109,17 +127,19 @@ func (s *Service) DrainPending(ctx context.Context, limit int) (int, error) {
 		limit = 20
 	}
 	type staged struct {
-		id, sessionID, milestoneID, jobID, triggerKind, digestJSON string
+		table, id, sessionID, milestoneID, jobID, triggerKind, digestJSON string
 	}
-	rows, err := s.store.DB.QueryContext(ctx, `SELECT id,session_id,milestone_id,job_id,trigger_kind,digest_json
-		FROM learning_trigger_outbox WHERE state='pending' ORDER BY created_at LIMIT ?`, limit)
+	rows, err := s.store.DB.QueryContext(ctx, `SELECT source_table,id,session_id,milestone_id,job_id,trigger_kind,digest_json FROM (
+		SELECT 'learning_trigger_outbox' source_table,id,session_id,milestone_id,job_id,trigger_kind,digest_json,created_at FROM learning_trigger_outbox WHERE state='pending'
+		UNION ALL SELECT 'task_learning_outbox' source_table,id,session_id,milestone_id,job_id,trigger_kind,digest_json,created_at FROM task_learning_outbox WHERE state='pending'
+		) ORDER BY created_at LIMIT ?`, limit)
 	if err != nil {
 		return 0, err
 	}
 	var items []staged
 	for rows.Next() {
 		var item staged
-		if err := rows.Scan(&item.id, &item.sessionID, &item.milestoneID, &item.jobID, &item.triggerKind, &item.digestJSON); err != nil {
+		if err := rows.Scan(&item.table, &item.id, &item.sessionID, &item.milestoneID, &item.jobID, &item.triggerKind, &item.digestJSON); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -130,7 +150,10 @@ func (s *Service) DrainPending(ctx context.Context, limit int) (int, error) {
 	}
 	processed := 0
 	for _, item := range items {
-		claim, err := s.store.DB.ExecContext(ctx, `UPDATE learning_trigger_outbox SET state='processing',error=''
+		if item.table != "learning_trigger_outbox" && item.table != "task_learning_outbox" {
+			return processed, fmt.Errorf("unknown learning outbox source")
+		}
+		claim, err := s.store.DB.ExecContext(ctx, `UPDATE `+item.table+` SET state='processing',error=''
 			WHERE id=? AND state='pending'`, item.id)
 		if err != nil {
 			return processed, err
@@ -140,7 +163,7 @@ func (s *Service) DrainPending(ctx context.Context, limit int) (int, error) {
 		}
 		var digest Digest
 		if err := json.Unmarshal([]byte(item.digestJSON), &digest); err != nil {
-			durability.Exec("mark invalid learning outbox digest failed").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
+			durability.Exec("mark invalid learning outbox digest failed").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE `+item.table+`
 				SET state='failed',error=?,processed_at=? WHERE id=? AND state='processing'`,
 				"decode staged digest: "+err.Error(), formatTime(time.Now().UTC()), item.id))
 			continue
@@ -148,11 +171,11 @@ func (s *Service) DrainPending(ctx context.Context, limit int) (int, error) {
 		_, _, enqueueErr := s.Enqueue(ctx, EnqueueInput{SessionID: item.sessionID, JobID: item.jobID,
 			MilestoneID: item.milestoneID, TriggerKind: item.triggerKind, Digest: digest})
 		if enqueueErr != nil {
-			durability.Exec("requeue learning outbox item").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
+			durability.Exec("requeue learning outbox item").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE `+item.table+`
 				SET state='pending',error=? WHERE id=? AND state='processing'`, enqueueErr.Error(), item.id))
 			return processed, enqueueErr
 		}
-		result, err := s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE learning_trigger_outbox
+		result, err := s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE `+item.table+`
 			SET state='processed',error='',processed_at=? WHERE id=? AND state='processing'`, formatTime(time.Now().UTC()), item.id)
 		if err != nil {
 			return processed, err

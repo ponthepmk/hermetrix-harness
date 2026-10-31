@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hermetrix-harness/internal/durability"
 	"io"
 	"os"
 	"os/exec"
@@ -182,7 +183,7 @@ func (s *Service) runVideoTranscribe(ctx context.Context, jobID string) {
 		s.finishMediaFailure(jobID, "failed", "resource_limit", "decoded audio exceeded the 32 MiB limit")
 		return
 	}
-	_, _ = s.store.DB.ExecContext(context.Background(), `UPDATE media_jobs SET progress=.35,updated_at=? WHERE id=? AND state='running'`, formatTime(time.Now().UTC()), jobID)
+	durability.Exec("record video transcription progress").Observe(s.store.DB.ExecContext(context.Background(), `UPDATE media_jobs SET progress=.35,updated_at=? WHERE id=? AND state='running'`, formatTime(time.Now().UTC()), jobID))
 	prefix := filepath.Join(tempDir, "transcript")
 	output, err = whisper.command(ctx, "-m", whisper.modelPath, "-f", wav, "-l", "auto", "-t", "2", "-ng", "-oj", "-of", prefix, "-np").CombinedOutput()
 	if err != nil {

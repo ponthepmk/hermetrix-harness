@@ -7,15 +7,7 @@ import (
 )
 
 func skillAppliesToProject(item skills.Skill, projectID string) bool {
-	switch item.ScopeKind {
-	case "user":
-		return item.ScopeRef == ""
-	case "workspace":
-		return projectID != "" && item.ScopeRef == projectID
-	default:
-		// This runtime has no durable agent-scope identity to bind these to.
-		return false
-	}
+	return skills.AppliesToProject(item, projectID)
 }
 
 func (s *Service) scopedSkillContract(ctx context.Context, contract SessionContract) (SessionContract, error) {
