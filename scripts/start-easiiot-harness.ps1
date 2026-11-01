@@ -37,7 +37,10 @@ function Get-HarnessHealth {
 }
 
 function Assert-HarnessIdentity {
-    $connection = Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+    # Some Windows TCP providers expose a bound endpoint with State=0.
+    # Identify its owner by the local endpoint, then verify process + health.
+    $connection = Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -ErrorAction SilentlyContinue |
+        Where-Object { $_.RemotePort -eq 0 -and $_.OwningProcess -gt 0 } |
         Select-Object -First 1
     if (-not $connection) { throw "Harness listener disappeared at $Listen. Run the launcher again." }
     $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($connection.OwningProcess)"
@@ -95,7 +98,8 @@ if ($liveHealth) {
     return
 }
 if ($CheckOnly) { throw "Harness is not running at $url" }
-if (Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
+if (Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -ErrorAction SilentlyContinue |
+    Where-Object { $_.RemotePort -eq 0 -and $_.OwningProcess -gt 0 }) {
     throw "Port $Listen is occupied but does not report a healthy Hermetrix instance. It was left untouched."
 }
 if ($Rebuild -or -not (Test-Path -LiteralPath $executable -PathType Leaf)) {

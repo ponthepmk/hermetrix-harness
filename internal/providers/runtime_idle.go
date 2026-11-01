@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,11 @@ func (s *Service) ConfirmRuntimeIdle(ctx context.Context, profile Profile) error
 	if !local {
 		return nil
 	}
+	epoch := s.scheduler.QuarantineEpoch(key)
+	credential, err := s.credential(profile)
+	if err != nil {
+		return err
+	}
 	endpoint, err := url.Parse(profile.BaseURL)
 	if err != nil {
 		return err
@@ -44,15 +50,22 @@ func (s *Service) ConfirmRuntimeIdle(ctx context.Context, profile Profile) error
 		if err != nil {
 			return err
 		}
+		if credential != "" {
+			request.Header.Set("Authorization", "Bearer "+credential)
+		}
 		response, err := client.Do(request)
 		if err == nil {
 			var slots []struct {
 				ID         *int  `json:"id"`
 				Processing *bool `json:"is_processing"`
 			}
-			decodeErr := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&slots)
+			limited := &io.LimitedReader{R: response.Body, N: (64 << 10) + 1}
+			decoder := json.NewDecoder(limited)
+			decodeErr := decoder.Decode(&slots)
+			var extra any
+			endErr := decoder.Decode(&extra)
 			response.Body.Close()
-			idle := response.StatusCode == http.StatusOK && decodeErr == nil && len(slots) > 0
+			idle := response.StatusCode == http.StatusOK && decodeErr == nil && errors.Is(endErr, io.EOF) && limited.N > 0 && len(slots) > 0
 			ids := map[int]bool{}
 			for _, slot := range slots {
 				if slot.ID == nil || *slot.ID < 0 || slot.Processing == nil || *slot.Processing {
@@ -66,7 +79,9 @@ func (s *Service) ConfirmRuntimeIdle(ctx context.Context, profile Profile) error
 				ids[*slot.ID] = true
 			}
 			if idle {
-				s.scheduler.ReleaseQuarantine(key)
+				if !s.scheduler.ReleaseQuarantineIfCurrent(key, epoch) {
+					return fmt.Errorf("local runtime changed during idle confirmation; inference remains paused")
+				}
 				return nil
 			}
 		}

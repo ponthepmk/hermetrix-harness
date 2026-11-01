@@ -273,6 +273,13 @@ func (s *Service) StreamChat(ctx context.Context, profile Profile, request ChatR
 		return Completion{}, fmt.Errorf("provider adapter %q is not registered", profile.AdapterKind)
 	}
 	resourceKey, local := inferenceResource(profile)
+	// A cancelled local request may outlive its HTTP client. Probe actual idle
+	// state before admitting new work; never replay the cancelled request.
+	if local && s.scheduler.IsQuarantined(resourceKey) {
+		if err := s.ConfirmStoppedRuntime(ctx, profile); err != nil {
+			return Completion{}, fmt.Errorf("%w: %v", inference.ErrResourceQuarantined, err)
+		}
+	}
 	promptEstimate := estimateRequestTokens(request)
 	if presetInputMax > 0 && promptEstimate > presetInputMax {
 		return Completion{}, fmt.Errorf("rendered request estimate %d exceeds preset input ceiling %d; reduce the task scope", promptEstimate, presetInputMax)

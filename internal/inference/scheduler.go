@@ -84,20 +84,21 @@ type ticket struct {
 }
 
 type Scheduler struct {
-	store          *store.Store
-	mu             sync.Mutex
-	globalLimit    int
-	globalActive   int
-	resourceActive map[string]int
-	quarantined    map[string]string
-	waiting        []*ticket
-	sequence       uint64
-	agingInterval  time.Duration
-	metrics        Metrics
+	store           *store.Store
+	mu              sync.Mutex
+	globalLimit     int
+	globalActive    int
+	resourceActive  map[string]int
+	quarantined     map[string]string
+	quarantineEpoch map[string]uint64
+	waiting         []*ticket
+	sequence        uint64
+	agingInterval   time.Duration
+	metrics         Metrics
 }
 
 func New(dataStore *store.Store) *Scheduler {
-	s := &Scheduler{store: dataStore, globalLimit: 8, resourceActive: map[string]int{}, quarantined: map[string]string{},
+	s := &Scheduler{store: dataStore, globalLimit: 8, resourceActive: map[string]int{}, quarantined: map[string]string{}, quarantineEpoch: map[string]uint64{},
 		agingInterval: 30 * time.Second}
 	if dataStore != nil {
 		result, _ := dataStore.DB.Exec(`UPDATE inference_usage_ledger SET state='uncertain',terminal_reason='process_restarted_after_dispatch',updated_at=? WHERE state='dispatched'`, nowText())
@@ -375,6 +376,7 @@ func (s *Scheduler) quarantine(t *ticket, reason string) {
 		s.resourceActive[t.resource]--
 	}
 	s.quarantined[t.resource] = reason
+	s.quarantineEpoch[t.resource] = t.seq
 	remaining := s.waiting[:0]
 	for _, candidate := range s.waiting {
 		if candidate.resource == t.resource {
@@ -394,6 +396,7 @@ func (s *Scheduler) quarantine(t *ticket, reason string) {
 func (s *Scheduler) ReleaseQuarantine(resourceKey string) {
 	s.mu.Lock()
 	delete(s.quarantined, resourceKey)
+	delete(s.quarantineEpoch, resourceKey)
 	s.dispatchLocked()
 	s.mu.Unlock()
 }
@@ -402,6 +405,26 @@ func (s *Scheduler) IsQuarantined(resourceKey string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.quarantined[resourceKey] != ""
+}
+
+// QuarantineEpoch binds an idle probe to the cancellation it is reconciling.
+// A stale probe must never release a newer cancellation on the same runtime.
+func (s *Scheduler) QuarantineEpoch(resourceKey string) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.quarantineEpoch[resourceKey]
+}
+
+func (s *Scheduler) ReleaseQuarantineIfCurrent(resourceKey string, epoch uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.quarantineEpoch[resourceKey] != epoch {
+		return false
+	}
+	delete(s.quarantined, resourceKey)
+	delete(s.quarantineEpoch, resourceKey)
+	s.dispatchLocked()
+	return true
 }
 
 func (s *Scheduler) markDispatched(ctx context.Context, requestID string) error {
