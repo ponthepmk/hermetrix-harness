@@ -23,6 +23,7 @@ import (
 
 	brandassets "hermetrix-harness/assets"
 	"hermetrix-harness/internal/agent"
+	"hermetrix-harness/internal/automation"
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/curator"
@@ -62,6 +63,7 @@ type Server struct {
 	qualifier          *qualification.Service
 	product            *product.Service
 	tasks              *taskengine.Service
+	automations        *automation.Service
 	coord              *taskcoord.Service
 	brainStage         *projectbrain.StageService
 	brainOutbox        *projectbrain.CandidateOutbox
@@ -104,6 +106,7 @@ func (s *Server) WithProduct(service *product.Service) *Server {
 
 func (s *Server) WithTaskEngine(service *taskengine.Service) *Server {
 	s.tasks = service
+	s.automations = automation.New(s.store, service)
 	return s
 }
 
@@ -387,6 +390,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/browser/actions/{id}/cancel", s.cancelBrowserAction)
 	mux.HandleFunc("POST /api/browser/actions/{id}/reconcile", s.reconcileBrowserAction)
 	mux.HandleFunc("GET /api/teams", s.listAgentTeams)
+	mux.HandleFunc("GET /api/automations", s.listAutomations)
+	mux.HandleFunc("POST /api/automations", s.saveAutomation)
+	mux.HandleFunc("GET /api/automations/{id}/runs", s.listAutomationRuns)
+	mux.HandleFunc("POST /api/automations/{id}/trigger", s.triggerAutomation)
 	mux.HandleFunc("POST /api/teams", s.saveAgentTeam)
 	mux.HandleFunc("GET /api/team-runs", s.listTeamRuns)
 	mux.HandleFunc("POST /api/team-runs", s.startTeamRun)
@@ -1752,6 +1759,10 @@ func isJSONMediaType(mediaType string) bool {
 func writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
+	case errors.Is(err, product.ErrPathOutsideProject):
+		status = http.StatusForbidden
+	case errors.Is(err, taskengine.ErrStaleRevision), errors.Is(err, automation.ErrUnavailable):
+		status = http.StatusConflict
 	case errors.Is(err, sql.ErrNoRows), errors.Is(err, capabilities.ErrNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, capabilities.ErrRevisionConflict):

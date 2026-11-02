@@ -1,5 +1,3 @@
-//go:build windows
-
 package web
 
 import (
@@ -140,14 +138,14 @@ func (s *Server) streamBrowserVoice(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if result.err != nil {
-				if !send(map[string]any{"type": "transcribe_error", "message": "ถอดคำพูดไม่สำเร็จ"}) {
+				if !send(map[string]any{"type": "transcribe_error", "epoch": epoch, "message": "ถอดคำพูดไม่สำเร็จ"}) {
 					return
 				}
 			} else if strings.TrimSpace(result.text) != "" {
 				if !send(map[string]any{"type": "final", "text": result.text, "language": result.language, "epoch": epoch, "voice_turn_id": voiceSessionID + ":" + strconv.Itoa(epoch)}) {
 					return
 				}
-			} else if !send(map[string]any{"type": "no_speech"}) {
+			} else if !send(map[string]any{"type": "no_speech", "epoch": epoch}) {
 				return
 			}
 		case frame, open := <-frames:

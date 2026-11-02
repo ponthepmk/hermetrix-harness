@@ -97,7 +97,7 @@ func (s *Service) WriteProjectFile(ctx context.Context, projectID string, input 
 	}
 	clean := filepath.Clean(strings.TrimSpace(input.Path))
 	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return WriteFileResult{}, fmt.Errorf("file path must stay inside the project root")
+		return WriteFileResult{}, fmt.Errorf("%w: file path must stay inside the project root", ErrPathOutsideProject)
 	}
 	parent, err := resolveInside(root, filepath.Dir(clean), true)
 	if err != nil {
@@ -105,7 +105,7 @@ func (s *Service) WriteProjectFile(ctx context.Context, projectID string, input 
 	}
 	path := filepath.Join(parent, filepath.Base(clean))
 	if rel, relErr := filepath.Rel(root, path); relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return WriteFileResult{}, fmt.Errorf("file path escapes project root")
+		return WriteFileResult{}, ErrPathOutsideProject
 	}
 	lockRoot := root
 	if canonical, canonicalErr := filepath.EvalSymlinks(root); canonicalErr == nil {

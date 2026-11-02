@@ -12,11 +12,13 @@ import (
 	"unicode/utf8"
 
 	"hermetrix-harness/internal/agent"
+	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/durability"
 	"hermetrix-harness/internal/identity"
 )
 
 const maxTeamParallel = 4
+const maxTeamCumulativeTokens = 786432
 
 var ErrTeamRemoteApprovalRequired = errors.New("remote provider requires explicit remote_allowed egress approval with actor and reason")
 
@@ -439,6 +441,14 @@ func (s *Service) DecideTeamTaskApproval(ctx context.Context, runID, taskID stri
 		return s.GetTeamRun(durableCtx, runID)
 	}
 	completed := formatTime(time.Now().UTC())
+	if result.AssistantEvent.Metadata["continuation_needed"] == true {
+		_, err = s.store.DB.ExecContext(durableCtx, `UPDATE agent_team_tasks SET state='failed',error='team task returned incomplete work; explicit review required',result=?,prompt_tokens=?,completion_tokens=?,completed_at=? WHERE id=? AND state='resolving_approval'`, result.AssistantEvent.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, completed, task.ID)
+		if err != nil {
+			return TeamRun{}, err
+		}
+		s.continueTeamRun(durableCtx, runID)
+		return s.GetTeamRun(durableCtx, runID)
+	}
 	updated, err := s.store.DB.ExecContext(durableCtx, `UPDATE agent_team_tasks SET state='completed',result=?,error='',
 		prompt_tokens=?,completion_tokens=?,approval_id='',approval_summary='',approval_preview='',approval_effect='',completed_at=?
 		WHERE id=? AND state='resolving_approval'`, result.AssistantEvent.Content, result.Usage.PromptTokens,
@@ -678,6 +688,13 @@ func (s *Service) runTeamTask(ctx context.Context, run TeamRun, task TeamTask, t
 	}
 	create := agent.CreateSessionInput{Title: run.TeamName + " · " + task.Title, ProviderID: providerID,
 		ProjectID: run.ProjectID, ContextProfile: contextProfile, EgressPolicy: run.EgressPolicy}
+	profile, ok := ctxcompiler.ProfileByName(contextProfile)
+	if !ok {
+		s.failTeamTask(ctx, task.ID, fmt.Errorf("invalid team context profile"))
+		return
+	}
+	create.ExecutionBudget = &agent.TaskBudget{MaxModelSteps: 12, MaxToolCalls: 24, MaxWallTimeSeconds: 600, MaxCumulativeTokens: min(profile.Total*6, maxTeamCumulativeTokens/max(1, len(run.Tasks)))}
+	create.DisableAutoRetry = true
 	if run.RemoteEgressApproval != nil {
 		create.RemoteEgressApproval = &agent.EgressApprovalInput{Actor: run.RemoteEgressApproval.Actor,
 			Reason: run.RemoteEgressApproval.Reason}
@@ -694,6 +711,10 @@ func (s *Service) runTeamTask(ctx context.Context, run TeamRun, task TeamTask, t
 	result, err := s.agent.RunTurn(ctx, session.ID, agent.TurnInput{Content: prompt}, nil)
 	if err != nil {
 		s.failTeamTask(ctx, task.ID, err)
+		return
+	}
+	if result.AssistantEvent.Metadata["continuation_needed"] == true {
+		durability.Exec("retain incomplete team evidence").Observe(s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_team_tasks SET state='failed',error='team task returned incomplete work; explicit review required',result=?,prompt_tokens=?,completion_tokens=?,completed_at=? WHERE id=? AND state='running'`, result.AssistantEvent.Content, result.Usage.PromptTokens, result.Usage.CompletionTokens, formatTime(time.Now().UTC()), task.ID))
 		return
 	}
 	if result.Approval != nil {

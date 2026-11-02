@@ -34,6 +34,8 @@ type Session struct {
 }
 
 type CreateSessionInput struct {
+	ExecutionBudget        *TaskBudget                  `json:"-"`
+	DisableAutoRetry       bool                         `json:"-"`
 	ChatReasoning          *ChatReasoningSetting        `json:"chat_reasoning,omitempty"`
 	WorkspaceWriteApproval *WorkspaceWriteApprovalInput `json:"workspace_write_approval,omitempty"`
 	WorkMode               string                       `json:"work_mode,omitempty"`
@@ -118,6 +120,7 @@ type InferencePresetBinding struct {
 }
 
 type SessionContract struct {
+	DisableAutoRetry         bool                     `json:"disable_auto_retry,omitempty"`
 	ChatReasoning            *ChatReasoningSetting    `json:"chat_reasoning,omitempty"`
 	WorkspaceWriteApproval   *WorkspaceWriteApproval  `json:"workspace_write_approval,omitempty"`
 	WorkMode                 string                   `json:"work_mode,omitempty"`

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"hermetrix-harness/internal/agent"
+	"hermetrix-harness/internal/automation"
 	"hermetrix-harness/internal/capabilities"
 	ctxcompiler "hermetrix-harness/internal/context"
 	"hermetrix-harness/internal/curator"
@@ -44,6 +45,11 @@ func main() {
 		usage()
 	}
 	switch os.Args[1] {
+	case "version", "preflight":
+		if err := runReleaseCommand(os.Args[1], os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "preflight:", err)
+			os.Exit(1)
+		}
 	case "serve":
 		runServe(os.Args[2:])
 	case "taskeval":
@@ -65,6 +71,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  hermetrix version | preflight --data PATH (read-only; never migrates)")
 	fmt.Fprintln(os.Stderr, "  hermetrix serve  [--data PATH] [--listen HOST:PORT] [--open] [--desktop]")
 	fmt.Fprintln(os.Stderr, "                   [--project-brain-server NAME --project-brain-project SCOPE]")
 	fmt.Fprintln(os.Stderr, "  hermetrix corpus export --data PATH --out DIR")
@@ -171,6 +178,7 @@ func runServe(args []string) {
 	gate := runtime.NewInferenceGate()
 	learningService := learning.NewService(dataStore, skillService, gate, learning.StructuredReviewer{})
 	taskService := taskengine.NewService(dataStore)
+	automationService := automation.New(dataStore, taskService)
 	curatorService := curator.NewService(dataStore, skillService)
 	productService := product.NewService(dataStore, skillService)
 	defer productService.Close()
@@ -397,6 +405,9 @@ func runServe(args []string) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				if _, automationErr := automationService.RunDue(ctx, time.Now().UTC()); automationErr != nil {
+					logger.Warn("automation intake unavailable")
+				}
 				if brainOutbox != nil {
 					if delivered, drainErr := brainOutbox.Drain(ctx, 10); drainErr != nil {
 						logger.Warn("drain Project Brain candidate outbox", "reason", "outbox_unavailable")

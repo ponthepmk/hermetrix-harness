@@ -75,7 +75,7 @@ func (s *Server) voiceCapabilities(w http.ResponseWriter, r *http.Request) {
 	_, ffmpegErr := exec.LookPath("ffmpeg")
 	_, powershellErr := findSpeechCommand()
 	asrReady := asrErr == nil && ffmpegErr == nil
-	ttsReady := runtime.GOOS == "windows" && powershellErr == nil
+	ttsReady := (runtime.GOOS == "windows" || runtime.GOOS == "darwin") && powershellErr == nil
 	reason := ""
 	if asrErr != nil {
 		reason = asrErr.Error()
@@ -96,12 +96,19 @@ func (s *Server) voiceCapabilities(w http.ResponseWriter, r *http.Request) {
 		}
 		asrName = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(whisper.model), "ggml-"), filepath.Ext(whisper.model)) + " · " + device
 	}
+	ttsName := "Windows Speech ในเครื่อง"
+	if runtime.GOOS == "darwin" {
+		ttsName = "macOS Speech ในเครื่อง"
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"mode": "local-only", "asr_ready": asrReady, "tts_ready": ttsReady,
-		"asr": asrName, "tts": "Windows Speech ในเครื่อง", "reason": reason,
+		"asr": asrName, "tts": ttsName, "reason": reason,
 		"limits": map[string]any{"utterance_seconds": 20, "audio_bytes": 4 << 20, "speech_characters": 500}})
 }
 
 func findSpeechCommand() (string, error) {
+	if runtime.GOOS == "darwin" {
+		return exec.LookPath("say")
+	}
 	for _, name := range []string{"pwsh.exe", "powershell.exe"} {
 		if command, err := exec.LookPath(name); err == nil {
 			return command, nil
@@ -170,6 +177,16 @@ func (s *Server) transcribeVoice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "เสียงสั้นเกินไปหรือยาวเกิน 20 วินาที"})
 		return
 	}
+	wavData, readErr := os.ReadFile(wavPath)
+	if readErr != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "อ่านเสียงไม่ได้"})
+		return
+	}
+	if !voiceWAVSignalPresent(wavData) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, map[string]any{"text": "", "final": true, "processor": "whisper-local"})
+		return
+	}
 	prefix := filepath.Join(tempDir, "transcript")
 	command := whisper.command(ctx, "-m", whisper.model, "-f", wavPath, "-l", "auto", "--prompt", bilingualVoicePrompt, "-t", "4", "-ng", "-oj", "-of", prefix, "-np")
 	if output, err := command.CombinedOutput(); err != nil {
@@ -220,7 +237,7 @@ $synth.Dispose()
 `
 
 func (s *Server) speakVoice(w http.ResponseWriter, r *http.Request) {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "ยังไม่มีเสียงพูดตอบในเครื่องนี้"})
 		return
 	}
@@ -252,6 +269,14 @@ func (s *Server) speakVoice(w http.ResponseWriter, r *http.Request) {
 	wavPath := filepath.Join(tempDir, "speech.wav")
 	cmd := exec.CommandContext(ctx, speechCommand, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
 	cmd.Env = append(os.Environ(), "HERMETRIX_TTS_TEXT_BASE64="+base64.StdEncoding.EncodeToString([]byte(utterance)), "HERMETRIX_TTS_WAV_PATH="+wavPath)
+	if runtime.GOOS == "darwin" {
+		textPath := filepath.Join(tempDir, "speech.txt")
+		if err := os.WriteFile(textPath, []byte(utterance), 0600); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "สร้างข้อความเสียงชั่วคราวไม่ได้"})
+			return
+		}
+		cmd = exec.CommandContext(ctx, speechCommand, "-f", textPath, "--file-format=WAVE", "--data-format=LEI16@22050", "-o", wavPath)
+	}
 	if err := cmd.Run(); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "เสียงพูดในเครื่องทำงานไม่สำเร็จ"})
 		return

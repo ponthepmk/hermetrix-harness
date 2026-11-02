@@ -25,6 +25,8 @@ import (
 	"hermetrix-harness/internal/store"
 )
 
+var ErrPathOutsideProject = errors.New("path escapes project root")
+
 const maxArtifactBytes = 16 << 20
 
 var settingKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,80}$`)
@@ -687,11 +689,11 @@ func resolveProjectRoot(raw string) (string, error) {
 
 func resolveInside(root, relative string, mustExist bool) (string, error) {
 	if filepath.IsAbs(relative) {
-		return "", fmt.Errorf("absolute paths are not allowed")
+		return "", fmt.Errorf("%w: absolute paths are not allowed", ErrPathOutsideProject)
 	}
 	clean := filepath.Clean(relative)
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes project root")
+		return "", ErrPathOutsideProject
 	}
 	joined := filepath.Join(root, clean)
 	real := joined
@@ -704,7 +706,7 @@ func resolveInside(root, relative string, mustExist bool) (string, error) {
 	}
 	rel, err := filepath.Rel(root, real)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes project root")
+		return "", ErrPathOutsideProject
 	}
 	return real, nil
 }

@@ -221,6 +221,17 @@ func (s *Service) CreateSession(ctx context.Context, input CreateSessionInput) (
 		contract.ToolBindings = filtered
 		contract.Revision = sessionContractRevision(contract)
 	}
+	if input.ExecutionBudget != nil {
+		requested := *input.ExecutionBudget
+		for _, pair := range [][2]int{{requested.MaxModelSteps, contract.TaskBudget.MaxModelSteps}, {requested.MaxToolCalls, contract.TaskBudget.MaxToolCalls}, {requested.MaxWallTimeSeconds, contract.TaskBudget.MaxWallTimeSeconds}, {requested.MaxCumulativeTokens, contract.TaskBudget.MaxCumulativeTokens}} {
+			if pair[0] <= 0 || pair[0] > pair[1] {
+				return Session{}, fmt.Errorf("invalid execution budget: host may only reduce session limits")
+			}
+		}
+		contract.TaskBudget = requested
+	}
+	contract.DisableAutoRetry = input.DisableAutoRetry
+	contract.Revision = sessionContractRevision(contract)
 	contractJSON, err := json.Marshal(contract)
 	if err != nil {
 		return Session{}, err
@@ -793,6 +804,11 @@ func (s *Service) acquireTurn(ctx context.Context, session Session, provider pro
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_retries SET state='cancelled',updated_at=? WHERE session_id=? AND state<>'paused'`, formatTime(now), session.ID); err != nil {
 		return Event{}, err
+	}
+	if len(idempotencyKeys) < 2 || idempotencyKeys[1] == "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_retries SET attempts=0 WHERE session_id=?`, session.ID); err != nil {
+			return Event{}, err
+		}
 	}
 	if len(idempotencyKeys) > 2 && idempotencyKeys[2] != "" {
 		result, err = tx.ExecContext(ctx, `UPDATE agent_message_queue SET state='running',turn_id=?,updated_at=? WHERE id=? AND session_id=? AND owner_principal_id=? AND provider_id=? AND project_id=? AND contract_revision=? AND cache_epoch=? AND state='queued'`, turnID, formatTime(now), idempotencyKeys[2], session.ID, session.OwnerPrincipalID, session.ProviderID, session.ProjectID, session.ContractRevision, session.CacheEpoch)

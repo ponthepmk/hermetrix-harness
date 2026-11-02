@@ -1,8 +1,38 @@
 {
   "version": 1,
-  "updated": "2026-10-29",
+  "updated": "2026-11-02",
   "docs_root": "docs/",
   "files": [
+    {
+      "path": "docs/reviews/2026-11-01-production-readiness.md",
+      "role": "feature",
+      "summary": "Actual installed HTTP audit: stop/idempotency/boundaries work, but two-file repair fails after natural continuation; stale retry29 and path-error500 make unattended coding unqualified."
+    },
+    {
+      "path": "docs/validation/2026-11-01-production-readiness/assessment.json",
+      "role": "test",
+      "summary": "Preserved failed production-acceptance evidence:280579 tokens, unrelated target-file rewrite, compile failure, paused owned queues and no real client source changes."
+    },
+    {
+      "path": "docs/reviews/2026-11-01-runtime-reliability.md",
+      "role": "feature",
+      "summary": "Verified-idle recovery, stale probe fencing, honest tool markup, versioned focused coding and Windows launcher repair; installed existing18816 pilot with actual Bonsai coding evidence."
+    },
+    {
+      "path": "docs/validation/2026-11-01-runtime-reliability/summary.json",
+      "role": "test",
+      "summary": "Full1640-pass suite plus2 actual Bonsai cancellation/coding checks; hashes, installed API/UI, data preservation and explicit optional integration skips."
+    },
+    {
+      "path": "internal/agent/workspace_progress.go",
+      "role": "module",
+      "summary": "Raw unexecuted tool-markup detection and receipt-derived scoped implementation guidance without authority changes."
+    },
+    {
+      "path": "internal/providers/runtime_recovery_test.go",
+      "role": "test",
+      "summary": "Real HTTP cancellation/idle recovery with busy/malformed/authenticated runtime guards and no replay."
+    },
     {
       "path": "internal/worker/atomic_repair.go",
       "role": "module",
@@ -112,6 +142,276 @@
       "path": "docs/validation/2026-10-29-repair-targets.json",
       "role": "test",
       "summary": "Frozen candidate and terminal qualification/review/trial hashes for bounded historical source repair."
+    },
+    {
+      "path": "internal/web/learning_reasoning_diagnostic_test.go",
+      "role": "test",
+      "summary": "Opt-in development-only reasoning contrast with captured actual local provider wire controls."
+    },
+    {
+      "path": "internal/learning/model_reviewer_completion_test.go",
+      "role": "test",
+      "summary": "Actual HTTP stream verifies complete review acceptance and length-limited rejection despite valid JSON."
+    },
+    {
+      "path": "internal/learning/model_reviewer.go",
+      "role": "module",
+      "summary": "Evidence-based inert Skill proposal reviewer; rejects length-limited generations before parsing."
+    },
+    {
+      "path": "docs/validation/2026-10-29-learning-fidelity.json",
+      "role": "test",
+      "summary": "Current full-suite/source/binary evidence, actual Bonsai trial, review attempts and unchanged UI proof."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-learning-fidelity.md",
+      "role": "feature",
+      "summary": "Complete negative learning trial, fixed experimental contracts, truncation guard and remaining owner gates."
+    },
+    {
+      "path": "scripts/start-architecture-pilot.ps1",
+      "role": "module",
+      "summary": "Exact-config isolated pilot launcher; preflight and foreign-listener protection."
+    },
+    {
+      "path": "scripts/doc-truth.sh",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "scripts/architecture_launcher_windows_test.go",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/web/voice_live_barge_in_windows_test.go",
+      "role": "test",
+      "summary": "Opt-in actual worklet/Whisper/Bonsai repeated-interruption synthetic audio acceptance."
+    },
+    {
+      "path": "internal/web/ui_architecture_e2e_test.go",
+      "role": "test",
+      "summary": "Real Chrome Goal and voice controls, responsive screenshots and keyboard/draft checks."
+    },
+    {
+      "path": "internal/web/ui/voice.js",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/web/ui/voice-turn-control.test.js",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/web/ui/voice-turn-control.js",
+      "role": "module",
+      "summary": "Independent exact-generation stop confirmation, stale-event fencing and uncertainty control."
+    },
+    {
+      "path": "internal/web/ui/task-context-view.test.js",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/web/ui/task-context-view.js",
+      "role": "module",
+      "summary": "Read-only disclosure of exact included Skill and knowledge identities."
+    },
+    {
+      "path": "internal/web/ui/goal-view.js",
+      "role": "module",
+      "summary": "Escaped Thai Goal lifecycle and bounded consent presentation."
+    },
+    {
+      "path": "internal/web/ui/goal-controls.test.js",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/web/ui/goal-controls.js",
+      "role": "module",
+      "summary": "Exact retained Goal requests, recovery and browser feature binding."
+    },
+    {
+      "path": "internal/web/ui/goal-controls.css",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/web/tasks.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/web/learning_live_trial_test.go",
+      "role": "test",
+      "summary": "Opt-in real Bonsai Learning candidate and frozen paired benchmark; fresh identities, manual policy and no promotion."
+    },
+    {
+      "path": "internal/taskengine/completion_observer_test.go",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/taskengine/completion_observer.go",
+      "role": "module",
+      "summary": "Prepare immutable evidence outside completion, stage outbox fact in the same transaction."
+    },
+    {
+      "path": "internal/taskcoord/skill_context_test.go",
+      "role": "test",
+      "summary": "Real registry, scope, budgets, canonical request and SQLite reopen regressions."
+    },
+    {
+      "path": "internal/taskcoord/learning_context_test.go",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/taskcoord/learning_context.go",
+      "role": "module",
+      "summary": "Completion observer and bounded solution/receipt learning digest."
+    },
+    {
+      "path": "internal/taskcoord/context_receipt.go",
+      "role": "module",
+      "summary": "Validated canonical proposal inclusion identities without retrieved bodies."
+    },
+    {
+      "path": "internal/store/task_learning_v82_test.go",
+      "role": "test",
+      "summary": "Companion regression coverage for the architecture checkpoint."
+    },
+    {
+      "path": "internal/store/task_learning_v82.go",
+      "role": "module",
+      "summary": "Additive Task-FK learning outbox schema 82; preserves the conversation FK."
+    },
+    {
+      "path": "internal/product/recovery.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/product/media.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/product/browser.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/learning/service.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/learning/models.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/inference/scheduler.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "internal/agent/models.go",
+      "role": "module",
+      "summary": "Focused architecture feature presentation or lifecycle module."
+    },
+    {
+      "path": "docs/validation/2026-10-29-interaction-and-learning.json",
+      "role": "documentation",
+      "summary": "Architecture checkpoint implementation and evidence."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-interaction-and-learning.md",
+      "role": "documentation",
+      "summary": "Architecture checkpoint implementation and evidence."
+    },
+    {
+      "path": "docs/architecture/local-pilot.md",
+      "role": "documentation",
+      "summary": "Architecture checkpoint implementation and evidence."
+    },
+    {
+      "path": "internal/worker/skill_refs_test.go",
+      "role": "test",
+      "summary": "Native Skill reference validation, snapshot/wire independence and canonical binding regression cases."
+    },
+    {
+      "path": "internal/worker/skill_refs.go",
+      "role": "module",
+      "summary": "Advisory Skill identity/body hash, UTF8 and individual/aggregate resource validation."
+    },
+    {
+      "path": "internal/taskcoord/rollback.go",
+      "role": "module",
+      "summary": "Preimage restoration and immutable rollback receipts."
+    },
+    {
+      "path": "internal/taskcoord/reconciliation.go",
+      "role": "module",
+      "summary": "Observed operation lookup and effect reconciliation without replay."
+    },
+    {
+      "path": "internal/taskcoord/review.go",
+      "role": "module",
+      "summary": "Exact post-test review, evidence-bound completion and verified-task learning enqueue."
+    },
+    {
+      "path": "internal/taskcoord/verification.go",
+      "role": "module",
+      "summary": "Frozen checks, verification evidence and failure handling."
+    },
+    {
+      "path": "internal/taskcoord/apply.go",
+      "role": "module",
+      "summary": "Reviewed atomic preimage-bound proposal application and rollback authority."
+    },
+    {
+      "path": "internal/taskcoord/proposal.go",
+      "role": "module",
+      "summary": "Bounded proposal snapshots, Skill/Brain refs, canonical input and immutable proposal effects."
+    },
+    {
+      "path": "internal/taskcoord/file_selection.go",
+      "role": "module",
+      "summary": "Secret-filtered bounded durable file-selection provider effect."
+    },
+    {
+      "path": "internal/taskcoord/planning.go",
+      "role": "module",
+      "summary": "Durable plan dispatch and provenance, fitting source before optional Skill references."
+    },
+    {
+      "path": "internal/taskcoord/skill_context.go",
+      "role": "module",
+      "summary": "Read-only applicable immutable Task Skills with exact bodies, credential checks and bounded metadata."
+    },
+    {
+      "path": "internal/skills/selection.go",
+      "role": "module",
+      "summary": "Shared Chat/Task Skill binding, established lexical/Thai/semantic-bonus ranking and project scope."
+    },
+    {
+      "path": "docs/validation/2026-10-29-architecture-foundation.json",
+      "role": "test",
+      "summary": "Exact applied native ancestry/source hashes and full-suite/operator acceptance receipts; remaining owner outcomes explicit."
+    },
+    {
+      "path": "docs/reviews/2026-10-29-architecture-foundation.md",
+      "role": "feature",
+      "summary": "Applied coordinator and Skill context foundation, validation, native provenance and unapplied voice/UI work."
+    },
+    {
+      "path": "docs/architecture/2026-10-29-evolution.md",
+      "role": "feature",
+      "summary": "Owner architecture/Skills/MCP/context/learning/interruptible-voice/Thai UX contract with explicit acceptance ledger."
     },
     {
       "path": "docs/reviews/2026-10-29-marketplace-api-reference-integration.md",
@@ -231,7 +531,7 @@
     {
       "path": "cmd/hermetrix-lab/main.go",
       "role": "module",
-      "summary": "Separate optional supervisor: core checks, real Hermetrix proposal and paired fresh-session trials, durable reports; no promotion or serving integration."
+      "summary": "Optional bounded supervisor lab with explicit new-session context/reasoning settings and no promotion API."
     },
     {
       "summary": "Loopback TLS gateway to the existing preview without a second data store or worker.",
@@ -1181,22 +1481,22 @@
     {
       "path": "internal/selfimprove/client_test.go",
       "role": "test",
-      "summary": "Fresh personal session and final receipt, unsafe project/redirect/approval rejection and literal loopback control boundary."
+      "summary": "No unsafe dispatch on authority/contract mismatch; separate truncation, approval and missing-receipt evidence."
     },
     {
       "path": "internal/selfimprove/client.go",
       "role": "module",
-      "summary": "Loopback-only normal Harness API client, fresh personal chats without project/tool authority, explicit remote/context controls and no retry after uncertain responses."
+      "summary": "Fresh personal planning sessions, explicit experimental reasoning and complete receipt/contract diagnostics."
     },
     {
       "path": "internal/selfimprove/compare_test.go",
       "role": "test",
-      "summary": "Coverage gains cannot hide per-requirement regressions; incomplete, changed, forged, equal and expensive observations retain the original version."
+      "summary": "Comparison cannot turn contract drift, weak policy, missing runs or forged scores into improvement."
     },
     {
       "path": "internal/selfimprove/compare.go",
       "role": "module",
-      "summary": "Recompute paired scores, reject individual regressions, reused histories, stale provider/catalog, no gain and token overhead; preserve original core fingerprints."
+      "summary": "Host-recomputed paired comparison rejects regressions, missing or changed contracts and excessive cost."
     },
     {
       "path": "internal/selfimprove/core_test.go",
@@ -1211,7 +1511,7 @@
     {
       "path": "internal/selfimprove/suite.go",
       "role": "module",
-      "summary": "Fixed development/held-out planning cases, role capability and invariant coverage with strict JSON and least-privilege action validation."
+      "summary": "Frozen planning vocabulary/cases/scorer with equally disclosed role permissions and exact suite identity."
     },
     {
       "role": "test",
@@ -1676,7 +1976,7 @@
     {
       "path": "internal/taskcoord/service.go",
       "role": "module",
-      "summary": "Native metadata byte fitting, named-prefix coverage or qualified64k planner policy; see commerce64 handoff for exact validation."
+      "summary": "Coordinator contracts, dependencies and constructors; workflows live in separate files."
     },
     {
       "path": "internal/taskcoord/step_criteria.go",
@@ -3316,22 +3616,32 @@
     {
       "path": "docs/reviews/2026-10-29-verified-draft-repair.md",
       "role": "feature",
-      "summary": "Published verified-draft repair, correct native review contract, retained failed API trials and causal diagnosis evidence."
+      "summary": "Verified failed-draft repair, rejected-response recovery, actual negative native trials and remaining gates."
     },
     {
       "path": "docs/validation/2026-10-29-verified-draft-repair.json",
       "role": "test",
-      "summary": "Exact source/test/review/HTTP/ledger/negative-trial/counterfactual evidence and limits."
-    },
-    {
-      "path": "internal/store/future_schema_test.go",
-      "role": "test",
-      "summary": "Newer DB versions are rejected without changing bytes, data, journal mode or lock ownership."
+      "summary": "Exact candidate sources, scoped regressions, failed full/native trials and pending handles."
     },
     {
       "path": "internal/worker/repair_draft.go",
       "role": "module",
-      "summary": "Bounded repair pipeline preserving actual preimages, verified origins, explicit scope and goal budgets."
+      "summary": "Bounded historical source and exact-edit proof retain actual workspace preimages."
+    },
+    {
+      "path": "internal/taskcoord/repair_drafts.go",
+      "role": "module",
+      "summary": "Verified same-requirement failure source selection and unchanged failed-draft rejection."
+    },
+    {
+      "path": "internal/taskcoord/goal_proposal_failure.go",
+      "role": "module",
+      "summary": "Fresh bounded attempt only after a complete invalid proposal has a safe observed failed effect."
+    },
+    {
+      "path": "internal/store/future_schema_test.go",
+      "role": "test",
+      "summary": "Reject newer database schemas before mutation; verify unchanged bytes/version/data/journal and lock release."
     },
     {
       "path": "internal/worker/repair_draft_happy_test.go",
@@ -3354,24 +3664,39 @@
       "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
     },
     {
-      "path": "internal/taskcoord/goal_proposal_failure.go",
-      "role": "module",
-      "summary": "Bounded repair pipeline preserving actual preimages, verified origins, explicit scope and goal budgets."
-    },
-    {
       "path": "internal/taskcoord/goal_proposal_failure_test.go",
       "role": "test",
       "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
     },
     {
-      "path": "internal/taskcoord/repair_drafts.go",
-      "role": "module",
-      "summary": "Bounded repair pipeline preserving actual preimages, verified origins, explicit scope and goal budgets."
-    },
-    {
       "path": "internal/taskcoord/repair_drafts_test.go",
       "role": "test",
       "summary": "Regression coverage for verified historical drafts and bounded goal recovery."
+    },
+    {
+      "role": "feature",
+      "summary": "G2-G7 development candidate: bounded retries, automation intake, team budgets, tests/package hashes and remaining live-model/acoustic/production gates.",
+      "path": "docs/reviews/2026-11-02-platform-release-candidate.md"
+    },
+    {
+      "role": "config",
+      "summary": "Explicit development versus production release gate status; never equate skipped live acceptance with pass.",
+      "path": "docs/PLATFORM-RELEASE-STATUS.json"
+    },
+    {
+      "role": "infra",
+      "summary": "Development startup, automation semantics, sandbox limits, credential expiry and backup/upgrade/rollback runbook.",
+      "path": "docs/DEVELOPMENT-RELEASE-RUNBOOK.md"
+    },
+    {
+      "role": "module",
+      "summary": "Principal-scoped atomic scheduled/event draft-task intake with deduplication, overlap suppression and pause.",
+      "path": "internal/automation/service.go"
+    },
+    {
+      "role": "config",
+      "summary": "Versioned OpenAPI contracts for automation create/edit/list/trigger/receipt endpoints.",
+      "path": "docs/api/platform-additions.openapi.json"
     }
   ]
 }

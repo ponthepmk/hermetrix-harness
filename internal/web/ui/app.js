@@ -2464,13 +2464,14 @@ async function sendTurn(event) {
 // view whose zone is not mounted. Returns true when the turn committed.
 async function submitChatText(content, attachments = [], options = {}) {
   if (state.sending || !state.sessionDetail?.session) return false;
+  options.idempotencyKey ||= crypto.randomUUID();
   const sessionID = state.sessionDetail.session.id;
   state.followSubmittedTurn = true;
   for (const log of document.querySelectorAll("#messageList, .ide-assistant-log")) log.scrollTop = log.scrollHeight;
   state.turnSessionID = sessionID;
   state.sending = true;
   state.chatTurnError = "";
-  state.failedRequest = {sessionID, draftText:options.draftText || content, beforeEventID:[...(state.sessionDetail.events || [])].reverse().find(item => item.event_kind === "message" || item.event_kind === "turn_failed")?.id, content, attachments, idempotencyKey:options.idempotencyKey, paused:options.automaticRetry === false};
+  state.failedRequest = {sessionID, draftText:options.draftText || content, beforeEventID:[...(state.sessionDetail.events || [])].reverse().find(item => item.event_kind === "message" || item.event_kind === "turn_failed")?.id, content, attachments, idempotencyKey:options.idempotencyKey, retryAttempts:options.retryAttempts || 0, paused:options.automaticRetry === false};
   state.streamingText = "";
   renderChat();
   refreshPaneChat();
@@ -3863,6 +3864,7 @@ function renderMaintenance() {
     details.addEventListener("toggle", () => { if (details.open) maintenanceExpanded.add(index); else maintenanceExpanded.delete(index); });
   });
   $("#settingForm")?.addEventListener("submit", saveSetting);
+  void window.HermetrixAutomations?.mount(root);
   $("#memoryForm")?.addEventListener("submit", saveMemory);
   $$('[data-archive-memory]', root).forEach(button => button.addEventListener("click", () => archiveMemory(button.dataset.archiveMemory)));
   $("#exportBackupButton")?.addEventListener("click", exportBackup);

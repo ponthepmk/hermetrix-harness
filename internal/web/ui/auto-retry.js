@@ -9,7 +9,7 @@ function autoRetryNoticeHTML(detail) {
     if (!clientPending) return '';
     return `<div class="auto-retry-notice" role="status"><span>ลองส่งอัตโนมัติทุก 5 นาที · ครั้งถัดไป ${escapeHTML(new Date(client.retryAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</span><button type="button" class="ghost compact" data-pause-auto-retry>หยุดทำต่ออัตโนมัติ</button></div>`;
   }
-  if (retry.state === 'paused') return '<div class="auto-retry-notice"><span>หยุดทำต่ออัตโนมัติแล้ว · กดทำต่อเองได้</span></div>';
+  if (retry.state === 'paused') return `<div class="auto-retry-notice"><span>${retry.limit_reached ? 'ครบจำนวนทำต่ออัตโนมัติแล้ว · ตรวจผลก่อนสั่งต่อ' : 'หยุดทำต่ออัตโนมัติแล้ว · กดทำต่อเองได้'}</span></div>`;
   const when = new Date(retry.next_attempt_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   return `<div class="auto-retry-notice" role="status"><span>${retry.state === 'running' ? 'กำลังทำต่อจากงานที่บันทึกไว้' : `ทำต่ออัตโนมัติทุก 5 นาที · ครั้งถัดไป ${escapeHTML(when)}`}</span><button type="button" class="ghost compact" data-pause-auto-retry>หยุดทำต่ออัตโนมัติ</button></div>`;
 }
@@ -57,8 +57,14 @@ async function refreshAutomaticTurns() {
     // completed answer received after a dropped stream must never be replayed.
     if (latest?.id !== failed.beforeEventID) { failed.retryAt = null; return; }
     if (detail.auto_retry?.state === 'paused') { failed.paused = true; return; }
+    if ((failed.retryAttempts || 0) >= 3) {
+      failed.paused = true; failed.retryAt = null;
+      state.chatTurnError = 'ส่งซ้ำอัตโนมัติครบ 3 ครั้งแล้ว · ตรวจสถานะแชตก่อนส่งใหม่';
+      renderChat(); refreshPaneChat(); return;
+    }
+    failed.retryAttempts = (failed.retryAttempts || 0) + 1;
     failed.retryAt = Date.now() + 300000;
-    const ok = await submitChatText(failed.content, failed.attachments || [], {draftText:failed.draftText,idempotencyKey:failed.idempotencyKey});
+    const ok = await submitChatText(failed.content, failed.attachments || [], {draftText:failed.draftText,idempotencyKey:failed.idempotencyKey,retryAttempts:failed.retryAttempts});
     if (ok) {
       if (state.draftMessage === failed.draftText) setComposerDraft('',[],id);
       if (state.paneChatDraft === failed.draftText) state.paneChatDraft = '';

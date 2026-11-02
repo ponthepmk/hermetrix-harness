@@ -10,6 +10,10 @@ import (
 )
 
 const AutoRetryInterval = 5 * time.Minute
+
+// Per-turn budgets must not be multiplied indefinitely by automatic turns.
+// Only an explicit new user turn resets this request's continuation allowance.
+const MaxAutoRetryAttempts = 3
 const autoContinuation = "ทำต่อจากคำขอเดิมและเป้าหมายในเอกสารบริบท ใช้ context_search ดึงเฉพาะส่วนที่จำเป็น ไม่อ่านไฟล์เดิมซ้ำทั้งหมด ตรวจผลคำสั่งเดิมก่อน ห้ามทำการเปลี่ยนไฟล์หรือคำสั่งที่มีผลข้างเคียงซ้ำโดยไม่ตรวจหลักฐาน สรุปสิ่งที่ทำสำเร็จ งานค้าง และผลทดสอบจริง ถ้ายังไม่เสร็จให้ระบุงานค้างชัดเจน"
 
 type RetryStatus struct {
@@ -17,17 +21,28 @@ type RetryStatus struct {
 	NextAttemptAt   time.Time `json:"next_attempt_at"`
 	Attempts        int       `json:"attempts"`
 	IntervalSeconds int       `json:"interval_seconds"`
+	MaxAttempts     int       `json:"max_attempts"`
+	LimitReached    bool      `json:"limit_reached"`
 }
 
 func scheduleRetryTx(ctx context.Context, tx *sql.Tx, event Event) error {
 	pending := event.EventKind == "turn_failed" || event.Metadata["continuation_needed"] == true
+	if pending {
+		var disabled bool
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(contract_json,'$.disable_auto_retry'),0) FROM agent_sessions WHERE id=?`, event.SessionID).Scan(&disabled); err != nil {
+			return err
+		}
+		if disabled {
+			return nil
+		}
+	}
 	if !pending {
 		_, err := tx.ExecContext(ctx, `UPDATE agent_retries SET state='completed',updated_at=? WHERE session_id=? AND state<>'paused'`, formatTime(event.CreatedAt), event.SessionID)
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO agent_retries(session_id,source_event_id,state,next_attempt_at,updated_at) VALUES(?,?,'pending',?,?)
- ON CONFLICT(session_id) DO UPDATE SET source_event_id=excluded.source_event_id,state='pending',next_attempt_at=excluded.next_attempt_at,updated_at=excluded.updated_at WHERE agent_retries.state<>'paused'`,
-		event.SessionID, event.ID, formatTime(event.CreatedAt.Add(AutoRetryInterval)), formatTime(event.CreatedAt))
+ ON CONFLICT(session_id) DO UPDATE SET source_event_id=excluded.source_event_id,state=CASE WHEN agent_retries.attempts>=? THEN 'paused' ELSE 'pending' END,next_attempt_at=excluded.next_attempt_at,updated_at=excluded.updated_at WHERE agent_retries.state<>'paused'`,
+		event.SessionID, event.ID, formatTime(event.CreatedAt.Add(AutoRetryInterval)), formatTime(event.CreatedAt), MaxAutoRetryAttempts)
 	return err
 }
 
@@ -43,6 +58,8 @@ func (s *Service) RetryStatus(ctx context.Context, sessionID string) (*RetryStat
 	}
 	status.NextAttemptAt, err = time.Parse(time.RFC3339Nano, next)
 	status.IntervalSeconds = int(AutoRetryInterval.Seconds())
+	status.MaxAttempts = MaxAutoRetryAttempts
+	status.LimitReached = status.Attempts >= MaxAutoRetryAttempts && status.State == "paused"
 	return &status, err
 }
 
@@ -65,7 +82,7 @@ func (s *Service) RecoverAutoRetries(ctx context.Context) error {
 	}
 	_, err = s.store.DB.ExecContext(ctx, `INSERT INTO agent_retries(session_id,source_event_id,state,next_attempt_at,updated_at)
  SELECT e.session_id,e.id,'pending',?,? FROM agent_events e JOIN agent_sessions s ON s.id=e.session_id
- WHERE s.state='active' AND e.sequence=(SELECT MAX(sequence) FROM agent_events WHERE session_id=e.session_id AND (event_kind='message' OR event_kind='turn_failed'))
+ WHERE s.state='active' AND COALESCE(json_extract(s.contract_json,'$.disable_auto_retry'),0)=0 AND e.sequence=(SELECT MAX(sequence) FROM agent_events WHERE session_id=e.session_id AND (event_kind='message' OR event_kind='turn_failed'))
  AND (e.event_kind='turn_failed' OR (e.role='assistant' AND json_extract(e.metadata_json,'$.continuation_needed')=1))
  ON CONFLICT(session_id) DO UPDATE SET source_event_id=excluded.source_event_id,state='pending',next_attempt_at=excluded.next_attempt_at,updated_at=excluded.updated_at WHERE agent_retries.state<>'paused' AND agent_retries.source_event_id<>excluded.source_event_id`, formatTime(now.Add(AutoRetryInterval)), formatTime(now))
 	return err
@@ -75,16 +92,19 @@ func (s *Service) RecoverAutoRetries(ctx context.Context) error {
 // expected source event are checked atomically, protecting against concurrent
 // manual sends, pause requests and duplicate workers.
 func (s *Service) RunDueAutoRetry(ctx context.Context, now time.Time) (bool, error) {
+	if _, err := s.store.DB.ExecContext(ctx, `UPDATE agent_retries SET state='paused',updated_at=? WHERE state='pending' AND attempts>=?`, formatTime(now), MaxAutoRetryAttempts); err != nil {
+		return false, err
+	}
 	var sessionID, source string
 	err := s.store.DB.QueryRowContext(ctx, `SELECT r.session_id,r.source_event_id FROM agent_retries r JOIN agent_sessions s ON s.id=r.session_id
- WHERE r.state='pending' AND r.next_attempt_at<=? AND s.state='active' AND s.active_turn_id='' ORDER BY r.next_attempt_at LIMIT 1`, formatTime(now)).Scan(&sessionID, &source)
+ WHERE r.state='pending' AND r.attempts<? AND r.next_attempt_at<=? AND s.state='active' AND s.active_turn_id='' AND COALESCE(json_extract(s.contract_json,'$.disable_auto_retry'),0)=0 ORDER BY r.next_attempt_at LIMIT 1`, MaxAutoRetryAttempts, formatTime(now)).Scan(&sessionID, &source)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	result, err := s.store.DB.ExecContext(ctx, `UPDATE agent_retries SET state='running',attempts=attempts+1,updated_at=? WHERE session_id=? AND source_event_id=? AND state='pending' AND next_attempt_at<=?`, formatTime(now), sessionID, source, formatTime(now))
+	result, err := s.store.DB.ExecContext(ctx, `UPDATE agent_retries SET state='running',attempts=attempts+1,updated_at=? WHERE session_id=? AND source_event_id=? AND state='pending' AND attempts<? AND next_attempt_at<=?`, formatTime(now), sessionID, source, MaxAutoRetryAttempts, formatTime(now))
 	if err != nil {
 		return false, err
 	}
@@ -133,7 +153,7 @@ func (s *Service) RunDueAutoRetry(ctx context.Context, now time.Time) (bool, err
 	}
 	// Validation can fail before a turn commits (e.g. an unavailable credential).
 	// Leave the source scheduled; a committed outcome has already replaced it.
-	_, err = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_retries SET state='pending',next_attempt_at=?,updated_at=? WHERE session_id=? AND source_event_id=? AND state='running'`, formatTime(time.Now().UTC().Add(AutoRetryInterval)), formatTime(time.Now().UTC()), sessionID, source)
+	_, err = s.store.DB.ExecContext(context.WithoutCancel(ctx), `UPDATE agent_retries SET state=CASE WHEN attempts>=? THEN 'paused' ELSE 'pending' END,next_attempt_at=?,updated_at=? WHERE session_id=? AND source_event_id=? AND state='running'`, MaxAutoRetryAttempts, formatTime(time.Now().UTC().Add(AutoRetryInterval)), formatTime(time.Now().UTC()), sessionID, source)
 	if err != nil {
 		return true, err
 	}

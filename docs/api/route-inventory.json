@@ -1,0 +1,1391 @@
+{
+  "format": "hermetrix-route-inventory/v1",
+  "source": "internal/web/server.go",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "handler": "func(w http.ResponseWriter, r *http.Request"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootstrap",
+      "handler": "s.bootstrap"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills",
+      "handler": "s.listSkills"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{id}",
+      "handler": "s.getSkill"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/skills/{id}",
+      "handler": "s.updateSkillControls"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/custom",
+      "handler": "s.createCustomSkill"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/import",
+      "handler": "s.importSkill"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{id}/improvements",
+      "handler": "s.proposeImprovement"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{id}/fork",
+      "handler": "s.forkSkill"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{id}/archive",
+      "handler": "s.archiveSkill"
+    },
+    {
+      "method": "GET",
+      "path": "/api/candidates",
+      "handler": "s.listCandidates"
+    },
+    {
+      "method": "GET",
+      "path": "/api/candidates/{id}",
+      "handler": "s.getCandidate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/candidates",
+      "handler": "s.createCandidate"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/candidates/{id}",
+      "handler": "s.updateCandidate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/candidates/{id}/replays",
+      "handler": "s.listCandidateReplays"
+    },
+    {
+      "method": "POST",
+      "path": "/api/candidates/{id}/replays",
+      "handler": "s.runCandidateReplay"
+    },
+    {
+      "method": "GET",
+      "path": "/api/candidates/{id}/behavioral-eval",
+      "handler": "s.getCandidateBehavioralEval"
+    },
+    {
+      "method": "POST",
+      "path": "/api/candidates/{id}/behavioral-eval",
+      "handler": "s.recordCandidateBehavioralEval"
+    },
+    {
+      "method": "POST",
+      "path": "/api/candidates/{id}/capability-review",
+      "handler": "s.reviewCandidateCapabilities"
+    },
+    {
+      "method": "POST",
+      "path": "/api/candidates/{id}/promote",
+      "handler": "s.promoteCandidate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/candidates/{id}/reject",
+      "handler": "s.rejectCandidate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/archives",
+      "handler": "s.listArchives"
+    },
+    {
+      "method": "POST",
+      "path": "/api/archives/{id}/restore",
+      "handler": "s.restoreArchive"
+    },
+    {
+      "method": "GET",
+      "path": "/api/relations",
+      "handler": "s.listRelations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/analysis/relations",
+      "handler": "s.analyzeRelations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-authority",
+      "handler": "s.getSkillAuthority"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/skill-authority",
+      "handler": "s.saveSkillAuthority"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-authority/run",
+      "handler": "s.runSkillAuthority"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-authority/actions",
+      "handler": "s.listSkillAuthorityActions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skill-authority/actions/{id}/rollback",
+      "handler": "s.rollbackSkillAuthorityAction"
+    },
+    {
+      "method": "GET",
+      "path": "/api/curator/runs",
+      "handler": "s.listCuratorRuns"
+    },
+    {
+      "method": "POST",
+      "path": "/api/curator/run",
+      "handler": "s.runCurator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/activations",
+      "handler": "s.recordActivation"
+    },
+    {
+      "method": "GET",
+      "path": "/api/reviews",
+      "handler": "s.listReviews"
+    },
+    {
+      "method": "POST",
+      "path": "/api/reviews",
+      "handler": "s.enqueueReview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/reviews/run-next",
+      "handler": "s.runNextReview"
+    },
+    {
+      "method": "GET",
+      "path": "/api/context/profiles",
+      "handler": "s.contextProfiles"
+    },
+    {
+      "method": "POST",
+      "path": "/api/context/compile",
+      "handler": "s.compileContext"
+    },
+    {
+      "method": "POST",
+      "path": "/api/context/observe",
+      "handler": "s.observeTokens"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fidelity/cases",
+      "handler": "s.listFidelityCases"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fidelity/cases",
+      "handler": "s.saveFidelityCase"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fidelity/runs",
+      "handler": "s.listFidelityRuns"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fidelity/cases/{id}/run",
+      "handler": "s.runFidelityCase"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-model/probe",
+      "handler": "s.probeLocalModel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/qualifications",
+      "handler": "s.listQualifications"
+    },
+    {
+      "method": "POST",
+      "path": "/api/qualifications",
+      "handler": "s.runQualification"
+    },
+    {
+      "method": "GET",
+      "path": "/api/providers",
+      "handler": "s.listProviders"
+    },
+    {
+      "method": "GET",
+      "path": "/api/inference-presets",
+      "handler": "s.listInferencePresets"
+    },
+    {
+      "method": "POST",
+      "path": "/api/inference-presets",
+      "handler": "s.createInferencePreset"
+    },
+    {
+      "method": "POST",
+      "path": "/api/providers",
+      "handler": "s.saveProvider"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/providers/{id}/credential",
+      "handler": "s.setProviderCredential"
+    },
+    {
+      "method": "POST",
+      "path": "/api/providers/{id}/test",
+      "handler": "s.testProvider"
+    },
+    {
+      "method": "POST",
+      "path": "/api/providers/{id}/confirm-idle",
+      "handler": "s.confirmProviderIdle"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/reasoning",
+      "handler": "s.setSessionReasoning"
+    },
+    {
+      "method": "POST",
+      "path": "/api/providers/{id}/runtime-qualification",
+      "handler": "s.runProviderQualification"
+    },
+    {
+      "method": "POST",
+      "path": "/api/providers/{id}/measure-overhead",
+      "handler": "s.measureProviderOverhead"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/servers",
+      "handler": "s.listMCPServers"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/servers",
+      "handler": "s.saveMCPServer"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/mcp/servers/{id}/credential",
+      "handler": "s.setMCPCredential"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/mcp/servers/{id}/access-credential",
+      "handler": "s.setMCPAccessCredential"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/servers/{id}/discover",
+      "handler": "s.discoverMCPServer"
+    },
+    {
+      "method": "POST",
+      "path": "/api/comfy/connect",
+      "handler": "s.connectLocalComfy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/comfy/readiness",
+      "handler": "s.localComfyReadiness"
+    },
+    {
+      "method": "POST",
+      "path": "/api/comfy/preflight",
+      "handler": "s.preflightLocalComfyWorkflow"
+    },
+    {
+      "method": "GET",
+      "path": "/api/comfy/jobs",
+      "handler": "s.listComfyJobs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/comfy/jobs",
+      "handler": "s.startComfyJob"
+    },
+    {
+      "method": "POST",
+      "path": "/api/comfy/jobs/{id}/refresh",
+      "handler": "s.refreshComfyJob"
+    },
+    {
+      "method": "POST",
+      "path": "/api/comfy/jobs/{id}/cancel",
+      "handler": "s.cancelComfyJob"
+    },
+    {
+      "method": "GET",
+      "path": "/api/social/connections",
+      "handler": "s.listSocialConnections"
+    },
+    {
+      "method": "POST",
+      "path": "/api/social/connections",
+      "handler": "s.connectSocialAccount"
+    },
+    {
+      "method": "POST",
+      "path": "/api/social/connections/{id}/check",
+      "handler": "s.checkSocialConnection"
+    },
+    {
+      "method": "GET",
+      "path": "/api/social/connections/{id}/creator-info",
+      "handler": "s.getTikTokCreatorInfo"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/social/connections/{id}",
+      "handler": "s.disconnectSocialAccount"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/social/posts",
+      "handler": "s.listSocialPosts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/social/posts",
+      "handler": "s.createSocialPost"
+    },
+    {
+      "method": "POST",
+      "path": "/api/social/posts/{id}/approve",
+      "handler": "s.approveSocialPost"
+    },
+    {
+      "method": "POST",
+      "path": "/api/social/posts/{id}/dispatch",
+      "handler": "s.dispatchSocialPost"
+    },
+    {
+      "method": "POST",
+      "path": "/api/social/posts/{id}/refresh",
+      "handler": "s.refreshSocialPost"
+    },
+    {
+      "method": "POST",
+      "path": "/api/social/posts/{id}/retry",
+      "handler": "s.retryFailedSocialPost"
+    },
+    {
+      "method": "GET",
+      "path": "/api/capabilities",
+      "handler": "s.listCapabilities"
+    },
+    {
+      "method": "GET",
+      "path": "/api/capabilities/{id}",
+      "handler": "s.getCapability"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions",
+      "handler": "s.listSessions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions",
+      "handler": "s.createSession"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{id}",
+      "handler": "s.getSession"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{id}/events",
+      "handler": "s.listSessionEvents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/{id}/notebook",
+      "handler": "s.getSessionNotebook"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/auto-retry/pause",
+      "handler": "s.pauseSessionAutoRetry"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/approval-mode",
+      "handler": "s.setSessionApprovalMode"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/turns",
+      "handler": "s.runTurn"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/stop",
+      "handler": "s.stopSessionTurn"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/stop/reconcile",
+      "handler": "s.reconcileSessionStop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/{id}/queue",
+      "handler": "s.queueSessionMessage"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/sessions/{id}/queue/{message}",
+      "handler": "s.cancelSessionMessage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/voice/capabilities",
+      "handler": "s.voiceCapabilities"
+    },
+    {
+      "method": "GET",
+      "path": "/api/voice/devices",
+      "handler": "s.voiceDevices"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/native/stream",
+      "handler": "s.streamNativeVoice"
+    },
+    {
+      "method": "GET",
+      "path": "/api/voice/live",
+      "handler": "s.streamBrowserVoice"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/transcribe",
+      "handler": "s.transcribeVoice"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/speak",
+      "handler": "s.speakVoice"
+    },
+    {
+      "method": "POST",
+      "path": "/api/approvals/{id}/decisions",
+      "handler": "s.decideApproval"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/sessions/{id}",
+      "handler": "s.deleteSession"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks",
+      "handler": "s.listDurableTasks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks",
+      "handler": "s.createDurableTask"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}",
+      "handler": "s.getDurableTask"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/research",
+      "handler": "s.listTaskResearch"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/research/search",
+      "handler": "s.searchTaskResearch"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/research/{candidateID}/selection",
+      "handler": "s.selectTaskResearch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/content",
+      "handler": "s.getTaskContent"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/content/suggestions",
+      "handler": "s.suggestTaskContent"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/tasks/{id}/content/brief",
+      "handler": "s.saveTaskContentBrief"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/content/claims",
+      "handler": "s.createTaskContentClaim"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/content/claims/{claimID}/review",
+      "handler": "s.reviewTaskContentClaim"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/tasks/{id}/content/claims/{claimID}",
+      "handler": "s.removeTaskContentClaim"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/content/drafts",
+      "handler": "s.saveTaskContentDraft"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/content/drafts/{draftID}/approval",
+      "handler": "s.approveTaskContentDraft"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/next-packet",
+      "handler": "s.getTaskNextPacket"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/next-action",
+      "handler": "s.getTaskNextAction"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/completion",
+      "handler": "s.getTaskCompletion"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/user-acceptance",
+      "handler": "s.acceptTaskResult"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/plan-review",
+      "handler": "s.reviewTaskPlan"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/plans/{revision}",
+      "handler": "s.getTaskPlanRevision"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/decision-shadow",
+      "handler": "s.shadowTaskDecision"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/decision-shadows",
+      "handler": "s.listTaskDecisionShadows"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/decision-shadow-metrics",
+      "handler": "s.getTaskDecisionShadowMetrics"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/decision-read-only",
+      "handler": "s.decideTaskReadOnly"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/progress",
+      "handler": "s.getTaskProgress"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/knowledge",
+      "handler": "s.getTaskKnowledge"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/project-brain-eligibility",
+      "handler": "s.getProjectBrainEligibility"
+    },
+    {
+      "method": "POST",
+      "path": "/api/project-brain/candidates/preview",
+      "handler": "s.previewProjectBrainCandidate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/project-brain/candidates",
+      "handler": "s.stageProjectBrainCandidate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/project-brain/candidates/{id}",
+      "handler": "s.getProjectBrainCandidate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/decision/fixtures",
+      "handler": "s.listDecisionFixtures"
+    },
+    {
+      "method": "GET",
+      "path": "/api/decision/benchmarks",
+      "handler": "s.listDecisionBenchmarks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/decision/benchmarks",
+      "handler": "s.runDecisionBenchmark"
+    },
+    {
+      "method": "GET",
+      "path": "/api/decision/admission",
+      "handler": "s.getDecisionAdmission"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/decision/admission",
+      "handler": "s.setDecisionAdmission"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/execution",
+      "handler": "s.getTaskExecution"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/auto-plan",
+      "handler": "s.autoPlanTask"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/goals",
+      "handler": "s.startTaskGoal"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/goals",
+      "handler": "s.listTaskGoals"
+    },
+    {
+      "method": "GET",
+      "path": "/api/goals/{id}",
+      "handler": "s.getGoal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/goals/{id}/stop",
+      "handler": "s.stopGoal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/goals/{id}/resume",
+      "handler": "s.resumeGoal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/planning-decision",
+      "handler": "s.classifyTaskPlanning"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/runs",
+      "handler": "s.beginTaskRun"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/recover-expired-run",
+      "handler": "s.recoverExpiredTaskRun"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/resume-observed-review",
+      "handler": "s.resumeObservedTaskReview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/resume-approved-review",
+      "handler": "s.resumeApprovedTaskReview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/retry-failed-proposal",
+      "handler": "s.retryFailedTaskProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/retry-rejected-proposal",
+      "handler": "s.retryRejectedTaskProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-runs/{id}/lease",
+      "handler": "s.renewTaskRunLease"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-runs/{id}/pause",
+      "handler": "s.pauseIdleTaskRun"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-runs/{id}/attempts",
+      "handler": "s.beginTaskAttempt"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-attempts/{id}/effects",
+      "handler": "s.planTaskEffect"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-attempts/{id}/select-files",
+      "handler": "s.selectTaskFiles"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-attempts/{id}/proposals",
+      "handler": "s.createTaskProposal"
+    },
+    {
+      "method": "GET",
+      "path": "/api/task-code-proposals/{id}",
+      "handler": "s.getTaskCodeProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-code-proposals/{id}/decision",
+      "handler": "s.decideTaskCodeProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-code-proposals/{id}/apply",
+      "handler": "s.applyTaskCodeProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-code-proposals/{id}/verify",
+      "handler": "s.verifyTaskCodeProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-code-proposals/{id}/verify-frozen",
+      "handler": "s.verifyFrozenTaskCodeProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-code-proposals/{id}/post-review",
+      "handler": "s.postReviewTaskCodeProposal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-effects/{operation}/transitions",
+      "handler": "s.transitionTaskEffect"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-effects/{operation}/reconcile-workspace-run",
+      "handler": "s.reconcileWorkspaceRunEffect"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-effects/{operation}/reconcile",
+      "handler": "s.reconcileTaskEffect"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-effects/reconcile-uncertain",
+      "handler": "s.reconcileUncertainEffects"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-attempts/{id}/complete",
+      "handler": "s.completeTaskAttempt"
+    },
+    {
+      "method": "POST",
+      "path": "/api/task-attempts/{id}/failures",
+      "handler": "s.recordTaskAttemptFailure"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/requirements",
+      "handler": "s.reviseTaskRequirements"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/plans",
+      "handler": "s.createTaskPlan"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/steps/{step}/transitions",
+      "handler": "s.transitionTaskStep"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/validations",
+      "handler": "s.recordTaskValidation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/checkpoints",
+      "handler": "s.createTaskCheckpoint"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tasks/{id}/complete",
+      "handler": "s.completeDurableTask"
+    },
+    {
+      "method": "GET",
+      "path": "/api/filesystem/directories",
+      "handler": "s.browseDirectories"
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/metrics",
+      "handler": "s.systemMetrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/elicitations",
+      "handler": "s.listElicitations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/elicitations/{id}/answer",
+      "handler": "s.answerElicitation"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects",
+      "handler": "s.listProjects"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects",
+      "handler": "s.saveProject"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{id}/archive",
+      "handler": "s.archiveProject"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{id}/restore",
+      "handler": "s.restoreProject"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/{id}/pin",
+      "handler": "s.pinProject"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{id}/open",
+      "handler": "s.openProject"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{id}/files",
+      "handler": "s.browseProject"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/{id}/file",
+      "handler": "s.readProjectFile"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/projects/{id}/file",
+      "handler": "s.writeProjectFile"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{id}/commands",
+      "handler": "s.startProjectCommand"
+    },
+    {
+      "method": "GET",
+      "path": "/api/terminals",
+      "handler": "s.listTerminals"
+    },
+    {
+      "method": "POST",
+      "path": "/api/terminals",
+      "handler": "s.startTerminal"
+    },
+    {
+      "method": "GET",
+      "path": "/api/terminals/{id}/output",
+      "handler": "s.terminalOutput"
+    },
+    {
+      "method": "POST",
+      "path": "/api/terminals/{id}/input",
+      "handler": "s.writeTerminal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/terminals/{id}/resize",
+      "handler": "s.resizeTerminal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/terminals/{id}/close",
+      "handler": "s.closeTerminal"
+    },
+    {
+      "method": "GET",
+      "path": "/api/browser/tabs",
+      "handler": "s.listBrowserTabs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser/tabs",
+      "handler": "s.openBrowserTab"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser/tabs/{id}/actions",
+      "handler": "s.browserAction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser/tabs/{id}/actions/prepare",
+      "handler": "s.prepareBrowserAction"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/browser/actions",
+      "handler": "s.listTaskBrowserActions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/activity",
+      "handler": "s.listTaskActivity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/browser/actions/{id}",
+      "handler": "s.getBrowserActionReceipt"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser/actions/{id}/cancel",
+      "handler": "s.cancelBrowserAction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser/actions/{id}/reconcile",
+      "handler": "s.reconcileBrowserAction"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teams",
+      "handler": "s.listAgentTeams"
+    },
+    {
+      "method": "GET",
+      "path": "/api/automations",
+      "handler": "s.listAutomations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/automations",
+      "handler": "s.saveAutomation"
+    },
+    {
+      "method": "GET",
+      "path": "/api/automations/{id}/runs",
+      "handler": "s.listAutomationRuns"
+    },
+    {
+      "method": "POST",
+      "path": "/api/automations/{id}/trigger",
+      "handler": "s.triggerAutomation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/teams",
+      "handler": "s.saveAgentTeam"
+    },
+    {
+      "method": "GET",
+      "path": "/api/team-runs",
+      "handler": "s.listTeamRuns"
+    },
+    {
+      "method": "POST",
+      "path": "/api/team-runs",
+      "handler": "s.startTeamRun"
+    },
+    {
+      "method": "GET",
+      "path": "/api/team-runs/{id}",
+      "handler": "s.getTeamRun"
+    },
+    {
+      "method": "POST",
+      "path": "/api/team-runs/{id}/cancel",
+      "handler": "s.cancelTeamRun"
+    },
+    {
+      "method": "POST",
+      "path": "/api/team-runs/{id}/tasks/{task}/approval",
+      "handler": "s.decideTeamTaskApproval"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jobs",
+      "handler": "s.listJobs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/jobs/{id}/cancel",
+      "handler": "s.cancelJob"
+    },
+    {
+      "method": "GET",
+      "path": "/api/artifacts",
+      "handler": "s.listArtifacts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/artifacts",
+      "handler": "s.createArtifact"
+    },
+    {
+      "method": "POST",
+      "path": "/api/artifacts/upload",
+      "handler": "s.uploadImageArtifact"
+    },
+    {
+      "method": "POST",
+      "path": "/api/media/uploads",
+      "handler": "s.uploadMedia"
+    },
+    {
+      "method": "POST",
+      "path": "/api/media/videos",
+      "handler": "s.uploadVideo"
+    },
+    {
+      "method": "GET",
+      "path": "/api/desktop/windows",
+      "handler": "s.listDesktopWindows"
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/observe",
+      "handler": "s.observeDesktopWindow"
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/actions",
+      "handler": "s.prepareDesktopAction"
+    },
+    {
+      "method": "GET",
+      "path": "/api/desktop/actions/{id}",
+      "handler": "s.getDesktopAction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/actions/{id}/confirm",
+      "handler": "s.confirmDesktopAction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/actions/{id}/cancel",
+      "handler": "s.cancelDesktopAction"
+    },
+    {
+      "method": "POST",
+      "path": "/api/desktop/actions/{id}/reconcile",
+      "handler": "s.reconcileDesktopAction"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks/{id}/desktop/actions",
+      "handler": "s.listTaskDesktopActions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/media/jobs",
+      "handler": "s.startMediaJob"
+    },
+    {
+      "method": "GET",
+      "path": "/api/media/jobs",
+      "handler": "s.listMediaJobs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/media/jobs/{id}",
+      "handler": "s.getMediaJob"
+    },
+    {
+      "method": "POST",
+      "path": "/api/media/jobs/{id}/cancel",
+      "handler": "s.cancelMediaJob"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{id}/share/previews",
+      "handler": "s.createSharePreview"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/{id}/share/exports",
+      "handler": "s.createShareExport"
+    },
+    {
+      "method": "GET",
+      "path": "/api/share/exports/{id}",
+      "handler": "s.getShareExport"
+    },
+    {
+      "method": "GET",
+      "path": "/api/share/exports/{id}/content",
+      "handler": "s.getShareExportContent"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/share/import-previews",
+      "handler": "s.previewShareImport"
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/share/imports",
+      "handler": "s.applyShareImport"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace-migrations/exports",
+      "handler": "s.exportWorkspaceMigration"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace-migrations/{id}",
+      "handler": "s.getWorkspaceMigration"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace-migrations/{id}/content",
+      "handler": "s.getWorkspaceMigrationContent"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace-migrations/import-previews",
+      "handler": "s.previewWorkspaceMigration"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace-migrations/imports",
+      "handler": "s.applyWorkspaceMigration"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recovery/full",
+      "handler": "s.createFullRecovery"
+    },
+    {
+      "method": "GET",
+      "path": "/api/recovery/{id}/content",
+      "handler": "s.getFullRecoveryContent"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recovery/verify",
+      "handler": "s.verifyFullRecovery"
+    },
+    {
+      "method": "POST",
+      "path": "/api/deliverables",
+      "handler": "s.createDeliverable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/artifacts/{id}/content",
+      "handler": "s.getArtifactContent"
+    },
+    {
+      "method": "GET",
+      "path": "/api/artifacts/{id}/stream",
+      "handler": "s.streamVideoArtifact"
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "handler": "s.listSettings"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings",
+      "handler": "s.saveSetting"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memories",
+      "handler": "s.listMemories"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories",
+      "handler": "s.saveMemory"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memories/{id}/archive",
+      "handler": "s.archiveMemory"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sharing/visibility",
+      "handler": "s.updateVisibility"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/artifacts/{id}/sharing",
+      "handler": "s.updateArtifactVisibility"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/tasks/{id}/sharing",
+      "handler": "s.updateTaskVisibility"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memories/{id}/sharing",
+      "handler": "s.updateMemoryVisibility"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/skills/{id}/sharing",
+      "handler": "s.updateSkillVisibility"
+    },
+    {
+      "method": "GET",
+      "path": "/api/usage",
+      "handler": "s.usageSummary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skill-retrieval",
+      "handler": "s.skillRetrievalMetrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/token-accuracy",
+      "handler": "s.tokenAccuracyMetrics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/backups",
+      "handler": "s.listBackups"
+    },
+    {
+      "method": "POST",
+      "path": "/api/backups",
+      "handler": "s.exportBackup"
+    },
+    {
+      "method": "GET",
+      "path": "/api/backups/{id}/download",
+      "handler": "s.downloadBackup"
+    },
+    {
+      "method": "POST",
+      "path": "/api/imports/preview",
+      "handler": "s.previewImport"
+    },
+    {
+      "method": "POST",
+      "path": "/api/imports/{id}/apply",
+      "handler": "s.applyImport"
+    },
+    {
+      "method": "GET",
+      "path": "/api/curator/findings",
+      "handler": "s.listCuratorFindings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/maintenance/schedules",
+      "handler": "s.listSchedules"
+    },
+    {
+      "method": "POST",
+      "path": "/api/maintenance/schedules",
+      "handler": "s.saveSchedule"
+    },
+    {
+      "method": "GET",
+      "path": "/api/maintenance/system-state",
+      "handler": "s.systemState"
+    },
+    {
+      "method": "POST",
+      "path": "/api/maintenance/run-due",
+      "handler": "s.runDueMaintenance"
+    },
+    {
+      "method": "GET",
+      "path": "/api/maintenance/gc",
+      "handler": "s.listGCRuns"
+    },
+    {
+      "method": "POST",
+      "path": "/api/maintenance/gc/dry-run",
+      "handler": "s.dryRunGC"
+    },
+    {
+      "method": "POST",
+      "path": "/api/maintenance/gc/{id}/apply",
+      "handler": "s.applyGC"
+    },
+    {
+      "method": "POST",
+      "path": "/api/maintenance/gc/{id}/restore",
+      "handler": "s.restoreGC"
+    }
+  ]
+}

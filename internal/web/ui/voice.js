@@ -12,7 +12,7 @@
     outputEpoch: 0, outputAbort: null, sound: null, soundURL: null, queue: [],
     speaking: false, spokenBuffer: "", sentUtterance: -1, sentTurns: new Set(), pendingFinals: [], voiceSessionID: "", playbackResolve: null, capabilities: null,
     nativeAbort: null, nativeActive: false, nativeRequested: false, nativeDevices: [], micRequestEpoch: 0, nativeFrames: 0,
-    nativeIgnoreUtterance: false, nativeSuppressUntil: 0, draftFinal: null, focusReturn: null
+    nativeIgnoreUtterance: false, nativeSuppressUntil: 0, draftFinal: null, focusReturn: null, captureEpoch: 0, captureFinal: false, partialText: null, beforePartial: ""
   };
 
   function status(message, tone = "") {
@@ -104,6 +104,7 @@
     voice.playbackResolve?.();
     voice.playbackResolve = null;
     if (voice.sound) {
+      if (voice.nativeActive) voice.nativeSuppressUntil = Date.now() + 500;
       voice.sound.pause();
       voice.sound.currentTime = 0;
       voice.sound = null;
@@ -116,6 +117,12 @@
   }
 
   function stopMic(finalize = false) {
+    if (!finalize) {
+      voice.utterance++;
+      voice.asrAbort?.abort();
+    }
+    voice.captureEpoch = 0;
+    voice.captureFinal = true;
     if (voice.liveNode) { voice.liveNode.port.onmessage = null; voice.liveNode.disconnect(); voice.liveNode = null; }
     voice.liveSink?.disconnect();
     voice.liveSink = null;
@@ -306,6 +313,7 @@
         socket.send(packet);
       };
       socket.onmessage = event => {
+        if (voice.liveSocket !== socket || panel.hidden || !voice.stream) return;
         try { onNativeEvent(JSON.parse(event.data)); }
         catch { status("รับผลถอดเสียงสดไม่ได้", "error"); }
       };
@@ -385,7 +393,19 @@
   }
 
   function onNativeEvent(item) {
+    if (panel.hidden) return;
+    if (item.type === "speech_start") {
+      if (!Number.isInteger(item.epoch) || item.epoch <= voice.captureEpoch) return;
+      voice.captureEpoch = item.epoch;
+      voice.captureFinal = false;
+    } else if (["partial", "final", "no_speech", "transcribing", "transcribe_error"].includes(item.type)) {
+      if (!voice.captureEpoch || item.epoch !== voice.captureEpoch || voice.captureFinal) return;
+      if (["final", "no_speech", "transcribe_error"].includes(item.type)) voice.captureFinal = true;
+    }
     if (item.type === "capture_started") {
+      voice.partialText = null;
+      voice.captureEpoch = 0;
+      voice.captureFinal = false;
       if (item.voice_session_id) voice.voiceSessionID = item.voice_session_id;
       if (voice.nativeDevices.includes(item.device)) localStorage.setItem("hermetrix.voice.device", item.device);
       status("ไมค์ Windows เปิดแล้ว กำลังรอสัญญาณเสียง…", "listening");
@@ -394,6 +414,8 @@
       if (++voice.nativeFrames === 1) status("ไมค์ Windows รับสัญญาณแล้ว พูดได้เลย", "listening");
     }
     else if (item.type === "speech_start") {
+      voice.beforePartial = el("#voiceTranscript").value;
+      voice.partialText = null;
       // Windows capture has no browser echo cancellation. Do not turn the
       // speaker's own reply into a new user message while it is playing.
       if (voice.nativeActive && (voice.sound || Date.now() < voice.nativeSuppressUntil)) {
@@ -410,6 +432,7 @@
     } else if (item.type === "partial") {
       if (!voice.nativeIgnoreUtterance && !panel.hidden && item.text) {
         el("#voiceTranscript").value = item.text;
+        voice.partialText = item.text;
         status("คำพูดระหว่างพูด · อาจเปลี่ยนเมื่อจบประโยค", "listening");
         updateControls();
       }
@@ -419,6 +442,9 @@
       else acceptTranscript((item.text || "").trim(), item.voice_turn_id || "");
     }
     else if (item.type === "no_speech") {
+      if (voice.partialText !== null && el("#voiceTranscript").value === voice.partialText) el("#voiceTranscript").value = voice.beforePartial || "";
+      voice.partialText = null;
+      updateControls();
       if (voice.nativeIgnoreUtterance) voice.nativeIgnoreUtterance = false;
       else status("ไม่พบคำพูด ลองพูดอีกครั้ง", "error");
     }
@@ -461,17 +487,19 @@
         buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-        for (const line of lines) if (line.trim()) onNativeEvent(JSON.parse(line));
+        for (const line of lines) if (line.trim() && voice.nativeAbort === controller && !controller.signal.aborted && voice.nativeActive) onNativeEvent(JSON.parse(line));
         if (done) break;
       }
       if (!controller.signal.aborted) status("ไมค์ Windows หยุดส่งเสียงแล้ว", "error");
     } catch (error) {
-      if (error.name !== "AbortError" && !panel.hidden) status(error.message, "error");
+      if (error.name !== "AbortError" && !panel.hidden && voice.nativeAbort === controller) status(error.message, "error");
     } finally {
-      if (voice.nativeAbort === controller) voice.nativeAbort = null;
-      voice.nativeActive = false;
-      setVoiceLevel(0);
-      updateControls();
+      if (voice.nativeAbort === controller) {
+        voice.nativeAbort = null;
+        voice.nativeActive = false;
+        setVoiceLevel(0);
+        updateControls();
+      }
     }
   }
 

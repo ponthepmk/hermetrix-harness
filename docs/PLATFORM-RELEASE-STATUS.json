@@ -1,0 +1,46 @@
+{
+  "format": "hermetrix-platform-release-status/v1",
+  "date": "2026-11-02",
+  "scope": "development candidate; Godot deferred",
+  "schema_target": 83,
+  "production_ready": false,
+  "cross_platform": {
+    "mac_target": "darwin/arm64; M3/M4",
+    "mac_cross_compile": "PASS; native execution and acoustic acceptance unavailable",
+    "bonsai": "Independent PC provider; no Mac installation dependency",
+    "mac_to_pc_acceptance": "NOT RUN; Mac access and authenticated PC endpoint missing",
+    "latest_windows_candidate": ".hermetrix-g1-staging/release-eb70a836e87d41dea683c3b468ce2e2e/hermetrix-development-candidate.zip",
+    "latest_windows_verification": "11 package checksums, executable provenance and non-mutating preflight PASS; targeted voice/provider regressions PASS"
+  },
+  "gates": {
+    "G0": "Audit completed for available scope; specification files 00-22 missing",
+    "G1": "PASS synthetic migration, restore, provenance and offline startup",
+    "G2": "PASS development regressions/browser workflows; acoustic real-device acceptance pending",
+    "G3": "PASS contracts and isolated Linux Brain tests; live GPU/model qualification pending",
+    "G4": "PASS durable goal/effect/rollback fixtures and actual command checks; representative live-model task pending",
+    "G5": "PASS task-intake automation and team/DAG control tests; unattended execution not enabled",
+    "G6": "PASS development security/restore checks; Windows untrusted command isolation remains unavailable and new launcher fails closed",
+    "G7": "Development package prepared; production release acceptance not granted"
+  },
+  "verification": {
+    "go_tests_passed": 1654,
+    "go_tests_skipped": 26,
+    "go_failures": 0,
+    "node_tests_passed": 183,
+    "brain_linux_tests_passed": 186,
+    "automation_race_tests": "PASS",
+    "migration": "synthetic 50 -> 83 PASS",
+    "browser": "automation/goal/voice-controller at 390,768,1440; PASS",
+    "go_vet": "PASS",
+    "supplemental_regressions": "Concurrent schedule creation and incomplete-team evidence/usage: PASS with race detector; Automation/Team regression suites PASS"
+  },
+  "blockers": [
+    "No Mac M3/M4 access or native acceptance receipts; no Mac SSH host configured. No listeners found at PC model ports 8088/8178/11434/1234 on recheck",
+    "Automatic approval review rejected starting the local LLM runtime: blocked by policy; live model endpoint requested",
+    "Physical microphone/speaker echo and natural Thai/English interruption not qualified",
+    "Specification files 00-22 not supplied; exhaustive Full Scope sign-off unavailable",
+    "Production data backup/restore/upgrade and deployment require separate approval"
+  ],
+  "production_changes_performed": false,
+  "commit_or_push_performed_in_this_stage": false
+}

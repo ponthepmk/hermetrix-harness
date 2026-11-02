@@ -126,7 +126,7 @@ workspace-search|func searchFiles|internal/tools/registry.go
 reasoning-aware-budget|func answerBudget|internal/agent/service.go
 analyzer-retrieval|func similarityScore|internal/skills/analyzer.go
 reasoning-calibration|func \(s \*Service\) ObserveReasoning|internal/providers/service.go
-empty-answer-fails|returned no answer|internal/agent/service.go
+empty-answer-evidence-fallback|model returned no user-facing answer|internal/agent/service.go
 read-window-keeps-whole-hash|metadata\["total_lines"\]|internal/tools/registry.go
 reviewer-fails-closed|func parseReviewerDecision|internal/learning/model_reviewer.go
 adr7-exit-threshold|NoSkillRequestedRate > 0.5|internal/agent/service.go
@@ -143,7 +143,7 @@ calibration-persisted|token_multiplier = \(\(token_multiplier \* token_sample\)|
 token-accuracy-windowed|TokenAccuracyWindow|internal/agent/models.go
 token-observation-per-step|func \(s \*Service\) recordTokenObservation|internal/agent/service.go
 unsendable-args-not-budgeted|content = replayableArguments\(content\)|internal/agent/service.go
-thai-retrieval-shared-tokenizer|textmatch.Terms|internal/agent/service.go
+thai-retrieval-shared-tokenizer|textmatch.Terms|internal/skills/selection.go
 health-reports-real-schema|func \(s \*Store\) SchemaVersion|internal/store/store.go
 import-reports-what-it-dropped|func tablesNotRestored|internal/product/backup.go
 replay-implicit-only|replay_implicit_only|internal/skills/replay.go
